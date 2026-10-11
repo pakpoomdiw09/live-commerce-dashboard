@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-// old entry point (bot selector), replaced by the Quick Switcher in the sidebar
+// old entry point (bot selector), now the Page picker
 export default function LegacyDashboard() {
-  redirect('/overview')
+  redirect('/select-page')
 }
