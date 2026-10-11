@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans Thai", "Noto Sans Thai", "Sarabun", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* slim scrollbar for panels that scroll on their own (inbox columns) */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.5) transparent;
+}
+
+@media print {
+  /* receipts: print only the document */
+  .no-print {
+    display: none !important;
+  }
+}

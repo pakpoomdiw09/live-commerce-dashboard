@@ -1,0 +1,65 @@
+import 'server-only'
+import { cache } from 'react'
+import type { NextRequest } from 'next/server'
+import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
+import type { TenantRole } from '@/lib/types'
+
+/**
+ * Who is calling: a server-to-server caller holding INTERNAL_API_SECRET (full access),
+ * or a signed-in dashboard user. API routes use the service role, so every route must
+ * check tenant access with the helpers below; RLS only protects the browser/session client.
+ */
+export type Actor = { kind: 'internal' } | { kind: 'user'; id: string; isPlatformAdmin: boolean }
+
+/** The signed-in user, once per request. */
+const currentUser = cache(async (): Promise<{ id: string; isPlatformAdmin: boolean } | null> => {
+  const { data } = await (await supabaseServer()).auth.getUser()
+  if (!data.user) return null
+  const { data: admin, error } = await supabaseAdmin().from('platform_admins').select('user_id').eq('user_id', data.user.id).maybeSingle()
+  if (error) console.error('[auth] platform admin lookup failed (did you run supabase/security.sql?)', error.message)
+  return { id: data.user.id, isPlatformAdmin: !!admin }
+})
+
+export async function getActor(req?: NextRequest): Promise<Actor | null> {
+  const secret = process.env.INTERNAL_API_SECRET?.trim()
+  if (req && secret && req.headers.get('authorization') === `Bearer ${secret}`) return { kind: 'internal' }
+  const user = await currentUser()
+  return user && { kind: 'user', ...user }
+}
+
+export const isPlatformAdmin = (actor: Actor) => actor.kind === 'internal' || actor.isPlatformAdmin
+
+/**
+ * The actor's role in a tenant, or null without access. Rows not linked to any tenant
+ * (tenantId null) belong to the platform: only admins may touch them.
+ */
+export async function tenantRole(actor: Actor, tenantId: string | null): Promise<TenantRole | null> {
+  if (isPlatformAdmin(actor)) return 'admin'
+  if (!tenantId || actor.kind !== 'user') return null
+  const { data, error } = await supabaseAdmin()
+    .from('tenant_members')
+    .select('role')
+    .eq('tenant_id', tenantId)
+    .eq('user_id', actor.id)
+    .maybeSingle()
+  if (error) {
+    console.error('[auth] membership lookup failed', error.message)
+    return null
+  }
+  return (data?.role as TenantRole | undefined) ?? null
+}
+
+const RANK: Record<TenantRole, number> = { staff: 1, owner: 2, admin: 3 }
+
+/** Whether `role` is at least `need` (admin > owner > staff). */
+export const roleAtLeast = (role: TenantRole | null, need: TenantRole) => !!role && RANK[role] >= RANK[need]
+
+/** Shortcut for routes: does the actor have at least `need` in this tenant? */
+export async function canAccessTenant(actor: Actor, tenantId: string | null, need: TenantRole = 'staff') {
+  return roleAtLeast(await tenantRole(actor, tenantId), need)
+}
+
+/** The signed-in staff member's user id, or null. For actions that record who did them. */
+export async function staffUserId(): Promise<string | null> {
+  return (await currentUser())?.id ?? null
+}
