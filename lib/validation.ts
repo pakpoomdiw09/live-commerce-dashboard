@@ -1,4 +1,4 @@
-import { BANK_CODES } from './banks'
+import { BANK_CODES, isSupportedBank, UNSUPPORTED_BANK_MESSAGE } from './banks'
 import { ORDER_STATUSES } from './status'
 import type { OrderStatus, TenantRow } from './types'
 
@@ -37,6 +37,7 @@ export function parseTenantInput(body: unknown, partial: boolean): Result<Tenant
   if (need('bank_code')) {
     const code = str(b.bank_code).toUpperCase()
     if (!BANK_CODES.includes(code)) return fail('เลือกธนาคารจากรายการ')
+    if (!isSupportedBank(code)) return fail(UNSUPPORTED_BANK_MESSAGE)
     out.bank_code = code
   }
   if (need('account_number')) {
@@ -79,13 +80,18 @@ export function parseTenantInput(body: unknown, partial: boolean): Result<Tenant
   return { ok: true, value: out }
 }
 
-export type CustomerInput = { phone?: string | null; address?: string | null; tags?: string[]; notes?: string | null; order_status?: OrderStatus }
+export type CustomerInput = { display_name?: string | null; phone?: string | null; address?: string | null; tags?: string[]; notes?: string | null; order_status?: OrderStatus }
 
 /** CRM fields an admin may edit. Only the keys present are validated and written. */
 export function parseCustomerInput(body: unknown): Result<CustomerInput> {
   if (!body || typeof body !== 'object') return fail('body must be a JSON object')
   const b = body as Record<string, unknown>
   const out: CustomerInput = {}
+  if (has(b, 'display_name')) {
+    const v = str(b.display_name)
+    if (v.length > 120) return fail('ชื่อลูกค้ายาวเกิน 120 ตัวอักษร')
+    out.display_name = v || null
+  }
   if (has(b, 'phone')) {
     const v = str(b.phone).replace(/[\s-]/g, '')
     if (v && !/^\+?\d{9,15}$/.test(v)) return fail('เบอร์โทรไม่ถูกต้อง')

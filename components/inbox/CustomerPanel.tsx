@@ -14,7 +14,7 @@ import { Avatar } from './Avatar'
 const SUGGESTED_TAGS = ['VIP', 'ลูกค้าใหม่', 'ลูกค้าประจำ', 'ซื้อบ่อย', 'ต่อราคา', 'โอนช้า']
 
 const input =
-  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none'
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:outline-none'
 
 export function CustomerPanel({ customer, slips, onSaved }: { customer: CustomerRow; slips: SlipRow[]; onSaved: (c: CustomerRow) => void }) {
   const [editing, setEditing] = useState(false)
@@ -57,7 +57,7 @@ export function CustomerPanel({ customer, slips, onSaved }: { customer: Customer
           <dl className="mt-4 space-y-2.5 text-sm">
             <Info icon={Phone} label="เบอร์โทร">
               {customer.phone ? (
-                <a href={`tel:${customer.phone}`} className="hover:text-emerald-700">
+                <a href={`tel:${customer.phone}`} className="hover:text-orange-700">
                   {customer.phone}
                 </a>
               ) : null}
@@ -108,6 +108,7 @@ function Info({ icon: Icon, label, children }: { icon: typeof Phone; label: stri
 }
 
 function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; onCancel: () => void; onSaved: (c: CustomerRow) => void }) {
+  const [displayName,setDisplayName]=useState(customer.display_name??'')
   const [phone, setPhone] = useState(customer.phone ?? '')
   const [address, setAddress] = useState(customer.address ?? '')
   const [notes, setNotes] = useState(customer.notes ?? '')
@@ -131,7 +132,7 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
       const res = await fetch(`/api/customers/${customer.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, address, notes, tags, order_status: orderStatus }),
+        body: JSON.stringify({ display_name:displayName, phone, address, notes, tags, order_status: orderStatus }),
       })
       if (!res.ok) throw new Error(await apiError(res))
       onSaved(((await res.json()) as { customer: CustomerRow }).customer)
@@ -144,6 +145,7 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
 
   return (
     <form onSubmit={save} className="mt-4 space-y-3">
+      <label className="block"><span className="mb-1 block text-xs font-medium text-slate-600">ชื่อลูกค้า</span><input className={input} value={displayName} onChange={e=>setDisplayName(e.target.value)} maxLength={120}/></label>
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-slate-600">เบอร์โทรศัพท์</span>
         <input className={input} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="08x-xxx-xxxx" />
@@ -186,7 +188,7 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
         />
         <div className="mt-2 flex flex-wrap gap-1">
           {SUGGESTED_TAGS.filter((t) => !tags.includes(t)).map((t) => (
-            <button key={t} type="button" onClick={() => addTag(t)} className="rounded-md border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-500 hover:border-emerald-400 hover:text-emerald-700">
+            <button key={t} type="button" onClick={() => addTag(t)} className="rounded-md border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-500 hover:border-orange-400 hover:text-orange-700">
               + {t}
             </button>
           ))}

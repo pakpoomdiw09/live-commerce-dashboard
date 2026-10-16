@@ -1,3 +1,4 @@
+import { hasFeature, featureLockedResponse } from '@/lib/feature-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
@@ -26,6 +27,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: slip, error } = await db.from('slips').select('id, tenant_id, status, customer_id, approved_at').eq('id', id).maybeSingle()
   if (error) return bad(error.message, 500)
   if (!slip || !(await canAccessTenant(actor, slip.tenant_id))) return bad('slip not found', 404)
+  if (!(await hasFeature(db, slip.tenant_id, 'customer_management'))) return featureLockedResponse('customer_management')
+  if (!(await canAccessTenant(actor, slip.tenant_id, 'owner'))) return bad('เฉพาะเจ้าของร้านหรือผู้ดูแลระบบเท่านั้นที่อนุมัติสลิปได้', 403)
+  // Pro proofs must never enter the legacy broad "pay every pending order" approval path,
+  // including after flags are switched off. An uninstalled optional table is harmless.
+  const pro = await db.from('payment_pro_attempts').select('id,slip_id').eq('slip_id',id).eq('tenant_id',slip.tenant_id).maybeSingle()
+  if (pro.error && !['42P01','PGRST205'].includes(pro.error.code ?? '')) return bad('ตรวจสอบชนิดหลักฐานไม่ได้ กรุณาลองอีกครั้ง',503)
+  if (pro.data?.slip_id === id) return bad('กรุณาตรวจสอบรายการนี้ผ่าน Payment Pro เพื่อยืนยันเฉพาะออเดอร์และหลักฐานที่ผ่านเงื่อนไข',409)
   if (!APPROVABLE.includes(slip.status)) return bad(slip.status === 'duplicate' ? 'สลิปซ้ำ อนุมัติไม่ได้' : 'สลิปยังตรวจไม่เสร็จ', 409)
 
   const approvedAt = slip.approved_at ?? new Date().toISOString()

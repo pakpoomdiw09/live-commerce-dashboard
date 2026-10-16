@@ -1,6 +1,9 @@
 import './globals.css'
 
-export const metadata = { title: 'แดชบอร์ดร้าน' }
+export const metadata = {
+  title: { default: 'SnapBot - Live Commerce & AI Chatbot', template: '%s | SnapBot' },
+  applicationName: 'SnapBot',
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

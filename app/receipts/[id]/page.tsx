@@ -1,3 +1,5 @@
+import { hasFeature } from '@/lib/feature-access'
+import { FeatureLocked } from '@/components/FeatureLocked'
 import { notFound, redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
@@ -20,8 +22,11 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   if (!actor) redirect(`/login?next=/receipts/${id}`)
 
   const db = supabaseAdmin()
-  const slip = await loadSlipDetail(db, id)
-  if (!slip || !(await canAccessTenant(actor, slip.tenant_id))) notFound()
+  const { data: scope, error } = await db.from('slips').select('tenant_id').eq('id', id).maybeSingle()
+  if (error || !scope || !(await canAccessTenant(actor, scope.tenant_id))) notFound()
+  if (!(await hasFeature(db, scope.tenant_id, 'customer_management'))) return <FeatureLocked />
+  const slip = await loadSlipDetail(db, id, scope.tenant_id)
+  if (!slip || slip.tenant_id !== scope.tenant_id) notFound()
 
   if (slip.status !== 'valid' && !slip.approved_at) {
     return (

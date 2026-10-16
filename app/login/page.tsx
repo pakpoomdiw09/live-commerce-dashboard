@@ -1,15 +1,16 @@
 import { LoginForm } from '@/components/LoginForm'
 import { isSupabaseConfigured } from '@/lib/supabase/env'
+import { safeAuthNext } from '@/lib/oauth'
 
 // รับเฉพาะ path ภายในเว็บ กัน open redirect (เช่น ?next=//evil.com)
-const safeNext = (v?: string) => (v && v.startsWith('/') && !v.startsWith('//') ? v : '/overview')
+const safeNext = safeAuthNext
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; error?: string }>
+  searchParams: Promise<{ next?: string; error?: string; error_code?: string }>
 }) {
-  const { next, error } = await searchParams
+  const { next, error, error_code } = await searchParams
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-pink-500 via-rose-400 to-orange-400 p-4 text-slate-900">
@@ -18,7 +19,7 @@ export default async function LoginPage({
       <div className="pointer-events-none absolute -bottom-32 -right-20 h-96 w-96 rounded-full bg-orange-200/30 blur-3xl" />
 
       {isSupabaseConfigured() ? (
-        <LoginForm next={safeNext(next)} oauthError={error === 'oauth'} />
+        <LoginForm next={safeNext(next)} oauthError={error_code ?? (error === 'oauth')} />
       ) : (
         <div className="relative max-w-md rounded-2xl bg-white p-6 text-sm shadow-xl">
           <h1 className="mb-2 font-semibold">ยังไม่ได้ตั้งค่า Supabase</h1>

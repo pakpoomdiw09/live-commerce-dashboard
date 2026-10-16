@@ -12,12 +12,14 @@ import { Avatar } from './Avatar'
 import type { ActiveTenant } from './InboxClient'
 import { ReplyBox } from './ReplyBox'
 import { SlipStatusCard } from './SlipStatusCard'
+import {ConversationActions} from './ConversationActions'
+import type {InboxState,ConversationState} from '@/lib/inbox-types'
 
 const SENDER = { customer: 'ลูกค้า', bot: 'บอท', agent: 'แอดมิน' } as const
 const BUBBLE = {
   customer: 'rounded-bl-md bg-white text-slate-800 ring-1 ring-slate-200',
-  bot: 'rounded-br-md bg-emerald-600 text-white',
-  agent: 'rounded-br-md bg-slate-800 text-white',
+  bot: 'rounded-br-md bg-orange-100 text-orange-950 ring-1 ring-orange-200',
+  agent: 'rounded-br-md bg-gradient-to-br from-orange-500 to-rose-500 text-white',
 } as const
 
 /** Messages and slips not tied to a loaded message (e.g. sent through /api/slips/verify), in time order. */
@@ -35,6 +37,7 @@ export function Conversation({
   onOpenInspector,
   onFocusSlip,
   className,
+  inbox,conversationState,onStateChange,onLoadOlder,hasOlder,olderLoading,olderError,
 }: {
   customer: CustomerRow | null
   tenant: ActiveTenant | null
@@ -47,8 +50,17 @@ export function Conversation({
   onOpenInspector: () => void
   onFocusSlip: (id: string) => void
   className?: string
+  inbox:InboxState|null
+  conversationState:ConversationState|undefined
+  onStateChange:()=>Promise<void>
+  onLoadOlder:()=>void
+  hasOlder:boolean
+  olderLoading:boolean
+  olderError:string
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef=useRef<HTMLDivElement>(null)
+  const previousScroll=useRef({first:'',last:'',height:0,customer:''})
 
   const { items, slipsByMessage } = useMemo(() => {
     const byMessage = new Map<string, SlipRow[]>()
@@ -64,8 +76,12 @@ export function Conversation({
   }, [messages, slips])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [items.length])
+    const el=scrollRef.current;if(!el)return
+    const prior=previousScroll.current,first=messages[0]?.id??'',last=messages.at(-1)?.id??''
+    if(prior.customer===customer?.id&&prior.last===last&&prior.first!==first&&prior.first)el.scrollTop+=el.scrollHeight-prior.height
+    else if(prior.customer!==customer?.id||el.scrollHeight-el.scrollTop-el.clientHeight<300||messages.at(-1)?.sender==='agent')bottomRef.current?.scrollIntoView({block:'end'})
+    previousScroll.current={first,last,height:el.scrollHeight,customer:customer?.id??''}
+  }, [messages,customer?.id,items.length])
 
   if (!customer) {
     return (
@@ -76,17 +92,17 @@ export function Conversation({
   }
 
   return (
-    <section aria-label={`แชทกับ ${customerName(customer)}`} className={cn('min-h-0 flex-col bg-slate-50', className)}>
-      <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
+    <section data-testid="inbox-thread" aria-label={`แชทกับ ${customerName(customer)}`} className={cn('min-h-0 flex-col bg-slate-50', className)}>
+      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
         <Button variant="ghost" size="icon" onClick={onBack} aria-label="กลับไปรายชื่อแชท" className="md:hidden">
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <Avatar c={customer} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[8rem] flex-1">
           <h2 className="truncate font-semibold">{customerName(customer)}</h2>
-          <p className="flex items-center gap-1.5 text-xs text-slate-500">
-            <span className={cn('h-2 w-2 rounded-full', customer.bot_enabled && tenant?.autoReply !== false ? 'bg-emerald-500' : 'bg-amber-500')} />
-            Messenger · {customer.bot_enabled && tenant?.autoReply !== false ? 'บอทตอบอัตโนมัติ' : 'แอดมินตอบเอง'}
+          <p className="truncate text-xs text-slate-500">
+            <span className={cn('mr-1 inline-block h-2 w-2 rounded-full', customer.bot_enabled && tenant?.autoReply !== false ? 'bg-orange-500' : 'bg-amber-500')} />
+            {inbox?.pageName||'Messenger'} · {customer.bot_enabled && tenant?.autoReply !== false ? 'บอทตอบอัตโนมัติ' : 'แอดมินตอบเอง'}
           </p>
         </div>
         <AutoPilotToggle tenant={tenant} />
@@ -94,8 +110,11 @@ export function Conversation({
           <PanelRightOpen className="h-4 w-4" />
         </Button>
       </header>
+      <ConversationActions key={customer.id} state={conversationState} inbox={inbox} onChange={onStateChange}/>
 
-      <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6" aria-busy={state === 'loading'}>
+      <div ref={scrollRef} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6" aria-busy={state === 'loading'}>
+        {hasOlder&&<div className="mb-4 text-center"><Button size="sm" variant="secondary" loading={olderLoading} onClick={onLoadOlder}>โหลดข้อความก่อนหน้า</Button></div>}
+        {olderError&&<p role="alert" className="mb-2 text-center text-xs text-rose-700">{olderError}</p>}
         {state === 'loading' && messages.length === 0 && <ThreadSkeleton />}
         {state === 'error' && (
           <div role="alert" className="mx-auto max-w-sm rounded-xl bg-rose-50 p-4 text-center text-sm text-rose-700 ring-1 ring-rose-200">
@@ -137,7 +156,7 @@ export function Conversation({
         <div ref={bottomRef} />
       </div>
 
-      <ReplyBox key={customer.id} customerId={customer.id} />
+      <ReplyBox key={customer.id} customerId={customer.id} tenantId={customer.tenant_id!} inbox={inbox} enabled={!!conversationState&&conversationState.conversation_status==='open'&&(inbox?.autoClaimOnReply?(!conversationState.assigned_user_id||conversationState.assigned_user_id===inbox.viewerId):(conversationState.assigned_user_id===inbox?.viewerId&&!conversationState.bot_enabled))} onSent={()=>{onRetry();void onStateChange()}}/>
     </section>
   )
 }
@@ -198,6 +217,7 @@ function Bubble({
         <span className="mt-1 px-1 text-[11px] text-slate-400">
           {mine && `${SENDER[m.sender]} · `}
           <time suppressHydrationWarning>{clock(m.created_at)}</time>
+          {mine&&m.delivery_status&&<span> · {m.delivery_status==='pending'&&Date.now()-Date.parse(m.created_at)>120000?'ยังยืนยันผลไม่ได้':{pending:'กำลังส่ง',sent:'ส่งแล้ว',delivered:'ส่งถึงแล้ว',read:'อ่านแล้ว',failed:'ส่งไม่สำเร็จ',unknown:'ยังยืนยันผลไม่ได้'}[m.delivery_status]}</span>}
         </span>
       </div>
     </li>

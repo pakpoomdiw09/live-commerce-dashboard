@@ -1,7 +1,9 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { sendPaymentCard, sendText, type PaymentCard } from '@/lib/facebook'
+import { isWindowOrTagError, SendApiError, sendMessage, sendPaymentCard, sendText, type MessagingType, type PaymentCard } from '@/lib/facebook'
+import type { Attachment } from '@/lib/types'
 import type { ProcessedSlip } from './process'
+import { sendWithMessageCredit } from '@/lib/message-quota'
 
 const baht = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -38,40 +40,113 @@ export function paymentCard(slip: { amount: number | null; transRef: string | nu
 /** A chat customer, and the Page token of the tenant whose Page they wrote to. */
 export type Recipient = { id: string; psid: string; token: string | null }
 
+export class BotDeliveryBlockedError extends Error {
+  readonly code = 'BOT_DELIVERY_BLOCKED'
+  constructor(readonly reason: 'conversation_paused' | 'delivery_busy') { super(reason) }
+}
+
 /**
  * Send one bot message, at most once per `externalId`.
  * The row is claimed first (external_id is unique), so a repeated call stops at the insert and
  * never reaches the Send API. Returns false when it had already been sent.
  */
 export async function deliverOnce(db: SupabaseClient, customer: Recipient, externalId: string, body: string, card?: PaymentCard) {
-  const { data: row, error } = await db
-    .from('messages')
-    .insert({ customer_id: customer.id, external_id: externalId, sender: 'bot', body })
-    .select('id')
-    .single()
-  if (error?.code === '23505') return false
-  if (error || !row) throw new Error(`bot message insert failed: ${error?.message ?? 'no row returned'}`)
-
-  try {
+  return claimAndSend(db, customer, externalId, body, async (meter) => meter(async () => {
     if (card) {
       // the card is nicer, but plain text works on every client and in more Page setups
       await sendPaymentCard(customer.token, customer.psid, card).catch((e) => {
+        // A timeout may have delivered the card. Fall back only after an explicit rejection.
+        if (!(e instanceof SendApiError) || e.status >= 500) throw e
         console.warn('[notify] payment card rejected, falling back to text', e)
         return sendText(customer.token, customer.psid, body)
       })
     } else {
       await sendText(customer.token, customer.psid, body)
     }
+  }))
+}
+
+/**
+ * deliverOnce for messages built by the caller (image, quick replies, several parts in order).
+ * `body` is what the dashboard shows for them. UPDATE for messages the Page starts itself.
+ */
+export async function deliverRichOnce(
+  db: SupabaseClient,
+  customer: Recipient,
+  externalId: string,
+  body: string,
+  messages: object[],
+  messagingType: MessagingType = 'RESPONSE',
+  attachments: Attachment[] = [],
+) {
+  return claimAndSend(
+    db,
+    customer,
+    externalId,
+    body,
+    async (meter) => {
+      for (const m of messages) await meter(() => sendMessage(customer.token, customer.psid, m, messagingType))
+    },
+    attachments,
+  )
+}
+
+/** Claim the row (external_id is unique), then send. Returns false when it had already been sent. */
+async function claimAndSend(db: SupabaseClient, customer: Recipient, externalId: string, body: string, send: (meter: (work: () => Promise<void>) => Promise<void>) => Promise<void>, attachments: Attachment[] = []) {
+  let lease: string | null = null
+  if (!externalId.startsWith('bc:') && !externalId.startsWith('slip-confirm:')) {
+    const started = await db.rpc(externalId.startsWith('handover:') ? 'start_inbox_handover' : 'start_inbox_delivery', { p_customer: customer.id })
+    if (started.error?.code === '40001' || started.error?.code === '55P03') throw new BotDeliveryBlockedError(started.error.code === '55P03' ? 'delivery_busy' : 'conversation_paused')
+    if (started.error || !started.data) throw new Error('Cannot acquire bot delivery lease')
+    lease = started.data
+  }
+  try {
+  const { data: row, error } = await db
+    .from('messages')
+    .insert({ customer_id: customer.id, external_id: externalId, sender: 'bot', body, attachments, delivery_status: 'pending' })
+    .select('id')
+    .single()
+  if (error?.code === '23505') return false
+  if (error || !row) throw new Error(`bot message insert failed: ${error?.message ?? 'no row returned'}`)
+
+  let completedParts = 0
+  try {
+    const checkedSend = async (work: () => Promise<void>) => {
+      if (process.env.SNAPBOT_SAFETY_ENABLED === 'true' && !externalId.startsWith('bc:') && !externalId.startsWith('slip-confirm:')) {
+        const scope = await db.from('customers').select('tenant_id').eq('id', customer.id).single()
+        if (scope.error || !scope.data?.tenant_id) throw new Error('AUTOMATION_SAFETY_UNAVAILABLE')
+        await (await import('@/lib/automation-safety')).assertAutomationRunning(db, scope.data.tenant_id)
+      }
+      await work()
+      completedParts++
+    }
+    // Broadcasts already reserve/settle their batches in the authorized send route.
+    if (externalId.startsWith('bc:')) await send(checkedSend)
+    else {
+      const { data: scope, error: scopeError } = await db.from('customers').select('tenant_id').eq('id', customer.id).maybeSingle()
+      if (scopeError || !scope?.tenant_id) throw new Error('Message tenant unavailable')
+      await send(async work => { await sendWithMessageCredit(db, scope.tenant_id, () => checkedSend(work)) })
+    }
   } catch (e) {
-    // keep the dashboard honest: the customer never got this message
-    await db.from('messages').update({ body: `[ส่งไม่สำเร็จ] ${body}` }).eq('id', row.id)
+    // A network timeout can happen after delivery. Keep the durable row and show uncertainty.
+    const refused = completedParts === 0 && (isWindowOrTagError(e) || e instanceof SendApiError && e.status < 500 || ['MESSAGE_QUOTA_EXHAUSTED','AUTOMATION_STOPPED'].includes((e as {code?:string})?.code ?? ''))
+    await db.from('messages').update({ delivery_status: refused ? 'failed' : 'unknown' }).eq('id', row.id)
     throw e
   }
+  const saved = await db.from('messages').update({ delivery_status: 'sent' }).eq('id', row.id)
+  if (saved.error) throw new Error('Bot message delivered but status could not be saved')
   return true
+  } finally {
+    if (lease) {
+      const released = await db.rpc('end_inbox_delivery', { p_customer: customer.id, p_lease: lease })
+      if (released.error) console.error('[notify] delivery lease release failed', { code: released.error.code })
+    }
+  }
 }
 
 /** Automatic reply with the verdict, right after a slip from chat was checked. */
 export async function notifySlipResult(db: SupabaseClient, slip: ProcessedSlip, customer: Recipient, shopName?: string | null) {
+  if (slip.paymentPro && !slip.automationAllowed) return
   if (!slip.id) return
   const card = slip.status === 'valid' ? paymentCard(slip, shopName) : undefined
   const sent = await deliverOnce(db, customer, `slip:${slip.id}`, slipReplyText(slip), card)

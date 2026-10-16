@@ -7,6 +7,9 @@ import { SLIP_STATUS } from '@/lib/status'
 import type { CustomerRow, SlipRow } from '@/lib/types'
 import { baht, cn } from '@/lib/utils'
 import { CustomerPanel } from './CustomerPanel'
+import {ConversationHistory} from './ConversationHistory'
+import type {InboxState} from '@/lib/inbox-types'
+import {FollowUpContactControl} from './FollowUpContactControl'
 
 /** Right column: CRM details of the open chat, then the slip being inspected with its actions. */
 export function Inspector({
@@ -17,6 +20,7 @@ export function Inspector({
   onClose,
   onCustomerSaved,
   className,
+  inbox,
 }: {
   customer: CustomerRow | null
   slips: SlipRow[]
@@ -25,6 +29,7 @@ export function Inspector({
   onClose: () => void
   onCustomerSaved: (c: CustomerRow) => void
   className?: string
+  inbox:InboxState|null
 }) {
   return (
     <aside aria-label="รายละเอียดลูกค้าและสลิป" className={cn('min-h-0 flex-col border-l border-slate-200 bg-white', className)}>
@@ -40,6 +45,9 @@ export function Inspector({
       ) : (
         <div className="scrollbar-thin min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
           <CustomerPanel customer={customer} slips={slips} onSaved={onCustomerSaved} />
+          {customer.tenant_id&&<FollowUpContactControl key={customer.id} customerId={customer.id} tenantId={customer.tenant_id}/>}
+          <p className="rounded-lg bg-orange-50 p-2 text-xs text-orange-900">ผู้ดูแล: {inbox?.members.find(member=>member.id===customer.assigned_user_id)?.name||'ยังไม่มอบหมาย'}</p>
+          <ConversationHistory customer={customer} members={inbox?.members??[]}/>
 
           <section aria-label="สลิปล่าสุด" className="border-t border-slate-100 pt-5">
             <h3 className="mb-3 text-xs font-semibold tracking-wide text-slate-500 uppercase">สรุปสลิป</h3>
@@ -58,7 +66,7 @@ export function Inspector({
                         title={SLIP_STATUS[s.status]?.label}
                         className={cn(
                           'shrink-0 rounded-lg px-2.5 py-1.5 text-left text-[11px] ring-1 transition',
-                          s.id === slip.id ? 'bg-emerald-50 text-emerald-800 ring-emerald-300' : 'bg-white text-slate-600 ring-slate-200 hover:ring-slate-300',
+                          s.id === slip.id ? 'bg-orange-50 text-orange-800 ring-orange-300' : 'bg-white text-slate-600 ring-slate-200 hover:ring-slate-300',
                         )}
                       >
                         <span className="block font-semibold tabular-nums">{baht(s.amount ?? s.expected_amount)}</span>

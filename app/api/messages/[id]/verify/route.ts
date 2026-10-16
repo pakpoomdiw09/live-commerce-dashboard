@@ -1,7 +1,7 @@
+import { hasSlipAccess, featureLockedResponse, FeatureLockedError } from '@/lib/feature-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
-import { pendingOrders } from '@/lib/orders'
 import { processSlip } from '@/lib/slip/process'
 import { downloadSlipImage, slipCandidates } from '@/lib/slip/image'
 import { STALE_PENDING_MS } from '@/lib/status'
@@ -29,15 +29,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const db = supabaseAdmin()
   const { data: message, error } = await db
     .from('messages')
-    .select('id, customer_id, attachments, customers(tenant_id, tenants(id, account_number, bank_code, expected_amount))')
+    .select('id, customer_id, attachments, customers(tenant_id, tenants(id, account_number, bank_code))')
     .eq('id', id)
     .maybeSingle()
   if (error) return bad(error.message, 500)
   const customer = message?.customers as unknown as {
     tenant_id: string | null
-    tenants: { id: string; account_number: string; bank_code: string; expected_amount: number | null } | null
+    tenants: { id: string; account_number: string; bank_code: string } | null
   } | null
   if (!message || !(await canAccessTenant(actor, customer?.tenant_id ?? null))) return bad('message not found', 404)
+  if (!customer?.tenant_id || !(await hasSlipAccess(db, customer.tenant_id))) return featureLockedResponse('slip_auto_pilot')
 
   const urls = slipCandidates(message.attachments as Attachment[])
   if (urls.length === 0) return bad('ข้อความนี้ไม่มีรูปสลิป')
@@ -59,7 +60,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const t = customer?.tenants ?? null
   const tenant = t && { id: t.id, account_number: t.account_number, bank_code: t.bank_code }
-  const orders = await pendingOrders(db, message.customer_id)
 
   const results = []
   for (const url of urls) {
@@ -69,14 +69,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       results.push({ status: 'error', note: 'ดาวน์โหลดรูปจาก Messenger ไม่ได้ (ลิงก์อาจหมดอายุ)' })
       continue
     }
-    const r = await processSlip(db, {
+    let r
+    try {
+      r = await processSlip(db, {
       file,
       customerId: message.customer_id,
       messageId: message.id,
       tenant,
-      expectedAmount: orders.ids.length ? orders.total : t?.expected_amount != null ? Number(t.expected_amount) : undefined,
-      orderIds: orders.ids,
+      adminBypass: actor.kind === 'user' && actor.isPlatformAdmin,
     })
+    } catch (error) {
+      if (error instanceof FeatureLockedError) return featureLockedResponse(error.feature)
+      results.push({ status: 'error', note: error instanceof Error ? error.message : 'อ่านข้อมูลตรวจสลิปไม่ได้ กรุณาลองอีกครั้ง' })
+      continue
+    }
     results.push({ id: r.id, status: r.status, note: r.note, failure: r.failure })
   }
   return NextResponse.json({ results })

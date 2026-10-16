@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '@/lib/supabase/browser'
+import { FACEBOOK_LOGIN_SCOPES, facebookRedirectTo, rememberOAuthNext, oauthErrorMessage } from '@/lib/oauth'
 
 function FacebookIcon({ className }: { className?: string }) {
   return (
@@ -12,21 +13,22 @@ function FacebookIcon({ className }: { className?: string }) {
   )
 }
 
-export function LoginForm({ next, oauthError }: { next: string; oauthError?: boolean }) {
+export function LoginForm({ next, oauthError }: { next: string; oauthError?: boolean | string }) {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(oauthError ? 'เข้าสู่ระบบด้วยเฟสบุ๊คไม่สำเร็จ ลองอีกครั้ง' : null)
+  const [error, setError] = useState<string | null>(oauthError ? oauthErrorMessage(typeof oauthError === 'string' ? oauthError : 'oauth') : null)
   const [busy, setBusy] = useState(false)
 
   async function onFacebook() {
     setBusy(true)
     setError(null)
     try {
-      const redirectTo = `${location.origin}/auth/callback?next=${encodeURIComponent(next)}`
+      rememberOAuthNext(next)
+      const redirectTo = facebookRedirectTo(location.origin)
       const { error } = await supabaseBrowser().auth.signInWithOAuth({
         provider: 'facebook',
-        options: { redirectTo },
+        options: { redirectTo, scopes: FACEBOOK_LOGIN_SCOPES },
       })
       if (error) throw error
       // สำเร็จ: browser จะถูกพาไปหน้า Facebook เอง ไม่ต้อง setBusy(false)

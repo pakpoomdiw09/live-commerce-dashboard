@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, BadgeCheck, Check, Copy, ExternalLink, FileText, ImageOff, MessageSquareShare } from 'lucide-react'
 import { BankLogo, bankName } from '@/components/BankLogo'
 import { Badge } from '@/components/ui/badge'
@@ -17,16 +17,21 @@ import { apiError, baht, cn, when } from '@/lib/utils'
 export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; canMessage?: boolean }) {
   const [detail, setDetail] = useState<SlipDetail | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const request = useRef<AbortController | null>(null)
   const version = `${slip.id}:${slip.status}:${slip.approved_at}:${slip.confirmed_at}`
 
   const load = useCallback(async () => {
+    request.current?.abort()
+    const controller = new AbortController()
+    request.current = controller
     setLoadError(null)
     try {
-      const res = await fetch(`/api/slips/${slip.id}`, { cache: 'no-store' })
+      const res = await fetch(`/api/slips/${slip.id}`, { cache: 'no-store', signal: controller.signal })
       if (!res.ok) throw new Error(await apiError(res))
-      setDetail(((await res.json()) as { slip: SlipDetail }).slip)
+      const next = ((await res.json()) as { slip: SlipDetail }).slip
+      if (!controller.signal.aborted) setDetail(next)
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : 'โหลดรายละเอียดสลิปไม่สำเร็จ')
+      if (!controller.signal.aborted) setLoadError(e instanceof Error ? e.message : 'โหลดรายละเอียดสลิปไม่สำเร็จ')
     }
   }, [slip.id])
 
@@ -35,6 +40,7 @@ export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; ca
   useEffect(() => {
     setDetail((d) => (d?.id === slip.id ? d : null))
     void load()
+    return () => request.current?.abort()
   }, [load, slip.id, version])
 
   const st = SLIP_STATUS[slip.status] ?? SLIP_STATUS.error

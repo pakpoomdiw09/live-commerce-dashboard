@@ -382,7 +382,7 @@ function ResponseBlock({
 }
 
 /** Tags on top, input on its own line below. Enter or comma adds, Backspace on an empty field removes the last one. */
-function KeywordInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+export function KeywordInput({ value, onChange, placeholder = 'ตัวอย่างเช่น "สอบถาม" แล้วกด Enter หรือ ,' }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
   const [text, setText] = useState('')
   const add = (raw: string) => {
     const fresh = raw
@@ -424,7 +424,7 @@ function KeywordInput({ value, onChange }: { value: string[]; onChange: (v: stri
         }}
         onBlur={() => text.trim() && add(text)}
         maxLength={100}
-        placeholder='ตัวอย่างเช่น "สอบถาม" แล้วกด Enter หรือ ,'
+        placeholder={placeholder}
         aria-label="เพิ่มคีย์เวิร์ด"
         className="block w-full px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none"
       />

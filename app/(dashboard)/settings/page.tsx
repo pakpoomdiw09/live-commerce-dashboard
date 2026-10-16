@@ -1,11 +1,12 @@
-import { getActiveTenant, getTenants, getViewer, tenantPages } from '@/lib/tenant'
+import { redirect } from 'next/navigation'
+import { getActiveTenant, getTenants, getViewer, tenantPages, tenantPageConnections } from '@/lib/tenant'
 import { TenantSettingsForm } from '@/components/settings/TenantSettingsForm'
 import { InlineError } from '@/components/ErrorState'
 
-export const metadata = { title: 'ตั้งค่าร้านค้า & บัญชีธนาคาร' }
+export const metadata = { title: 'Facebook Page & Access Token' }
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
-  const [{ tenants, error }, active, viewer, { new: isNew }] = await Promise.all([getTenants(), getActiveTenant(), getViewer(), searchParams])
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ new?: string; page?: string }> }) {
+  const [{ tenants, error }, active, viewer, { new: isNew, page }] = await Promise.all([getTenants(), getActiveTenant(), getViewer(), searchParams])
 
   if (error) {
     return (
@@ -15,25 +16,20 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     )
   }
 
-  const creating = isNew === '1' || !active
-  if (creating && !viewer.isPlatformAdmin) {
-    return (
-      <div className="mx-auto max-w-xl p-8">
-        <InlineError
-          title={active ? 'เพิ่มร้านค้าใหม่ได้เฉพาะผู้ดูแลแพลตฟอร์ม' : 'บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าร้านค้าใด'}
-          message="ติดต่อผู้ดูแลแพลตฟอร์มเพื่อสร้างร้านค้า หรือเพิ่มบัญชีของคุณเป็นสมาชิกร้าน"
-        />
-      </div>
-    )
-  }
+  if (isNew === '1' || !active) redirect(page ? '/settings/new?page=' + encodeURIComponent(page) : '/settings/new')
+  const [pages, connections] = await Promise.all([tenantPages(active), tenantPageConnections([active])])
 
   return (
     <TenantSettingsForm
-      key={creating ? 'new' : active!.id}
-      tenant={creating ? null : active}
-      pages={creating ? [] : await tenantPages(active)}
+      key={active.id}
+      tenant={active}
+      billing={null}
+      slipCredits={{ quota: 0, used: 0 }}
+      pages={pages}
+      connectionStatus={connections.get(active.id)}
+      section="facebook"
       isFirst={tenants.length === 0}
-      role={creating ? 'admin' : (viewer.role ?? 'staff')}
+      role={viewer.role ?? 'staff'}
     />
   )
 }

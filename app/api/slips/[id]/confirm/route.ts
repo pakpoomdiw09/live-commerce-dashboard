@@ -1,3 +1,4 @@
+import { hasFeature, featureLockedResponse } from '@/lib/feature-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .maybeSingle()
   if (error) return bad(error.message, 500)
   if (!data || !(await canAccessTenant(actor, data.tenant_id))) return bad('slip not found', 404)
+  if (!(await hasFeature(db, data.tenant_id, 'customer_management'))) return featureLockedResponse('customer_management')
   // embedded to-one relations come back as an object (typed loosely by supabase-js without generated types)
   const customer = data.customers as unknown as { id: string; platform_user_id: string } | null
   const tenant = data.tenants as unknown as { name: string; page_id: string | null; page_access_token: string | null } | null

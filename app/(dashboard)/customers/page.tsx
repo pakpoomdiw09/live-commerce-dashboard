@@ -1,5 +1,8 @@
+import { hasFeature } from '@/lib/feature-access'
+import { FeatureLocked } from '@/components/FeatureLocked'
 import { supabaseServer } from '@/lib/supabase/server'
-import { getActiveTenant, tenantFilter } from '@/lib/tenant'
+import { getActiveTenant } from '@/lib/tenant'
+import { SetupNotice } from '@/components/SetupNotice'
 import { CUSTOMER_COLUMNS, type CustomerRow } from '@/lib/types'
 import { CustomersTable, type CustomerListRow } from '@/components/customers/CustomersTable'
 import { InlineError } from '@/components/ErrorState'
@@ -8,6 +11,8 @@ export const metadata = { title: 'จัดการลูกค้า' }
 
 export default async function CustomersPage() {
   const [db, tenant] = await Promise.all([supabaseServer(), getActiveTenant()])
+  if (!tenant) return <SetupNotice kind="no-tenant" />
+  if (!(await hasFeature(db, tenant.id, 'customer_management'))) return <FeatureLocked />
   let query = db
     .from('customers')
     // only accepted slips count towards the lifetime value
@@ -15,7 +20,7 @@ export default async function CustomersPage() {
     .eq('slips.status', 'valid')
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(500)
-  if (tenant) query = query.or(tenantFilter(tenant.id))
+  query = query.eq('tenant_id', tenant.id).eq('slips.tenant_id', tenant.id)
   const { data, error } = await query
 
   if (error) {

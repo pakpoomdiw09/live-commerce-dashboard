@@ -1,4 +1,6 @@
-const graph = (path: string) =>
+import type { MessageTag } from '@/lib/chatbot'
+
+export const graph = (path: string) =>
   `https://graph.facebook.com/${process.env.FB_GRAPH_VERSION ?? 'v24.0'}/${path}`
 
 /** The Page a token belongs to (`page_id`), and the token saved for it, if any. */
@@ -18,7 +20,7 @@ export function pageTokenFor(source: PageTokenSource | null): string | null {
   const shared = (process.env.FB_PAGE_TOKEN || process.env.PAGE_ACCESS_TOKEN || '').trim()
   if (!shared) return null
   const sharedPage = process.env.FB_PAGE_ID?.trim()
-  if (source?.page_id && sharedPage && source.page_id !== sharedPage) return null
+  if (source?.page_id && (!sharedPage || source.page_id !== sharedPage)) return null
   return shared
 }
 
@@ -34,18 +36,71 @@ function requireToken(token: string | null): string {
 }
 const auth = (token: string | null) => ({ Authorization: `Bearer ${requireToken(token)}` })
 
-/** Send any message. Only works within 24 h of the customer's last message (Meta's standard window). */
-async function sendMessage(token: string | null, psid: string, message: object) {
+/**
+ * RESPONSE answers the customer's message; UPDATE is a message the Page starts itself
+ * (reminders, broadcasts). Both only work within 24 h of the customer's last message.
+ * `{ tag }` sends with messaging_type MESSAGE_TAG: allowed after the 24 h window, but only
+ * for the kind of message the tag names (never promotions).
+ */
+export type MessagingType = 'RESPONSE' | 'UPDATE' | { tag: MessageTag }
+
+const messagingFields = (t: MessagingType) => (typeof t === 'string' ? { messaging_type: t } : { messaging_type: 'MESSAGE_TAG', tag: t.tag })
+
+/** A refused Send API call, with Meta's error code and subcode. */
+export class SendApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: number | null,
+    readonly subcode: number | null,
+    body: string,
+  ) {
+    super(`Send API ${status}: ${body}`)
+  }
+}
+
+/**
+ * Meta refused the message for timing or tag reasons: outside the allowed window (code 10,
+ * subcodes 2018001 / 2018278) or a tag that doesn't fit the message.
+ */
+export const isWindowOrTagError = (e: unknown) =>
+  e instanceof SendApiError && (e.code === 10 || e.subcode === 2018001 || e.subcode === 2018278)
+
+export const WINDOW_OR_TAG_ERROR = 'เกินระยะเวลาที่ระบบ Facebook อนุญาต หรือหมวดหมู่ข้อความไม่ตรงกับเนื้อหา'
+
+/** Send any message. Without a tag, only works within 24 h of the customer's last message (Meta's standard window). */
+export async function sendMessageWithReceipt(token: string | null, psid: string, message: object, messagingType: MessagingType = 'RESPONSE'): Promise<string> {
   const res = await fetch(graph('me/messages'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...auth(token) },
-    body: JSON.stringify({ recipient: { id: psid }, messaging_type: 'RESPONSE', message }),
+    body: JSON.stringify({ recipient: { id: psid }, ...messagingFields(messagingType), message }),
     signal: AbortSignal.timeout(10_000),
   })
-  if (!res.ok) throw new Error(`Send API ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    const body = await res.text()
+    let err: { code?: unknown; error_subcode?: unknown } | undefined
+    try {
+      err = JSON.parse(body)?.error
+    } catch {}
+    const num = (v: unknown) => (typeof v === 'number' ? v : null)
+    throw new SendApiError(res.status, num(err?.code), num(err?.error_subcode), body)
+  }
+  const receipt = await res.json()
+  if (typeof receipt.message_id !== 'string') throw new Error('Messenger did not return a message receipt')
+  return receipt.message_id
 }
 
-export const sendText = (token: string | null, psid: string, text: string) => sendMessage(token, psid, { text })
+export async function sendMessage(token: string | null, psid: string, message: object, messagingType: MessagingType = 'RESPONSE'): Promise<void> {
+  await sendMessageWithReceipt(token, psid, message, messagingType)
+}
+
+export const sendText = (token: string | null, psid: string, text: string, messagingType: MessagingType = 'RESPONSE') =>
+  sendMessage(token, psid, { text }, messagingType)
+
+/** Quick reply buttons under a message: tapping one sends its title back as the customer's text. */
+export const quickReplies = (titles: string[]) => {
+  const labels = titles.map(title => title.trim()).filter(Boolean)
+  return labels.length ? { quick_replies: labels.slice(0, 13).map((t) => ({ content_type: 'text', title: t.slice(0, 20), payload: t.slice(0, 1000) })) } : {}
+}
 
 export type PaymentCard = { title: string; subtitle: string; imageUrl?: string | null }
 
@@ -102,6 +157,48 @@ export async function getName(token: string | null, psid: string): Promise<strin
   }
 }
 
+/** Best-effort Messenger profile lookup. Never exposes tokens or interrupts delivery. */
+export async function getCustomerProfile(token: string | null, psid: string): Promise<{ display_name?: string; avatar_url?: string }> {
+  if (!token || !/^\d+$/.test(psid)) {
+    console.warn('[facebook/customer-profile] lookup skipped', { senderId: psid, tokenPresent: Boolean(token) })
+    return {}
+  }
+  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(psid)}?fields=first_name,last_name,name,profile_pic`
+  const redact = (value: string) => value.split(token).join('[REDACTED]')
+    .replace(/(access_token["'\s:=]+)[^\s"'&,}]+/gi, '$1[REDACTED]')
+  const startedAt = Date.now()
+  console.log('[facebook/customer-profile] Graph request', { senderId: psid, url, method: 'GET', authentication: 'Bearer [REDACTED]' })
+  try {
+    const res = await fetch(url, {
+      headers: auth(token), signal: AbortSignal.timeout(5_000), cache: 'no-store',
+    })
+    const raw = await res.text()
+    let data
+    try { data = JSON.parse(raw) } catch { /* Log non-JSON responses too. */ }
+    const log = !res.ok || data?.error ? console.error : console.log
+    log('[facebook/customer-profile] Graph response', {
+      senderId: psid, url, status: res.status, statusText: res.statusText,
+      durationMs: Date.now() - startedAt, contentType: res.headers.get('content-type'),
+      responseBody: redact(raw),
+    })
+    if (!res.ok) return {}
+    if (!data || data.error) return {}
+    const text = (v: unknown) => typeof v === 'string' ? v.trim() : ''
+    const name = text(data.name) || [text(data.first_name), text(data.last_name)].filter(Boolean).join(' ')
+    const picture = text(data.profile_pic)
+    let avatar: string | undefined
+    try { const url = new URL(picture); if (url.protocol === 'https:') avatar = url.href } catch {}
+    return { ...(name ? { display_name: name } : {}), ...(avatar ? { avatar_url: avatar } : {}) }
+  } catch (error) {
+    console.error('[facebook/customer-profile] network or parsing failure', {
+      senderId: psid, url, durationMs: Date.now() - startedAt,
+      errorType: error instanceof Error ? error.name : 'UnknownError',
+      message: redact(error instanceof Error ? error.message : String(error)),
+    })
+    return {}
+  }
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** GET a Graph path. Never throws: status 0 = network error / timeout. Not cached (tokens change). */
@@ -112,6 +209,44 @@ async function graphGet(path: string, token: string): Promise<{ ok: boolean; sta
   } catch {
     return { ok: false, status: 0, json: null }
   }
+}
+
+export type PageTokenStatus = 'verified' | 'limited' | 'invalid' | 'unverified'
+
+/**
+ * Read-only connection check, independent of permission to read the Page's name/picture.
+ * A failed debug request cannot establish that its input token is invalid: Meta may instead
+ * reject the app credential used to authorize the check. Only a successful debug response
+ * establishes token validity, Page ownership, expiry and messaging permission.
+ */
+export async function getPageTokenStatus(token: string, pageId: string): Promise<PageTokenStatus> {
+  if (!token.trim() || !pageId.trim()) return 'invalid'
+  const appId = (process.env.FB_APP_ID || process.env.NEXT_PUBLIC_FB_APP_ID || '').trim()
+  const appSecret = (process.env.FB_APP_SECRET ?? '').trim()
+  const debugAuthorization = appId && appSecret ? `${appId}|${appSecret}` : token
+  const result = await graphGet(`debug_token?input_token=${encodeURIComponent(token)}`, debugAuthorization)
+  if (process.env.FB_DEBUG === 'true') console.log('[facebook/page-token] inspection', {
+    expectedPageId: pageId, status: result.status, valid: result.json?.data?.is_valid ?? null,
+    type: result.json?.data?.type ?? null, tokenPageId: result.json?.data?.profile_id ?? null,
+    pageMatches: String(result.json?.data?.profile_id ?? '') === pageId,
+    pagesMessaging: Array.isArray(result.json?.data?.scopes) ? result.json.data.scopes.includes('pages_messaging') : null,
+    errorCode: result.json?.error?.code ?? null,
+  })
+  if (!result.ok || result.json?.error) return 'unverified'
+  const data = result.json?.data
+  if (!data || typeof data !== 'object' || typeof data.is_valid !== 'boolean') return 'unverified'
+  if (!data.is_valid) return 'invalid'
+  if (typeof data.type !== 'string') return 'unverified'
+  if (data.type !== 'PAGE') return 'invalid'
+  if (!['string', 'number'].includes(typeof data.profile_id) || !String(data.profile_id).trim()) return 'unverified'
+  if (String(data.profile_id) !== pageId) return 'invalid'
+  for (const value of [data.expires_at, data.data_access_expires_at]) {
+    if (value === undefined) continue
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 'unverified'
+    if (value > 0 && value <= Date.now() / 1000) return 'invalid'
+  }
+  if (!Array.isArray(data.scopes) || data.scopes.some((scope: unknown) => typeof scope !== 'string')) return 'unverified'
+  return data.scopes.includes('pages_messaging') ? 'verified' : 'limited'
 }
 
 /** Meta's own error text, e.g. "(#190) Error validating access token ... (code 190/463)" */
@@ -184,19 +319,50 @@ async function exchangeUserToken(userToken: string, pageId: string | null): Prom
 
 export type PageProfile = { id: string; name: string; picture: string | null }
 
+/** The picture endpoint can work even when Page metadata permission is unavailable. */
+export async function getPagePicture(pageId: string, token: string | null): Promise<string | null> {
+  if (!token || !/^\d+$/.test(pageId)) return null
+  try {
+    const response = await fetch(graph(`${pageId}/picture?type=large&redirect=false`), { headers: auth(token), signal: AbortSignal.timeout(10_000), next: { revalidate: 300 } })
+    const data = await response.json()
+    if (process.env.FB_DEBUG === 'true') console.log('[facebook/picture] Graph response', { pageId, status: response.status, picture: { data: { url: data?.data?.url ?? null, is_silhouette: data?.data?.is_silhouette ?? null } }, errorCode: data?.error?.code ?? null, page_access_token: `[REDACTED: ${token.length} characters]` })
+    if (!response.ok || data?.error || typeof data?.data?.url !== 'string') return null
+    const url = new URL(data.data.url)
+    return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null
+  } catch {
+    if (process.env.FB_DEBUG === 'true') console.log('[facebook/picture] picture lookup failed', { pageId })
+    return null
+  }
+}
+
 /** The Page that owns this token (`me` = the Page itself for a Page token). null if missing or rejected. */
 export async function getPageProfile(token: string | null): Promise<PageProfile | null> {
-  if (!token) return null
+  const debug = process.env.FB_DEBUG === 'true'
+  if (!token) {
+    if (debug) console.log('[facebook/profile] no page_access_token')
+    return null
+  }
   try {
     const res = await fetch(graph('me?fields=id,name,picture.type(large)'), {
       headers: auth(token),
       signal: AbortSignal.timeout(10_000),
       next: { revalidate: 300 },
     })
-    if (!res.ok) return null
     const data = await res.json()
-    return { id: String(data.id), name: data.name, picture: data.picture?.data?.url ?? null }
+    if (debug) console.log('[facebook/profile] Graph response', {
+      status: res.status, id: data?.id, name: data?.name,
+      picture: { data: { url: data?.picture?.data?.url ?? null, is_silhouette: data?.picture?.data?.is_silhouette ?? null } },
+      page_access_token: `[REDACTED: ${token.length} characters]`, errorCode: data?.error?.code ?? null,
+    })
+    if (!res.ok || data?.error || !data?.id || typeof data.name !== 'string' || !data.name.trim()) return null
+    const url = data.picture?.data?.url
+    let picture: string | null = null
+    if (typeof url === 'string') {
+      try { const parsed = new URL(url); if (['https:', 'http:'].includes(parsed.protocol)) picture = parsed.toString() } catch { /* invalid image URL: use the Facebook fallback */ }
+    }
+    return { id: String(data.id), name: data.name.trim(), picture }
   } catch {
+    if (debug) console.log('[facebook/profile] network or JSON response failed')
     return null
   }
 }

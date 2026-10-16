@@ -54,9 +54,12 @@ export function orderSummaryText(order: { name: string; code: string; amount: nu
 export const soldOutText = (p: { name: string; code: string }) => `ขออภัยค่ะ ${p.name} (รหัส ${p.code}) หมดแล้ว แอดมินจะแจ้งเมื่อมีของเข้านะคะ`
 
 /** The customer's orders still waiting for payment: a slip from this customer pays for all of them. */
-export async function pendingOrders(db: SupabaseClient, customerId: string): Promise<{ ids: string[]; total: number }> {
-  const { data, error } = await db.from('orders').select('id, amount').eq('customer_id', customerId).eq('status', 'pending_payment')
+export async function pendingOrders(db: SupabaseClient, customerId: string, tenantId?: string): Promise<{ ids: string[]; total: number }> {
+  let query = db.from('orders').select('id, amount').eq('customer_id', customerId).eq('status', 'pending_payment')
+  if (tenantId) query = query.eq('tenant_id', tenantId)
+  const { data, error } = await query
   if (error) {
+    if (tenantId) throw new Error('อ่านยอดรวมออเดอร์ไม่ได้ กรุณาลองอีกครั้ง')
     // before supabase/orders.sql has run there is no orders table: carry on without orders
     console.error('[orders] pending lookup failed', error.message)
     return { ids: [], total: 0 }

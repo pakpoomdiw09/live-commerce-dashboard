@@ -1,5 +1,8 @@
+import { hasFeature } from '@/lib/feature-access'
+import { FeatureLocked } from '@/components/FeatureLocked'
 import { supabaseServer } from '@/lib/supabase/server'
-import { getActiveTenant, tenantFilter } from '@/lib/tenant'
+import { getActiveTenant } from '@/lib/tenant'
+import { SetupNotice } from '@/components/SetupNotice'
 import { CUSTOMER_COLUMNS, type CustomerRow, type MessageRow, type SlipStatus } from '@/lib/types'
 import { InboxClient, type ChatSummary, type CommentItem } from '@/components/inbox/InboxClient'
 import { InlineError } from '@/components/ErrorState'
@@ -11,12 +14,15 @@ type Row = CustomerRow & { messages: Preview[]; slips: { status: SlipStatus }[] 
 
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ customer?: string }> }) {
   const [db, tenant, { customer: requested }] = await Promise.all([supabaseServer(), getActiveTenant(), searchParams])
+  if (!tenant) return <SetupNotice kind="no-tenant" />
+  if (!(await hasFeature(db, tenant.id, 'customer_management'))) return <FeatureLocked />
 
   let customersQuery = db
     .from('customers')
     // newest message (chat list preview) and newest slip (status badge) per customer
     .select(`${CUSTOMER_COLUMNS}, messages(sender, body, attachments, created_at), slips(status, created_at)`)
     .order('last_message_at', { ascending: false, nullsFirst: false })
+    .order('id', { ascending: false })
     .order('created_at', { ascending: false, referencedTable: 'messages' })
     .limit(1, { referencedTable: 'messages' })
     .order('created_at', { ascending: false, referencedTable: 'slips' })
@@ -24,8 +30,8 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
     .limit(150)
   let commentsQuery = db.from('comments').select('id, tenant_id, author_name, body, created_at').order('created_at', { ascending: false }).limit(100)
   if (tenant) {
-    customersQuery = customersQuery.or(tenantFilter(tenant.id))
-    commentsQuery = commentsQuery.or(tenantFilter(tenant.id))
+    customersQuery = customersQuery.eq('tenant_id', tenant.id).eq('slips.tenant_id', tenant.id)
+    commentsQuery = commentsQuery.eq('tenant_id', tenant.id)
   }
 
   const [customers, comments] = await Promise.all([customersQuery, commentsQuery])
@@ -33,7 +39,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   if (customers.error) {
     return (
       <div className="p-6">
-        <InlineError title="โหลดรายชื่อแชทไม่ได้ (ถ้ายังไม่ได้อัปเดตฐานข้อมูล ให้รัน supabase/platform.sql)" message={customers.error.message} />
+        <InlineError title="โหลดรายชื่อแชทไม่ได้ (ตรวจสอบ migration supabase/smart-inbox.sql)" message={customers.error.message} />
       </div>
     )
   }

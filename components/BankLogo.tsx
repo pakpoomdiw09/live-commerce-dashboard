@@ -1,26 +1,27 @@
 import { Landmark } from 'lucide-react'
 import { findBank } from '@/lib/banks'
 import { cn } from '@/lib/utils'
+import {BankLogoImage} from './BankLogoImage'
 
-/** Brand-colored bank mark. Unknown codes get a neutral bank icon. */
-export function BankLogo({ code, size = 'md' }: { code: string | null | undefined; size?: 'sm' | 'md' | 'lg' }) {
+/** Licensed local assets only; missing/unconfirmed logos use a generic bank icon. */
+export function BankLogo({ code, size = 'md',className }: { code: string | null | undefined; size?: 'sm' | 'md' | 'lg';className?:string }) {
   const bank = findBank(code)
-  const box = size === 'sm' ? 'h-6 w-6 text-[8px]' : size === 'lg' ? 'h-11 w-11 text-xs' : 'h-8 w-8 text-[10px]'
+  const box = size === 'sm' ? 'h-6 w-6' : size === 'lg' ? 'h-14 w-14' : 'h-8 w-8'
   if (!bank) {
     return (
-      <span className={cn('grid shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500', box)} title={code ?? undefined}>
-        <Landmark className="h-1/2 w-1/2" aria-hidden />
+      <span className={cn('grid shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500', box,className)} title={code ?? undefined}>
+        <Landmark className="h-1/2 w-1/2" role="img" aria-label="ไอคอนธนาคารสำรอง" />
       </span>
     )
   }
   return (
     <span
-      title={bank.name}
-      aria-label={bank.name}
-      className={cn('grid shrink-0 place-items-center rounded-full font-bold tracking-tight text-white shadow-sm', box)}
-      style={{ backgroundColor: bank.color }}
+      title={bank.logoPath?bank.name:`${bank.name} · ใช้ไอคอนสำรองชั่วคราว`}
+      data-bank-code={bank.code} data-bank-logo={bank.logoPath?'installed':'missing'}
+      className={cn('grid shrink-0 place-items-center overflow-hidden rounded-xl shadow-sm',bank.logoPath?'text-white':'bg-slate-100 text-slate-500',box,className)}
+      style={bank.logoPath?{ backgroundColor: bank.logoBackground??bank.color }:undefined}
     >
-      {bank.short}
+      {bank.logoPath?<BankLogoImage key={bank.logoPath} src={bank.logoPath} name={bank.name}/>:<Landmark className="h-1/2 w-1/2" role="img" aria-label={`ไอคอนสำรอง ${bank.name} · ยังไม่มีโลโก้ที่ยืนยันสิทธิ์และเวอร์ชัน`}/>}
     </span>
   )
 }

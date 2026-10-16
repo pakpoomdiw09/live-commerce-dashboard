@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { ImagePlus } from 'lucide-react'
+import { BrandLoader } from '@/components/ui/BrandLoader'
 import { Button } from '@/components/ui/button'
 
 /** Upload a slip image and check it with SlipOK against the active tenant's account. */
 export function VerifySlipForm({ tenant, onVerified }: { tenant: { id: string; name: string; expectedAmount: number | null } | null; onVerified: (slipId: string) => void }) {
   const [file, setFile] = useState<File | null>(null)
-  const [amount, setAmount] = useState(tenant?.expectedAmount != null ? String(tenant.expectedAmount) : '')
+  const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -22,9 +23,9 @@ export function VerifySlipForm({ tenant, onVerified }: { tenant: { id: string; n
       if (tenant) fd.append('tenantId', tenant.id)
       if (amount.trim()) fd.append('expectedAmount', amount.trim())
       const res = await fetch('/api/slips/verify', { method: 'POST', body: fd })
-      const body = (await res.json().catch(() => null)) as { id?: string; error?: string } | null
+      const body = (await res.json().catch(() => null)) as { id?: string; error?: string; note?: string } | null
       if (body?.id) return onVerified(body.id) // even a failed check has a row to show
-      throw new Error(body?.error ?? `HTTP ${res.status}`)
+      throw new Error(body?.error ?? body?.note ?? `HTTP ${res.status}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ตรวจสลิปไม่สำเร็จ')
     } finally {
@@ -55,6 +56,7 @@ export function VerifySlipForm({ tenant, onVerified }: { tenant: { id: string; n
           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
         />
       </label>
+      {busy && <BrandLoader label="กำลังตรวจสอบสลิป..." className="py-4" />}
       {error && (
         <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {error}

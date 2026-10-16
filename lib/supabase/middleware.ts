@@ -1,9 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseEnv } from './env'
+import { safeAuthNext } from '@/lib/oauth'
 
 // หน้าที่เข้าได้โดยไม่ต้องล็อกอิน
-const PUBLIC_PATHS = ['/login', '/auth']
+const PUBLIC_PATHS = ['/login', '/auth', '/p']
 const isPublic = (p: string) => PUBLIC_PATHS.some((x) => p === x || p.startsWith(x + '/'))
 
 export async function updateSession(request: NextRequest) {
@@ -55,10 +56,12 @@ export async function updateSession(request: NextRequest) {
     return redirect
   }
 
-  if (user && pathname === '/login') {
+  if (user && pathname === '/login' && !request.nextUrl.searchParams.has('error')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/overview'
-    url.search = ''
+    const destination = new URL(safeAuthNext(request.nextUrl.searchParams.get('next')), request.url)
+    url.pathname = destination.pathname
+    url.search = destination.search
+    url.hash = destination.hash
     const redirect = NextResponse.redirect(url)
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c))
     return redirect

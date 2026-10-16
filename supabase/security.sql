@@ -1,4 +1,4 @@
--- Multi-tenant access control. Run LAST (after schema, tenants, comment-rules, platform, orders).
+-- Multi-tenant access control. Run LAST (after schema, tenants, comment-rules, platform, orders, automation).
 -- Safe to re-run: every policy is dropped and recreated, so this file is the single source of truth.
 --
 -- Who sees what:
@@ -27,6 +27,7 @@ create table if not exists tenant_members (
   primary key (tenant_id, user_id)
 );
 create index if not exists tenant_members_user on tenant_members (user_id);
+alter table public.tenants add column if not exists is_active boolean not null default true;
 
 alter table platform_admins enable row level security;
 alter table tenant_members enable row level security;
@@ -42,6 +43,7 @@ create or replace function can_access_tenant(p_tenant uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select is_platform_admin()
       or (p_tenant is not null
+          and exists (select 1 from tenants where id = p_tenant and is_active)
           and exists (select 1 from tenant_members where tenant_id = p_tenant and user_id = auth.uid()))
 $$;
 
@@ -72,9 +74,18 @@ drop policy if exists member_read on tenants;
 create policy member_read on tenants for select to authenticated using (can_access_tenant(id));
 revoke all on tenants from anon, authenticated;
 -- column list: add new non-secret columns here when tenants grows
-grant select (id, name, account_name, account_number, bank_code, page_id, expected_amount,
-              auto_reply_enabled, auto_verify_enabled, slip_quota, slip_used, page_token_set, created_at)
+grant select (id, name, account_name, bank_code, page_id, expected_amount,
+              auto_reply_enabled, auto_verify_enabled, slip_quota, slip_used, is_active, page_token_set, created_at)
   on tenants to authenticated;
+-- facebook-tenants.sql adds page_name; retain its grant when security.sql is re-run.
+do $$ begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenants' and column_name = 'page_name') then
+    grant select (page_name) on public.tenants to authenticated;
+  end if;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenants' and column_name = 'slip_quota_credits') then
+    grant select (slip_quota_credits) on public.tenants to authenticated;
+  end if;
+end $$;
 
 -- ── customers: read, and flip the per-chat bot switch ──
 drop policy if exists member_read on customers;
@@ -83,7 +94,14 @@ drop policy if exists member_toggle on customers;
 create policy member_toggle on customers for update to authenticated
   using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id));
 revoke insert, update, delete on customers from anon, authenticated;
-grant update (bot_enabled) on customers to authenticated;
+-- Smart Inbox routes own the audited handoff once that migration is installed.
+do $$ begin
+  if exists(select 1 from information_schema.columns where table_schema='public' and table_name='customers' and column_name='conversation_version') then
+    revoke update(bot_enabled) on public.customers from authenticated;
+  else
+    grant update(bot_enabled) on public.customers to authenticated;
+  end if;
+end $$;
 
 -- ── messages: through the customer's tenant ──
 drop policy if exists member_read on messages;
@@ -119,3 +137,48 @@ create policy member_update on orders for update to authenticated
 revoke insert, delete on orders from anon, authenticated;
 revoke update on orders from anon, authenticated;
 grant update (status) on orders to authenticated;
+
+-- ── chatbot automation (automation.sql): settings and keyword rules are edited from the dashboard ──
+drop policy if exists member_all on bot_settings;
+create policy member_all on bot_settings for all to authenticated
+  using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id));
+
+drop policy if exists member_all on chat_rules;
+create policy member_all on chat_rules for all to authenticated
+  using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id));
+
+-- follow-ups are written by the database (order triggers) and the worker; members may cancel one
+drop policy if exists member_read on follow_up_jobs;
+create policy member_read on follow_up_jobs for select to authenticated using (can_access_tenant(tenant_id));
+drop policy if exists member_cancel on follow_up_jobs;
+create policy member_cancel on follow_up_jobs for update to authenticated
+  using (can_access_tenant(tenant_id) and status = 'scheduled')
+  with check (can_access_tenant(tenant_id) and status = 'cancelled');
+revoke insert, update, delete on follow_up_jobs from anon, authenticated;
+grant update (status, reason) on follow_up_jobs to authenticated;
+
+-- broadcasts: members write drafts; sending and the counters belong to /api/broadcasts/[id]/send
+drop policy if exists member_read on broadcasts;
+create policy member_read on broadcasts for select to authenticated using (can_access_tenant(tenant_id));
+drop policy if exists member_draft on broadcasts;
+create policy member_draft on broadcasts for insert to authenticated
+  with check (can_access_tenant(tenant_id) and status = 'draft');
+drop policy if exists member_edit_draft on broadcasts;
+create policy member_edit_draft on broadcasts for update to authenticated
+  using (can_access_tenant(tenant_id) and status = 'draft') with check (can_access_tenant(tenant_id) and status = 'draft');
+drop policy if exists member_delete_draft on broadcasts;
+create policy member_delete_draft on broadcasts for delete to authenticated
+  using (can_access_tenant(tenant_id) and status = 'draft');
+revoke insert, update, delete on broadcasts from anon, authenticated;
+grant insert (tenant_id, name, message, audience_segment, audience_tags, audience_window, message_tag, created_by) on broadcasts to authenticated;
+grant update (name, message, audience_segment, audience_tags, audience_window, message_tag) on broadcasts to authenticated;
+grant delete on broadcasts to authenticated;
+
+-- billing_requests (billing.sql): members read their shop's; filing and approving go through /api/billing
+do $$ begin
+  if to_regclass('public.billing_requests') is not null then
+    drop policy if exists member_read on billing_requests;
+    create policy member_read on billing_requests for select to authenticated using (can_access_tenant(tenant_id));
+    revoke insert, update, delete on billing_requests from anon, authenticated;
+  end if;
+end $$;

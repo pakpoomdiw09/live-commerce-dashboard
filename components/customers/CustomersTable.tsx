@@ -46,7 +46,7 @@ export function CustomersTable({ rows, tenantName }: { rows: CustomerListRow[]; 
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="ค้นหาชื่อ / เบอร์โทร / ที่อยู่"
+              placeholder="ค้นหาชื่อลูกค้า..."
               className="w-full rounded-lg border border-slate-200 py-2 pr-3 pl-9 text-sm placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none"
             />
           </label>
@@ -100,7 +100,12 @@ export function CustomersTable({ rows, tenantName }: { rows: CustomerListRow[]; 
                 <tr>
                   <td colSpan={7} className="px-4 py-14 text-center text-slate-500">
                     <Users className="mx-auto mb-2 h-8 w-8 text-slate-300" aria-hidden />
-                    {rows.length === 0 ? 'ยังไม่มีลูกค้า ลูกค้าที่ทักแชทเข้ามาจะแสดงที่นี่' : 'ไม่พบลูกค้าที่ตรงเงื่อนไข'}
+                    {rows.length === 0 ? (
+                      <div className="space-y-2">
+                        <p className="font-semibold text-slate-700">ยังไม่มีรายการลูกค้า</p>
+                        <p className="text-sm text-slate-500">เมื่อมีลูกค้าทักแชทหรือสั่งซื้อสินค้า รายชื่อลูกค้าจะปรากฏที่นี่ให้อัตโนมัติ</p>
+                      </div>
+                    ) : 'ไม่พบลูกค้าที่ตรงเงื่อนไข'}
                   </td>
                 </tr>
               )}

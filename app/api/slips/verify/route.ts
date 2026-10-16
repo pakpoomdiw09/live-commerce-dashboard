@@ -1,3 +1,4 @@
+import { hasSlipAccess, featureLockedResponse, FeatureLockedError } from '@/lib/feature-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor, isPlatformAdmin } from '@/lib/auth'
@@ -63,27 +64,32 @@ export async function POST(req: NextRequest) {
   if (tenantId && !(await canAccessTenant(actor, tenantId))) return bad('tenant not found', 404)
 
   const db = supabaseAdmin()
+  if (!tenantId || !(await hasSlipAccess(db, tenantId))) return featureLockedResponse('slip_auto_pilot')
   if (customerId) {
     // the slip may only be linked to a customer of the same tenant
     const { data: c } = await db.from('customers').select('tenant_id').eq('id', customerId).maybeSingle()
     if (!c || (tenantId ? c.tenant_id !== tenantId : !isPlatformAdmin(actor))) return bad('customer not found', 404)
   }
   let tenant: Tenant | null = null
-  let tenantExpected: number | undefined
   if (tenantId) {
-    const { data, error } = await db.from('tenants').select('id, account_number, bank_code, expected_amount').eq('id', tenantId).maybeSingle()
+    const { data, error } = await db.from('tenants').select('id, account_number, bank_code').eq('id', tenantId).maybeSingle()
     if (error) {
       console.error('slip verify: tenant lookup failed', tenantId, error)
       return NextResponse.json({ error: 'tenant lookup failed' }, { status: 500 })
     }
     if (!data) return NextResponse.json({ error: 'tenant not found' }, { status: 404 })
-    const { expected_amount, ...t } = data
-    tenant = t
-    tenantExpected = expected_amount != null ? Number(expected_amount) : undefined
+    tenant = data
   }
 
-  // an explicit expectedAmount wins over the tenant's default from Settings
-  const r = await processSlip(db, { file, qr, customerId, expectedAmount: expectedAmount ?? tenantExpected, tenant })
+  // Shared verification prefers server-side order totals; never use legacy shop defaults.
+  let r
+  try {
+    r = await processSlip(db, { file, qr, customerId, expectedAmount, tenant,
+      adminBypass: actor.kind === 'user' && isPlatformAdmin(actor) })
+  } catch (error) {
+    if (error instanceof FeatureLockedError) return featureLockedResponse(error.feature)
+    return bad(error instanceof Error ? error.message : 'อ่านข้อมูลตรวจสลิปไม่ได้ กรุณาลองอีกครั้ง', 503)
+  }
   if (r.failure) return NextResponse.json({ error: r.failure }, { status: 500 })
   if (r.crashed) return NextResponse.json({ id: r.id, status: 'error' }, { status: 500 })
   return NextResponse.json({ id: r.id, status: r.status, amount: r.amount, transRef: r.transRef, note: r.note })

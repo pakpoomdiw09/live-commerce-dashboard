@@ -19,12 +19,13 @@ function transferredAt(d: any): string | null {
 }
 
 /** One slip with what SlipOK read off it, plus a signed URL for the private image. Service-role client only. */
-export async function loadSlipDetail(db: SupabaseClient, id: string): Promise<SlipDetail | null> {
-  const { data, error } = await db
+export async function loadSlipDetail(db: SupabaseClient, id: string, tenantId?: string | null): Promise<SlipDetail | null> {
+  let query = db
     .from('slips')
     .select(`${SLIP_COLUMNS}, image_path, raw, tenants(name), customers(display_name)`)
     .eq('id', id)
-    .maybeSingle()
+  if (tenantId !== undefined) query = tenantId === null ? query.is('tenant_id', null) : query.eq('tenant_id', tenantId)
+  const { data, error } = await query.maybeSingle()
   if (error) throw new Error(`slip lookup failed: ${error.message}`)
   if (!data) return null
 

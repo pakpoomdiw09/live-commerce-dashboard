@@ -1,0 +1,19 @@
+import Link from 'next/link'
+import {supabaseAdmin} from '@/lib/supabase/server'
+import type {TenantRow} from '@/lib/types'
+import {PLANS,type Billing} from '@/lib/plans'
+import {ErrorMessage,EmptyState} from '@/components/ui/feedback'
+export async function PaymentChannelStatus({tenant,billing,security,canManage}:{tenant:TenantRow;billing:Billing;security:boolean;canManage:boolean}){
+ const db=supabaseAdmin()
+ const [qrAudit,bankAudit]=security&&canManage?await Promise.all([
+  db.from('payment_receiving_audit').select('id,action,created_at').eq('tenant_id',tenant.id).order('created_at',{ascending:false}).limit(50),
+  db.from('bank_account_audit').select('id,action,created_at').eq('tenant_id',tenant.id).order('created_at',{ascending:false}).limit(30),
+ ]):[{data:[],error:null},{data:[],error:null}]
+ const configured=!!process.env.SLIPOK_API_KEY?.trim()&&!!process.env.SLIPOK_BRANCH_ID?.trim()
+ const fields=[['ผู้ให้บริการตรวจสอบ',configured?'บันทึกการตั้งค่าในเซิร์ฟเวอร์แล้ว':'ยังไม่เชื่อมต่อ · ตั้งค่าไม่ครบ'],['การตรวจ ระบบเชื่อมต่อ สด','ยังไม่ได้ตรวจจากหน้านี้ ไม่มีการใช้เครดิต'],['แพ็กเกจปัจจุบัน',PLANS[billing.plan].name],['เครดิตตรวจสลิปคงเหลือ',Math.max(0,tenant.slip_quota+tenant.slip_quota_credits-tenant.slip_used).toLocaleString('th-TH')],['สิทธิ์แก้บัญชีและ QR',canManage?'เจ้าของร้าน / ผู้ดูแลที่ได้รับสิทธิ์':'ดูสถานะได้ · ไม่มีสิทธิ์ดูเลขเต็มหรือจัดการ QR']]
+ return <div className="grid min-w-0 gap-5 lg:grid-cols-2">
+  <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5"><h2 className="font-bold">{security?'การป้องกันและสิทธิ์':'สถานะการเชื่อมต่อและโควตา'}</h2><dl className="space-y-3 text-sm">{fields.map(([label,value])=><div key={label}><dt className="text-slate-500">{label}</dt><dd className="mt-1 font-medium">{value}</dd></div>)}</dl><Link href="/billing" className="inline-block text-sm text-orange-700 underline">ดูแพ็กเกจและเติมเครดิต</Link></section>
+  <section className="space-y-3 rounded-2xl border border-orange-100 bg-orange-50/40 p-5"><h2 className="font-bold">เงื่อนไขการตรวจสอบ</h2><ul className="list-disc space-y-3 pl-5 text-sm"><li>ตรวจสอบหลักฐานผ่านผู้ให้บริการรายเดิม โดยไม่ใช้ปัญญาประดิษฐ์หรือรูป QR เพื่อยืนยันการรับเงิน</li><li>ตรวจสอบยอดเงิน บัญชีรับเงิน และเลขอ้างอิงที่ซ้ำกัน ตามกลไกและการปรับปรุงฐานข้อมูลเดิม</li><li>หากข้อมูลไม่ครบ ผู้รับเงินไม่ตรง หรือผลการตรวจสอบไม่ชัดเจน รายการจะต้องรอการตรวจสอบ</li><li>คีย์ ระบบเชื่อมต่อ และสวิตช์เปิดส่งข้อความจริงจัดการโดยผู้ดูแลเซิร์ฟเวอร์ โดยไม่แสดงคีย์ในหน้านี้</li><li>ยังไม่ได้เชื่อมต่อบาร์โค้ดและช่องทางแจ้งเตือนใหม่</li></ul><p className="text-xs text-slate-500">สถานะตั้งค่าครบถ้วนไม่ได้ยืนยันว่าโควตาของผู้ให้บริการหรือการเชื่อมต่อจริงพร้อมใช้งาน</p></section>
+  {security&&<section className="space-y-3 rounded-2xl border border-orange-100 bg-white p-5 lg:col-span-2"><h2 className="font-bold">ประวัติความปลอดภัย</h2>{!canManage?<p className="text-sm text-slate-500">ประวัติแสดงเฉพาะเจ้าของร้านและแอดมินที่มีสิทธิ์</p>:<>{qrAudit.error||bankAudit.error?<ErrorMessage>โหลดประวัติบางส่วนไม่ได้ กรุณาตรวจการติดตั้งระบบ</ErrorMessage>:null}<div className="grid gap-4 md:grid-cols-2">{[[qrAudit,'การจัดการ QR · 50 รายการล่าสุด'],[bankAudit,'การแก้บัญชี · 30 รายการล่าสุด']].map(([result,title])=>{const rows=result as typeof qrAudit;return <div key={String(title)}><h3 className="text-sm font-semibold">{String(title)}</h3><ul className="mt-3 max-h-64 space-y-2 overflow-y-auto text-xs text-slate-500">{rows.data?.map(row=><li key={row.id}>{new Date(row.created_at).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'})} · {({generated:'สร้าง QR',imported:'นำเข้า QR',enabled:'เปิดใช้งาน',disabled:'ปิดใช้งาน',save:'บันทึกบัญชี',primary:'เปลี่ยนบัญชีหลัก',toggle:'เปลี่ยนสถานะบัญชี',delete:'ลบบัญชี'} as Record<string,string>)[row.action]||'เปลี่ยนการตั้งค่า'}</li>)}</ul>{!rows.error&&!rows.data?.length&&<EmptyState>ยังไม่มีประวัติ</EmptyState>}</div>})}</div></>}</section>}
+ </div>
+}

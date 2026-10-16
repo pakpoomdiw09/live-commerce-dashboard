@@ -1,3 +1,4 @@
+import { hasFeature, featureLockedResponse } from '@/lib/feature-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
@@ -21,6 +22,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const db = supabaseAdmin()
   const { data: current } = await db.from('customers').select('tenant_id').eq('id', id).maybeSingle()
   if (!current || !(await canAccessTenant(actor, current.tenant_id))) return bad('customer not found', 404)
+  if (!(await hasFeature(db, current.tenant_id, 'customer_management'))) return featureLockedResponse('customer_management')
 
   const { data, error } = await db.from('customers').update(parsed.value).eq('id', id).select(CUSTOMER_COLUMNS).maybeSingle()
   if (error) return bad(`บันทึกไม่สำเร็จ: ${error.message}`, 500)

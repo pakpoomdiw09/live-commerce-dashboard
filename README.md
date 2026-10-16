@@ -1,9 +1,9 @@
-# Live Commerce & Slip Verification Platform (Next.js 15 App Router, Tailwind, Supabase)
+# SnapBot - Live Commerce & AI Chatbot (Next.js 15 App Router, Tailwind, Supabase)
 
 แพลตฟอร์มหลายร้านค้า (multi-tenant) สำหรับไลฟ์ขายของผ่าน Facebook Page: รับแชท/คอมเมนต์, ระบบ CF ด้วยรหัสสินค้า, ตรวจสลิปอัตโนมัติด้วย SlipOK และแดชบอร์ดแอดมินแบบ Realtime
 
 ## รันครั้งแรก
-ต้องใช้ Node.js 18.18 ขึ้นไป (แนะนำ 22 ตาม `@supabase/*`)
+ต้องใช้ Node.js 20 ขึ้นไป (แนะนำ 22 หรือ 24)
 
 1. `npm install`
 2. สร้าง `.env.local` จาก `.env.example` แล้วกรอกค่า (`copy .env.example .env.local` บน Windows, `cp` บน macOS/Linux)
@@ -14,13 +14,28 @@
    3. `supabase/comment-rules.sql`: กฎตอบกลับคอมเมนต์
    4. `supabase/platform.sql`: การตั้งค่าร้าน, CRM, เครดิต, Page token รายร้าน
    5. `supabase/orders.sql`: สินค้าและออเดอร์ CF
-   6. `supabase/security.sql`: **สิทธิ์ทั้งหมด (RLS) ต้องรันเป็นไฟล์สุดท้ายเสมอ**
+   6. `supabase/automation.sql`: บอทตอบแชท, ทวงสลิปอัตโนมัติ, บรอดแคสต์, เซลเพจ (ตั้ง cron ทวงสลิปได้ที่ท้ายไฟล์)
+   7. `supabase/security.sql`: **สิทธิ์ทั้งหมด (RLS) ต้องรันเป็นไฟล์สุดท้ายเสมอ**
 4. ตั้งตัวเองเป็นผู้ดูแลแพลตฟอร์ม (SQL editor):
    ```sql
    insert into platform_admins (user_id) select id from auth.users where email = 'you@example.com' on conflict do nothing;
    ```
 5. ปิดการสมัครเอง: Supabase > Authentication > Sign In / Providers > ปิด **Allow new users to sign up** (ผู้ดูแลสร้างบัญชีให้ใน Authentication > Users)
 6. `npm run dev` แล้วเปิด http://localhost:3000 → "ตั้งค่าร้านค้า" สร้างร้านแรก: ใส่ Page Access Token ของเพจ (ระบบอ่าน Page ID ให้), บัญชีรับเงิน, เครดิต
+
+## AI Agent (Google Gemini)
+
+โหมด AI ในหน้า "ผู้ช่วยตอบบทสนทนา" ใช้ `@google/genai` และโมเดล `gemini-2.5-flash` ฝั่งเซิร์ฟเวอร์ ตั้งค่า API Key จาก Google AI Studio ใน `.env.local`:
+
+```dotenv
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+รีสตาร์ท `npm run dev` หลังตั้งค่า แล้วเลือกโหมด AI พร้อมกรอกข้อมูลร้านและคำแนะนำ ระบบส่งประวัติแชทล่าสุดและรายการสินค้าของร้านให้ Gemini และยังส่งต่อให้แอดมินหรือใช้ข้อความสำรองเมื่อ AI ตอบไม่ได้ ไม่มี SQL migration เพิ่มสำหรับการเปลี่ยน SDK นี้
+
+## ชำระค่าแพ็กเกจอัตโนมัติ
+
+หน้า `/billing` รองรับ QR พร้อมเพย์ตามยอด Starter 390 บาท / Pro 990 บาท และตรวจสลิปด้วย SlipOK เพื่อเพิ่มเครดิตและเปิดแพ็กเกจ 30 วันทันที ตั้งค่าผู้รับเงินจริงแทนค่า mock แล้วรัน `supabase/payments.sql` หลัง `billing.sql` และ `security.sql` ดูขั้นตอนและข้อกำหนดบัญชี SlipOK ที่ [payments-setup.md](supabase/payments-setup.md)
 
 ## สิทธิ์ผู้ใช้ (Multi-tenant)
 | บทบาท | เก็บที่ | ทำอะไรได้ |
@@ -75,7 +90,7 @@ Webhook หาร้านจาก `entry.id` (Page ID) → `tenants.page_id` �
 - บัญชีที่ล็อกอินได้แต่ไม่อยู่ใน `platform_admins` / `tenant_members` จะไม่เห็นข้อมูลใดๆ
 
 ## Webhook
-- ตั้ง Meta webhook ไปที่ `https://<โดเมน>/api/webhooks/facebook` ใส่ Verify token ให้ตรงกับ `FB_VERIFY_TOKEN` และ subscribe fields `messages`, `feed`
+- ตั้ง Meta webhook ไปที่ `https://<โดเมน>/api/webhook/facebook` ใส่ Verify token ให้ตรงกับ `FB_VERIFY_TOKEN` (หรือ `FACEBOOK_VERIFY_TOKEN`) และ subscribe fields `messages`, `feed`
 - ตอบ 200 ทันที แล้วประมวลผลใน `after()` (สูงสุด 60 วินาที) แต่ละ event มี try/catch ของตัวเอง event หนึ่งพังไม่กระทบ event อื่นใน batch
 - Page token ต้องมีสิทธิ์ `pages_messaging` (ตอบแชท) และ `pages_manage_engagement` (ตอบคอมเมนต์)
 - `FB_PAGE_TOKEN` ใน `.env.local` เป็น fallback สำหรับระบบเพจเดียวเท่านั้น และจะไม่ถูกใช้กับเพจอื่นนอกจาก `FB_PAGE_ID`

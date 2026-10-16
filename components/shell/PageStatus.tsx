@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState, useTransition } from 'react'
 import { ArrowLeftRight, Plus } from 'lucide-react'
 import { FacebookIcon } from '@/components/ui/FacebookIcon'
+import { FallbackImg } from '@/components/ui/FallbackImg'
 import { apiError, cn } from '@/lib/utils'
 
 export type ActivePage = {
@@ -64,15 +65,17 @@ export function PageStatus({ page }: { page: ActivePage | null }) {
   return (
     <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/20 backdrop-blur-sm">
       <div className="flex items-center gap-3">
-        {page.picture ? (
-          // Graph CDN URLs rotate, so next/image's domain allow-list isn't worth it here
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={page.picture} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover ring-2 ring-white" />
-        ) : (
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-[#1877f2] ring-2 ring-white">
-            <FacebookIcon className="h-5 w-5" />
-          </span>
-        )}
+        {/* no Page linked yet, Graph unreachable or an expired CDN URL: the Facebook mark instead */}
+        <FallbackImg
+          src={page.picture}
+          size={40}
+          className="h-10 w-10 max-w-10 shrink-0 rounded-full bg-white object-cover ring-2 ring-white"
+          fallback={
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#1877f2] ring-2 ring-white">
+              <FacebookIcon className="h-5 w-5" />
+            </span>
+          }
+        />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold text-white" title={page.name}>
             {page.name}

@@ -1,6 +1,8 @@
 import 'server-only'
 import { cache } from 'react'
+import { redirect } from 'next/navigation'
 import type { NextRequest } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
 import type { TenantRole } from '@/lib/types'
 
@@ -11,13 +13,20 @@ import type { TenantRole } from '@/lib/types'
  */
 export type Actor = { kind: 'internal' } | { kind: 'user'; id: string; isPlatformAdmin: boolean }
 
+/** Page/data-layer guard: verify the session before any dashboard data is loaded. */
+export const requireDashboardUser = cache(async () => {
+  const { data, error } = await (await supabaseServer()).auth.getUser()
+  if (error || !data.user) redirect('/login')
+  return data.user
+})
+
 /** The signed-in user, once per request. */
 const currentUser = cache(async (): Promise<{ id: string; isPlatformAdmin: boolean } | null> => {
   const { data } = await (await supabaseServer()).auth.getUser()
   if (!data.user) return null
   const { data: admin, error } = await supabaseAdmin().from('platform_admins').select('user_id').eq('user_id', data.user.id).maybeSingle()
   if (error) console.error('[auth] platform admin lookup failed (did you run supabase/security.sql?)', error.message)
-  return { id: data.user.id, isPlatformAdmin: !!admin }
+  return { id: data.user.id, isPlatformAdmin: !error && !!admin }
 })
 
 export async function getActor(req?: NextRequest): Promise<Actor | null> {
@@ -29,6 +38,16 @@ export async function getActor(req?: NextRequest): Promise<Actor | null> {
 
 export const isPlatformAdmin = (actor: Actor) => actor.kind === 'internal' || actor.isPlatformAdmin
 
+/** Background jobs have no signed-in actor: only an admin-owned tenant is exempt. */
+export async function tenantHasFeatureBypass(db: SupabaseClient, tenantId: string): Promise<boolean> {
+  const { data, error } = await db.rpc('tenant_has_feature_bypass', { p_tenant: tenantId })
+  if (error) {
+    console.error('[auth] feature bypass lookup unavailable', error.code)
+    return false
+  }
+  return data === true
+}
+
 /**
  * The actor's role in a tenant, or null without access. Rows not linked to any tenant
  * (tenantId null) belong to the platform: only admins may touch them.
@@ -36,6 +55,8 @@ export const isPlatformAdmin = (actor: Actor) => actor.kind === 'internal' || ac
 export async function tenantRole(actor: Actor, tenantId: string | null): Promise<TenantRole | null> {
   if (isPlatformAdmin(actor)) return 'admin'
   if (!tenantId || actor.kind !== 'user') return null
+  const { data: tenant, error: tenantError } = await supabaseAdmin().from('tenants').select('is_active').eq('id', tenantId).maybeSingle()
+  if (tenantError || tenant?.is_active !== true) return null
   const { data, error } = await supabaseAdmin()
     .from('tenant_members')
     .select('role')

@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export type SlipVerdict = 'valid' | 'duplicate' | 'amount_mismatch' | 'wrong_receiver' | 'fake' | 'error'
+export type SlipVerdict = Exclude<import('../domain-state').LegacySlipState, 'pending'>
 
 export type SlipResult = {
+  receiverVerifiedByProvider?: boolean
   verdict: SlipVerdict
   amount?: number
   transRef?: string
@@ -10,6 +11,7 @@ export type SlipResult = {
   receiverAccount?: string
   /** receiving bank as a numeric code (e.g. "006" for KTB) */
   receiverBank?: string
+  receiverProxy?: string
   /**
    * SlipOK rejected the slip only because the receiver isn't the branch's main account (1014),
    * and sent the slip data along. With per-tenant accounts the caller decides instead.
@@ -32,7 +34,7 @@ export type SlipResult = {
  */
 const PROVIDER_FAULT_CODES = new Set([1000, 1001, 1002, 1003, 1004, 1009, 1010])
 
-type Input = { file?: File; qr?: string; expectedAmount?: number }
+type Input = { file?: File; qr?: string; expectedAmount?: number; log?: boolean }
 
 /**
  * SlipOK "Check Slip": https://slipok.com/api-documentation/check-slip/
@@ -40,17 +42,17 @@ type Input = { file?: File; qr?: string; expectedAmount?: number }
  * For another provider (e.g. EasySlip) write a function with the same signature and map
  * its errors onto the same SlipVerdict values.
  */
-export async function verifyWithSlipOK({ file, qr, expectedAmount }: Input): Promise<SlipResult> {
+export async function verifyWithSlipOK({ file, qr, expectedAmount, log = true }: Input): Promise<SlipResult> {
   const headers: Record<string, string> = { 'x-authorization': process.env.SLIPOK_API_KEY! }
   let body: BodyInit
 
   if (qr) {
     headers['Content-Type'] = 'application/json'
-    body = JSON.stringify({ data: qr, log: true, ...(expectedAmount ? { amount: expectedAmount } : {}) })
+    body = JSON.stringify({ data: qr, log, ...(expectedAmount ? { amount: expectedAmount } : {}) })
   } else if (file) {
     const fd = new FormData()
     fd.append('files', file)
-    fd.append('log', 'true')
+    fd.append('log', String(log))
     if (expectedAmount) fd.append('amount', String(expectedAmount))
     body = fd // no Content-Type header: fetch sets the multipart boundary
   } else {
@@ -66,6 +68,7 @@ export async function verifyWithSlipOK({ file, qr, expectedAmount }: Input): Pro
       signal: AbortSignal.timeout(20_000),
     })
     json = await res.json()
+    if (!res.ok) return { verdict: 'error', note: 'SlipOK HTTP request failed', raw: json, providerFault: true }
   } catch (e) {
     // timeout, network error, or a non-JSON answer (gateway error page)
     return { verdict: 'error', note: 'เรียก SlipOK ไม่สำเร็จ ลองใหม่อีกครั้ง', raw: String(e), providerFault: true }
@@ -75,14 +78,15 @@ export async function verifyWithSlipOK({ file, qr, expectedAmount }: Input): Pro
     const receiver = data.receiver
     return {
       amount: data.amount != null ? Number(data.amount) : undefined,
-      transRef: data.transRef || undefined,
+      transRef: typeof data.transRef === 'string' ? data.transRef.trim() || undefined : undefined,
       receiverAccount: receiver?.account?.value || receiver?.proxy?.value || undefined,
+      receiverProxy: receiver?.proxy?.value || undefined,
       receiverBank: data.receivingBank ? String(data.receivingBank) : undefined,
     }
   }
 
   if (json?.success && json?.data?.success) {
-    return { verdict: 'valid', ...slipData(json.data), raw: json }
+    return { verdict: 'valid', ...slipData(json.data), receiverVerifiedByProvider: log && json.success === true && json.data.success === true, raw: json }
   }
 
   // Error codes: https://slipok.com/api-documentation/error-status-code/

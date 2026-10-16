@@ -1,4 +1,4 @@
-import type { OrderStatus, SlipStatus } from './types'
+import type { CfOrderStatus, OrderStatus, SlipStatus } from './types'
 
 /** Status tones are reserved for state: never reuse them for decoration. Always shown with a label. */
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
@@ -37,3 +37,11 @@ export const STALE_PENDING_MS = 3 * 60_000
 
 /** Slip statuses an admin may still approve by hand (e.g. a bank delay made it 'fake'). */
 export const APPROVABLE: SlipStatus[] = ['valid', 'amount_mismatch', 'wrong_receiver', 'fake', 'error']
+
+/** CF orders (orders table), as opposed to the per-customer order_status above. */
+export const CF_ORDER_STATUS: Record<CfOrderStatus, { label: string; tone: Tone }> = {
+  pending_payment: { label: 'รอชำระ', tone: 'warning' },
+  paid: { label: 'ชำระแล้ว', tone: 'success' },
+  shipped: { label: 'จัดส่งแล้ว', tone: 'info' },
+  cancelled: { label: 'ยกเลิก', tone: 'neutral' },
+}

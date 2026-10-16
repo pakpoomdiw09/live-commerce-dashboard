@@ -1,15 +1,18 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useState } from 'react'
-import { Bot, Coins, KeyRound, Landmark, MessageSquareReply, Save, Store, Target } from 'lucide-react'
-import { BankLogo } from '@/components/BankLogo'
+import { Bot, CheckCircle2, Coins, KeyRound, Landmark, LockKeyhole, MessageSquareReply, RefreshCw, Save, Store } from 'lucide-react'
+import { canUseAutoSlip, PLANS, type Billing } from '@/lib/plans'
+import { BankSelector } from '@/components/BankSelector'
+import { BankAccountsManager } from '@/components/settings/BankAccountsManager'
 import { FacebookIcon } from '@/components/ui/FacebookIcon'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
-import { BANKS } from '@/lib/banks'
 import type { PageProfile } from '@/lib/facebook'
-import type { TenantRole, TenantRow } from '@/lib/types'
+import type { ConnectedPageInfo } from '@/lib/tenant'
+import type { PageConnectionStatus, TenantRole, TenantRow } from '@/lib/types'
 import { apiError, cn } from '@/lib/utils'
 
 const input =
@@ -22,28 +25,46 @@ const input =
  */
 export function TenantSettingsForm({
   tenant,
+  billing,
+  slipCredits,
   pages,
+  connected = null,
   isFirst,
   role,
+  section = 'create',
+  connectionStatus = 'unverified',
+  embedded = false,
 }: {
   tenant: TenantRow | null
+  billing: Billing | null
+  slipCredits: { quota: number; used: number }
   pages: PageProfile[]
+  /** new tenant for a Page connected with Facebook: its token is filled in by the server */
+  connected?: ConnectedPageInfo | null
   isFirst: boolean
   role: TenantRole
+  section?: 'facebook' | 'bank-slip' | 'create'
+  connectionStatus?: PageConnectionStatus
+  embedded?: boolean
 }) {
   const router = useRouter()
   const isOwner = role === 'owner' || role === 'admin'
   const isAdmin = role === 'admin'
-  const [name, setName] = useState(tenant?.name ?? '')
-  const [pageId, setPageId] = useState(tenant?.page_id ?? '')
+  const showFacebook = section !== 'bank-slip'
+  const showBankSlip = section !== 'facebook'
+  const [editingPage, setEditingPage] = useState(section === 'create')
+  const [name, setName] = useState(tenant?.name ?? connected?.name ?? '')
+  const [pageId, setPageId] = useState(tenant?.page_id ?? connected?.page_id ?? '')
   const [pageToken, setPageToken] = useState('') // write-only: the saved token is never sent back
   const [bankCode, setBankCode] = useState(tenant?.bank_code ?? 'KBANK')
   const [accountName, setAccountName] = useState(tenant?.account_name ?? '')
   const [accountNumber, setAccountNumber] = useState(tenant?.account_number ?? '')
-  const [expected, setExpected] = useState(tenant?.expected_amount != null ? String(tenant.expected_amount) : '')
-  const [autoVerify, setAutoVerify] = useState(tenant?.auto_verify_enabled ?? true)
+  const creditsLeft = Math.max(slipCredits.quota - slipCredits.used, 0)
+  const slipAllowed = isAdmin || (billing !== null && canUseAutoSlip(billing, creditsLeft))
+  const [autoVerifyDraft, setAutoVerify] = useState(tenant?.auto_verify_enabled ?? false)
+  const autoVerify = slipAllowed && autoVerifyDraft
   const [autoReply, setAutoReply] = useState(tenant?.auto_reply_enabled ?? true)
-  const [quota, setQuota] = useState(String(tenant?.slip_quota ?? 500))
+  const [quota, setQuota] = useState(String(tenant ? tenant.slip_quota : 500))
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string; warnings?: string[] } | null>(null)
 
@@ -55,19 +76,15 @@ export function TenantSettingsForm({
     setSaving(true)
     setResult(null)
     // only what this role may change: the API refuses the rest
-    const body: Record<string, unknown> = { auto_verify_enabled: autoVerify, auto_reply_enabled: autoReply }
+    const body: Record<string, unknown> = showBankSlip ? { auto_verify_enabled: autoVerify, auto_reply_enabled: autoReply } : {}
     if (isOwner) {
-      Object.assign(body, {
-        name,
-        page_id: pageId,
-        bank_code: bankCode,
-        account_name: accountName,
-        account_number: accountNumber,
-        expected_amount: expected,
-      })
-      if (pageToken.trim()) body.page_access_token = pageToken.trim()
+      if (showFacebook) {
+        Object.assign(body, { name, page_id: pageId })
+        if (pageToken.trim()) body.page_access_token = pageToken.trim()
+      }
+      if (showBankSlip && !tenant) Object.assign(body, { bank_code: bankCode, account_name: accountName, account_number: accountNumber })
     }
-    if (isAdmin) body.slip_quota = Number(quota)
+    if (isAdmin && showBankSlip) body.slip_quota = Number(quota)
     try {
       const res = await fetch(tenant ? `/api/tenants/${tenant.id}` : '/api/tenants', {
         method: tenant ? 'PATCH' : 'POST',
@@ -78,12 +95,14 @@ export function TenantSettingsForm({
       const { tenant: saved, warnings = [] } = (await res.json()) as { tenant: TenantRow; warnings?: string[] }
       if (!tenant) {
         // switch to the new tenant right away
-        await fetch('/api/tenants/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: saved.id }) })
+        const selected = await fetch('/api/tenants/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: saved.id }) })
+        if (!selected.ok) throw new Error(await apiError(selected))
         router.replace('/settings')
       }
       // the server may fill the Page ID in from the token
       setPageId(saved.page_id ?? '')
       setPageToken('')
+      setEditingPage(false)
       setResult({ ok: true, text: tenant ? 'บันทึกการตั้งค่าแล้ว' : 'สร้างร้านค้าแล้ว', warnings })
       router.refresh()
     } catch (err) {
@@ -94,22 +113,68 @@ export function TenantSettingsForm({
   }
 
   return (
-    <form onSubmit={save} className="mx-auto w-full max-w-4xl space-y-6 p-4 pb-28 md:p-8 md:pb-28">
-      <PageHeader
-        title={tenant ? 'ตั้งค่าร้านค้า & บัญชีธนาคาร' : isFirst ? 'สร้างร้านค้าแรก' : 'เพิ่มร้านค้าใหม่'}
-        description={tenant ? `การตั้งค่าของ ${tenant.name} ใช้กับสลิปทุกใบที่ส่งเข้าเพจนี้` : 'ผูกเพจ Facebook กับบัญชีรับเงิน เพื่อให้ระบบตรวจสลิปของร้านนี้ได้'}
-      />
+    <form onSubmit={save} className={cn('mx-auto w-full max-w-4xl space-y-6 pb-28', !embedded && 'p-4 md:p-8 md:pb-28')}>
+      {!(embedded&&section==='bank-slip')&&<PageHeader
+        title={tenant ? (showFacebook ? 'ข้อมูลร้านค้า & เชื่อมต่อเพจ' : 'บัญชีรับเงิน & ตรวจสลิป') : isFirst ? 'สร้างร้านค้าแรก' : 'เพิ่มร้านค้าใหม่'}
+        description={tenant ? `การตั้งค่าของ ${tenant.name}` : 'เชื่อมต่อเพจและตั้งค่าบัญชีรับเงินสำหรับร้านใหม่'}
+        action={tenant ? <Link href={showFacebook ? '/slips?tab=settings' : '/settings'} className="text-sm font-medium text-emerald-700 underline">{showFacebook ? 'ตั้งค่าบัญชีรับเงิน & ตรวจสลิป' : 'ตั้งค่า Facebook Page'}</Link> : undefined}
+      />}
+
+      {result && (
+        <div role={result.ok ? 'status' : 'alert'} aria-live={result.ok ? 'polite' : 'assertive'} className={cn('flex items-start gap-3 rounded-2xl px-5 py-4 text-sm ring-1', result.ok ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-rose-50 text-rose-800 ring-rose-200')}>
+          {result.ok && <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />}
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">{result.text}</p>
+            {result.ok && tenant && <p className="mt-1 text-xs">บันทึกสำหรับเพจ {tenant.page_name ?? tenant.name} แล้ว</p>}
+            {result.warnings?.map((warning) => <p key={warning} className="mt-1 text-xs text-amber-700">{warning}</p>)}
+          </div>
+          <button type="button" aria-label="ปิดแจ้งเตือน" onClick={() => setResult(null)} className="rounded-lg px-2 py-1 text-xs font-medium hover:bg-white/60">ปิด</button>
+        </div>
+      )}
 
       {!isOwner && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
-          บัญชีพนักงานเปลี่ยนได้เฉพาะระบบอัตโนมัติ การตั้งค่าอื่นแก้ได้โดยเจ้าของร้าน
+          {showBankSlip ? 'บัญชีพนักงานเปลี่ยนได้เฉพาะระบบอัตโนมัติ การตั้งค่าอื่นแก้ได้โดยเจ้าของร้าน' : 'Facebook Page และ Access Token แก้ได้โดยเจ้าของร้านหรือผู้ดูแลแพลตฟอร์ม'}
         </p>
       )}
 
       {/* owner-only settings: a disabled fieldset disables every control inside */}
       <fieldset disabled={!isOwner} className="min-w-0 space-y-6">
-      <Card>
-        <CardHeader title={<Title icon={Store}>ข้อมูลร้านค้า</Title>} />
+      {showFacebook && (
+      <Card className="overflow-hidden rounded-3xl border-orange-100 shadow-lg shadow-orange-100/40">
+        {tenant && <>
+          <div className="bg-gradient-to-br from-orange-50 via-pink-50 to-white p-6 sm:p-8">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+              {linkedPage?.picture ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={linkedPage.picture} alt={`รูปโปรไฟล์ ${linkedPage.name}`} className="h-20 w-20 rounded-2xl object-cover shadow-sm ring-4 ring-white" />
+              ) : <span className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl bg-white shadow-sm"><FacebookIcon className="h-10 w-10 text-[#1877f2]" /></span>}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-orange-600">Facebook Page</p>
+                <h2 className="mt-1 break-words text-xl font-semibold text-slate-900">{linkedPage?.name ?? tenant.page_name ?? tenant.name}</h2>
+                <p className="mt-1 break-all text-sm text-slate-500">Page ID: <span className="font-mono">{tenant.page_id ?? 'ยังไม่ได้เลือกเพจ'}</span></p>
+                <span className={cn('mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ring-1',
+                  connectionStatus === 'verified' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-800 ring-amber-200')}>
+                  <FacebookIcon className="h-3.5 w-3.5" />
+                  {connectionStatus === 'verified' ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />เชื่อมต่อเรียบร้อยแล้ว (Connected)</> :
+                    connectionStatus === 'missing-page' ? 'ยังไม่ได้เลือกเพจ' : connectionStatus === 'missing-token' ? 'ยังไม่ได้เชื่อมต่อเพจ' :
+                    connectionStatus === 'invalid' ? 'กรุณาเชื่อมต่อเพจใหม่' : connectionStatus === 'limited' ? 'เชื่อมต่อแล้ว · สิทธิ์ยังไม่ครบ' : 'ยังยืนยันการเชื่อมต่อไม่ได้'}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-orange-100 px-6 py-5">
+            <div><p className="flex items-center gap-2 text-xs font-medium text-slate-500"><KeyRound className="h-4 w-4" aria-hidden />Access Token</p>
+              <p className="mt-1 tracking-widest text-slate-700" aria-label={tenant.page_token_set ? 'บันทึก Access Token แล้ว' : 'ยังไม่มี Access Token'}>{tenant.page_token_set ? '••••••••' : 'ยังไม่ได้ตั้งค่า'}</p>
+            </div>
+            <Button variant="secondary" disabled={!isOwner} aria-expanded={editingPage} aria-controls="facebook-page-editor" onClick={() => setEditingPage(!editingPage)} className="rounded-xl border border-orange-200 text-orange-700">
+              <RefreshCw className="h-4 w-4" aria-hidden />{editingPage ? 'ปิดส่วนแก้ไข' : 'เปลี่ยนเพจ / เชื่อมต่อใหม่'}
+            </Button>
+          </div>
+        </>}
+        {editingPage && <div id="facebook-page-editor" className="border-t border-slate-100">
+        <CardHeader title={<Title icon={Store}>{tenant ? 'แก้ไขการเชื่อมต่อเพจ' : 'ข้อมูลร้านค้า'}</Title>} />
+        {tenant && <div className="px-5 pt-3"><Link href="/select-page" className="inline-flex items-center gap-2 rounded-xl bg-blue-50 px-4 py-2 text-sm font-medium text-[#1877f2]"><FacebookIcon className="h-4 w-4" />เลือกเพจ / เชื่อมต่อผ่าน Facebook</Link></div>}
         <div className="grid gap-4 p-5 sm:grid-cols-2">
           <Field label="ชื่อร้านค้า" required>
             <input className={input} value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} placeholder="เช่น ร้านเสื้อผ้า Live สด" />
@@ -130,7 +195,9 @@ export function TenantSettingsForm({
             <Field
               label="Page Access Token"
               hint={
-                tenant?.page_token_set
+                connected && !tenant
+                  ? `ใช้ token จากการเชื่อมต่อ Facebook ของเพจ ${connected.name} ให้อัตโนมัติ เว้นว่างได้`
+                  : tenant?.page_token_set
                   ? 'บันทึก token แล้ว (ไม่แสดงเพื่อความปลอดภัย) ใส่ใหม่เมื่อต้องการเปลี่ยน · เปลี่ยน Page ID โดยไม่ใส่ token ใหม่ = ลบ token เดิม'
                   : 'ใช้ตอบแชท ส่งการ์ดยืนยัน และตอบคอมเมนต์ของเพจนี้ (ต้องมีสิทธิ์ pages_messaging, pages_manage_engagement)'
               }
@@ -149,29 +216,14 @@ export function TenantSettingsForm({
             </Field>
           </div>
         </div>
+        </div>}
       </Card>
-
-      <Card>
+      )}
+      {showBankSlip && <>
+      {tenant ? <BankAccountsManager key={tenant.id} tenantId={tenant.id} canManage={isOwner} /> : <Card>
         <CardHeader title={<Title icon={Landmark}>บัญชีรับเงิน</Title>} description="สลิปต้องโอนเข้าบัญชีนี้เท่านั้น (ใช้ตรวจ wrong_receiver)" />
         <div className="space-y-5 p-5">
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-slate-600">ธนาคาร</legend>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {BANKS.map((b) => (
-                <label
-                  key={b.code}
-                  className={cn(
-                    'flex cursor-pointer items-center gap-2.5 rounded-xl p-2.5 text-xs ring-1 transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-emerald-500',
-                    bankCode === b.code ? 'bg-emerald-50/60 font-medium text-slate-900 ring-2 ring-emerald-500' : 'text-slate-600 ring-slate-200 hover:ring-slate-300',
-                  )}
-                >
-                  <input type="radio" name="bank" value={b.code} checked={bankCode === b.code} onChange={() => setBankCode(b.code)} className="sr-only" />
-                  <BankLogo code={b.code} />
-                  <span className="leading-tight">{b.name}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          <BankSelector value={bankCode} onChange={setBankCode} disabled={saving || !isOwner} label="ธนาคาร" />
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="ชื่อบัญชี">
               <input className={input} value={accountName} onChange={(e) => setAccountName(e.target.value)} maxLength={120} placeholder="ชื่อ-นามสกุล / ชื่อบริษัท" />
@@ -188,28 +240,31 @@ export function TenantSettingsForm({
             </Field>
           </div>
         </div>
-      </Card>
+      </Card>}
 
-      <Card>
-        <CardHeader title={<Title icon={Target}>ยอดที่คาดหวัง</Title>} description="ยอดมัดจำ / ยอดสินค้าที่สลิปต้องตรง ปล่อยว่างถ้ายอดแต่ละออเดอร์ไม่เท่ากัน" />
-        <div className="p-5 sm:w-1/2">
-          <Field label="ยอดเงิน (บาท)">
-            <input className={input} type="number" min="0.01" step="0.01" inputMode="decimal" value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="ไม่ตรวจยอด" />
-          </Field>
-          <p className="mt-2 text-[11px] text-slate-400">ลูกค้าที่มีออเดอร์ CF ค้างชำระ ระบบใช้ยอดรวมของออเดอร์แทนค่านี้</p>
-        </div>
-      </Card>
+      </>}
       </fieldset>
-
+      {showBankSlip && <>
       <Card>
         <CardHeader title={<Title icon={Bot}>ระบบอัตโนมัติ</Title>} />
+        {!slipAllowed && (
+          <div id="slip-upgrade-hint" role="status" className="mx-5 mb-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900 ring-1 ring-amber-200">
+            <p className="flex items-center gap-2 font-medium"><LockKeyhole className="h-4 w-4" aria-hidden />ระบบตรวจสลิปอัตโนมัติถูกล็อก</p>
+            <p className="mt-1">แพ็กเกจปัจจุบัน: {billing ? PLANS[billing.plan].name : 'Free'} · เครดิตตรวจสลิปคงเหลือ {creditsLeft.toLocaleString('th-TH')}</p>
+            {(!billing || !canUseAutoSlip(billing, 1)) && <p className="mt-1">กรุณาอัปเกรดหรือต่ออายุแพ็กเกจ Starter หรือ Pro เพื่อเปิดใช้งาน</p>}
+            {creditsLeft === 0 && <p className="mt-1">กรุณาเติมเครดิตตรวจสลิปโดยติดต่อผู้ดูแลแพลตฟอร์ม เครดิตบรอดแคสต์เป็นคนละประเภท</p>}
+            <Link href="/billing" className="mt-2 inline-block font-semibold underline">ดูแพ็กเกจ / เติมเครดิต</Link>
+          </div>
+        )}
         <div className="divide-y divide-slate-100">
           <ToggleRow
             icon={Bot}
             title="SlipOK Auto-Pilot (ตรวจสลิปอัตโนมัติ)"
             description="ตรวจรูปสลิปที่ลูกค้าส่งในแชททันที ปิดแล้วแอดมินกดตรวจเองจากกล่องข้อความ"
             checked={autoVerify}
-            onChange={setAutoVerify}
+            disabled={!slipAllowed}
+            describedBy={!slipAllowed ? 'slip-upgrade-hint' : undefined}
+            onChange={(value) => { if (slipAllowed) setAutoVerify(value) }}
           />
           <ToggleRow
             icon={MessageSquareReply}
@@ -232,27 +287,17 @@ export function TenantSettingsForm({
               <input className={input} type="number" min={0} step={1} value={quota} onChange={(e) => setQuota(e.target.value)} required />
             </Field>
           ) : (
-            <Stat label="โควตาทั้งหมด" value={tenant?.slip_quota ?? 0} />
+            <Stat label="โควตาทั้งหมด" value={slipCredits.quota} />
           )}
-          <Stat label="ใช้ไปแล้ว" value={tenant?.slip_used ?? 0} />
-          <Stat label="คงเหลือ" value={Math.max(Number(quota || 0) - (tenant?.slip_used ?? 0), 0)} />
+          <Stat label="ใช้ไปแล้ว" value={slipCredits.used} />
+          <Stat label="คงเหลือ" value={creditsLeft} />
         </div>
       </Card>
-
+      </>}
       {/* sticky save bar */}
       <div className="sticky bottom-4 z-10 flex items-center justify-end gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-lg backdrop-blur">
-        {result && (
-          <div role="status" className="mr-auto min-w-0 px-2 text-sm">
-            <p className={result.ok ? 'text-emerald-700' : 'text-rose-700'}>{result.text}</p>
-            {/* saved, but some features won't work with this token (missing permissions, expiry) */}
-            {result.warnings?.map((w) => (
-              <p key={w} className="mt-0.5 text-xs text-amber-700">
-                ⚠ {w}
-              </p>
-            ))}
-          </div>
-        )}
-        <Button type="submit" loading={saving}>
+        {result && <p className={cn('mr-auto px-2 text-sm', result.ok ? 'text-emerald-700' : 'text-rose-700')}>{result.text}</p>}
+        <Button type="submit" size="lg" loading={saving} disabled={!showBankSlip && !isOwner} className={section === 'facebook' ? 'rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 px-6 shadow-lg shadow-orange-200/60 hover:from-orange-600 hover:to-pink-600 focus-visible:outline-orange-500' : undefined}>
           {!saving && <Save className="h-4 w-4" aria-hidden />}
           {tenant ? 'บันทึกการตั้งค่า' : 'สร้างร้านค้า'}
         </Button>
@@ -298,12 +343,16 @@ function ToggleRow({
   description,
   checked,
   onChange,
+  disabled = false,
+  describedBy,
 }: {
   icon: typeof Store
   title: string
   description: string
   checked: boolean
   onChange: (v: boolean) => void
+  disabled?: boolean
+  describedBy?: string
 }) {
   return (
     <div className="flex items-start gap-4 p-5">
@@ -319,9 +368,12 @@ function ToggleRow({
         role="switch"
         aria-checked={checked}
         aria-label={title}
+        aria-describedby={describedBy}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
           'inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600',
+          'disabled:cursor-not-allowed disabled:opacity-50',
           checked ? 'bg-emerald-500' : 'bg-slate-300',
         )}
       >

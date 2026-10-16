@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/server'
 import { getActor, isPlatformAdmin } from '@/lib/auth'
-import { checkPageToken } from '@/lib/tenant'
+import { checkPageToken, getTenantsForActor } from '@/lib/tenant'
 import { parseTenantInput } from '@/lib/validation'
 import { TENANT_COLUMNS } from '@/lib/types'
 
@@ -13,11 +13,9 @@ const bad = (error: string, status = 400) => NextResponse.json({ error }, { stat
 export async function GET(req: NextRequest) {
   const actor = await getActor(req)
   if (!actor) return bad('unauthorized', 401)
-  // a signed-in user reads through RLS, which already limits the list to their tenants
-  const db = actor.kind === 'internal' ? supabaseAdmin() : await supabaseServer()
-  const { data, error } = await db.from('tenants').select(TENANT_COLUMNS).order('created_at')
-  if (error) return bad(error.message, 500)
-  return NextResponse.json({ tenants: data })
+  const { tenants, error } = await getTenantsForActor(actor)
+  if (error) return bad(error, 503)
+  return NextResponse.json({ tenants }, { headers: { 'Cache-Control': 'private, no-store' } })
 }
 
 /**

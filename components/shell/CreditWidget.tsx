@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { Coins } from 'lucide-react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import { cn } from '@/lib/utils'
 
@@ -25,9 +24,9 @@ export function CreditWidget({ tenantId, used: initialUsed, quota: initialQuota 
       // several slips in a burst: one read
       clearTimeout(timer)
       timer = setTimeout(async () => {
-        const { data, error } = await db.from('tenants').select('slip_used, slip_quota').eq('id', tenantId).maybeSingle()
+        const { data, error } = await db.from('tenants').select('slip_used, slip_quota, slip_quota_credits').eq('id', tenantId).maybeSingle()
         if (error) return console.error('[credits] reload failed', error)
-        if (data) setCredit({ used: data.slip_used, quota: data.slip_quota })
+        if (data) setCredit({ used: data.slip_used, quota: data.slip_quota + data.slip_quota_credits })
       }, 500)
     }
     const channel = db
@@ -46,10 +45,7 @@ export function CreditWidget({ tenantId, used: initialUsed, quota: initialQuota 
   return (
     <div className="rounded-xl bg-white p-3.5 ring-1 ring-slate-200">
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-          <Coins className="h-3.5 w-3.5" aria-hidden />
-          เครดิตตรวจสลิป
-        </span>
+        <p className="block text-sm font-medium text-slate-700">เครดิตตรวจสลิป</p>
         {low && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">ใกล้หมด</span>}
       </div>
       <p className="mt-2 text-lg font-semibold text-slate-900 tabular-nums" aria-live="polite">
@@ -66,7 +62,7 @@ export function CreditWidget({ tenantId, used: initialUsed, quota: initialQuota 
       >
         <div className={cn('h-full rounded-full transition-[width]', low ? 'bg-amber-500' : 'bg-emerald-500')} style={{ width: `${pct}%` }} />
       </div>
-      <Link href="/settings#credits" className="mt-2 inline-block text-[11px] font-medium text-emerald-700 hover:underline">
+      <Link href="/slips?tab=settings#credits" className="mt-2 inline-block text-[11px] font-medium text-emerald-700 hover:underline">
         จัดการเครดิต
       </Link>
     </div>

@@ -52,8 +52,8 @@ export function AutoPilotToggle({ tenant }: { tenant: ActiveTenant | null }) {
         )}
       >
         <Bot className="h-3.5 w-3.5" aria-hidden />
-        <span className="hidden sm:inline">SlipOK Auto-Pilot</span>
-        <span className="sm:hidden">Auto-Pilot</span>
+        <span className="hidden sm:inline">ตรวจสลิปอัตโนมัติ</span>
+        <span className="sm:hidden">ตรวจสลิป</span>
         <span className={cn('flex h-5 w-9 items-center rounded-full p-0.5 transition-colors', on ? 'bg-emerald-500' : 'bg-slate-300')}>
           <span className={cn('h-4 w-4 rounded-full bg-white shadow transition-transform', on && 'translate-x-4')} />
         </span>
