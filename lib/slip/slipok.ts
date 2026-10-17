@@ -68,10 +68,10 @@ export async function verifyWithSlipOK({ file, qr, expectedAmount, log = true }:
       signal: AbortSignal.timeout(20_000),
     })
     json = await res.json()
-    if (!res.ok) return { verdict: 'error', note: 'SlipOK HTTP request failed', raw: json, providerFault: true }
+    if (!res.ok) return { verdict: 'error', note: 'ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่ภายหลัง', raw: json, providerFault: true }
   } catch (e) {
     // timeout, network error, or a non-JSON answer (gateway error page)
-    return { verdict: 'error', note: 'เรียก SlipOK ไม่สำเร็จ ลองใหม่อีกครั้ง', raw: String(e), providerFault: true }
+    return { verdict: 'error', note: 'ตรวจสอบสลิปผ่านระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง', raw: String(e), providerFault: true }
   }
 
   const slipData = (data: any) => {
@@ -90,7 +90,7 @@ export async function verifyWithSlipOK({ file, qr, expectedAmount, log = true }:
   }
 
   // Error codes: https://slipok.com/api-documentation/error-status-code/
-  const base = { raw: json, note: typeof json?.message === 'string' ? json.message : undefined }
+  const base = { raw: json, note: typeof json?.message === 'string' ? json.message.replace(/slip\s*ok/gi, 'ระบบตรวจสอบสลิปอัตโนมัติ') : undefined }
   const slip = json?.data // 1012 also returns the original slip's data
   const code = Number(json?.code)
   switch (code) {

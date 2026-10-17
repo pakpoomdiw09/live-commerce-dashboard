@@ -13,10 +13,10 @@ export function CommentsFeed({ comments, onBack }: { comments: CommentItem[]; on
           <Button variant="ghost" size="icon" onClick={onBack} aria-label="กลับไปแชท">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="font-semibold">คอมเมนต์จากโพสต์ ({comments.length})</h1>
+          <h1 className="font-semibold">ความคิดเห็นจากโพสต์ ({comments.length})</h1>
         </div>
         <ul className="scrollbar-thin min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
-          {comments.length === 0 && <li className="p-10 text-center text-sm text-slate-500">ยังไม่มีคอมเมนต์ใหม่</li>}
+          {comments.length === 0 && <li className="p-10 text-center text-sm text-slate-500">ยังไม่มีความคิดเห็นใหม่</li>}
           {comments.map((k) => (
             <li key={k.id} className="px-5 py-4 text-sm">
               <div className="flex items-baseline gap-2">

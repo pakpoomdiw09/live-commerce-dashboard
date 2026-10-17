@@ -13,7 +13,8 @@ test('all eight Thai menu buttons switch content without invoking any network or
  for(let i=0;i<guide.agentTabs.length;i++){
   let tree=render();const menu=tree.find(n=>n.type==='nav');const buttons=nodes(menu.props.children).filter(n=>n.type==='button');assert.equal(buttons.length,8)
   buttons[i].props.onClick();tree=render();assert.equal(tree.find(n=>n.type==='button'&&n.props['aria-current']==='page').props.children,guide.agentTabs[i][0])
-  assert.ok(tree.some(n=>n.type==='h2'&&n.props.children===guide.agentTabs[i][0]))
+  assert.equal(tree.filter(n=>n.type==='h2'&&n.props.children===guide.agentTabs[0][0]).length,i===0?1:0)
+  assert.equal(tree.filter(n=>n.type==='p'&&n.props.children===guide.agentTabs[0][1]).length,i===0?1:0)
   assert.equal(tree.some(n=>n.props.children==='keyword-editor-marker'),i===2)
  }
 })

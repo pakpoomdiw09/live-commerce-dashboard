@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { ArrowLeft, PanelRightOpen, ScanLine } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,12 +10,14 @@ import { apiError, clock, cn, customerName, dayLabel, sameDay } from '@/lib/util
 import { AutoPilotToggle } from './AutoPilotToggle'
 import { Avatar } from './Avatar'
 import type { ActiveTenant } from './InboxClient'
+import {useChatScroll} from './useChatScroll'
+import {WorkspaceTools} from './WorkspaceTools'
 import { ReplyBox } from './ReplyBox'
 import { SlipStatusCard } from './SlipStatusCard'
 import {ConversationActions} from './ConversationActions'
 import type {InboxState,ConversationState} from '@/lib/inbox-types'
 
-const SENDER = { customer: 'ลูกค้า', bot: 'บอท', agent: 'แอดมิน' } as const
+const SENDER = { customer: 'ลูกค้า', bot: "ระบบอัตโนมัติ", agent: 'แอดมิน' } as const
 const BUBBLE = {
   customer: 'rounded-bl-md bg-white text-slate-800 ring-1 ring-slate-200',
   bot: 'rounded-br-md bg-orange-100 text-orange-950 ring-1 ring-orange-200',
@@ -35,6 +37,7 @@ export function Conversation({
   onRetry,
   onBack,
   onOpenInspector,
+  inspectorOpen=false,
   onFocusSlip,
   className,
   inbox,conversationState,onStateChange,onLoadOlder,hasOlder,olderLoading,olderError,
@@ -47,6 +50,7 @@ export function Conversation({
   focusedSlipId: string | null
   onRetry: () => void
   onBack: () => void
+  inspectorOpen?:boolean
   onOpenInspector: () => void
   onFocusSlip: (id: string) => void
   className?: string
@@ -58,10 +62,7 @@ export function Conversation({
   olderLoading:boolean
   olderError:string
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const scrollRef=useRef<HTMLDivElement>(null)
-  const previousScroll=useRef({first:'',last:'',height:0,customer:''})
-
+  const {viewport:scrollRef,content:messageList,onScroll,latest}=useChatScroll(customer?.id,messages)
   const { items, slipsByMessage } = useMemo(() => {
     const byMessage = new Map<string, SlipRow[]>()
     const loaded = new Set(messages.map((m) => m.id))
@@ -75,13 +76,6 @@ export function Conversation({
     return { items: all, slipsByMessage: byMessage }
   }, [messages, slips])
 
-  useEffect(() => {
-    const el=scrollRef.current;if(!el)return
-    const prior=previousScroll.current,first=messages[0]?.id??'',last=messages.at(-1)?.id??''
-    if(prior.customer===customer?.id&&prior.last===last&&prior.first!==first&&prior.first)el.scrollTop+=el.scrollHeight-prior.height
-    else if(prior.customer!==customer?.id||el.scrollHeight-el.scrollTop-el.clientHeight<300||messages.at(-1)?.sender==='agent')bottomRef.current?.scrollIntoView({block:'end'})
-    previousScroll.current={first,last,height:el.scrollHeight,customer:customer?.id??''}
-  }, [messages,customer?.id,items.length])
 
   if (!customer) {
     return (
@@ -91,28 +85,21 @@ export function Conversation({
     )
   }
 
+  const assigned=conversationState?conversationState.assigned_user_id:customer.assigned_user_id
+  const botActive=(conversationState?.bot_enabled??customer.bot_enabled)&&tenant?.autoReply!==false
+  const closed=(conversationState?.conversation_status??customer.conversation_status)==='closed'
+  const handler=closed?'ปิดแชทแล้ว':assigned?'แอดมินรับช่วงแล้ว':botActive?"ระบบอัตโนมัติดูแลอยู่":'รอแอดมินรับช่วง'
   return (
-    <section data-testid="inbox-thread" aria-label={`แชทกับ ${customerName(customer)}`} className={cn('min-h-0 flex-col bg-slate-50', className)}>
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label="กลับไปรายชื่อแชท" className="md:hidden">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <Avatar c={customer} />
-        <div className="min-w-[8rem] flex-1">
-          <h2 className="truncate font-semibold">{customerName(customer)}</h2>
-          <p className="truncate text-xs text-slate-500">
-            <span className={cn('mr-1 inline-block h-2 w-2 rounded-full', customer.bot_enabled && tenant?.autoReply !== false ? 'bg-orange-500' : 'bg-amber-500')} />
-            {inbox?.pageName||'Messenger'} · {customer.bot_enabled && tenant?.autoReply !== false ? 'บอทตอบอัตโนมัติ' : 'แอดมินตอบเอง'}
-          </p>
-        </div>
-        <AutoPilotToggle tenant={tenant} />
-        <Button variant="ghost" size="icon" onClick={onOpenInspector} aria-label="รายละเอียดลูกค้าและสลิป" className="xl:hidden">
-          <PanelRightOpen className="h-4 w-4" />
-        </Button>
-      </header>
-      <ConversationActions key={customer.id} state={conversationState} inbox={inbox} onChange={onStateChange}/>
+    <section data-testid="inbox-thread" aria-label={`แชทกับ ${customerName(customer)}`} className={cn('min-h-0 min-w-0 flex-col overflow-hidden bg-slate-50/60', className)}>
+      <ConversationActions key={customer.id} state={conversationState} inbox={inbox} onChange={onStateChange}>
+        <Button variant="ghost" size="icon" onClick={onBack} aria-label="กลับไปรายชื่อแชท" className="h-8 w-8 shrink-0 md:hidden"><ArrowLeft className="h-4 w-4"/></Button>
+        <Avatar c={customer} className="h-8 w-8 text-xs"/>
+        <div className="min-w-0 flex-1" title={inbox?.pageName||"ช่องทางแชทของเพจ"}><h2 className="truncate text-sm font-semibold">{customerName(customer)}</h2><p className="truncate text-[11px] text-slate-500">{handler}{assigned&&!closed?` · ${inbox?.members.find(m=>m.id===assigned)?.name??'ผู้ดูแล'}`:''}</p></div>
+        <details className="relative shrink-0"><summary title="ตัวเลือกการตอบอัตโนมัติ" className="cursor-pointer rounded-lg p-1.5 text-[11px] text-slate-500">ตัวเลือก</summary><div className="absolute right-0 top-full z-20 mt-2 w-60 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg"><AutoPilotToggle tenant={tenant}/></div></details>
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onOpenInspector} aria-label="รายละเอียดลูกค้าและสลิป" aria-expanded={inspectorOpen} title={inspectorOpen?'ซ่อนข้อมูลลูกค้า':'ดูข้อมูลลูกค้า'}><PanelRightOpen className="h-4 w-4"/></Button>
+      </ConversationActions>
 
-      <div ref={scrollRef} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-6" aria-busy={state === 'loading'}>
+      <div ref={scrollRef} onScroll={onScroll} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-1.5 [overflow-anchor:none]" data-message-list aria-busy={state === 'loading'}>
         {hasOlder&&<div className="mb-4 text-center"><Button size="sm" variant="secondary" loading={olderLoading} onClick={onLoadOlder}>โหลดข้อความก่อนหน้า</Button></div>}
         {olderError&&<p role="alert" className="mb-2 text-center text-xs text-rose-700">{olderError}</p>}
         {state === 'loading' && messages.length === 0 && <ThreadSkeleton />}
@@ -125,7 +112,7 @@ export function Conversation({
           </div>
         )}
         {state === 'idle' && items.length === 0 && <p className="text-center text-sm text-slate-400">ยังไม่มีข้อความ</p>}
-        <ol className="space-y-3">
+        <ol ref={messageList} className="space-y-2.5">
           {items.map((it, i) => (
             <Fragment key={it.kind === 'message' ? it.m.id : `slip-${it.s.id}`}>
               {(i === 0 || !sameDay(items[i - 1].at, it.at)) && (
@@ -146,17 +133,17 @@ export function Conversation({
                 />
               ) : (
                 <li className="flex flex-col items-center">
-                  <span className="text-[11px] text-slate-400">สลิปที่ส่งผ่าน API · {clock(it.at)}</span>
+                  <span className="text-[11px] text-slate-400">สลิปที่ส่งผ่าน ระบบ · {clock(it.at)}</span>
                   <SlipStatusCard slip={it.s} focused={it.s.id === focusedSlipId} onClick={() => onFocusSlip(it.s.id)} />
                 </li>
               )}
             </Fragment>
           ))}
         </ol>
-        <div ref={bottomRef} />
       </div>
 
-      <ReplyBox key={customer.id} customerId={customer.id} tenantId={customer.tenant_id!} inbox={inbox} enabled={!!conversationState&&conversationState.conversation_status==='open'&&(inbox?.autoClaimOnReply?(!conversationState.assigned_user_id||conversationState.assigned_user_id===inbox.viewerId):(conversationState.assigned_user_id===inbox?.viewerId&&!conversationState.bot_enabled))} onSent={()=>{onRetry();void onStateChange()}}/>
+      {<WorkspaceTools key={`policy:${customer.id}`} mode="header" customerId={customer.id} members={inbox?.members??[]}/>}
+      <ReplyBox key={customer.id} customerId={customer.id} tenantId={customer.tenant_id!} inbox={inbox} enabled={!!conversationState&&conversationState.conversation_status==='open'&&(inbox?.autoClaimOnReply?(!conversationState.assigned_user_id||conversationState.assigned_user_id===inbox.viewerId):(conversationState.assigned_user_id===inbox?.viewerId&&!conversationState.bot_enabled))} onSent={()=>{latest();onRetry();void onStateChange()}}/>
     </section>
   )
 }
@@ -184,7 +171,7 @@ function Bubble({
   const canVerify = !mine && images.length > 0 && !running && !slips.some((s) => s.status === 'valid') && (!autoVerify || slips.length > 0)
 
   return (
-    <li className={cn('flex items-end gap-2', mine && 'flex-row-reverse')}>
+    <li data-message-id={m.id} className={cn('flex items-end gap-2', mine && 'flex-row-reverse')}>
       {!mine && <Avatar c={customer} className="h-7 w-7 text-xs" />}
       <div className={cn('flex max-w-[78%] flex-col', mine ? 'items-end' : 'items-start')}>
         <div className={cn('rounded-2xl px-4 py-2 text-sm shadow-sm', BUBBLE[m.sender])}>
@@ -235,7 +222,7 @@ function VerifyButton({ messageId, retry }: { messageId: string; retry: boolean 
       const res = await fetch(`/api/messages/${messageId}/verify`, { method: 'POST' })
       if (!res.ok) setError(await apiError(res))
     } catch {
-      setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')
+      setError("เชื่อมต่อระบบไม่ได้")
     } finally {
       setBusy(false)
     }
@@ -244,7 +231,7 @@ function VerifyButton({ messageId, retry }: { messageId: string; retry: boolean 
     <div className="mt-2">
       <Button variant="secondary" size="sm" loading={busy} onClick={run}>
         {!busy && <ScanLine className="h-3.5 w-3.5" aria-hidden />}
-        {retry ? 'ตรวจสลิปอีกครั้ง' : 'ตรวจสลิปนี้ด้วย SlipOK'}
+        {retry ? 'ตรวจสลิปอีกครั้ง' : 'ตรวจสอบสลิปนี้'}
       </Button>
       {error && <p className="mt-1 text-[11px] text-rose-600">{error}</p>}
     </div>

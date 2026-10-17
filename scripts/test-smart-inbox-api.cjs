@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript')
-function load(file,deps,env={}){const context={exports:{},console,Date,Map,crypto,process:{env},require:n=>{if(n in deps)return deps[n];throw Error('Unexpected dependency '+n)}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return context.exports}
+function load(file,deps,env={}){const context={exports:{},console,Date,Map,crypto,process:{env},require:n=>{if(n==='./feature-flags')return load('lib/feature-flags.ts',{},env);if(n in deps)return deps[n];throw Error('Unexpected dependency '+n)}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return context.exports}
 const next={NextResponse:{json:(body,options={})=>({body,status:options.status??200})}}
 const id='11111111-1111-4111-8111-111111111111',shop='22222222-2222-4222-8222-222222222222',user='33333333-3333-4333-8333-333333333333',requestId='44444444-4444-4444-8444-444444444444'
 const utils={UUID:/^[a-f0-9-]{36}$/}
@@ -33,7 +33,7 @@ function sendFixture({previous=null,leaseError=null,providerError=null,old=false
   single:async()=>{if(table==='tenants')return {data:{page_id:'page',page_access_token:missingToken?null:'secret'},error:null};if(stored)return {error:{code:'23505'}};stored={id,delivery_status:payload.delivery_status};return {data:{id},error:null}},
   then(resolve,reject){return Promise.resolve({error:null}).then(resolve,reject)},
  };return q}}
- const api=load('app/api/messages/send/route.ts',{'next/server':next,'@/lib/inbox-server':{...guard,inboxCustomer:async()=>({db,actor:{id:user,kind:'user'},customer:{id,tenant_id:shop,platform_user_id:'psid',conversation_version:7},tenantId:shop})},'@/lib/facebook':{pageTokenFor:p=>p.page_access_token,SendApiError,isWindowOrTagError:e=>e instanceof SendApiError,sendMessageWithReceipt:async()=>{sends++;if(providerError)throw providerError;return 'mid-real'}},'@/lib/utils':utils},{SNAPBOT_SAFETY_ENABLED:safety?'true':'false'})
+ const api=load('app/api/messages/send/route.ts',{'next/server':next,'@/lib/inbox-server':{...guard,inboxCustomer:async()=>({db,actor:{id:user,kind:'user'},customer:{id,tenant_id:shop,platform_user_id:'psid',conversation_version:7},tenantId:shop})},'@/lib/facebook':{pageTokenFor:p=>p.page_access_token,SendApiError,isWindowOrTagError:e=>e instanceof SendApiError,sendMessageWithReceipt:async()=>{sends++;if(providerError)throw providerError;return 'mid-real'}},'@/lib/inbox-policy-server':{assertInboxPolicy:async()=>{}},'@/lib/utils':utils,'@/lib/inbox-v2':load('lib/inbox-v2.ts',{})},{SNAPBOT_SAFETY_ENABLED:safety?'true':'false'})
  const send=(extra={})=>api.POST({json:async()=>({customerId:id,clientId:requestId,text:'Hello',...extra})})
  return {send,statuses,rpcCalls,sends:()=>sends,inserts:()=>inserts,releases:()=>releases}
 }

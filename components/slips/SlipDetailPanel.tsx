@@ -1,5 +1,6 @@
 'use client'
 
+import { neutralSlipText } from '@/lib/ui-labels'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, BadgeCheck, Check, Copy, ExternalLink, FileText, ImageOff, MessageSquareShare } from 'lucide-react'
 import { BankLogo, bankName } from '@/components/BankLogo'
@@ -79,7 +80,7 @@ export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; ca
           </Badge>
         )}
       </div>
-      {slip.note && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">{slip.note}</p>}
+      {slip.note && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">{neutralSlipText(slip.note)}</p>}
 
       {loadError && (
         <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">

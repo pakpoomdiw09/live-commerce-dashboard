@@ -107,9 +107,7 @@ export function BankSelector({ value, onChange, label = 'ธนาคาร', di
         <ChevronDown aria-hidden className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
       </button>
     </div>
-    <p id={`${id}-hint`} className="mt-1 text-xs text-slate-500">ค้นหาได้ด้วยชื่อภาษาไทย ภาษาอังกฤษ หรือรหัสธนาคาร{' '}
-      <a href="/banks/ATTRIBUTION.md" target="_blank" rel="noreferrer" className="text-orange-700 underline">ที่มาและสิทธิ์โลโก้</a>
-    </p>
+    <p id={`${id}-hint`} className="mt-1 text-xs text-slate-500">ค้นหาได้ด้วยชื่อภาษาไทย ภาษาอังกฤษ หรือรหัสธนาคาร</p>
     {value && !isSupportedBank(value) && <p id={`${id}-support`} className="mt-1 text-xs text-amber-700" role="status">{UNSUPPORTED_BANK_MESSAGE}</p>}
     {open && <div className="absolute inset-x-0 top-full z-40 mt-2 max-h-[420px] overflow-y-auto overscroll-contain rounded-xl border border-orange-100 bg-white shadow-xl">
       <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-xs text-slate-500" aria-live="polite">

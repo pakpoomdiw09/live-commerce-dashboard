@@ -1,4 +1,5 @@
 'use client'
+import { neutralSlipText } from '@/lib/ui-labels'
 import {useEffect,useState} from 'react'
 import Image from 'next/image'
 import type {SlipDetail} from '@/lib/types'
@@ -15,6 +16,6 @@ export function PaymentProEvidence({slipId}:{slipId:string}){
  if(!detail)return <p className="my-3 text-sm text-slate-500">กำลังโหลดหลักฐานจากระบบตรวจสลิป…</p>
  return <div className="my-4 grid gap-4 rounded-2xl bg-orange-50 p-4 md:grid-cols-2">
   {detail.imageUrl?<Image src={detail.imageUrl} alt="หลักฐานสลิปสำหรับตรวจสอบ" width={420} height={560} unoptimized className="max-h-96 w-full rounded-xl object-contain"/>:<p className="text-sm text-slate-500">รายการนี้ใช้ข้อมูล QR ไม่มีไฟล์รูปภาพ</p>}
-  <dl className="space-y-3 break-words text-sm"><div><dt className="text-slate-500">ยอดจาก Provider / ยอดออเดอร์</dt><dd>{detail.amount??'—'} / {detail.expected_amount??'—'} บาท</dd></div><div><dt className="text-slate-500">เลขอ้างอิงธุรกรรม</dt><dd>{detail.trans_ref??'—'}</dd></div><div><dt className="text-slate-500">ผู้รับ / ธนาคาร / บัญชี</dt><dd>{detail.receiver.name??'—'} · {detail.receiver.bank??'—'} · {detail.receiver.account??'—'}</dd></div><div><dt className="text-slate-500">เวลาโอนจาก Provider</dt><dd>{detail.transferredAt?new Date(detail.transferredAt).toLocaleString('th-TH'):'ไม่พบข้อมูล'}</dd></div><div><dt className="text-slate-500">ผลตรวจสอบ</dt><dd>{detail.note??detail.status}</dd></div></dl>
+  <dl className="space-y-3 break-words text-sm"><div><dt className="text-slate-500">ยอดจาก Provider / ยอดออเดอร์</dt><dd>{detail.amount??'—'} / {detail.expected_amount??'—'} บาท</dd></div><div><dt className="text-slate-500">เลขอ้างอิงธุรกรรม</dt><dd>{detail.trans_ref??'—'}</dd></div><div><dt className="text-slate-500">ผู้รับ / ธนาคาร / บัญชี</dt><dd>{detail.receiver.name??'—'} · {detail.receiver.bank??'—'} · {detail.receiver.account??'—'}</dd></div><div><dt className="text-slate-500">เวลาโอนจาก Provider</dt><dd>{detail.transferredAt?new Date(detail.transferredAt).toLocaleString('th-TH'):'ไม่พบข้อมูล'}</dd></div><div><dt className="text-slate-500">ผลตรวจสอบ</dt><dd>{neutralSlipText(detail.note??detail.status)}</dd></div></dl>
  </div>
 }

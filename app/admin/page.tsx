@@ -18,7 +18,7 @@ export default async function AdminPage() {
       <Card className="p-5"><p className="text-sm text-slate-500">รออนุมัติการชำระเงิน</p><p className="mt-3 text-3xl font-semibold">{number(overview.pendingCount)} <span className="text-sm font-normal">รายการ</span></p><p className="mt-2 text-xs text-slate-500">ยอดรวม {number(overview.pendingAmount)} บาท</p></Card>
     </div>
     <Card><CardHeader title="งานสำหรับผู้ดูแล" description="ตรวจสอบการชำระเงินและดูแลการใช้งานของร้านค้า" /><div className="grid gap-3 p-5 sm:grid-cols-3">
-      {[['/admin/approvals', 'ตรวจคำสั่งซื้อรออนุมัติ', 'ดูหลักฐานการโอนและเติมเครดิตให้ร้านค้า'], ['/admin/provider', 'เช็กโควตา SlipOK', 'ดูสิทธิ์ตรวจสลิปคงเหลือฝั่งผู้ให้บริการ'], ['/admin/tenants', 'จัดการร้านค้า', 'ปรับแพ็กเกจและสถานะการใช้งาน']].map(([href, title, detail]) => <Link key={href} href={href} className="rounded-xl border border-slate-200 p-4 hover:border-orange-400"><p className="font-medium">{title} →</p><p className="mt-1 text-sm text-slate-500">{detail}</p></Link>)}
+      {[['/admin/approvals', 'ตรวจคำสั่งซื้อรออนุมัติ', 'ดูหลักฐานการโอนและเติมเครดิตให้ร้านค้า'], ['/admin/provider', 'เช็กโควตาตรวจสลิป', 'ดูสิทธิ์ตรวจสลิปคงเหลือฝั่งผู้ให้บริการ'], ['/admin/tenants', 'จัดการร้านค้า', 'ปรับแพ็กเกจและสถานะการใช้งาน']].map(([href, title, detail]) => <Link key={href} href={href} className="rounded-xl border border-slate-200 p-4 hover:border-orange-400"><p className="font-medium">{title} →</p><p className="mt-1 text-sm text-slate-500">{detail}</p></Link>)}
     </div></Card>
   </>
 }

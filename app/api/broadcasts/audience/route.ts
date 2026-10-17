@@ -1,31 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase/server'
-import { canAccessTenant, getActor } from '@/lib/auth'
-import { broadcastAudience, BROADCAST_SEGMENT_VALUES, BROADCAST_WINDOW_VALUES } from '@/lib/broadcast'
-import { MESSAGE_TAG_VALUES, type BroadcastSegment, type BroadcastWindow, type MessageTag } from '@/lib/chatbot'
-import { UUID } from '@/lib/utils'
+import { getActor } from '@/lib/auth'
+import { broadcastScope, parseBroadcastDraft, previewBroadcast } from '@/lib/broadcast-service'
+import type { BroadcastRow } from '@/lib/chatbot'
+import { InboxError, inboxError } from '@/lib/inbox-server'
 
-export const runtime = 'nodejs'
-
-/** GET ?tenantId=&segment=&tags=a,b&window=&tag= → { total, reachable }: audience size before a broadcast is sent. */
+/** Legacy UI uses the same policy; rolling back the UI cannot restore old tag permissions. */
 export async function GET(req: NextRequest) {
-  const actor = await getActor(req)
-  if (!actor) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  const q = req.nextUrl.searchParams
-  const tenantId = q.get('tenantId') ?? ''
-  const segment = (q.get('segment') ?? 'all') as BroadcastSegment
-  const tags = (q.get('tags') ?? '').split(',').map((t) => t.trim()).filter(Boolean).slice(0, 20)
-  const window = (q.get('window') ?? 'within_24h') as BroadcastWindow
-  const tag = (q.get('tag') || null) as MessageTag | null
-  if (!UUID.test(tenantId)) return NextResponse.json({ error: 'tenantId must be a uuid' }, { status: 400 })
-  if (!BROADCAST_SEGMENT_VALUES.includes(segment)) return NextResponse.json({ error: 'unknown segment' }, { status: 400 })
-  if (!BROADCAST_WINDOW_VALUES.includes(window)) return NextResponse.json({ error: 'unknown window' }, { status: 400 })
-  if (tag && !MESSAGE_TAG_VALUES.includes(tag)) return NextResponse.json({ error: 'unknown tag' }, { status: 400 })
-  if (!(await canAccessTenant(actor, tenantId))) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   try {
-    const a = await broadcastAudience(supabaseAdmin(), tenantId, segment, tags, window, tag)
-    return NextResponse.json({ total: a.total, reachable: a.reachable.length })
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'failed' }, { status: 500 })
-  }
+    const q = req.nextUrl.searchParams
+    const scope = await broadcastScope(await getActor(req), q.get('tenantId') ?? '')
+    const window = q.get('window') ?? 'within_24h'
+    if (!['within_24h', 'outside_24h'].includes(window)) throw new InboxError('ช่องทางไม่ถูกต้อง', 400)
+    const draft = parseBroadcastDraft({ name: 'ตรวจสอบผู้รับ', message: 'ตรวจสอบผู้รับ', audience_segment: q.get('segment') ?? 'all', audience_tags: (q.get('tags') ?? '').split(',').map(tag => tag.trim()).filter(Boolean) })
+    const result = await previewBroadcast(scope, { ...draft, tenant_id: scope.tenantId, status: 'draft', audience_window: window, message_tag: q.get('tag') || null } as BroadcastRow)
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } })
+  } catch (error) { return inboxError(error) }
 }

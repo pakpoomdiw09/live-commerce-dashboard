@@ -1,3 +1,4 @@
+import {inboxWindow} from '@/lib/inbox-v2'
 import {NextRequest,NextResponse} from 'next/server'
 import {inboxCustomer,inboxError,InboxError,checkRpc} from '@/lib/inbox-server'
 import {pageTokenFor,sendMessageWithReceipt,SendApiError,isWindowOrTagError} from '@/lib/facebook'
@@ -28,8 +29,9 @@ export async function POST(req:NextRequest){
   ])
   if(page.error||last.error)throw page.error||last.error
   const token=pageTokenFor(page.data)
-  if(!token)throw new InboxError('เพจนี้ยังไม่มี Page Access Token',409)
-  if(!last.data||Date.now()-Date.parse(last.data.created_at)>86400000)throw new InboxError('ส่งไม่ได้: เกิน 24 ชั่วโมงนับจากข้อความล่าสุดของลูกค้า',409,'MESSAGING_WINDOW_CLOSED')
+  if(!token)throw new InboxError("เพจนี้ยังไม่มี สิทธิ์เชื่อมต่อเพจ",409)
+  if(!inboxWindow(last.data?.created_at).allowed)throw new InboxError('ส่งไม่ได้: เกิน 24 ชั่วโมงนับจากข้อความล่าสุดของลูกค้า',409,'MESSAGING_WINDOW_CLOSED')
+  await (await import('@/lib/inbox-policy-server')).assertInboxPolicy(db,tenantId,customer.id,page.data.page_id,token)
   let message:object={text},attachments:object[]=[]
   if(input.mediaId){
    if(!UUID.test(input.mediaId))throw new InboxError('ไฟล์แนบไม่ถูกต้อง')
@@ -58,7 +60,7 @@ export async function POST(req:NextRequest){
    const rejected=error instanceof SendApiError && error.status<500
    await db.from('messages').update({delivery_status:rejected?'failed':'unknown'}).eq('id',id)
    console.error('[inbox/send] provider failure',{id,code:error instanceof SendApiError?error.code:'unknown'})
-   throw new InboxError(isWindowOrTagError(error)?'Facebook ปฏิเสธ: อยู่นอกช่วงเวลาที่อนุญาต':rejected?'Facebook ปฏิเสธการส่งข้อความ กรุณาตรวจสิทธิ์เพจ':'ยังยืนยันผลการส่งไม่ได้ กรุณาตรวจข้อความใน Messenger ก่อนส่งใหม่',502,rejected?'SEND_REJECTED':'SEND_UNKNOWN')
+   throw new InboxError(isWindowOrTagError(error)?"เฟซบุ๊ก ปฏิเสธ: อยู่นอกช่วงเวลาที่อนุญาต":rejected?"เฟซบุ๊ก ปฏิเสธการส่งข้อความ กรุณาตรวจสิทธิ์เพจ":"ยังยืนยันผลการส่งไม่ได้ กรุณาตรวจข้อความใน ช่องทางแชทของเพจ ก่อนส่งใหม่",502,rejected?'SEND_REJECTED':'SEND_UNKNOWN')
   }
  }catch(error){return inboxError(error)}finally{
   if(scope&&lease){const result=await scope.db.rpc('end_inbox_delivery',{p_customer:scope.customer.id,p_lease:lease});if(result.error)console.error('[inbox/send] lease release failed',{code:result.error.code})}

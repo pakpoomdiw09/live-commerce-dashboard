@@ -43,6 +43,6 @@ export function checkRpc(error: {code?:string}|null) {
   if(error.code==='P0429')throw new InboxError('ทำรายการถี่เกินไป กรุณารอสักครู่',429,'RATE_LIMITED')
   if(['40001','55P03'].includes(error.code??''))throw new InboxError('แชทมีการเปลี่ยนแปลงหรือกำลังส่งข้อความ กรุณาลองอีกครั้ง',409,'CONVERSATION_CONFLICT')
   if(error.code==='42501')throw new InboxError('ไม่มีสิทธิ์ดำเนินการกับแชทนี้',403,'FEATURE_LOCKED')
-  if(error.code==='22023')throw new InboxError('ผู้รับโอนหรือการตั้งค่าบอทไม่พร้อมใช้งาน')
+  if(error.code==='22023')throw new InboxError("ผู้รับโอนหรือการตั้งค่าระบบอัตโนมัติไม่พร้อมใช้งาน")
   throw error
 }

@@ -30,8 +30,8 @@ export async function PATCH(req:NextRequest,{params}:Context){try{
   const {data,error}=await db.from('bot_settings').select('reply_mode').eq('tenant_id',tenantId).maybeSingle()
   if(error)throw error
   if(data?.reply_mode==='ai'){
-   if(!(await hasFeature(db,tenantId,'ai_agent')))throw new InboxError('อัปเกรดแพ็กเกจเพื่อเปิด AI Agent',403,'FEATURE_LOCKED')
-   if(!aiConfigured())throw new InboxError('ยังไม่ได้ตั้งค่า AI Provider',503)
+   if(!(await hasFeature(db,tenantId,'ai_agent')))throw new InboxError("อัปเกรดแพ็กเกจเพื่อเปิด ผู้ช่วยอัจฉริยะ",403,'FEATURE_LOCKED')
+   if(!aiConfigured())throw new InboxError("ยังไม่ได้ตั้งค่า ผู้ให้บริการผู้ช่วยอัจฉริยะ",503)
   }
  }
  const {error,data}=pro

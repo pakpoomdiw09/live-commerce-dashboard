@@ -29,7 +29,7 @@ export function CustomerPanel({ customer, slips, onSaved }: { customer: Customer
         <Avatar c={customer} className="h-12 w-12 text-lg" />
         <div className="min-w-0 flex-1">
           <h3 className="truncate font-semibold text-slate-900">{customerName(customer)}</h3>
-          <p className="text-[11px] text-slate-500">Facebook PSID ...{customer.platform_user_id.slice(-6)}</p>
+          <p className="text-[11px] text-slate-500">รหัสลูกค้า ...{customer.platform_user_id.slice(-6)}</p>
         </div>
         {!editing && (
           <Button variant="ghost" size="icon" onClick={() => setEditing(true)} aria-label="แก้ไขข้อมูลลูกค้า">
@@ -87,10 +87,10 @@ export function CustomerPanel({ customer, slips, onSaved }: { customer: Customer
         </>
       )}
 
-      <div className="mt-4 rounded-xl bg-slate-50 p-3">
+      <details className="mt-4 rounded-xl bg-slate-50 p-3"><summary className="cursor-pointer text-xs font-medium text-slate-600">การตอบอัตโนมัติในแชทนี้</summary><div className="mt-3">
         <BotToggle customerId={customer.id} enabled={customer.bot_enabled} />
-        <p className="mt-1.5 text-[11px] text-slate-500">ปิดเมื่อแอดมินต้องการคุยกับลูกค้าเอง บอทจะไม่ตอบแชทนี้</p>
-      </div>
+        <p className="mt-1.5 text-[11px] text-slate-500">ปิดเมื่อแอดมินต้องการคุยกับลูกค้าเอง ระบบอัตโนมัติจะไม่ตอบแชทนี้</p>
+      </div></details>
     </section>
   )
 }
@@ -165,7 +165,7 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
         </select>
       </label>
       <div>
-        <span className="mb-1 block text-xs font-medium text-slate-600">แท็กลูกค้า</span>
+        <span className="mb-1 block text-xs font-medium text-slate-600">ป้ายกำกับลูกค้า</span>
         <div className="flex flex-wrap gap-1.5">
           {tags.map((t) => (
             <Tag key={t} onRemove={() => setTags(tags.filter((x) => x !== t))}>
@@ -183,7 +183,7 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
               addTag(newTag)
             }
           }}
-          placeholder="พิมพ์แท็กแล้วกด Enter"
+          placeholder="เพิ่มป้ายกำกับแล้วกดปุ่มขึ้นบรรทัดใหม่"
           maxLength={30}
         />
         <div className="mt-2 flex flex-wrap gap-1">

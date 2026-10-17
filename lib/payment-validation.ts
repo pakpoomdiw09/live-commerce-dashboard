@@ -99,7 +99,7 @@ export function validatePaymentSlip(result: SlipResult, session: PaymentSession,
     || price === null || (receiverCheck === 'local' && !expectedBank)) return fail('ข้อมูลการชำระเงินไม่ถูกต้อง กรุณาสร้างรายการใหม่', 500)
   if (now > expires) return fail('รายการชำระเงินหมดอายุแล้ว กรุณาสร้างรายการใหม่', 409)
   if (result.verdict === 'duplicate') return fail('สลิปนี้เคยถูกใช้แล้ว กรุณาตรวจสอบประวัติการชำระเงิน', 409)
-  if (result.branchReceiverMismatch) return fail('SlipOK แจ้งว่าบัญชีผู้รับไม่ตรงกับบัญชีที่ตั้งค่าในสาขา กรุณาให้ผู้ดูแลตรวจสอบบัญชีกรุงไทยและพร้อมเพย์ใน SlipOK ก่อนลองอีกครั้ง')
+  if (result.branchReceiverMismatch) return fail('ระบบแจ้งว่าบัญชีผู้รับไม่ตรงกับบัญชีที่ตั้งค่าไว้ กรุณาให้ผู้ดูแลตรวจสอบบัญชีรับเงินและพร้อมเพย์ก่อนลองอีกครั้ง')
   if (result.verdict === 'wrong_receiver') return fail('บัญชีผู้รับเงินในสลิปไม่ตรงกับบัญชีของแพลตฟอร์ม')
   if (result.verdict === 'amount_mismatch') return fail('ยอดเงินในสลิปไม่ตรงกับยอดของรายการนี้')
   if (result.verdict === 'fake') return fail('ไม่พบธุรกรรมของสลิปนี้ กรุณาตรวจสอบสลิป')
@@ -119,7 +119,7 @@ export function validatePaymentSlip(result: SlipResult, session: PaymentSession,
     || typeof data.transRef !== 'string' || data.transRef.trim() !== reference) return fail('ไม่พบเลขอ้างอิงธุรกรรมที่ถูกต้องในสลิป')
 
   if (receiverCheck === 'provider' && result.receiverVerifiedByProvider !== true) {
-    return fail('SlipOK ยังไม่ได้ยืนยันบัญชีผู้รับเงิน กรุณาตรวจสอบการตั้งค่าสาขาแล้วลองอีกครั้ง')
+    return fail('ระบบยังไม่ได้ยืนยันบัญชีผู้รับเงิน กรุณาตรวจสอบการตั้งค่าบัญชีรับเงินแล้วลองอีกครั้ง')
   }
   if (receiverCheck === 'local') {
   const receiver = object(data.receiver)

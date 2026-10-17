@@ -1,50 +1,31 @@
-import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
-import { getActiveTenant, getViewer } from '@/lib/tenant'
-import { roleAtLeast } from '@/lib/auth'
+import { getActor, requireDashboardUser, canAccessTenant } from '@/lib/auth'
+import { getActiveTenant } from '@/lib/tenant'
+import { broadcastUiEnabled } from '@/lib/broadcast-policy'
+import { broadcastScope, broadcastPageStatus } from '@/lib/broadcast-service'
+import { BROADCAST_COLUMNS, type BroadcastRow } from '@/lib/chatbot'
 import { getBilling } from '@/lib/billing'
-import { BROADCAST_COLUMNS, MESSAGING_WINDOW_MS, type BroadcastRow } from '@/lib/chatbot'
-import { BroadcastClient } from '@/components/broadcast/BroadcastClient'
-import { LiveRefresh } from '@/components/LiveRefresh'
+import { fetchAll } from '@/lib/broadcast'
+import { BroadcastWorkspace } from '@/components/broadcast/BroadcastWorkspace'
+import LegacyBroadcastPage from '@/components/broadcast/LegacyBroadcastPage'
 import { SetupNotice } from '@/components/SetupNotice'
+import { InlineError } from '@/components/ErrorState'
 
-export const metadata = { title: 'ส่งข้อความหาลูกค้าทั้งหมด' }
-
+export const metadata = { title: 'บรอดแคสต์' }
 export default async function BroadcastPage() {
-  const [db, tenant, viewer] = await Promise.all([supabaseServer(), getActiveTenant(), getViewer()])
-  if (!tenant) return <SetupNotice kind="no-tenant" />
-
-  const windowStart = new Date(Date.now() - MESSAGING_WINDOW_MS).toISOString()
-  const [broadcasts, tags, customers, reachable] = await Promise.all([
-    db.from('broadcasts').select(BROADCAST_COLUMNS).eq('tenant_id', tenant.id).order('created_at', { ascending: false }).limit(50),
-    db.from('customers').select('tags').eq('tenant_id', tenant.id).neq('tags', '{}').limit(5000),
-    db.from('customers').select('id', { count: 'exact', head: true }).eq('tenant_id', tenant.id),
-    db.from('customers').select('id', { count: 'exact', head: true }).eq('tenant_id', tenant.id).gte('last_message_at', windowStart),
-  ])
-  if (broadcasts.error) return <SetupNotice kind="migration" message={broadcasts.error.message} />
-  let billing
+  await requireDashboardUser()
+  if (!broadcastUiEnabled()) return <LegacyBroadcastPage/>
+  const actor = await getActor(), tenant = await getActiveTenant()
+  if (!tenant) return <SetupNotice kind="no-tenant"/>
   try {
-    billing = await getBilling(supabaseAdmin(), tenant.id, viewer.isPlatformAdmin)
-  } catch (e) {
-    return <SetupNotice kind="migration" message={`${e instanceof Error ? e.message : e} (รัน supabase/billing.sql)`} />
-  }
-
-  const tagCounts = new Map<string, number>()
-  for (const row of tags.data ?? []) for (const t of row.tags as string[]) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
-
-  return (
-    <>
-      <LiveRefresh channel="broadcasts" tables={['broadcasts']} />
-      <BroadcastClient
-        tenantId={tenant.id}
-        pageName={tenant.page_name ?? tenant.name}
-        canSend={roleAtLeast(viewer.role, 'owner')}
-        pageLinked={!!tenant.page_id}
-        tags={[...tagCounts].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }))}
-        customerCount={customers.count ?? 0}
-        reachableCount={reachable.count ?? 0}
-        billing={billing}
-        broadcasts={(broadcasts.data ?? []) as BroadcastRow[]}
-      />
-    </>
-  )
+    const scope = await broadcastScope(actor, tenant.id)
+    const [status, broadcasts, tagRows, billing, canSend] = await Promise.all([
+      broadcastPageStatus(scope),
+      scope.db.from('broadcasts').select(BROADCAST_COLUMNS).eq('tenant_id', tenant.id).order('created_at', { ascending: false }).limit(50),
+      fetchAll<{ tags: string[] }>((from, to) => scope.db.from('customers').select('tags').eq('tenant_id', tenant.id).eq('platform', 'facebook').order('id').range(from, to)).catch(() => []),
+      getBilling(scope.db, tenant.id, scope.actor.isPlatformAdmin).catch(() => null),
+      canAccessTenant(scope.actor, tenant.id, 'owner'),
+    ])
+    const tags = [...new Set(tagRows.flatMap(row => row.tags ?? []))].sort((a, b) => a.localeCompare(b, 'th'))
+    return <BroadcastWorkspace key={tenant.id} tenantId={tenant.id} pageName={tenant.page_name ?? tenant.name} pageStatus={status} canSend={canSend} tags={tags} billing={billing} broadcasts={(broadcasts.data ?? []) as BroadcastRow[]} historyUnavailable={!!broadcasts.error}/>
+  } catch (error) { return <div className="p-6"><InlineError title="โหลดบรอดแคสต์ไม่ได้" message={error instanceof Error ? error.message : 'กรุณาลองใหม่'}/></div> }
 }

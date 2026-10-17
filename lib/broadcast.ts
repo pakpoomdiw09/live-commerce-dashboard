@@ -1,6 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { HUMAN_AGENT_WINDOW_MS, inWindow, type BroadcastSegment, type BroadcastWindow, type MessageTag } from '@/lib/chatbot'
+import { MESSAGING_WINDOW_MS, type BroadcastSegment, type BroadcastWindow, type MessageTag } from '@/lib/chatbot'
 
 export type AudienceMember = { id: string; platform_user_id: string; display_name: string | null; last_message_at: string | null }
 
@@ -25,16 +25,14 @@ export async function fetchAll<T>(fetchPage: (from: number, to: number) => Promi
 }
 
 /**
- * Who a broadcast may reach right now:
- *   - within_24h: customers inside Meta's 24-hour window
- *   - outside_24h: customers past it, messaged with a tag (HUMAN_AGENT: only up to 7 days after their last message)
- * Customers who never wrote to the Page (no last_message_at) can't be messaged at all.
+ * Legacy display-only estimate. Never authorizes transport: broadcast-policy
+ * and the database claims require scoped inbound evidence and current rights.
+ * Outside-window routes and all tags are closed here as well.
  */
 export function canReach(lastMessageAt: string | null, window: BroadcastWindow, tag: MessageTag | null, now = Date.now()) {
-  if (!lastMessageAt) return false
-  if (window === 'within_24h') return inWindow(lastMessageAt, now)
-  if (!tag || inWindow(lastMessageAt, now)) return false
-  return tag !== 'HUMAN_AGENT' || now - new Date(lastMessageAt).getTime() < HUMAN_AGENT_WINDOW_MS
+  if (!lastMessageAt || window !== 'within_24h' || tag) return false
+  const at = Date.parse(lastMessageAt)
+  return Number.isFinite(at) && at <= now && now - at < MESSAGING_WINDOW_MS
 }
 
 /** Customers of a tenant matching a broadcast's segment and tags (any of them). */

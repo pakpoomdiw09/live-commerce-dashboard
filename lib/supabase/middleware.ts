@@ -4,7 +4,7 @@ import { getSupabaseEnv } from './env'
 import { safeAuthNext } from '@/lib/oauth'
 
 // หน้าที่เข้าได้โดยไม่ต้องล็อกอิน
-const PUBLIC_PATHS = ['/login', '/auth', '/p']
+const PUBLIC_PATHS = ['/login', '/auth', '/p', '/s']
 const isPublic = (p: string) => PUBLIC_PATHS.some((x) => p === x || p.startsWith(x + '/'))
 
 export async function updateSession(request: NextRequest) {

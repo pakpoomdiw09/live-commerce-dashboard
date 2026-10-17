@@ -8,7 +8,7 @@ export async function middleware(request: NextRequest) {
     // middleware ต้องไม่ทำให้ทั้งแอปล่ม: หน้า public ผ่านได้ หน้าอื่นกลับไป /login
     console.error('[middleware] unexpected error', e)
     const { pathname } = request.nextUrl
-    if (pathname === '/login' || pathname.startsWith('/auth') || pathname.startsWith('/p/')) return NextResponse.next({ request })
+    if (pathname === '/login' || pathname.startsWith('/auth') || pathname.startsWith('/p/') || pathname.startsWith('/s/')) return NextResponse.next({ request })
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.search = ''

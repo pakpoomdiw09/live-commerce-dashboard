@@ -50,6 +50,7 @@ export function InboxClient({
   // below md only one column fits (list or chat); below xl the inspector is a slide-over
   const [mobileChat, setMobileChat] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  useEffect(()=>{if(!inspectorOpen)return;const close=(event:KeyboardEvent)=>{if(event.key==='Escape')setInspectorOpen(false)};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close)},[inspectorOpen])
   const selectedRef = useRef(selectedId)
   const knownCustomers = useRef(new Set(initialChats.map(chat => chat.customer.id)))
   const changes = useRef(new Map<string, ThreadChange>())
@@ -61,11 +62,16 @@ export function InboxClient({
   const olderBusy = useRef(false)
   const [connection, setConnection] = useState<'connecting'|'live'|'offline'>('connecting')
   const inbox=useInboxState(tenant?.id)
+  const refreshInbox=inbox.refresh
+  useEffect(()=>{const refresh=()=>{void refreshInbox()};window.addEventListener('inbox:refresh',refresh);return()=>window.removeEventListener('inbox:refresh',refresh)},[refreshInbox])
   const [olderLoading,setOlderLoading]=useState(false)
   const [olderError,setOlderError]=useState('')
   const [olderEnd,setOlderEnd]=useState(false)
   const [listLoading,setListLoading]=useState(false)
   const [listEnd,setListEnd]=useState(initialChats.length<150)
+  const [searchQuery,setSearchQuery]=useState('')
+  const [assigneeFilter,setAssigneeFilter]=useState('all')
+  const [filterCounts,setFilterCounts]=useState<Partial<Record<InboxView,number>>>({})
   const listCursor=useRef(initialChats.at(-1)?.customer)
   const discover=useCallback((items:ChatSummary[])=>{
     for(const item of items)knownCustomers.current.add(item.customer.id)
@@ -330,13 +336,17 @@ export function InboxClient({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-    {tenant&&inbox.data?.proEnabled&&<InboxProCenter tenantId={tenant.id} inbox={inbox.data} view={view} onView={next=>{setView(next);if(next==='customers')setInspectorOpen(true);if(['all','mine','waiting','team'].includes(next))setMobileChat(false)}}/>}
-    <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_21rem] 2xl:grid-cols-[20rem_minmax(0,1fr)_24rem]">
+    <div data-inbox-version="v2" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    {tenant&&<InboxProCenter compact={mobileChat} query={searchQuery} onQuery={value=>{setSearchQuery(value);setMobileChat(false)}} assignee={assigneeFilter} onAssignee={value=>{setAssigneeFilter(value);setMobileChat(false)}} counts={filterCounts} autoReply={tenant.autoReply} onBulk={()=>{setMobileChat(false);window.dispatchEvent(new Event('inbox:bulk'))}} tenantId={tenant.id} inbox={inbox.data} view={view} onView={next=>{setView(next);setMobileChat(false)}}/>}
+    {!inbox.data&&<div role={inbox.error?'alert':'status'} className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-600">{inbox.error||'กำลังโหลดสถานะและผู้ดูแลแชท…'}{inbox.error&&<button type="button" onClick={()=>void inbox.refresh()} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-orange-700">ลองโหลดสถานะอีกครั้ง</button>}</div>}
+    <div className={`relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[16rem_minmax(0,1fr)] ${inspectorOpen?'xl:grid-cols-[17rem_minmax(0,1fr)_19rem] 2xl:grid-cols-[18rem_minmax(0,1fr)_20rem]':''}`}>
       <ReadMarker customerId={selectedId} messages={messages} onRead={inbox.refresh} mobileOpen={mobileChat}/>
       {inbox.error&&<p role="alert" className="absolute top-1 left-2 z-20 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{inbox.error}</p>}
       {connection!=='live'&&<p role="status" className="absolute bottom-2 left-2 z-20 max-w-xs rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow ring-1 ring-amber-200">{connection==='connecting'?'กำลังเชื่อมต่อแชทสด…':'การเชื่อมต่อแชทสดขัดข้อง ระบบจะตรวจข้อความใหม่ทุก 30 วินาที'}</p>}
       <ChatList
+        query={searchQuery}
+        assignee={assigneeFilter}
+        onCounts={setFilterCounts}
         section={view}
         className={cn(mobileChat ? 'hidden' : 'flex', 'md:flex')}
         chats={chats}
@@ -370,17 +380,19 @@ export function InboxClient({
         focusedSlipId={inspectedSlipId}
         onRetry={() => selectedId && void loadThread(selectedId)}
         onBack={() => setMobileChat(false)}
-        onOpenInspector={() => setInspectorOpen(true)}
+        inspectorOpen={inspectorOpen}
+        onOpenInspector={() => setInspectorOpen(open=>!open)}
         onFocusSlip={focusSlip}
       />
 
       {inspectorOpen && <div aria-hidden className="fixed inset-0 z-30 bg-slate-900/20 backdrop-blur-sm xl:hidden" onClick={() => setInspectorOpen(false)} />}
       <Inspector
+        focusSlipId={focusedSlipId}
         key={`inspector:${selectedId??'empty'}`}
         inbox={inbox.data}
         className={cn(
           inspectorOpen ? 'fixed inset-y-0 right-0 z-40 flex w-[min(24rem,100vw)] shadow-2xl' : 'hidden',
-          'xl:static xl:z-auto xl:flex xl:w-auto xl:shadow-none',
+          inspectorOpen?'xl:static xl:z-auto xl:flex xl:w-auto xl:shadow-none':'xl:hidden',
         )}
         customer={selected}
         slips={slips}

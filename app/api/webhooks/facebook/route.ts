@@ -114,6 +114,12 @@ async function processEvents(payload: any) {
 }
 
 async function onMessage(ev: any, pageId: string, tenant: PageTenant | null) {
+  if (tenant && (ev.delivery || ev.read) && String(ev.recipient?.id) === pageId && typeof ev.sender?.id === 'string') {
+    const db = supabaseAdmin()
+    const customer = await db.from('customers').select('id').eq('tenant_id', tenant.id).eq('platform_user_id', ev.sender.id).eq('platform', 'facebook').maybeSingle()
+    if (!customer.error && customer.data) await (await import('@/lib/broadcast-events')).recordBroadcastReceipt(db, tenant.id, customer.data.id, ev)
+    return
+  }
   const m = ev.message
   if (!m || m.is_echo) return // skip receipts and the Page's own messages
   const psid: string = ev.sender.id
@@ -146,6 +152,7 @@ async function onMessage(ev: any, pageId: string, tenant: PageTenant | null) {
     .single()
   if (insertError?.code === '23505') return // Meta retried an event we already stored
   if (insertError || !message) throw insertError ?? new Error('message insert returned no row')
+  if (tenant) await (await import('@/lib/broadcast-events')).recordBroadcastInteraction(db, tenant.id, customer.id, pageId, ev)
 
   if (!customer.display_name) {
     const name = await getName(token, psid)

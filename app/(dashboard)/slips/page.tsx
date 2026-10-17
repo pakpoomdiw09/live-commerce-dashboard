@@ -49,7 +49,7 @@ export default async function SlipsPage({ searchParams }: { searchParams: Promis
       initial={(data ?? []) as unknown as SlipListRow[]}
       billing={billing}
       role={viewer.role ?? 'staff'}
-      activeTab={process.env.PAYMENT_CHANNELS_ENABLED==='true'?(['qr','banks','history','automation','security','advanced'].includes(tab??'')?tab as PaymentChannelTab:tab==='settings'?'advanced':'history'):tab==='settings'?'settings':'overview'}
+      activeTab={process.env.PAYMENT_CHANNELS_ENABLED==='true'?(['qr','banks','history','automation','security','advanced'].includes(tab??'')?tab as PaymentChannelTab:tab==='settings'?'advanced':'banks'):tab==='overview'||tab==='history'?'overview':'settings'}
       tenant={tenant}
       proEnabled={proEnabled}
       receivingEnabled={process.env.PAYMENT_CHANNELS_ENABLED==='true'}

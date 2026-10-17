@@ -71,4 +71,4 @@ export function isSupportedBank(code:string|null|undefined):boolean{
  const bank=findBank(code)
  return bank?.support==='slipok'&&bank.slipCode!==null
 }
-export const UNSUPPORTED_BANK_MESSAGE='ธนาคารนี้ยังไม่รองรับการตรวจสลิปอัตโนมัติ กรุณาเลือกธนาคารที่ SlipOK รองรับ'
+export const UNSUPPORTED_BANK_MESSAGE='ธนาคารนี้ยังไม่รองรับการตรวจสลิปอัตโนมัติ กรุณาเลือกธนาคารที่ระบบตรวจสอบสลิปรองรับ'

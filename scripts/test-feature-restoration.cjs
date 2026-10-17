@@ -61,7 +61,7 @@ test('direct reader pages beyond 1000 records, scopes every read, and never call
   await assert.rejects(reader.overviewFromTables(db, 'shop', filters), error => error.status === 503)
 })
 
-test('Sidebar exposes working SlipOK and AI links in the LiveCommerce theme', () => {
+test('Sidebar exposes bank-tab slip and AI links without provider branding', () => {
   const { AppShell } = load('components/shell/AppShell.tsx', {
     react: React, 'react/jsx-runtime': require('react/jsx-runtime'), 'next/navigation': { usePathname: () => '/overview', useRouter: () => ({ refresh() {} }) },
     '@/components/shell/PageTransition': { PageTransition: ({ children }) => children }, 'next/image': { default: props => React.createElement('img', props) },
@@ -69,8 +69,9 @@ test('Sidebar exposes working SlipOK and AI links in the LiveCommerce theme', ()
     'lucide-react': require('lucide-react'), '@/lib/utils': { cn: (...parts) => parts.filter(Boolean).join(' ') },
   })
   const html = renderToStaticMarkup(React.createElement(AppShell, { email: 'test@example.com', page: null, credits: null }, 'Dashboard'))
-  assert.ok(html.includes('href="/slips"'))
-  assert.ok(html.includes('ตรวจสอบสลิป (SlipOK)'))
+  assert.ok(html.includes('href="/slips?tab=banks"'))
+  assert.ok(html.includes('ตรวจสอบสลิป'))
+  assert.ok(!/slip\s*ok/i.test(html))
   assert.ok(html.includes('href="/chatbot"'))
   assert.ok(html.includes('from-orange-500'))
   assert.ok(!html.includes('กำลังพัฒนา'))

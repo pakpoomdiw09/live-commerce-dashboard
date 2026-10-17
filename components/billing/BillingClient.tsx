@@ -1,5 +1,6 @@
 'use client'
 
+import { neutralSlipText } from '@/lib/ui-labels'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Bot, Check, Coins, Megaphone, Receipt } from 'lucide-react'
@@ -261,7 +262,7 @@ export function BillingClient({ tenantId, billing: initialBilling, canBuy, payme
                   </p>
                   <p className="text-xs text-slate-500" suppressHydrationWarning>
                     {n(r.price_baht)} บาท · {n(r.credits)} {billingUnit(r.item)} · {when(r.created_at)}
-                    {r.note && ` · ${r.note}`}
+                    {r.note && ` · ${neutralSlipText(r.note)}`}
                   </p>
                   {r.verification_error && r.status === 'pending' && <p className="mt-2 text-xs text-amber-700">{r.verification_error} · รอผู้ดูแลตรวจสอบ</p>}
                   {canBuy && <BillingProof id={r.id} pending={r.status === 'pending'} hasProof={!!r.proof_path} onApproved={(updated) => {

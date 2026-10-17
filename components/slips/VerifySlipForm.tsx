@@ -1,5 +1,6 @@
 'use client'
 
+import { neutralSlipText } from '@/lib/ui-labels'
 import { useState } from 'react'
 import { ImagePlus } from 'lucide-react'
 import { BrandLoader } from '@/components/ui/BrandLoader'
@@ -59,7 +60,7 @@ export function VerifySlipForm({ tenant, onVerified }: { tenant: { id: string; n
       {busy && <BrandLoader label="กำลังตรวจสอบสลิป..." className="py-4" />}
       {error && (
         <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {error}
+          {neutralSlipText(error)}
         </p>
       )}
       <Button type="submit" className="w-full" loading={busy} disabled={!file}>

@@ -30,7 +30,7 @@ type NavItem = NavLink & { icon: LucideIcon; children?: NavLink[] }
 
 const NAV: NavItem[] = [
   { href: '/overview', label: 'หน้าหลัก', icon: House },
-  { href: '/slips', label: 'ตรวจสอบสลิป (SlipOK)', icon: CreditCard },
+  { href: '/slips', label: 'ตรวจสอบสลิป', icon: CreditCard },
   {
     href: '/chatbot',
     label: 'แชทบอท / AI Agents',
@@ -160,7 +160,7 @@ export function AppShell({ page, email, children, isPlatformAdmin = false, acces
           </button>
           <span className="text-sm font-semibold">{currentLabel(pathname)}</span>
         </header>
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <main className={cn('flex min-h-0 flex-1 flex-col',pathname==='/inbox'?'overflow-hidden':'overflow-y-auto')}>
           {messagesRemaining === 0 && <Link href="/billing" className="m-4 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm font-medium text-orange-900">เครดิตข้อความหมดแล้ว กรุณาเติมเครดิตข้อความ Broadcast S/M/L ที่หน้าแพ็กเกจและเครดิต</Link>}
           <PageTransition>{children}</PageTransition>
         </main>
@@ -180,7 +180,7 @@ function NavRow({ item, pathname, lockedPaths }: { item: NavItem; pathname: stri
   const Icon = item.icon
   return (
     <li>
-      <Link href={item.href} aria-current={active ? 'page' : undefined} className={rowClass(active)}>
+      <Link href={item.href === '/slips' ? '/slips?tab=banks' : item.href} aria-current={active ? 'page' : undefined} className={rowClass(active)}>
         <Icon className="h-4 w-4" aria-hidden />
         {item.label}{lockedPaths.includes(item.href) && <LockKeyhole className="ml-auto h-4 w-4" aria-label="Locked" />}
       </Link>
@@ -203,7 +203,7 @@ function NavGroup({ item, pathname, lockedPaths }: { item: NavItem; pathname: st
       <div className="flex items-center">
       <Link href={item.href} className={rowClass(isActive(pathname, item.href))}>
         <Icon className="h-4 w-4" aria-hidden />
-        <span className={cn('flex-1 text-left', inside && 'font-medium text-white')}>{item.label}</span>
+        <span className={cn('flex-1 text-left text-inherit', inside && 'font-medium')}>{item.label}</span>
       </Link>
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={`แสดงเมนูย่อย ${item.label}`} className="rounded-lg p-2 hover:bg-white/15"><ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} aria-hidden /></button>
       </div>

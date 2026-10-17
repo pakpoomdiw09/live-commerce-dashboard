@@ -1,10 +1,10 @@
 'use client'
-import {useRef,useState} from 'react'
+import {useRef,useState,type ReactNode} from 'react'
 import {Bot,Check,UserRoundCheck} from 'lucide-react'
 import type {ConversationState,InboxState} from '@/lib/inbox-types'
 import {apiError} from '@/lib/utils'
 const stages:Record<string,string>={UNASSIGNED:'รอรับแชท',ASSIGNED:'มอบหมายแล้ว',IN_PROGRESS:'กำลังดูแล',RESOLVED:'แก้ไขเสร็จแล้ว',CLOSED:'ปิดแชทแล้ว'}
-export function ConversationActions({state,inbox,onChange}:{state:ConversationState|undefined;inbox:InboxState|null;onChange:()=>Promise<void>}){
+export function ConversationActions({state,inbox,onChange,children}:{children?:ReactNode;state:ConversationState|undefined;inbox:InboxState|null;onChange:()=>Promise<void>}){
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[target,setTarget]=useState(''),[closing,setClosing]=useState(false),[reason,setReason]=useState(''),[notice,setNotice]=useState('')
  const locked=useRef(false)
  const pending=useRef<{signature:string;body:object}|null>(null)
@@ -21,21 +21,24 @@ export function ConversationActions({state,inbox,onChange}:{state:ConversationSt
   }catch(e){setError(e instanceof Error?e.message:'ดำเนินการไม่สำเร็จ')}
   finally{try{await onChange()}catch{setError('บันทึกคำขอแล้ว แต่โหลดสถานะล่าสุดไม่ได้ กรุณาตรวจสถานะก่อนทำซ้ำ')}finally{locked.current=false;setBusy(false)}}
  }
- const button='inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-xs text-orange-800 hover:bg-orange-100 disabled:opacity-40'
+ const button='inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40'
  const owner=inbox?.members.find(m=>m.id===state?.assigned_user_id)?.name
  const closed=state?.conversation_status==='closed'
  const canManage=!inbox?.proEnabled||inbox.canManageTeam||state?.assigned_user_id===inbox.viewerId
- return <div className="border-b border-orange-100 bg-orange-50/70 px-4 py-2">
-  <p className="mb-2 text-xs text-slate-600">ผู้รับผิดชอบ: {owner||'ยังไม่มอบหมาย'} · {state?.inbox_stage?stages[state.inbox_stage]:closed?'ปิดแชทแล้ว':state?.assigned_user_id?'กำลังดูแล':state?.bot_enabled?'บอทกำลังดูแล':'รอรับแชท'}</p>
+ return <header data-chat-header className="shrink-0 border-b border-slate-200 bg-white px-3 py-2">
+  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+  {children&&<div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>}
+  {!children&&<p className="text-xs text-slate-600">{!state?'กำลังโหลดสถานะแชท…':closed?'ปิดแชทแล้ว':!state.assigned_user_id?'ยังไม่มีผู้ดูแล (รอดำเนินการ)':`ผู้ดูแล: ${owner||'ผู้ดูแลของร้าน'} · ${state.inbox_stage?stages[state.inbox_stage]:'กำลังดูแล'}`}</p>}
   <div className="flex flex-wrap gap-2" aria-busy={busy}>
    <button className={button} disabled={busy||!state||closed||!!state.assigned_user_id} onClick={()=>void act('claim')}><UserRoundCheck size={14}/>รับแชท</button>
-   <select aria-label="มอบหมายหรือโอนให้ผู้ดูแล" className="min-w-0 max-w-full rounded-lg border border-orange-200 bg-white px-2 text-xs" disabled={busy||!state||closed} value={target} onChange={e=>setTarget(e.target.value)}><option value="">เลือกผู้ดูแล</option>{inbox?.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>
+   <button className={button} disabled={busy||!state} onClick={()=>closed?void act('reopen'):inbox?.proEnabled?setClosing(true):void act('close')}><Check size={14}/>{closed?'เปิดแชทใหม่':'ปิดแชท'}</button>
+   <details className="relative" onKeyDown={event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus()}}}><summary className={button+' cursor-pointer list-none'}>จัดการแชท</summary><div className="fixed bottom-24 left-4 right-4 z-30 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg md:absolute md:bottom-auto md:left-auto md:right-0 md:top-full md:mt-2 md:w-64">   <select aria-label="มอบหมายหรือโอนให้ผู้ดูแล" className="min-w-0 max-w-full rounded-lg border border-orange-200 bg-white px-2 text-xs" disabled={busy||!state||closed} value={target} onChange={e=>setTarget(e.target.value)}><option value="">เลือกผู้ดูแล</option>{inbox?.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>
    <button className={button} disabled={busy||!target||!state||closed||!canManage} onClick={()=>void act('transfer')}>มอบหมาย / โอนแชท</button>
    {inbox?.proEnabled&&<><button className={button} disabled={busy||!state?.assigned_user_id||closed||!canManage} onClick={()=>void act('start')}>เริ่มดูแล</button><button className={button} disabled={busy||!state?.assigned_user_id||closed||!canManage} onClick={()=>void act('resolve')}>แก้ไขเสร็จแล้ว</button><button className={button} disabled={busy||!state?.assigned_user_id||closed||!canManage} onClick={()=>void act('release')}>คืนคิวรอรับ</button></>}
-   <button className={button} disabled={busy||!state} onClick={()=>closed?void act('reopen'):inbox?.proEnabled?setClosing(true):void act('close')}><Check size={14}/>{closed?'เปิดแชทใหม่':'ปิดแชท'}</button>
-   <button className={button} disabled={busy||!state||closed} onClick={()=>void act(state?.bot_enabled?'pause':'bot')}><Bot size={14}/>{state?.bot_enabled?'พักบอท':'คืนให้บอท'}</button>
+   <button className={button} disabled={busy||!state||closed} onClick={()=>void act(state?.bot_enabled?'pause':'bot')}><Bot size={14}/>{state?.bot_enabled?"หยุดตอบอัตโนมัติชั่วคราว":"เปิดการตอบอัตโนมัติ"}</button></div></details>
+  </div>
   </div>
   {closing&&<form className="mt-3 space-y-2" onSubmit={e=>{e.preventDefault();void act('close')}}><label className="block text-xs">เหตุผลปิดแชท<textarea autoFocus aria-label="เหตุผลปิดแชท" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} required disabled={busy} className="mt-1 block w-full rounded-lg border bg-white p-2" placeholder="ตัวอย่าง: ลูกค้าได้รับคำตอบครบแล้ว"/></label><button className={button} disabled={busy||!reason.trim()}>ยืนยันปิดแชท</button><button type="button" className={button} disabled={busy} onClick={()=>setClosing(false)}>ยกเลิก</button></form>}
-  {error&&<p role="alert" className="mt-2 text-xs text-rose-700">{error}</p>}{notice&&<p role="status" className="mt-2 text-xs text-green-800">{notice}</p>}
- </div>
+  {error&&<p role="alert" className="mt-2 text-xs text-rose-700">{error}</p>}{notice&&<p role="status" className="sr-only">{notice}</p>}
+ </header>
 }

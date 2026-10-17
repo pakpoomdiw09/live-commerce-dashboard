@@ -259,7 +259,7 @@ export function TenantSettingsForm({
         <div className="divide-y divide-slate-100">
           <ToggleRow
             icon={Bot}
-            title="SlipOK Auto-Pilot (ตรวจสลิปอัตโนมัติ)"
+            title="ระบบตรวจสอบสลิปอัตโนมัติ"
             description="ตรวจรูปสลิปที่ลูกค้าส่งในแชททันที ปิดแล้วแอดมินกดตรวจเองจากกล่องข้อความ"
             checked={autoVerify}
             disabled={!slipAllowed}
@@ -279,7 +279,7 @@ export function TenantSettingsForm({
       <Card id="credits">
         <CardHeader
           title={<Title icon={Coins}>เครดิตตรวจสลิป</Title>}
-          description={`ตรวจ 1 สลิป ใช้ 1 เครดิต (คืนให้อัตโนมัติถ้า SlipOK ขัดข้อง) เมื่อเครดิตหมดระบบจะหยุดเรียก SlipOK${isAdmin ? '' : ' · เติมเครดิตได้โดยติดต่อผู้ดูแลแพลตฟอร์ม'}`}
+          description={`ตรวจ 1 สลิป ใช้ 1 เครดิต (คืนให้อัตโนมัติถ้าระบบตรวจสอบสลิปขัดข้อง) เมื่อเครดิตหมดระบบจะหยุดตรวจสอบสลิป${isAdmin ? '' : ' · เติมเครดิตได้โดยติดต่อผู้ดูแลแพลตฟอร์ม'}`}
         />
         <div className="grid gap-4 p-5 sm:grid-cols-3">
           {isAdmin ? (

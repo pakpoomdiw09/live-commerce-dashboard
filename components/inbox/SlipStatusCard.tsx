@@ -1,5 +1,6 @@
 'use client'
 
+import { neutralSlipText } from '@/lib/ui-labels'
 import { ChevronRight, Loader2, ReceiptText } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { SLIP_STATUS } from '@/lib/status'
@@ -31,7 +32,7 @@ export function SlipStatusCard({ slip, focused, onClick }: { slip: SlipRow; focu
           <Badge tone={st.tone}>{st.label}</Badge>
           {slip.approved_at && <Badge tone="success">อนุมัติแล้ว</Badge>}
         </span>
-        {slip.note && !pending && <span className="mt-1 line-clamp-2 block text-[11px] text-slate-500">{slip.note}</span>}
+        {slip.note && !pending && <span className="mt-1 line-clamp-2 block text-[11px] text-slate-500">{neutralSlipText(slip.note)}</span>}
       </span>
       <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
     </button>

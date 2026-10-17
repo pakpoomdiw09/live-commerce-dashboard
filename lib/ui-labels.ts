@@ -24,9 +24,13 @@ const labels:Record<string,string>={
  prompt_saved:'บันทึกคำสั่งผู้ช่วย',prompt_restored:'คืนค่าคำสั่งผู้ช่วย',knowledge_saved:'บันทึกฐานความรู้',knowledge_deleted:'ลบฐานความรู้',
  settings_updated:'ปรับการตั้งค่า',simulation_completed:'จำลองการตอบสำเร็จ',
 }
+/** Display-only replacement also covers older saved provider messages. */
+export function neutralSlipText(value:string):string{
+ return value.replace(/slip\s*ok/gi,'ระบบตรวจสอบสลิปอัตโนมัติ')
+}
 export function systemLabel(value:string|null|undefined,fallback='รอตรวจสอบรายละเอียด'):string{
  if(!value)return '—'
  if(labels[value])return labels[value]
- if(/[\u0e00-\u0e7f]/.test(value))return value.replace(/SlipOK/g,'ผู้ให้บริการตรวจสอบ').replace(/Payment (?:Verification )?Pro/g,'ระบบตรวจสอบการชำระเงิน').replace(/\btransaction\b/gi,'รายการเดิม')
+ if(/[\u0e00-\u0e7f]/.test(value))return neutralSlipText(value).replace(/Payment (?:Verification )?Pro/g,'ระบบตรวจสอบการชำระเงิน').replace(/\btransaction\b/gi,'รายการเดิม')
  return fallback
 }

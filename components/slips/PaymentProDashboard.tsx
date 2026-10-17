@@ -36,7 +36,7 @@ export function PaymentProDashboard({tenantId,canManage,embedded=false}:{tenantI
    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[
     ['เครดิตตรวจสลิปคงเหลือ',data.credits.remaining.toLocaleString()],
     ['ใช้เครดิตสะสม',`${data.credits.used.toLocaleString()} / ${data.credits.quota.toLocaleString()}`],
-    ['ผู้ให้บริการ SlipOK',data.provider.configured?'ตั้งค่าครบแล้ว':'ยังตั้งค่าไม่ครบ'],
+    ['ระบบตรวจสอบสลิปอัตโนมัติ',data.provider.configured?'ตั้งค่าครบแล้ว':'ยังตั้งค่าไม่ครบ'],
     ['ยืนยันอัตโนมัติ',data.flags.autoConfirmation&&data.flags.orderMatching?'เปิด':'ปิด · เข้าคิวรอตรวจ'],
    ].map(([title,value])=><article className={box} key={title}><p className="text-xs text-slate-500">{title}</p><p className="mt-2 text-xl font-semibold text-orange-700">{value}</p></article>)}</div>
    <p className="text-xs text-slate-500">สถานะผู้ให้บริการ แสดงเฉพาะการตั้งค่า ไม่ได้ยิง API ทดสอบการเชื่อมต่อหรือใช้เครดิตจากหน้านี้</p>
@@ -52,7 +52,7 @@ export function PaymentProDashboard({tenantId,canManage,embedded=false}:{tenantI
      <option value="approve" disabled={!selected.eligible}>ยืนยันชำระเงิน</option><option value="reject">ปฏิเสธ</option><option value="cancel">ยกเลิกรายการ</option>
      <option value="retry" disabled={!!selected.provider_started_at}>ตรวจรูปใหม่ (เฉพาะที่ยังไม่เคยเรียก Provider)</option>
     </select>
-    <p className="mt-2 text-xs text-slate-500">ตรวจใหม่ได้เฉพาะหลักฐานรูปภาพที่หยุดก่อนเรียก SlipOK สูงสุด 3 ครั้ง หากเริ่มเรียกไปแล้วจะไม่ตรวจหรือส่งซ้ำ</p>
+    <p className="mt-2 text-xs text-slate-500">ตรวจใหม่ได้เฉพาะหลักฐานรูปภาพที่หยุดก่อนเริ่มตรวจสอบสลิป สูงสุด 3 ครั้ง หากเริ่มเรียกไปแล้วจะไม่ตรวจหรือส่งซ้ำ</p>
     <input aria-label="เหตุผลการตรวจสอบ" className="my-3 w-full rounded-xl border p-3 text-sm" required minLength={5} maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)} placeholder="ระบุเหตุผล 5–1,000 ตัวอักษร"/>
     <div className="flex gap-3"><button className={button} disabled={busy}>บันทึกผล</button><button type="button" className="text-sm text-slate-500" disabled={busy} onClick={()=>setSelected(null)}>ปิด</button></div>
    </form>}

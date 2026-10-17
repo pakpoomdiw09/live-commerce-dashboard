@@ -4,8 +4,11 @@ import { supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant } from '@/lib/tenant'
 import { SetupNotice } from '@/components/SetupNotice'
 import { CUSTOMER_COLUMNS, type CustomerRow, type MessageRow, type SlipStatus } from '@/lib/types'
-import { InboxClient, type ChatSummary, type CommentItem } from '@/components/inbox/InboxClient'
+import type { ChatSummary, CommentItem } from '@/components/inbox/InboxClient'
+import { SmartInboxV2 } from '@/components/inbox/SmartInboxV2'
 import { InlineError } from '@/components/ErrorState'
+
+export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'กล่องข้อความรวม' }
 
@@ -39,7 +42,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   if (customers.error) {
     return (
       <div className="p-6">
-        <InlineError title="โหลดรายชื่อแชทไม่ได้ (ตรวจสอบ migration supabase/smart-inbox.sql)" message={customers.error.message} />
+        <InlineError title="โหลดรายชื่อแชทไม่สำเร็จ" message="กรุณาลองอีกครั้ง หากยังใช้งานไม่ได้ ให้เจ้าของร้านตรวจสอบการเชื่อมต่อระบบ" />
       </div>
     )
   }
@@ -51,7 +54,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   }))
 
   return (
-    <InboxClient
+    <SmartInboxV2
       key={tenant?.id ?? 'all'}
       initialChats={chats}
       initialComments={(comments.data ?? []) as CommentItem[]}

@@ -124,6 +124,7 @@ async function recordReceipt(ev: any, tenantId: string, pageId: string) {
   const customer = await db.from('customers').select('id').eq('tenant_id', tenantId).eq('platform_user_id', ev.sender.id).eq('platform', 'facebook').maybeSingle()
   if (customer.error) throw customer.error
   if (!customer.data) return
+  await (await import('@/lib/broadcast-events')).recordBroadcastReceipt(db, tenantId, customer.data.id, ev)
   if (ev.delivery?.mids?.length) {
     const mids = ev.delivery.mids.filter((id: unknown) => typeof id === 'string').slice(0, 100)
     const result = await db.from('messages').update({ delivery_status: 'delivered' }).eq('customer_id', customer.data.id).in('provider_message_id', mids).in('delivery_status', ['sent','pending'])
@@ -181,6 +182,7 @@ async function onMessage(ev: any, pageId: string, tenant: PageTenant | null) {
     .single()
   if (insertError?.code === '23505') return // Meta retried an event we already stored
   if (insertError || !message) throw insertError ?? new Error('message insert returned no row')
+  if (tenant) await (await import('@/lib/broadcast-events')).recordBroadcastInteraction(db, tenant.id, customer.id, pageId, ev)
 
   if (tenant) {
     try {
