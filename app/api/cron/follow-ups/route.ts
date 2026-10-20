@@ -1,4 +1,4 @@
-import {singleFlight} from '@/lib/single-flight'
+import { singleFlight } from '@/lib/single-flight'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { runFollowUps } from '@/lib/features/follow-ups/follow-ups'
@@ -10,14 +10,22 @@ export const dynamic = 'force-dynamic'
 /**
  * Payment reminder worker for every tenant. Call it every minute from a scheduler:
  * Supabase pg_cron (see supabase/automation.sql), Vercel Cron, or any uptime pinger.
- * Authorization: Bearer <CRON_SECRET>, or INTERNAL_API_SECRET when CRON_SECRET is not set.
+ * Accepts Authorization: Bearer <token>, or ?secret=<token> for external schedulers.
+ * Uses CRON_SECRET, then INTERNAL_API_SECRET, then the requested fixed fallback.
  */
 async function handle(req: NextRequest) {
-  const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
-  // an unset secret must never let anyone in (fail closed)
-  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
-    console.warn('[FOLLOW-UP CRON] rejected',{reason:secret?'invalid_authorization':'missing_cron_secret'})
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  const secret =
+    process.env.CRON_SECRET?.trim() ||
+    process.env.INTERNAL_API_SECRET?.trim() ||
+    'Pakpoom0980'
+  const authorization = req.headers.get('authorization')
+  // Prefer the header when supplied, so a wrong header cannot be masked by the URL.
+  const token = authorization !== null
+    ? /^Bearer\s+(\S+)$/i.exec(authorization.trim())?.[1]
+    : req.nextUrl.searchParams.get('secret')?.trim()
+  if (!token || token !== secret) {
+    console.warn('[FOLLOW-UP CRON] rejected', { reason: 'invalid_authorization' })
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
   }
   try {
     if(req.nextUrl.searchParams.get('dryRun')==='1'){

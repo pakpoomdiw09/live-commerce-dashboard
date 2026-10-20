@@ -2,7 +2,7 @@
 
 Route จริงคือ `GET` หรือ `POST /api/cron/follow-ups` ต้องมี `Authorization: Bearer <CRON_SECRET>` (ถ้าไม่ได้ตั้งใช้ `INTERNAL_API_SECRET`) ทั้ง dev และ production ต้องมี scheduler เรียก Route นี้ จอดหน้า Dashboard ค้างไว้ไม่ได้ทำให้ Worker รันเอง
 
-ใน repository มี `vercel.json` ตั้งเรียกทุกนาทีแล้ว ดูการตั้ง Production Secret และ deploy ใน [FOLLOW-UP-CRON-SETUP.md](FOLLOW-UP-CRON-SETUP.md) ส่วนคำสั่ง `cron.schedule` ใน `supabase/automation.sql` เป็นตัวอย่างที่คอมเมนต์ไว้ ไม่ได้ติดตั้ง Supabase Cron อัตโนมัติ ตรวจบนระบบจริงด้วย `supabase/follow-up-worker-diagnostics.sql` ใน SQL Editor ซึ่งไม่ส่งข้อความและไม่แสดง secret หรือเนื้อหาแชท หากใช้ Supabase Cron ให้ดู Messages/Notices ใน SQL Editor เพิ่มเติม
+ใน repository ไม่มี Cron ใน `vercel.json` ต้องตั้ง External Scheduler หรือ Supabase Cron ตาม [FOLLOW-UP-CRON-SETUP.md](FOLLOW-UP-CRON-SETUP.md) ส่วนคำสั่ง `cron.schedule` ใน `supabase/automation.sql` เป็นตัวอย่างที่คอมเมนต์ไว้ ไม่ได้ติดตั้ง Supabase Cron อัตโนมัติ ตรวจบนระบบจริงด้วย `supabase/follow-up-worker-diagnostics.sql` ใน SQL Editor ซึ่งไม่ส่งข้อความและไม่แสดง secret หรือเนื้อหาแชท หากใช้ Supabase Cron ให้ดู Messages/Notices ใน SQL Editor เพิ่มเติม
 
 หากยังไม่มี scheduler ใช้ตัวอย่างส่วนท้าย `automation.sql` โดยแทน URL เป็นโดเมน deployment ที่ออนไลน์จริงและ Secret ให้ตรงกับ Environment ของ deployment แล้วตั้งเรียกทุกนาที ใช้ scheduler เพียงแห่งเดียว ไม่ต้องเพิ่ม browser polling การตั้ง `.env.local` อย่างเดียวไม่ได้ตั้งค่า Secret ใน production และ Supabase บนคลาวด์เรียก localhost ในคอมพิวเตอร์ไม่ได้
 

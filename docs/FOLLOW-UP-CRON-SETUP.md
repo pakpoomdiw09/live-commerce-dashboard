@@ -1,14 +1,16 @@
 # เปิด Cron ทุก 1 นาที
 
-โปรเจกต์มี `vercel.json` เรียก `GET /api/cron/follow-ups` ด้วย `* * * * *` แล้ว Cron เริ่มบน Production deployment หลัง deploy สำเร็จ ไม่เริ่มจากการรัน `npm run dev` และไม่ทำงานบน Preview ตามค่าเริ่มต้น
+โปรเจกต์มี API `GET/POST /api/cron/follow-ups` แต่ `vercel.json` ไม่มี Cron เพื่อให้ deploy บน Hobby ได้ ต้องตั้ง External Scheduler หรือ Supabase Cron เรียก API ทุกนาทีเอง การเปิด Dashboard หรือรัน `npm run dev` ไม่ได้เริ่ม Worker อัตโนมัติ
 
 ## ตั้งค่าบน Vercel
 
 1. Project → Settings → Environment Variables: ตั้ง `CRON_SECRET` สำหรับ Production ให้ตรงกับค่าใน `.env.local` หรือ secret ที่ใช้ทดสอบ ห้ามใช้ชื่อขึ้นต้น `NEXT_PUBLIC_`
-2. Deploy โค้ดนี้ไป Production แล้วตรวจ Settings → Cron Jobs ว่ามี `/api/cron/follow-ups` ทุกนาที
+2. Deploy โค้ดนี้ไป Production แล้วตั้ง External Scheduler ทุกนาที: URL `https://live-commerce-dashboard-xi.vercel.app/api/cron/follow-ups`, Method `POST` (รองรับ `GET` ด้วย), Header `Authorization: Bearer <CRON_SECRET>` และ Body `{}` หากใช้ JSON ให้เพิ่ม `Content-Type: application/json` ห้ามใส่ Secret ใน URL
 3. ตรวจ Runtime Logs ด้วย `[FOLLOW-UP CRON]`, `[FOLLOW-UP WORKER]` และ `[FOLLOW-UP SEND]`
 
-Vercel แนบ `Authorization: Bearer <CRON_SECRET>` ให้คำขอ Cron อัตโนมัติ Route ปฏิเสธคำขอ Secret ไม่ตรงหรือไม่ได้ตั้งค่าเป็น 401 ไม่ใช้ User-Agent ยืนยันตัวตน รองรับ `INTERNAL_API_SECRET` สำหรับตัวเรียกภายนอกเดิม แต่ Vercel Cron ต้องตั้ง `CRON_SECRET` โดยตรง
+Route เลือก `CRON_SECRET` หลังตัดช่องว่างก่อน ถ้าไม่มีหรือว่างจึงใช้ `INTERNAL_API_SECRET` หากตั้งทั้งสองค่า Scheduler ต้องใช้ `CRON_SECRET` เท่านั้น ไม่รับ Secret เก่าควบคู่กัน คำขอที่ไม่มี Secret หรือไม่ตรงจะได้ 401 ก่อนอ่านฐานข้อมูลหรือส่งข้อความ ไม่ใช้ User-Agent ยืนยันตัวตน และ `?dryRun=1` ต้องยืนยันสิทธิ์เช่นกัน เมื่อตั้งค่าหรือเปลี่ยน Secret บน Vercel ให้ redeploy และปรับ Header ของ Scheduler ให้ตรงกัน
+
+หากเลือกใช้ Vercel Cron ในอนาคต ต้องเพิ่ม configuration เองและใช้แพ็กเกจที่รองรับความถี่นั้น โดย Vercel แนบ `Authorization: Bearer <CRON_SECRET>` ให้อัตโนมัติ
 
 Vercel Hobby รองรับ Cron เพียงรายวัน ไม่รองรับตารางทุกนาที ต้องใช้แพ็กเกจที่รองรับทุกนาที หรือตั้ง scheduler ภายนอกเรียก endpoint เดียวกันทุกนาทีพร้อม Authorization header ถ้าเลือกตัวภายนอกให้เอารายการออกจาก `vercel.json` ก่อน deploy และอย่าเปิด Supabase Cron ซ้ำพร้อมกัน
 

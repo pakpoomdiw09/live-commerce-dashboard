@@ -7,7 +7,7 @@ require('@next/env').loadEnvConfig(path.resolve(__dirname,'..'),true,{info(){},e
  const url=new URL(base)
  if(url.username||url.password||url.search||url.hash||!['http:','https:'].includes(url.protocol)
   ||(url.protocol==='http:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname)))throw new Error('Use an HTTPS origin, or localhost for development')
- const secret=(process.env.CRON_SECRET||process.env.INTERNAL_API_SECRET||'').trim()
+ const secret=process.env.CRON_SECRET?.trim()||process.env.INTERNAL_API_SECRET?.trim()||''
  if(!secret)throw new Error('Set CRON_SECRET in the local environment and deployment first')
  url.pathname='/api/cron/follow-ups';url.search=send?'':'?dryRun=1'
  console.log(send?'LIVE: processing due follow-up jobs':'DRY RUN: inspecting the queue without claiming or sending')
