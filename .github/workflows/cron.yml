@@ -1,0 +1,26 @@
+name: Follow-up Cron
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: follow-up-cron
+  cancel-in-progress: false
+
+jobs:
+  follow-ups:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Run follow-up worker
+        run: |
+          curl --fail-with-body --show-error --silent \
+            --connect-timeout 15 \
+            --max-time 90 \
+            --request POST \
+            --write-out '\nHTTP %{http_code}\n' \
+            'https://live-commerce-dashboard-xi.vercel.app/api/cron/follow-ups'

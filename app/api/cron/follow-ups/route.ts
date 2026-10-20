@@ -8,8 +8,9 @@ export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
 async function handle(req: NextRequest) {
-  // 🔓 ปิดการเช็ครหัสชั่วคราว เพื่อให้ทุกคำขอผ่านได้ทันที
-  console.info('[FOLLOW-UP CRON] Bypass auth active', {
+  // Public endpoint invoked by the GitHub Actions schedule or manual requests.
+  console.info('[FOLLOW-UP CRON] invoked', {
+    method: req.method,
     nowUTC: new Date().toISOString(),
   })
 
