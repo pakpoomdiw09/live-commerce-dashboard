@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { shopV2, SHOP_TABS, type ShopTab } from '@/lib/features/commerce/commerce-core'
 import {redirect} from 'next/navigation'
 import { commerceScope, commerceSnapshot } from '@/lib/features/commerce/commerce-server'
@@ -26,7 +27,7 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
       const data = await commerceSnapshot(await commerceScope(tenant.id), query)
       const tab = query.tab && Object.hasOwn(SHOP_TABS, query.tab) ? query.tab as ShopTab : 'overview'
       return <CommerceWorkspace key={tenant.id + JSON.stringify(query)} initial={data} tab={tab}/>
-    } catch { return <div className="space-y-4 p-6"><InlineError title="ระบบร้านค้าใหม่ยังไม่พร้อม" message="กรุณาตรวจการติดตั้ง commerce-v2.sql หรือติดต่อผู้ดูแลระบบ"/><a className="text-orange-700 underline" href="/shop?legacy=1">เปิดระบบร้านค้าเดิม</a></div> }
+    } catch { return <div className="space-y-4 p-6"><InlineError title="ระบบร้านค้าใหม่ยังไม่พร้อม" message="กรุณาตรวจการติดตั้ง commerce-v2.sql หรือติดต่อผู้ดูแลระบบ"/><Link className="text-orange-700 underline" href="/shop?legacy=1">เปิดระบบร้านค้าเดิม</Link></div> }
   }
   const [db, tenant] = await Promise.all([supabaseServer(), getActiveTenant()])
   if (!tenant) return <SetupNotice kind="no-tenant" />
