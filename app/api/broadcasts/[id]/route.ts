@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { readBroadcast, broadcastScope } from '@/lib/broadcast-service'
-import { broadcastDeliveryStats } from '@/lib/broadcast-send'
-import { inboxError, InboxError } from '@/lib/inbox-server'
+import { readBroadcast, broadcastScope } from '@/lib/features/broadcast/broadcast-service'
+import { broadcastDeliveryStats } from '@/lib/features/broadcast/broadcast-send'
+import { inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {

@@ -1,7 +1,7 @@
 import {NextRequest, NextResponse} from 'next/server'
-import {slipBankTenant} from '@/lib/slip-bank-server'
+import {slipBankTenant} from '@/lib/features/slips/slip-bank-server'
 import {automationSafetyEnabled, automationStopped} from '@/lib/automation-safety'
-import {InboxError, inboxError, checkRpc} from '@/lib/inbox-server'
+import {InboxError, inboxError, checkRpc} from '@/lib/features/inbox/inbox-server'
 
 export async function GET(req: NextRequest) {
   try {

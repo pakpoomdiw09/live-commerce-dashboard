@@ -5,7 +5,7 @@ const path=require('node:path')
 const ts=require('typescript')
 const {PGlite}=require(process.argv[2]||'@electric-sql/pglite')
 const catalog={}
-new Function('exports',ts.transpileModule(fs.readFileSync(path.join(__dirname,'../lib/image-rules.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(catalog)
+new Function('exports',ts.transpileModule(fs.readFileSync(path.join(__dirname,'../lib/features/vision/image-rules.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(catalog)
 const draft={name:'Test',trigger_type:'slip',response_text:'Received',media_url:null,is_active:true}
 assert.equal(catalog.imageRuleError(draft),null)
 assert.equal(catalog.imageRuleError({...draft,response_text:'',media_url:'https://example.com/image.png'}),null)

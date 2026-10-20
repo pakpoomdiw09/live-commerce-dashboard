@@ -1,6 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { reserveCredits, settleCredits } from '@/lib/billing'
+import { reserveCredits, settleCredits } from '@/lib/features/billing/billing'
 
 export class MessageQuotaError extends Error {
   readonly code = 'MESSAGE_QUOTA_EXHAUSTED'

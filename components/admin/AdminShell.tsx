@@ -27,7 +27,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </nav>
         <Link href="/dashboard" className="mt-6 inline-block text-sm text-slate-400 hover:text-white">กลับหน้าร้านค้า →</Link>
       </aside>
-      <main className="min-w-0 flex-1 lg:ml-64"><div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">{children}</div></main>
+      <main className="min-w-0 flex-1 lg:ml-64"><div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">{children}</div></main>
     </div>
   )
 }

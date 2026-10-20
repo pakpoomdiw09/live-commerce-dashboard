@@ -1,6 +1,6 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {followUpTenant} from '@/lib/smart-followup-server'
-import {inboxError,InboxError,checkRpc} from '@/lib/inbox-server'
+import {followUpTenant} from '@/lib/features/follow-ups/smart-followup-server'
+import {inboxError,InboxError,checkRpc} from '@/lib/features/inbox/inbox-server'
 import {UUID} from '@/lib/utils'
 export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>}){try{
  const input=await req.json().catch(()=>null);const {id}=await params

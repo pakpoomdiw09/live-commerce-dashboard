@@ -70,8 +70,8 @@ FREE/แพ็กเกจหมดอายุหรือถูกปิด en
 
 ไฟล์ใหม่:
 
-- `lib/payment-codes-core.ts` — amount/TLV/CRC/proxy validation และสัญญาข้อมูล
-- `lib/payment-codes-server.ts` — authorization/flag, generator wrapper และ raster decoder
+- `lib/features/payments/payment-codes-core.ts` — amount/TLV/CRC/proxy validation และสัญญาข้อมูล
+- `lib/features/payments/payment-codes-server.ts` — authorization/flag, generator wrapper และ raster decoder
 - `app/api/payment-codes/route.ts` — tenant-scoped read/create/toggle
 - `supabase/payment-receiving-codes.sql` — receiving codes, immutable snapshots, audit, atomic save/toggle
 - `components/slips/ReceivingCodeManager.tsx`

@@ -1,4 +1,4 @@
-import { Check, Image, Info, MessageCircle, Phone, Smile, Video } from 'lucide-react'
+import { Check, Image as ImageIcon, Info, MessageCircle, Phone, Smile, Video } from 'lucide-react'
 
 /** Visual preview only; the composer and header icons do not send messages. */
 export function BroadcastPreview({ message, pageName = 'เพจร้านค้า' }: { message: string; pageName?: string }) {
@@ -34,7 +34,7 @@ export function BroadcastPreview({ message, pageName = 'เพจร้านค
       </div>
 
       <div aria-hidden className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 text-blue-500">
-        <Image className="h-5 w-5 shrink-0" />
+        <ImageIcon className="h-5 w-5 shrink-0" />
         <span className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-full bg-slate-100 px-4 py-2 text-xs text-slate-400">
           <span className="truncate">พิมพ์ข้อความ…</span><Smile className="h-4 w-4 shrink-0 text-blue-500" />
         </span>

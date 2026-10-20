@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { broadcastScope, readBroadcast } from '@/lib/broadcast-service'
-import { sendBroadcast } from '@/lib/broadcast-send'
-import { InboxError, inboxError } from '@/lib/inbox-server'
+import { broadcastScope, readBroadcast } from '@/lib/features/broadcast/broadcast-service'
+import { sendBroadcast } from '@/lib/features/broadcast/broadcast-send'
+import { InboxError, inboxError } from '@/lib/features/inbox/inbox-server'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60

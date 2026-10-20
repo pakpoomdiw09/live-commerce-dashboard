@@ -1,7 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {inboxCustomer,inboxError,InboxError,checkRpc} from '@/lib/inbox-server'
+import {inboxCustomer,inboxError,InboxError,checkRpc} from '@/lib/features/inbox/inbox-server'
 import {hasFeature} from '@/lib/feature-access'
-import {aiConfigured} from '@/lib/ai-agent'
+import {aiConfigured} from '@/lib/features/agents/ai-agent'
 import {UUID} from '@/lib/utils'
 type Context={params:Promise<{id:string}>}
 export async function GET(req:NextRequest,{params}:Context){try{
@@ -26,6 +26,11 @@ export async function PATCH(req:NextRequest,{params}:Context){try{
  if(!input||!(pro?['claim','transfer','release','start','resolve','close','reopen','pause','bot']:['claim','transfer','close','reopen','pause','bot']).includes(input.action)||!Number.isInteger(input.version)||input.version<0||input.action==='transfer'&&!UUID.test(input.assigneeId??''))throw new InboxError('ข้อมูลการจัดการแชทไม่ถูกต้อง')
  if(pro&&(!UUID.test(input.requestId??'')||input.reason!==undefined&&(typeof input.reason!=='string'||input.reason.length>500)||input.action==='close'&&!input.reason?.trim()))throw new InboxError('กรุณาระบุรหัสคำขอและเหตุผลปิดแชทไม่เกิน 500 ตัวอักษร')
  if(input.action==='bot'){
+  const page=await db.from('tenants').select('page_id').eq('id',tenantId).single()
+  if(page.error)throw page.error
+  const {inboxInboundEvidence}=await import('@/lib/features/inbox/inbox-policy-server')
+  const {inboxWindow}=await import('@/lib/features/inbox/inbox-v2')
+  if(!inboxWindow(await inboxInboundEvidence(db,tenantId,customer.id,page.data.page_id)).allowed)throw new InboxError('หมดเวลา 24 ชั่วโมง ส่งแชทให้แอดมินดูแลแทน',409,'MESSAGING_WINDOW_CLOSED')
   if(process.env.SNAPBOT_SAFETY_ENABLED==='true')await (await import('@/lib/automation-safety')).assertAutomationRunning(db,tenantId)
   const {data,error}=await db.from('bot_settings').select('reply_mode').eq('tenant_id',tenantId).maybeSingle()
   if(error)throw error

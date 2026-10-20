@@ -14,8 +14,8 @@ function compile(file) {
 }
 
 const code = Object.fromEntries([
-  ['banks', 'lib/banks.ts'], ['plans', 'lib/plans.ts'], ['payments', 'lib/payments.ts'],
-  ['validation', 'lib/payment-validation.ts'], ['create', 'app/api/payments/route.ts'],
+  ['signature', 'lib/image-signature.ts'], ['banks', 'lib/features/banking/banks.ts'], ['plans', 'lib/features/billing/plans.ts'], ['payments', 'lib/features/payments/payments.ts'],
+  ['validation', 'lib/features/payments/payment-validation.ts'], ['create', 'app/api/payments/route.ts'],
   ['verify', 'app/api/payments/verify-slip/route.ts'], ['get', 'app/api/payments/[id]/route.ts'],
 ].map(([name, file]) => [name, compile(file)]))
 const tenantId = '11111111-1111-1111-1111-111111111111'
@@ -105,19 +105,21 @@ function fixture(options = {}) {
     },
   }
   const modules = {
+    '@/lib/safe-logging': require('./helpers/load-safe-logging.cjs')({ info: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) }),
     'server-only': {},
     'node:crypto': { createHash },
     'promptpay-qr': (id, { amount }) => `mock-qr:${id}:${amount}`,
     'next/server': { NextResponse: { json: (json, init = {}) => ({ json, status: init.status ?? 200, headers: init.headers ?? {} }) } },
     '@/lib/utils': { UUID: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i },
     '@/lib/auth': {
-      getActor: async () => actor,
+      getActor: async () => { if (options.authError) throw options.authError; return actor },
       canAccessTenant: async (_, id, need) => { permissions.push({ id, need }); return options.role !== 'staff' && id === tenantId },
     },
     '@/lib/supabase/server': { supabaseAdmin: () => db },
-    '@/lib/billing': { getBilling: async (_, id) => { billingCalls.push(id); return state.billing } },
-    '@/lib/slip/slipok': { verifyWithSlipOK: async (input) => {
+    '@/lib/features/billing/billing': { getBilling: async (_, id) => { if (options.billingError) throw options.billingError; billingCalls.push(id); return state.billing } },
+    '@/lib/features/slips/slipok': { verifyWithSlipOK: async (input) => {
       calls.push({ type: 'slipok', input })
+      if (options.providerError) throw options.providerError
       return options.slip ?? validSlip()
     } },
   }
@@ -131,12 +133,15 @@ function fixture(options = {}) {
     })
     return exports
   }
-  modules['@/lib/banks'] = load('banks')
-  modules['@/lib/plans'] = load('plans')
-  modules['@/lib/payments'] = load('payments')
-  modules['@/lib/payment-validation'] = load('validation')
+  modules['@/lib/image-signature'] = load('signature')
+  modules['@/lib/features/banking/banks'] = load('banks')
+  modules['@/lib/features/billing/plans'] = load('plans')
+  modules['@/lib/features/payments/payments'] = load('payments')
+  modules['@/lib/features/payments/payment-validation'] = load('validation')
   return { create: load('create').POST, verify: load('verify').POST, get: load('get').GET, state, queries, calls, permissions, logs, billingCalls }
 }
+
+module.exports = { fixture, validSlip, req }
 
 test('unauthorized and non-owner callers cannot create, inspect or verify package payments', async () => {
   for (const options of [{ actor: null }, { role: 'staff' }]) {

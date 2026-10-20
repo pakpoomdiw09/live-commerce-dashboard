@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHash, randomUUID } from 'node:crypto'
 import { canAccessTenant, getActor, isPlatformAdmin } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { isPaymentImage, PAYMENT_MAX_BYTES } from '@/lib/payment-validation'
+import { isPaymentImage, PAYMENT_MAX_BYTES } from '@/lib/features/payments/payment-validation'
 import { UUID } from '@/lib/utils'
-import { APPROVAL_SUCCESS, BILLING_VERIFICATION_COLUMNS, verifyBillingRequest, type VerifiableBillingRequest } from '@/lib/billing-verification'
-import { getBilling } from '@/lib/billing'
+import { APPROVAL_SUCCESS, BILLING_VERIFICATION_COLUMNS, verifyBillingRequest, type VerifiableBillingRequest } from '@/lib/features/billing/billing-verification'
+import { getBilling } from '@/lib/features/billing/billing'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60

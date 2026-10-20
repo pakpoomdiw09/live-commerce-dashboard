@@ -4,10 +4,10 @@ const vm = require('node:vm')
 const ts = require('typescript')
 require('@next/env').loadEnvConfig(process.cwd())
 const { createClient } = require('@supabase/supabase-js')
-const code = ts.transpileModule(fs.readFileSync('lib/facebook.ts', 'utf8'), {
+const code = ts.transpileModule(fs.readFileSync('lib/integrations/facebook/client.ts', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
-const context = { exports: {}, process, fetch, AbortSignal, URL, console }
+const context = { exports: {}, process, fetch, AbortSignal, URL, console, require: name => { if (name === '@/lib/safe-logging') return require('./helpers/load-safe-logging.cjs')(console); throw Error('Unexpected dependency') } }
 vm.runInNewContext(code, context)
 ;(async () => {
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })

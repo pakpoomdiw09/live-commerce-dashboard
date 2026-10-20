@@ -6,7 +6,7 @@ const {PGlite}=require(process.argv[2]||'@electric-sql/pglite')
  create function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.user',true),'')::uuid$$;
  create table tenants(id uuid primary key default gen_random_uuid(),name text default 'Shop',plan text default 'pro',plan_expires_at timestamptz default now()+interval '30 days',is_active boolean default true,auto_reply_enabled boolean default true,broadcast_allowance integer default 100,broadcast_credits integer default 100,broadcast_topup_credits integer default 7,broadcast_credit_mode text default 'purchased',broadcast_period text default to_char(now(),'YYYY-MM'));
  create table tenant_members(tenant_id uuid references tenants(id),user_id uuid references auth.users(id),role text);create table platform_admins(user_id uuid primary key references auth.users(id));
- create table customers(id uuid primary key default gen_random_uuid(),tenant_id uuid references tenants(id),platform_user_id text default '123',display_name text default 'Customer',bot_enabled boolean default true,last_message_at timestamptz default now(),handover_at timestamptz);
+ create table customers(id uuid primary key default gen_random_uuid(),platform text not null default 'facebook',tenant_id uuid references tenants(id),platform_user_id text default '123',display_name text default 'Customer',bot_enabled boolean default true,last_message_at timestamptz default now(),handover_at timestamptz);
  create table messages(id uuid primary key default gen_random_uuid(),customer_id uuid references customers(id),sender text,body text,external_id text unique,created_at timestamptz default now());
  create table bot_settings(tenant_id uuid primary key references tenants(id),reply_mode text default 'keyword',followup_enabled boolean default false,followup_steps jsonb default '[{"delay_minutes":30,"text":"hello"},{"delay_minutes":180,"text":"hello again"}]');
  create table products(id uuid primary key default gen_random_uuid(),tenant_id uuid references tenants(id),name text default 'Product',price numeric default 100,is_active boolean default true);
@@ -45,10 +45,44 @@ const {PGlite}=require(process.argv[2]||'@electric-sql/pglite')
   await db.query("update follow_up_jobs set run_at=now()-interval '1 minute' where tenant_id=$1",[tenant])
   return {tenant,customer,source,product,order,wf}
  }
+ await db.exec('reset role');await db.exec(fs.readFileSync('supabase/manual-follow-ups.sql','utf8'));await db.exec(fs.readFileSync('supabase/manual-follow-ups.sql','utf8'));await db.exec('set role service_role')
+ const manualInterest=await setup('pro','interested',true)
+ await db.query('delete from orders where id=$1',[manualInterest.order])
+ const addArgs=[manualInterest.tenant,owner,manualInterest.customer,'interested',manualInterest.product]
+ const added=(await db.query('select * from add_manual_follow_up($1,$2,$3,$4,$5)',addArgs)).rows
+ assert.equal(added.length,1);assert.equal(added[0].status,'pending');checks++
+ assert.equal((await db.query('select * from add_manual_follow_up($1,$2,$3,$4,$5)',addArgs)).rows[0].id,added[0].id);checks++
+ await assert.rejects(db.query('select * from add_manual_follow_up($1,$2,$3,$4,$5)',[manualInterest.tenant,owner,owner,'interested',manualInterest.product]),e=>e.code==='22023');checks++
+ await assert.rejects(db.query('select * from add_manual_follow_up($1,$2,$3,$4,$5)',[manualInterest.tenant,manualInterest.customer,manualInterest.customer,'interested',manualInterest.product]),e=>e.code==='42501');checks++
  const claim=async t=>(await db.query('select * from claim_follow_up_jobs($1,1)',[t])).rows[0]
  const prepare=async j=>(await one('select prepare_follow_up($1,$2) result',[j.id,j.claim_token])).result
  const job=async t=>one('select * from follow_up_jobs where tenant_id=$1 order by step limit 1',[t])
  const finish=async(j,status,provider=null,reason=null)=>(await one('select complete_follow_up($1,$2,$3,$4,$5) ok',[j.id,j.claim_token,status,provider,reason])).ok
+ await db.query("update follow_up_jobs set run_at=now()-interval '1 minute' where tenant_id=$1",[manualInterest.tenant])
+ assert.equal((await prepare(await claim(manualInterest.tenant))).reason,'ai_draft');checks++
+ const noOrder=await setup('starter','payment',false,true)
+ await db.query('delete from orders where id=$1',[noOrder.order])
+ const manualArgs=[noOrder.tenant,owner,noOrder.customer,'payment',null]
+ const manualJobs=(await db.query('select * from add_manual_follow_up($1,$2,$3,$4,$5)',manualArgs)).rows
+ assert.equal(manualJobs.length,1);assert.equal(manualJobs[0].status,'pending');assert.equal(manualJobs[0].order_id,null);checks++
+ assert.equal((await db.query('select * from add_manual_follow_up($1,$2,$3,$4,$5)',manualArgs)).rows[0].id,manualJobs[0].id);checks++
+ await db.query("update follow_up_jobs set run_at=now()-interval '1 minute' where tenant_id=$1",[noOrder.tenant])
+ assert.equal((await prepare(await claim(noOrder.tenant))).reason,'ai_draft');checks++
+ await db.query("select act_follow_up_job($1,$2,$3,'approve','Checked manual reminder')",[manualJobs[0].id,noOrder.tenant,owner])
+ assert.equal((await prepare(await claim(noOrder.tenant))).status,'ready');checks++
+ const noOrderAfter=await setup('pro','after_sales',false,true)
+ await db.query('delete from orders where id=$1',[noOrderAfter.order])
+ const afterManual=(await db.query("select * from add_manual_follow_up($1,$2,$3,'after_sales',null)",[noOrderAfter.tenant,owner,noOrderAfter.customer])).rows
+ assert.equal(afterManual.length,1);assert.equal(afterManual[0].status,'pending');checks++
+ await db.query("update customers set followup_opted_out=true where id=$1",[noOrderAfter.customer])
+ assert.equal((await db.query("select * from add_manual_follow_up($1,$2,$3,'after_sales',null)",[noOrderAfter.tenant,owner,noOrderAfter.customer])).rows.length,0);checks++
+ const flexibleInterest=await setup('pro','interested',false,true)
+ const flexible=(await db.query("select * from add_manual_follow_up($1,$2,$3,'interested',null)",[flexibleInterest.tenant,owner,flexibleInterest.customer])).rows
+ assert.equal(flexible.length,1);assert.equal(flexible[0].status,'pending');assert.equal(flexible[0].product_id,null);checks++
+ await db.query("update follow_up_jobs set run_at=now()-interval '1 minute' where id=$1",[flexible[0].id])
+ assert.equal((await prepare(await claim(flexibleInterest.tenant))).reason,'ai_draft');checks++
+ await db.query("select act_follow_up_job($1,$2,$3,'approve','Approved generic interest reminder')",[flexible[0].id,flexibleInterest.tenant,owner])
+ assert.equal((await prepare(await claim(flexibleInterest.tenant))).status,'ready');checks++
  const a=await setup('starter');const j=await claim(a.tenant);assert.ok(j);assert.equal(await claim(a.tenant),undefined);assert.equal((await prepare(j)).status,'ready');assert.equal((await prepare(j)).status,'skipped');assert.equal(await finish(j,'sent','mid-1'),true);assert.equal(await finish(j,'failed'),false);assert.equal((await job(a.tenant)).status,'sent');checks++
  const claimedChat=await setup('starter');const version=(await one('select conversation_version from customers where id=$1',[claimedChat.customer])).conversation_version
  await db.query("select manage_inbox_conversation($1,$2,'claim',$3,null)",[claimedChat.customer,owner,version]);assert.equal((await job(claimedChat.tenant)).status,'cancelled');assert.equal((await job(claimedChat.tenant)).reason,'handover');assert.equal((await one("select actor_id from conversation_events where customer_id=$1 and action='claim'",[claimedChat.customer])).actor_id,owner);assert.equal((await one('select assigned_user_id from customers where id=$1',[claimedChat.customer])).assigned_user_id,owner);checks++

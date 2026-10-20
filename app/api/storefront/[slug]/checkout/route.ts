@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { checkout, commerceResponse } from '@/lib/commerce-server'
-import { CommerceError } from '@/lib/commerce-core'
+import { checkout, commerceResponse } from '@/lib/features/commerce/commerce-server'
+import { CommerceError } from '@/lib/features/commerce/commerce-core'
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
     const raw = await req.text()

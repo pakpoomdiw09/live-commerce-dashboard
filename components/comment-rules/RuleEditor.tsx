@@ -1,11 +1,12 @@
 'use client'
 
+import { PageBanner } from '@/components/ui/page-banner'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import { ruleMatches, type CommentRule } from '@/lib/comment-rules'
-import type { PageProfile } from '@/lib/facebook'
+import { ruleMatches, type CommentRule } from '@/lib/features/comments/comment-rules'
+import type { PageProfile } from '@/lib/integrations/facebook/client'
 import { ICONS, Icon } from '@/components/ui/Icon'
 import { Switch } from '@/components/ui/Switch'
 
@@ -100,17 +101,17 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
+    <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
       {/* header */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <PageBanner className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <Link href="/comment-replies" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
+          <Link href="/comment-replies" className="inline-flex items-center gap-1 text-sm text-white underline-offset-4 hover:underline">
             <Icon d={ICONS.back} className="h-4 w-4" />
             ตอบกลับคอมเมนต์
           </Link>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">{rule ? 'แก้ไขกฎตอบกลับ' : 'สร้างกฎตอบกลับใหม่'}</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex max-w-full flex-wrap gap-2 rounded-2xl bg-white p-2 text-slate-900">
           <Link href="/comment-replies" className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-white">
             ยกเลิก
           </Link>
@@ -118,12 +119,12 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
             type="button"
             onClick={save}
             disabled={saving || uploading}
-            className="rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-red-200 transition hover:bg-red-600 active:scale-95 disabled:opacity-50"
+            className="rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-600 active:scale-95 disabled:opacity-50"
           >
             {saving ? 'กำลังบันทึก...' : 'บันทึก'}
           </button>
         </div>
-      </div>
+      </PageBanner>
 
       {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-100">{error}</p>}
 

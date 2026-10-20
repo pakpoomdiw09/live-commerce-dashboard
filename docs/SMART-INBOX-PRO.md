@@ -85,10 +85,10 @@ Customer panel มีข้อมูล แท็ก บันทึก ออ�
 
 ## ไฟล์ที่เปลี่ยน
 
-- State/realtime: `lib/inbox-request.ts`, `lib/inbox-types.ts`, `components/inbox/InboxClient.tsx`, `useInboxState.ts`, `ReadMarker.tsx`, `ChatList.tsx`
+- State/realtime: `lib/features/inbox/inbox-request.ts`, `lib/features/inbox/inbox-types.ts`, `components/inbox/InboxClient.tsx`, `useInboxState.ts`, `ReadMarker.tsx`, `ChatList.tsx`
 - Thread/actions: `Conversation.tsx`, `ConversationActions.tsx`, `ReplyBox.tsx`, `ConversationHistory.tsx`, `AutoPilotToggle.tsx`, `components/slips/SlipDetailPanel.tsx`
 - UI ใหม่: `components/inbox/InboxProCenter.tsx`
-- API: `app/api/inbox/state/route.ts`, `app/api/inbox/conversations/[id]/route.ts`, `app/api/inbox/pro/route.ts`, `lib/inbox-server.ts`
+- API: `app/api/inbox/state/route.ts`, `app/api/inbox/conversations/[id]/route.ts`, `app/api/inbox/pro/route.ts`, `lib/features/inbox/inbox-server.ts`
 - SQL: `supabase/smart-inbox-pro.sql`
 - Tests: `scripts/test-smart-inbox-pro-sql.cjs`, `test-smart-inbox-pro-api.cjs`, `test-inbox-request.cjs`, `test-inbox-realtime.cjs`, `check-smart-inbox-browser.cjs`, `inbox-browser-loader.cjs`, `scripts/fixtures/inbox-pro/*`
 

@@ -1,9 +1,10 @@
 'use client'
+import {createBackgroundRefresh} from '@/lib/background-refresh'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {QRCodeCanvas} from 'qrcode.react'
 import {Button} from '@/components/ui/button'
 import {EmptyState,ErrorMessage,LoadingSpinner,SuccessToast} from '@/components/ui/feedback'
-import type {ReceivingAccount,ReceivingCode} from '@/lib/payment-codes-core'
+import type {ReceivingAccount,ReceivingCode} from '@/lib/features/payments/payment-codes-core'
 
 type Code=Omit<ReceivingCode,'payload'>&{payload:string|null;available:boolean}
 type Data={accounts:ReceivingAccount[];codes:Code[];orders:{id:string;product_name:string;amount:number}[];audit:{id:string;action:string;created_at:string}[]}
@@ -19,7 +20,7 @@ export function ReceivingCodeManager({tenantId}:{tenantId:string}){
   if(!signal?.aborted)setData(value)
   return value as Data
  },[endpoint])
- useEffect(()=>{const controller=new AbortController();const refresh=()=>void load(controller.signal).catch(error=>{if(!controller.signal.aborted){setData(null);setError(error.message)}});refresh();const timer=setInterval(refresh,30000);return()=>{controller.abort();clearInterval(timer)}},[load])
+ useEffect(()=>{const refresh=createBackgroundRefresh(signal=>load(signal),error=>{setData(null);setError(error instanceof Error?error.message:'Refresh failed')});refresh.request();const visible=()=>refresh.request();document.addEventListener('visibilitychange',visible);return()=>{refresh.stop();document.removeEventListener('visibilitychange',visible)}},[load])
  async function save(){
   if(locked.current)return
   locked.current=true;setBusy(true);setError('');setNotice('')

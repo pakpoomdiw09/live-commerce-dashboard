@@ -1,7 +1,8 @@
 'use client'
+import { PageBanner } from '@/components/ui/page-banner'
 import {useEffect,useRef,useState} from 'react'
 import Link from 'next/link'
-import type {InboxState} from '@/lib/inbox-types'
+import type {InboxState} from '@/lib/features/inbox/inbox-types'
 
 export const INBOX_VIEWS=[['overview','ภาพรวมแชท'],['all','กล่องข้อความทั้งหมด'],['waiting','แชทรอรับ'],['mine','แชทของฉัน'],['team','งานของทีม'],['ai',"ผู้ช่วยอัจฉริยะ และระบบอัตโนมัติ"],['customers','ลูกค้าและประวัติ'],['reports','รายงานประสิทธิภาพ'],['security','ตั้งค่าและความปลอดภัย']] as const
 export type InboxView=typeof INBOX_VIEWS[number][0]
@@ -17,7 +18,7 @@ export function InboxReportsPanel({tenantId,inbox,view,onView}:{tenantId:string;
  },[tenantId,inbox.conversations])
  const metric=(key:keyof Report['counts'])=>report?.enabled?report.counts[key].toLocaleString():'ยังไม่มีข้อมูล'
  return <header className="shrink-0 border-b border-orange-100 bg-white p-3">
-  <div className="flex flex-wrap items-center justify-between gap-2"><div><h1 className="font-bold text-orange-800">ภาพรวมและรายงานทีมแชท</h1><p className="text-xs text-slate-500">ศูนย์ดูแลลูกค้า · ศูนย์รวมแชท ทีมแอดมิน ผู้ช่วยอัจฉริยะ และงานติดตาม</p></div><button type="button" className="rounded-xl border border-orange-200 px-3 py-2 text-xs text-orange-800" onClick={()=>guide.current?.showModal()}>คู่มือการใช้งาน</button></div>
+  <PageBanner as={'div'} className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl font-bold">ภาพรวมและรายงานทีมแชท</h1><p className="mt-2 text-sm text-white">ศูนย์ดูแลลูกค้า · ศูนย์รวมแชท ทีมแอดมิน ผู้ช่วยอัจฉริยะ และงานติดตาม</p></div><button type="button" className="rounded-xl border border-white/40 bg-white px-3 py-2 text-xs text-orange-700 hover:bg-orange-50" onClick={()=>guide.current?.showModal()}>คู่มือการใช้งาน</button></PageBanner>
   <nav aria-label="ส่วนการทำงานของกล่องข้อความ" className="mt-3 flex gap-1 overflow-x-auto">{INBOX_VIEWS.filter(([key])=>['overview','team','reports'].includes(key)).map(([key,label])=><button type="button" key={key} aria-current={view===key?'page':undefined} onClick={()=>onView(key)} className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs ${view===key?'bg-orange-500 font-semibold text-white':'bg-orange-50 text-orange-900'}`}>{label}</button>)}</nav>
   {error&&<p role="alert" className="mt-2 text-xs text-rose-700">{error}</p>}
   {['overview','reports','team'].includes(view)&&<div className="mt-3 max-h-56 overflow-y-auto rounded-xl bg-orange-50 p-3 text-xs">

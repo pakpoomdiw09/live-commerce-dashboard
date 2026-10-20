@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { visionTenant } from '@/lib/vision-server'
-import { inboxError, InboxError } from '@/lib/inbox-server'
-import { enqueueVision, runVisionJob } from '@/lib/vision'
-import { validateVisionFile, VISION_MAX_BYTES } from '@/lib/vision-image'
+import { visionTenant } from '@/lib/features/vision/vision-server'
+import { inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
+import { enqueueVision, runVisionJob } from '@/lib/features/vision/vision'
+import { validateVisionFile, VISION_MAX_BYTES } from '@/lib/features/vision/vision-image'
 import { UUID } from '@/lib/utils'
 
 export const runtime='nodejs'

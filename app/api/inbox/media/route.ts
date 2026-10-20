@@ -1,5 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {inboxTenant,inboxError,InboxError} from '@/lib/inbox-server'
+import {inboxTenant,inboxError,InboxError} from '@/lib/features/inbox/inbox-server'
 export const runtime='nodejs'
 export async function POST(req:NextRequest){try{
  const {db,actor,tenantId}=await inboxTenant(req,req.nextUrl.searchParams.get('tenantId')??'')

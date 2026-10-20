@@ -4,7 +4,7 @@ import { getActor } from '@/lib/auth'
 import { isSupabaseConfigured } from '@/lib/supabase/env'
 import { ConnectFacebookButton } from '@/components/select-page/ConnectFacebookButton'
 import { getActiveTenant, getTenants, getViewer, tenantPageConnections, tenantPages, unlinkedFacebookPages } from '@/lib/tenant'
-import { InlineError } from '@/components/ErrorState'
+import { InlineError } from '@/components/shared/ErrorState'
 import { FacebookIcon } from '@/components/ui/FacebookIcon'
 import { PageCard, type PageCardData } from '@/components/select-page/PageCard'
 
@@ -38,7 +38,7 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="min-h-dvh bg-linear-to-br from-orange-500 via-rose-400 to-pink-500 p-4 sm:p-8">
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-0 w-full min-w-0 max-w-none ">
         <header className="flex flex-wrap items-center justify-between gap-3 text-white">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">เลือกบอทในการใช้งาน</h1>

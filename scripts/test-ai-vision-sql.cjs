@@ -9,7 +9,7 @@ const {PGlite}=require(process.argv[2]||'@electric-sql/pglite')
  create table tenant_members(tenant_id uuid references tenants(id),user_id uuid references auth.users(id),role text);create table platform_admins(user_id uuid primary key references auth.users(id));
  create function is_platform_admin() returns boolean language sql security definer as $$select exists(select 1 from platform_admins where user_id=auth.uid())$$;
  create function can_access_tenant(p_tenant uuid) returns boolean language sql security definer as $$select exists(select 1 from tenant_members where tenant_id=p_tenant and user_id=auth.uid())$$;
- create table customers(id uuid primary key default gen_random_uuid(),tenant_id uuid references tenants(id),bot_enabled boolean default true,assigned_user_id uuid references auth.users(id),conversation_status text default 'open',last_message_at timestamptz default now(),outbound_lock_until timestamptz,handover_at timestamptz);
+ create table customers(id uuid primary key default gen_random_uuid(),platform text not null default 'facebook',tenant_id uuid references tenants(id),bot_enabled boolean default true,assigned_user_id uuid references auth.users(id),conversation_status text default 'open',last_message_at timestamptz default now(),outbound_lock_until timestamptz,handover_at timestamptz);
  create table messages(id uuid primary key default gen_random_uuid(),customer_id uuid references customers(id),sender text default 'customer',created_at timestamptz default now());
  create table bot_settings(tenant_id uuid primary key references tenants(id),reply_mode text default 'keyword',ai_instructions text);
  create table comments(id uuid primary key default gen_random_uuid(),tenant_id uuid references tenants(id));

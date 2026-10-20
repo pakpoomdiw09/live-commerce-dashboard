@@ -1,9 +1,11 @@
+import {singleFlight} from '@/lib/single-flight'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { runFollowUps } from '@/lib/follow-ups'
+import { runFollowUps } from '@/lib/features/follow-ups/follow-ups'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
+export const dynamic = 'force-dynamic'
 
 /**
  * Payment reminder worker for every tenant. Call it every minute from a scheduler:
@@ -14,10 +16,18 @@ async function handle(req: NextRequest) {
   const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
   // an unset secret must never let anyone in (fail closed)
   if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
+    console.warn('[FOLLOW-UP CRON] rejected',{reason:secret?'invalid_authorization':'missing_cron_secret'})
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   try {
-    return NextResponse.json(await runFollowUps(supabaseAdmin()))
+    if(req.nextUrl.searchParams.get('dryRun')==='1'){
+      const now=new Date().toISOString()
+      const due=await supabaseAdmin().from('follow_up_jobs').select('id,run_at').eq('status','pending').lte('run_at',now).lt('attempts',3).order('run_at').limit(1)
+      if(due.error)throw new Error('Cannot inspect follow-up queue')
+      return NextResponse.json({dryRun:true,nowUTC:now,hasDueJobs:!!due.data?.length,nextDueJob:due.data?.[0]??null},{headers:{'Cache-Control':'no-store'}})
+    }
+    console.info('[FOLLOW-UP CRON] invoked',{method:req.method,nowUTC:new Date().toISOString()})
+    return NextResponse.json(await singleFlight('cron:follow-ups',()=>runFollowUps(supabaseAdmin())),{headers:{'Cache-Control':'no-store'}})
   } catch (e) {
     console.error('[cron follow-ups]', e)
     return NextResponse.json({ error: e instanceof Error ? e.message : 'failed' }, { status: 500 })

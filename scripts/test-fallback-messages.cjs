@@ -5,7 +5,7 @@ const { test } = require('node:test')
 const vm = require('node:vm')
 const ts = require('typescript')
 const api = {}
-vm.runInNewContext(ts.transpileModule(readFileSync(join(__dirname, '../lib/fallback-messages.ts'), 'utf8'), {
+vm.runInNewContext(ts.transpileModule(readFileSync(join(__dirname, '../lib/features/agents/fallback-messages.ts'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS },
 }).outputText, { exports: api })
 test('Random fallback selects nonempty messages and uses the default for an empty array', () => {

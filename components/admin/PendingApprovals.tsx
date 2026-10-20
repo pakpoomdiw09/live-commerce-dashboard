@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { BILLING_ITEMS, billingUnit, type BillingRequestRow } from '@/lib/plans'
+import { BILLING_ITEMS, billingUnit, type BillingRequestRow } from '@/lib/features/billing/plans'
 import { apiError, when } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'

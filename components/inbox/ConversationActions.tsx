@@ -1,44 +1,76 @@
 'use client'
+
 import {useRef,useState,type ReactNode} from 'react'
-import {Bot,Check,UserRoundCheck} from 'lucide-react'
-import type {ConversationState,InboxState} from '@/lib/inbox-types'
-import {apiError} from '@/lib/utils'
-const stages:Record<string,string>={UNASSIGNED:'รอรับแชท',ASSIGNED:'มอบหมายแล้ว',IN_PROGRESS:'กำลังดูแล',RESOLVED:'แก้ไขเสร็จแล้ว',CLOSED:'ปิดแชทแล้ว'}
-export function ConversationActions({state,inbox,onChange,children}:{children?:ReactNode;state:ConversationState|undefined;inbox:InboxState|null;onChange:()=>Promise<void>}){
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),[target,setTarget]=useState(''),[closing,setClosing]=useState(false),[reason,setReason]=useState(''),[notice,setNotice]=useState('')
- const locked=useRef(false)
- const pending=useRef<{signature:string;body:object}|null>(null)
- async function act(action:string){
-  if(!state||locked.current)return
-  locked.current=true;setBusy(true);setError('');setNotice('')
-  const signature=JSON.stringify([state.id,action,target,reason])
-  const body=pending.current?.signature===signature?pending.current.body:{action,version:state.conversation_version,assigneeId:target||undefined,...(inbox?.proEnabled?{requestId:crypto.randomUUID(),reason:reason.trim()||undefined}:{})}
-  pending.current={signature,body}
-  try{
-   const res=await fetch('/api/inbox/conversations/'+state.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-   if(!res.ok){if(res.status<500)pending.current=null;throw new Error(await apiError(res))}
-   pending.current=null;setClosing(false);setReason('');setNotice('บันทึกสถานะแชทแล้ว')
-  }catch(e){setError(e instanceof Error?e.message:'ดำเนินการไม่สำเร็จ')}
-  finally{try{await onChange()}catch{setError('บันทึกคำขอแล้ว แต่โหลดสถานะล่าสุดไม่ได้ กรุณาตรวจสถานะก่อนทำซ้ำ')}finally{locked.current=false;setBusy(false)}}
- }
- const button='inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40'
- const owner=inbox?.members.find(m=>m.id===state?.assigned_user_id)?.name
- const closed=state?.conversation_status==='closed'
- const canManage=!inbox?.proEnabled||inbox.canManageTeam||state?.assigned_user_id===inbox.viewerId
- return <header data-chat-header className="shrink-0 border-b border-slate-200 bg-white px-3 py-2">
-  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-  {children&&<div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>}
-  {!children&&<p className="text-xs text-slate-600">{!state?'กำลังโหลดสถานะแชท…':closed?'ปิดแชทแล้ว':!state.assigned_user_id?'ยังไม่มีผู้ดูแล (รอดำเนินการ)':`ผู้ดูแล: ${owner||'ผู้ดูแลของร้าน'} · ${state.inbox_stage?stages[state.inbox_stage]:'กำลังดูแล'}`}</p>}
-  <div className="flex flex-wrap gap-2" aria-busy={busy}>
-   <button className={button} disabled={busy||!state||closed||!!state.assigned_user_id} onClick={()=>void act('claim')}><UserRoundCheck size={14}/>รับแชท</button>
-   <button className={button} disabled={busy||!state} onClick={()=>closed?void act('reopen'):inbox?.proEnabled?setClosing(true):void act('close')}><Check size={14}/>{closed?'เปิดแชทใหม่':'ปิดแชท'}</button>
-   <details className="relative" onKeyDown={event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus()}}}><summary className={button+' cursor-pointer list-none'}>จัดการแชท</summary><div className="fixed bottom-24 left-4 right-4 z-30 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg md:absolute md:bottom-auto md:left-auto md:right-0 md:top-full md:mt-2 md:w-64">   <select aria-label="มอบหมายหรือโอนให้ผู้ดูแล" className="min-w-0 max-w-full rounded-lg border border-orange-200 bg-white px-2 text-xs" disabled={busy||!state||closed} value={target} onChange={e=>setTarget(e.target.value)}><option value="">เลือกผู้ดูแล</option>{inbox?.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>
-   <button className={button} disabled={busy||!target||!state||closed||!canManage} onClick={()=>void act('transfer')}>มอบหมาย / โอนแชท</button>
-   {inbox?.proEnabled&&<><button className={button} disabled={busy||!state?.assigned_user_id||closed||!canManage} onClick={()=>void act('start')}>เริ่มดูแล</button><button className={button} disabled={busy||!state?.assigned_user_id||closed||!canManage} onClick={()=>void act('resolve')}>แก้ไขเสร็จแล้ว</button><button className={button} disabled={busy||!state?.assigned_user_id||closed||!canManage} onClick={()=>void act('release')}>คืนคิวรอรับ</button></>}
-   <button className={button} disabled={busy||!state||closed} onClick={()=>void act(state?.bot_enabled?'pause':'bot')}><Bot size={14}/>{state?.bot_enabled?"หยุดตอบอัตโนมัติชั่วคราว":"เปิดการตอบอัตโนมัติ"}</button></div></details>
-  </div>
-  </div>
-  {closing&&<form className="mt-3 space-y-2" onSubmit={e=>{e.preventDefault();void act('close')}}><label className="block text-xs">เหตุผลปิดแชท<textarea autoFocus aria-label="เหตุผลปิดแชท" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} required disabled={busy} className="mt-1 block w-full rounded-lg border bg-white p-2" placeholder="ตัวอย่าง: ลูกค้าได้รับคำตอบครบแล้ว"/></label><button className={button} disabled={busy||!reason.trim()}>ยืนยันปิดแชท</button><button type="button" className={button} disabled={busy} onClick={()=>setClosing(false)}>ยกเลิก</button></form>}
-  {error&&<p role="alert" className="mt-2 text-xs text-rose-700">{error}</p>}{notice&&<p role="status" className="sr-only">{notice}</p>}
- </header>
+import {Bot,LoaderCircle,UserRoundCheck} from 'lucide-react'
+import type {ConversationState,InboxState} from '@/lib/features/inbox/inbox-types'
+import {apiError,cn} from '@/lib/utils'
+
+type Action='claim'|'pause'|'bot'
+type PendingAction={signature:string;body:{action:Action;version:number;requestId?:string}}
+
+export function ConversationActions({state,inbox,onChange,children,toolbar,autoReplyEnabled=true,windowAllowed=false}:{
+  children?:ReactNode
+  toolbar?:ReactNode
+  state:ConversationState|undefined
+  inbox:InboxState|null
+  onChange:()=>Promise<void>
+  autoReplyEnabled?:boolean
+  windowAllowed?:boolean
+}){
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState('')
+  const [notice,setNotice]=useState('')
+  const locked=useRef(false)
+  const pending=useRef<PendingAction|null>(null)
+  const shopEnabled=inbox?.autoReplyEnabled??autoReplyEnabled
+  const active=!!state&&windowAllowed&&shopEnabled&&state.bot_enabled&&!state.assigned_user_id&&state.conversation_status==='open'
+  const canManage=!!state&&!!inbox&&(!state.assigned_user_id||state.assigned_user_id===inbox.viewerId||inbox.canManageTeam===true)
+  const enableReason=!windowAllowed?'หมดเวลา 24 ชั่วโมงหรือยังยืนยันเวลาข้อความไม่ได้':!shopEnabled?'ระบบตอบอัตโนมัติของร้านปิดอยู่':!inbox?.aiAllowed?'แพ็กเกจของร้านยังไม่รองรับ AI':''
+  const permissionReason=!state||!inbox?'กำลังโหลดสถานะ AI':!canManage?'แชทนี้มีผู้ดูแลคนอื่น กรุณาให้ผู้ดูแลหรือเจ้าของร้านเปลี่ยนสถานะ':''
+  const pausedByViewer=!!state&&!state.bot_enabled&&state.assigned_user_id===inbox?.viewerId&&state.conversation_status==='open'
+  const canPause=canManage&&state?.conversation_status==='open'&&!pausedByViewer
+
+  async function act(action:Action){
+    if(!state||!inbox||locked.current||!canManage)return
+    locked.current=true;setBusy(true);setError('');setNotice('')
+    const signature=JSON.stringify([state.id,action])
+    const body=pending.current?.signature===signature?pending.current.body:{action,version:state.conversation_version,...(inbox.proEnabled?{requestId:crypto.randomUUID()}:{})}
+    pending.current={signature,body}
+    let saved=false
+    try{
+      const response=await fetch(`/api/inbox/conversations/${state.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      if(!response.ok){if(response.status<500)pending.current=null;throw new Error(await apiError(response))}
+      pending.current=null;saved=true
+      setNotice(action==='bot'?'เปิด AI ตอบอัตโนมัติแล้ว':'ปิด AI และเปลี่ยนเป็นแอดมินดูแลแล้ว')
+    }catch(error){setError(error instanceof Error?error.message:'บันทึกสถานะ AI ไม่สำเร็จ กรุณาลองอีกครั้ง')}
+    finally{
+      try{await onChange()}
+      catch{setError(saved?'บันทึกแล้ว แต่โหลดสถานะล่าสุดไม่ได้ กรุณาตรวจสอบอีกครั้ง':'โหลดสถานะล่าสุดไม่ได้ กรุณาลองอีกครั้ง')}
+      finally{locked.current=false;setBusy(false)}
+    }
+  }
+
+  const choice='rounded-full px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 disabled:cursor-not-allowed disabled:opacity-50'
+  return <header data-chat-header className="shrink-0 border-b border-slate-200 bg-white px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      {children&&<div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>}
+      <div className="flex max-w-full flex-wrap items-center gap-2" aria-busy={busy}>
+        {toolbar}
+        {state&&<button type="button" aria-label="รับแชท" disabled={busy||!canManage||pausedByViewer||state.conversation_status!=='open'} title={permissionReason||'รับช่วงดูแลและปิด AI สำหรับแชทนี้'} onClick={()=>void act('claim')} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 disabled:cursor-not-allowed disabled:opacity-50"><UserRoundCheck aria-hidden className="h-3.5 w-3.5"/>{pausedByViewer?'รับแชทแล้ว':'รับแชท'}</button>}
+        {state&&(!windowAllowed||!state.bot_enabled)&&!pausedByViewer&&<button type="button" disabled={busy||!canPause} onClick={()=>void act(state.assigned_user_id?'pause':'claim')} className="rounded-lg bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 ring-1 ring-orange-200 hover:bg-orange-100 disabled:opacity-50">ส่งแชทให้แอดมิน</button>}
+        <div className="flex max-w-full flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
+          <span role="status" className={cn('inline-flex min-w-0 items-center gap-1.5 text-xs font-medium',active?'text-orange-700':'text-slate-600')}>
+            {busy?<LoaderCircle aria-hidden className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none"/>:<Bot aria-hidden className="h-3.5 w-3.5 shrink-0"/>}
+            {!state?'กำลังโหลดสถานะ AI…':active?'AI ตอบอัตโนมัติเปิดอยู่':'AI ปิดอยู่'}
+          </span>
+          <div role="group" aria-label="การตอบอัตโนมัติของ AI" className="inline-flex shrink-0 rounded-full bg-white p-0.5 ring-1 ring-slate-200">
+            <button type="button" aria-label="เปิด AI ตอบอัตโนมัติ" aria-pressed={active} disabled={busy||!!permissionReason||!!enableReason||active} title={permissionReason||enableReason||'เปิด AI ตอบอัตโนมัติ'} onClick={()=>void act('bot')} className={cn(choice,active?'bg-orange-500 text-white':'text-slate-500 hover:bg-orange-50 hover:text-orange-700')}>เปิด</button>
+            <button type="button" aria-label="ปิด AI ให้แอดมินดูแล" aria-pressed={!!state&&!active} disabled={busy||!canPause} title={permissionReason||(state?.conversation_status==='closed'?'แชทนี้ปิดอยู่':pausedByViewer?'คุณกำลังดูแลแชทนี้':'ปิด AI และให้แอดมินดูแล')} onClick={()=>void act(state?.assigned_user_id?'pause':'claim')} className={cn(choice,!active&&state?'bg-slate-700 text-white':'text-slate-500 hover:bg-slate-100')}>ปิด</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {error&&<p role="alert" className="mt-2 text-xs text-rose-700">{error}</p>}
+    {notice&&<p role="status" className="sr-only">{notice}</p>}
+  </header>
 }

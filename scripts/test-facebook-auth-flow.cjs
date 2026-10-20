@@ -54,7 +54,7 @@ function callback(exchange = { data: { session: { access_token: 'mock-session', 
   const api = load('app/auth/callback/route.ts', {
     'next/server': { NextResponse: { redirect: url => ({ location: String(url), cookies: { set: (...args) => cleared.push(args) } }) } },
     '@/lib/oauth': oauth,
-    '@/lib/facebook-oauth': {},
+    '@/lib/integrations/facebook/oauth': {},
     '@/lib/supabase/server': { supabaseServer: async () => ({ auth: { exchangeCodeForSession: async code => { exchanges++; assert.equal(code, 'mock-code'); return exchange } } }) },
   })
   return { run: (query, next = '/slips') => {

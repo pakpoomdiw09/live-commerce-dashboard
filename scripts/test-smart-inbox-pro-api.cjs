@@ -5,7 +5,7 @@ class InboxError extends Error{constructor(message,status=400){super(message);th
 const errors={InboxError,inboxError:error=>({status:error.status??503,body:{error:error.message}}),checkRpc:error=>{if(error)throw error}}
 function fixture({denied=0,pro=true}={}){
  const writes=[];const guard=async()=>{if(denied)throw new InboxError('denied',denied);return {tenantId:'server-shop',actor:{id:'server-user'},customer:{id:customer},db:{rpc:async(name,args)=>{writes.push({name,args});return {data:{ok:true},error:null}}}}}
- const route=load('app/api/inbox/conversations/[id]/route.ts',{'next/server':{NextResponse:{json:body=>({status:200,body})}},'@/lib/inbox-server':{...errors,inboxCustomer:guard},'@/lib/feature-access':{hasFeature:async()=>true},'@/lib/ai-agent':{aiConfigured:()=>true},'@/lib/utils':{UUID:/^[a-f0-9-]{36}$/}},{SMART_INBOX_PRO_ENABLED:pro?'true':'false'})
+ const route=load('app/api/inbox/conversations/[id]/route.ts',{'next/server':{NextResponse:{json:body=>({status:200,body})}},'@/lib/features/inbox/inbox-server':{...errors,inboxCustomer:guard},'@/lib/feature-access':{hasFeature:async()=>true},'@/lib/features/agents/ai-agent':{aiConfigured:()=>true},'@/lib/utils':{UUID:/^[a-f0-9-]{36}$/}},{SMART_INBOX_PRO_ENABLED:pro?'true':'false'})
  const request=(body,origin='https://snapbot.test')=>({headers:new Headers({origin}),nextUrl:new URL('https://snapbot.test/api/inbox/conversations/'+customer),json:async()=>body})
  return {route,writes,request,context:{params:Promise.resolve({id:customer})}}
 }
@@ -25,5 +25,5 @@ test('flag off preserves legacy mutation RPC and does not accept Pro-only releas
  assert.equal((await f.route.PATCH(f.request({action:'claim',version:0}),f.context)).status,200);assert.equal(f.writes[0].name,'manage_inbox_conversation')
 })
 test('report authorization precedes service RPC and flag-off does not touch optional schema',async()=>{
- for(const denied of [true,false]){let reads=0;const route=load('app/api/inbox/pro/route.ts',{'next/server':{NextResponse:{json:body=>({status:200,body})}},'@/lib/inbox-server':{...errors,inboxTenant:async()=>{if(denied)throw new InboxError('denied',404);return {tenantId:'server-shop',db:{rpc:async()=>{reads++;throw Error('must not query')}}}}}},{SMART_INBOX_PRO_ENABLED:'false'});const result=await route.GET({nextUrl:new URL('https://snapbot.test/api/inbox/pro?tenantId=server-shop')});assert.equal(result.status,denied?404:200);assert.equal(reads,0)}
+ for(const denied of [true,false]){let reads=0;const route=load('app/api/inbox/pro/route.ts',{'next/server':{NextResponse:{json:body=>({status:200,body})}},'@/lib/features/inbox/inbox-server':{...errors,inboxTenant:async()=>{if(denied)throw new InboxError('denied',404);return {tenantId:'server-shop',db:{rpc:async()=>{reads++;throw Error('must not query')}}}}}},{SMART_INBOX_PRO_ENABLED:'false'});const result=await route.GET({nextUrl:new URL('https://snapbot.test/api/inbox/pro?tenantId=server-shop')});assert.equal(result.status,denied?404:200);assert.equal(reads,0)}
 })

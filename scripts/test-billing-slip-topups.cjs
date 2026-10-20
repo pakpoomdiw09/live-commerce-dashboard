@@ -6,7 +6,7 @@ const { PGlite } = require(process.argv[2] || '@electric-sql/pglite')
 const sql = name => readFileSync(join(__dirname, '../supabase', name), 'utf8')
 const ts = require('typescript')
 const catalog = { exports: {} }
-new Function('exports', ts.transpileModule(readFileSync(join(__dirname, '../lib/plans.ts'), 'utf8'), {
+new Function('exports', ts.transpileModule(readFileSync(join(__dirname, '../lib/features/billing/plans.ts'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText)(catalog.exports)
 for (const [id, price, credits, slip] of [

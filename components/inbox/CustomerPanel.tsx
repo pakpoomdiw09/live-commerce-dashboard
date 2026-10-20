@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { MapPin, Pencil, Phone, StickyNote } from 'lucide-react'
-import { BotToggle } from '@/components/BotToggle'
+import { BotToggle } from '@/components/chatbot/BotToggle'
 import { Badge, Tag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ORDER_STATUS, ORDER_STATUSES } from '@/lib/status'
 import type { CustomerRow, OrderStatus, SlipRow } from '@/lib/types'
 import { apiError, baht, customerName, when } from '@/lib/utils'
-import { Avatar } from './Avatar'
+import { Avatar } from '@/components/inbox/Avatar'
 
 /** Customer type and behaviour tags offered as one-click suggestions. */
 const SUGGESTED_TAGS = ['VIP', 'ลูกค้าใหม่', 'ลูกค้าประจำ', 'ซื้อบ่อย', 'ต่อราคา', 'โอนช้า']

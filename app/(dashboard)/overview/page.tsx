@@ -1,5 +1,5 @@
 import { requireDashboardUser } from '@/lib/auth'
-import { premiumOverviewEnabled } from '@/lib/premium-overview-core'
+import { premiumOverviewEnabled } from '@/lib/features/overview/premium-overview-core'
 import { PremiumOverviewPage } from '@/components/overview/PremiumOverviewPage'
 import { BasicOverviewPage } from '@/components/overview/BasicOverviewPage'
 

@@ -1,10 +1,11 @@
 'use client'
+import {createBackgroundRefresh} from '@/lib/background-refresh'
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, Banknote, CheckCircle2, Coins, Search, Upload, X } from 'lucide-react'
 import { StatTile } from '@/components/ui/StatTile'
-import { summarizeSlips } from '@/lib/slip-summary'
+import { summarizeSlips } from '@/lib/features/slips/slip-summary'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/card'
@@ -12,8 +13,8 @@ import { supabaseBrowser } from '@/lib/supabase/browser'
 import { SLIP_STATUS } from '@/lib/status'
 import type { SlipRow, SlipStatus } from '@/lib/types'
 import { baht, cn, when } from '@/lib/utils'
-import { SlipDetailPanel } from './SlipDetailPanel'
-import { VerifySlipForm } from './VerifySlipForm'
+import { SlipDetailPanel } from '@/components/slips/SlipDetailPanel'
+import { VerifySlipForm } from '@/components/slips/VerifySlipForm'
 import {EmptyState} from '@/components/ui/feedback'
 
 export type SlipListRow = SlipRow & { customers: { display_name: string | null } | null }
@@ -43,13 +44,14 @@ export function SlipsWorkspace({ initial, tenant, initialCredits, creditBypass =
 
   useEffect(() => {
     let active = true
-    const reloadCredits = async () => {
+    const reloadCredits = async (signal:AbortSignal) => {
       if (!tenant) return
-      const { data, error } = await db.from('tenants').select('slip_quota, slip_used, slip_quota_credits').eq('id', tenant.id).single()
+      const { data, error } = await db.from('tenants').select('slip_quota, slip_used, slip_quota_credits').eq('id', tenant.id).abortSignal(signal).single()
+      if(error)throw error
       if (active && data && !error) setCredits({ quota: data.slip_quota + data.slip_quota_credits, used: data.slip_used })
     }
-    void reloadCredits()
-    const creditTimer = setInterval(() => { void reloadCredits() }, 30_000)
+    const refresh=createBackgroundRefresh(reloadCredits,()=>{}, {intervalMs:120000})
+    refresh.request()
     const channel = db
       .channel(`slips:${tenant?.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'slips' }, (p) => {
@@ -59,7 +61,7 @@ export function SlipsWorkspace({ initial, tenant, initialCredits, creditBypass =
         }
         const row = p.new as SlipRow
         if (!tenant || row.tenant_id !== tenant.id) return
-        void reloadCredits()
+        refresh.request()
         setRows((prev) => {
           const old = prev.find((r) => r.id === row.id)
           // Realtime rows carry no joins: keep the customer name we already have
@@ -71,7 +73,7 @@ export function SlipsWorkspace({ initial, tenant, initialCredits, creditBypass =
       .subscribe()
     return () => {
       active = false
-      clearInterval(creditTimer)
+      refresh.stop()
       void db.removeChannel(channel)
     }
   }, [db, tenant])
@@ -87,8 +89,8 @@ export function SlipsWorkspace({ initial, tenant, initialCredits, creditBypass =
   const open = rows.find((r) => r.id === openId) ?? null
 
   return (
-    <div className={cn('mx-auto w-full max-w-7xl space-y-6', !embedded && 'p-4 md:p-8')}>
-      <PageHeader
+    <div className={cn('mx-0 w-full min-w-0 max-w-none space-y-6', !embedded && 'p-4 md:p-8')}>
+      <PageHeader variant={embedded ? 'section' : 'page'}
         title="ระบบตรวจสลิป"
         description={tenant ? `ประวัติการตรวจสลิปของ ${tenant.name} อัปเดตแบบเรียลไทม์` : 'ประวัติการตรวจสลิปทั้งหมด อัปเดตแบบเรียลไทม์'}
         action={

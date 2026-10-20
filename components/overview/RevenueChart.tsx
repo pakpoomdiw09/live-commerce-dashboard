@@ -83,8 +83,8 @@ export function RevenueChart({ data, unit = 'สลิปผ่าน', caption 
         <caption>{caption}</caption>
         <thead>
           <tr>
-            <th>วัน</th>
-            <th>ยอด</th>
+            <th>วันที่</th>
+            <th>ยอดเงิน</th>
             <th>{unit}</th>
           </tr>
         </thead>

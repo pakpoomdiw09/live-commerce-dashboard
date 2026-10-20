@@ -30,13 +30,13 @@ function fixture(page) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText
   vm.runInNewContext(code, { exports, Date, require(name) {
-    if (name === '@/lib/premium-overview-core') return { premiumOverviewEnabled: () => false }
+    if (name === '@/lib/features/overview/premium-overview-core') return { premiumOverviewEnabled: () => false }
     if (name === '@/lib/feature-access') return { hasFeature: async () => true }
-    if (name === '@/lib/payment-pro-flags') return { paymentProConfig: async () => null,paymentProUiEnabled:()=>true }
+    if (name === '@/lib/features/payments/payment-pro-flags') return { paymentProConfig: async () => null,paymentProUiEnabled:()=>true }
     if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx }
     if (name === '@/lib/supabase/server') return { supabaseServer: async () => db, supabaseAdmin: () => db }
     if (name === '@/lib/tenant') return { getActiveTenant: async () => tenant, getViewer: async () => ({ isPlatformAdmin: false }) }
-    if (name === '@/lib/billing') return { getBilling: async () => ({ plan: 'pro', planExpiresAt: null }) }
+    if (name === '@/lib/features/billing/billing') return { getBilling: async () => ({ plan: 'pro', planExpiresAt: null }) }
     if (name === '@/lib/status') return { APPROVABLE: [], SLIP_STATUS: { valid: { tone: 'success', label: 'valid' } } }
     if (name === '@/lib/utils') return { baht: v => `THB ${v}`, cn: (...v) => v.join(' '), when: v => v }
     if (name === '@/lib/types') return { CUSTOMER_COLUMNS: 'id,tenant_id', SLIP_COLUMNS: 'id,tenant_id' }

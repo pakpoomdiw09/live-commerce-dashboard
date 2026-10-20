@@ -35,8 +35,8 @@ Health statuses distinguish successful database/balance reads at the snapshot ti
 
 - `components/overview/PremiumOverview.tsx`: client presentation, controls, charts/lists and read-only detail dialog.
 - `components/overview/PremiumOverviewPage.tsx`: authenticated server integration and recoverable setup/error state.
-- `lib/premium-overview-core.ts`: date/filter validation, types, `premium_overview_enabled` defaults and environment gate.
-- `lib/premium-overview-server.ts`: session/tenant guard, aggregation adapter and honest health observations.
+- `lib/features/overview/premium-overview-core.ts`: date/filter validation, types, `premium_overview_enabled` defaults and environment gate.
+- `lib/features/overview/premium-overview-server.ts`: session/tenant guard, aggregation adapter and honest health observations.
 - `app/api/overview/route.ts`: private/no-store GET endpoint.
 - `supabase/premium-overview.sql`: read-only service RPC and reuse of existing index names; safe to rerun.
 - `supabase/premium-overview-setup.md`: local/staging enablement and rollback.

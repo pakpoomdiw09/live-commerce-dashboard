@@ -121,10 +121,10 @@ audit or credits; raw provider evidence and claim tokens are not granted to brow
 
 Created:
 
-- `lib/payment-pro-core.ts`: flags/types, integer money, decision/state machine, timestamp and CSV helpers.
-- `lib/payment-pro-flags.ts`: server kill/master gates and DB configuration.
-- `lib/payment-pro.ts`: provider integration, durable claim, safe retry and result metadata.
-- `lib/payment-pro-server.ts`: API authorization, scoped lists/credits/analytics.
+- `lib/features/payments/payment-pro-core.ts`: flags/types, integer money, decision/state machine, timestamp and CSV helpers.
+- `lib/features/payments/payment-pro-flags.ts`: server kill/master gates and DB configuration.
+- `lib/features/payments/payment-pro.ts`: provider integration, durable claim, safe retry and result metadata.
+- `lib/features/payments/payment-pro-server.ts`: API authorization, scoped lists/credits/analytics.
 - `app/api/payment-pro/route.ts`, `app/api/payment-pro/[id]/review/route.ts`, `app/api/cron/payment-pro/route.ts`.
 - `components/slips/PaymentProDashboard.tsx`, `components/slips/PaymentProEvidence.tsx`.
 - `supabase/payment-pro.sql`, `supabase/payment-pro-rollback.sql`, `supabase/payment-pro-setup.md`.
@@ -132,8 +132,8 @@ Created:
 
 Modified:
 
-- `lib/slip/process.ts`: off-by-default dispatcher and Pro result metadata.
-- `lib/slip/notify.ts`: suppress Pro notification unless explicitly allowed.
+- `lib/features/slips/process.ts`: off-by-default dispatcher and Pro result metadata.
+- `lib/features/slips/notify.ts`: suppress Pro notification unless explicitly allowed.
 - `app/api/slips/[id]/approve/route.ts`: prevent broad legacy approval of Pro proofs.
 - `app/(dashboard)/slips/page.tsx`, `components/slips/SlipsDashboard.tsx`: conditional Pro view.
 - `components/slips/VerifySlipForm.tsx`: display duplicate-proof explanation when no new row is created.

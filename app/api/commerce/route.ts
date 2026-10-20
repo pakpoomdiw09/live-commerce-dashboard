@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { commerceScope, commerceSnapshot, commerceMutation, commerceResponse, sameOrigin } from '@/lib/commerce-server'
-import { CommerceError } from '@/lib/commerce-core'
-export async function GET(req: NextRequest) { try { return NextResponse.json(await commerceSnapshot(await commerceScope(req.nextUrl.searchParams.get('tenantId') ?? '', false, req)), { headers: { 'Cache-Control': 'private, no-store' } }) } catch (e) { return commerceResponse(e) } }
+import { commerceScope, commerceSnapshot, commerceMutation, commerceResponse, sameOrigin } from '@/lib/features/commerce/commerce-server'
+import { CommerceError } from '@/lib/features/commerce/commerce-core'
+export async function GET(req: NextRequest) { try { return NextResponse.json(await commerceSnapshot(await commerceScope(req.nextUrl.searchParams.get('tenantId') ?? '', false, req), Object.fromEntries(req.nextUrl.searchParams)), { headers: { 'Cache-Control': 'private, no-store' } }) } catch (e) { return commerceResponse(e) } }
 export async function POST(req: NextRequest) {
   try {
     sameOrigin(req)

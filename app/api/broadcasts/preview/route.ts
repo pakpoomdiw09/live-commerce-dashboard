@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
-import { broadcastScope, previewBroadcast, readBroadcast } from '@/lib/broadcast-service'
-import { inboxError } from '@/lib/inbox-server'
+import { broadcastScope, previewBroadcast, readBroadcast } from '@/lib/features/broadcast/broadcast-service'
+import { inboxError } from '@/lib/features/inbox/inbox-server'
 
 export async function POST(req: NextRequest) {
   try {

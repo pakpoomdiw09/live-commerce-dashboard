@@ -1,29 +1,31 @@
-import { shopV2, SHOP_TABS, type ShopTab } from '@/lib/commerce-core'
-import { commerceScope, commerceSnapshot } from '@/lib/commerce-server'
+import { shopV2, SHOP_TABS, type ShopTab } from '@/lib/features/commerce/commerce-core'
+import {redirect} from 'next/navigation'
+import { commerceScope, commerceSnapshot } from '@/lib/features/commerce/commerce-server'
 import { CommerceWorkspace } from '@/components/shop/CommerceWorkspace'
 import { requireDashboardUser } from '@/lib/auth'
-import { InlineError } from '@/components/ErrorState'
+import { InlineError } from '@/components/shared/ErrorState'
 import { supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant } from '@/lib/tenant'
 import { PRODUCT_COLUMNS, type ProductRow } from '@/lib/types'
 import { ShopClient, type ShopOrder } from '@/components/shop/ShopClient'
-import { LiveRefresh } from '@/components/LiveRefresh'
-import { SetupNotice } from '@/components/SetupNotice'
+import { LiveRefresh } from '@/components/shared/LiveRefresh'
+import { SetupNotice } from '@/components/shared/SetupNotice'
 
 export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'ร้านค้า / เซลเพจ' }
 
-export default async function ShopPage({ searchParams }: { searchParams: Promise<{ tab?: string; legacy?: string }> }) {
+export default async function ShopPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   await requireDashboardUser()
   const query = await searchParams
   if (shopV2() && query.legacy !== '1') {
+    if(query.tab==='categories')redirect('/shop?tab=products')
     const tenant = await getActiveTenant()
     if (!tenant) return <SetupNotice kind="no-tenant"/>
     try {
-      const data = await commerceSnapshot(await commerceScope(tenant.id))
+      const data = await commerceSnapshot(await commerceScope(tenant.id), query)
       const tab = query.tab && Object.hasOwn(SHOP_TABS, query.tab) ? query.tab as ShopTab : 'overview'
-      return <CommerceWorkspace key={tenant.id} initial={data} tab={tab}/>
+      return <CommerceWorkspace key={tenant.id + JSON.stringify(query)} initial={data} tab={tab}/>
     } catch { return <div className="space-y-4 p-6"><InlineError title="ระบบร้านค้าใหม่ยังไม่พร้อม" message="กรุณาตรวจการติดตั้ง commerce-v2.sql หรือติดต่อผู้ดูแลระบบ"/><a className="text-orange-700 underline" href="/shop?legacy=1">เปิดระบบร้านค้าเดิม</a></div> }
   }
   const [db, tenant] = await Promise.all([supabaseServer(), getActiveTenant()])

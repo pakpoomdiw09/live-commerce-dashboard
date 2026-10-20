@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),assert=require('node:assert/strict'),{test}=require('node:test'),{PGlite}=require('@electric-sql/pglite')
 function load(file,deps={}){const ctx={exports:{},require:name=>deps[name]??{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx);return ctx.exports}
-const registry=load('lib/banks.ts'),{BANKS,BANK_CODES,findBank}=registry
-const processSlip=load('lib/slip/process.ts',{'@/lib/banks':registry}),accounts=load('lib/bank-accounts.ts',{'@/lib/banks':registry})
+const registry=load('lib/features/banking/banks.ts'),{BANKS,BANK_CODES,findBank}=registry
+const processSlip=load('lib/features/slips/receiver-matching.ts',{'@/lib/features/banking/banks':registry}),accounts=load('lib/features/banking/bank-accounts.ts',{'@/lib/features/banking/banks':registry})
 test('registry includes 35 active banks plus PromptPay; unique identifiers, top five priority, Thai sorting, no defunct duplicates',()=>{
  assert.equal(BANKS.length,36);assert.equal(new Set(BANK_CODES).size,36)
  assert.deepEqual(Array.from(BANK_CODES.slice(0,5)),['KBANK','SCB','KTB','BBL','BAY'])

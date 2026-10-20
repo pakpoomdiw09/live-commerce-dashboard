@@ -10,8 +10,8 @@ function load(file, deps = {}) {
   }).outputText, context)
   return context.exports
 }
-const plans = load('lib/plans.ts')
-const { canResumeCheckout } = load('lib/payment-checkout.ts', { '@/lib/plans': plans })
+const plans = load('lib/features/billing/plans.ts')
+const { canResumeCheckout } = load('lib/features/payments/payment-checkout.ts', { '@/lib/features/billing/plans': plans })
 const now = Date.now()
 const session = (plan, amount) => ({ tenantId: 'shop', plan, amount, credits: plans.PLANS[plan].credits, expiresAt: new Date(now + 60000).toISOString() })
 test('old unpaid 390/990 checkouts are replaced; new 9/19 checkouts can resume', () => {

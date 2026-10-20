@@ -1,9 +1,9 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),{test}=require('node:test'),{PGlite}=require('@electric-sql/pglite')
 
 const vm=require('node:vm'),ts=require('typescript')
-function load(file,deps={},env={}){const c={exports:{},Date,process:{env},require:n=>{if(n==='./feature-flags')return load('lib/feature-flags.ts',{},env);if(n in deps)return deps[n];throw Error(n)}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,c);return c.exports}
+function load(file,deps={},env={}){const c={exports:{},Date,process:{env},require:n=>{if(n==='@/lib/feature-flags')return load('lib/feature-flags.ts',{},env);if(n in deps)return deps[n];throw Error(n)}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,c);return c.exports}
 test('window rejects missing, invalid, future and exact 24h; warns in final hour',()=>{
- const {inboxWindow}=load('lib/inbox-v2.ts');const now=Date.now()
+ const {inboxWindow}=load('lib/features/inbox/inbox-v2.ts');const now=Date.now()
  for(const t of [null,'bad',new Date(now+1).toISOString(),new Date(now-86400000).toISOString()])assert.equal(inboxWindow(t,now).allowed,false)
  assert.equal(inboxWindow(new Date(now-1).toISOString(),now).allowed,true)
  assert.equal(inboxWindow(new Date(now-85000000).toISOString(),now).nearExpiry,true)
@@ -37,24 +37,24 @@ test('workspace migration: idempotence, tenant/package checks, personal stars, r
 })
 
 test('V2 policy fails closed for missing signed evidence and unverified page permissions',async()=>{
- const window=load('lib/inbox-v2.ts');let timestamp=null,status='verified',calls=0
+ const window=load('lib/features/inbox/inbox-v2.ts');let timestamp=null,status='verified',calls=0
  class InboxError extends Error{constructor(message,status,code){super(message);this.status=status;this.code=code}}
  const db={from:()=>{const q={select(){return q},eq(){return q},order(){return q},limit(){return q},maybeSingle:async()=>({data:timestamp?{interacted_at:timestamp}:null,error:null})};return q}}
- const policy=load('lib/inbox-policy-server.ts',{'server-only':{},'./inbox-v2':window,'./inbox-server':{InboxError},'./facebook':{getPageTokenStatus:async()=>{calls++;return status}}})
+ const policy=load('lib/features/inbox/inbox-policy-server.ts',{'server-only':{},'@/lib/features/inbox/inbox-v2':window,'@/lib/features/inbox/inbox-server':{InboxError},'@/lib/integrations/facebook/client':{getPageTokenStatus:async()=>{calls++;return status}}})
  await assert.rejects(policy.assertInboxPolicy(db,'tenant','customer','page','token'),e=>e.code==='MESSAGING_WINDOW_CLOSED');assert.equal(calls,0)
  timestamp=new Date().toISOString();for(status of ['limited','invalid','unverified'])await assert.rejects(policy.assertInboxPolicy(db,'tenant','customer','page','token'),e=>e.code==='PAGE_NOT_READY')
  status='verified';await policy.assertInboxPolicy(db,'tenant','customer','page','token')
 })
 test('workspace API keeps authentication and cross-site protection without an opt-in flag',async()=>{
  let guarded=0,mutations=0;class InboxError extends Error{constructor(message,status){super(message);this.status=status}}
- const deps={'next/server':{NextResponse:{json:(body,opts={})=>({body,status:opts.status??200})}},'@/lib/inbox-policy-server':{},'@/lib/inbox-v2':load('lib/inbox-v2.ts'),'@/lib/utils':{UUID:/^[a-f0-9-]{36}$/},'@/lib/inbox-server':{InboxError,inboxError:e=>({status:e.status??503}),inboxCustomer:async()=>{guarded++;throw new InboxError('Forbidden',403)},checkRpc:()=>{mutations++}}}
+ const deps={'next/server':{NextResponse:{json:(body,opts={})=>({body,status:opts.status??200})}},'@/lib/features/inbox/inbox-policy-server':{},'@/lib/features/inbox/inbox-v2':load('lib/features/inbox/inbox-v2.ts'),'@/lib/utils':{UUID:/^[a-f0-9-]{36}$/},'@/lib/features/inbox/inbox-server':{InboxError,inboxError:e=>({status:e.status??503}),inboxCustomer:async()=>{guarded++;throw new InboxError('Forbidden',403)},checkRpc:()=>{mutations++}}}
  const api=load('app/api/inbox/conversations/[id]/workspace/route.ts',deps),ctx={params:Promise.resolve({id:'customer'})},req={headers:{get:()=>null},nextUrl:{origin:'https://shop.test'}}
  assert.equal((await api.GET(req,ctx)).status,403);assert.equal(guarded,1)
  assert.equal((await api.POST({...req,headers:{get:k=>k==='origin'?'https://evil.test':null}},ctx)).status,403);assert.equal(guarded,1);assert.equal(mutations,0)
 })
 
 test('list filters exclude unknown state, match real order IDs, assignments and completed conversations',()=>{
- const {matchesInboxFilter:match}=load('lib/inbox-list.ts')
+ const {matchesInboxFilter:match}=load('lib/features/inbox/inbox-list.ts')
  const state={id:'a',assigned_user_id:null,conversation_status:'open',conversation_version:1,inbound_seq:1,bot_enabled:false,unread_count:2,inbox_stage:'UNASSIGNED'}
  const check=(filter,s=state)=>match(filter,'a',s,'owner',['a'],['a'])
  assert.equal(check('waiting'),true);assert.equal(check('unread'),true)

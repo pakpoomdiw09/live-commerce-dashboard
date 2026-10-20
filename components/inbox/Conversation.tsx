@@ -1,21 +1,24 @@
 'use client'
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, PanelRightOpen, ScanLine } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { STALE_PENDING_MS } from '@/lib/status'
 import type { CustomerRow, MessageRow, SlipRow } from '@/lib/types'
 import { apiError, clock, cn, customerName, dayLabel, sameDay } from '@/lib/utils'
-import { AutoPilotToggle } from './AutoPilotToggle'
-import { Avatar } from './Avatar'
-import type { ActiveTenant } from './InboxClient'
-import {useChatScroll} from './useChatScroll'
-import {WorkspaceTools} from './WorkspaceTools'
-import { ReplyBox } from './ReplyBox'
-import { SlipStatusCard } from './SlipStatusCard'
-import {ConversationActions} from './ConversationActions'
-import type {InboxState,ConversationState} from '@/lib/inbox-types'
+import { Avatar } from '@/components/inbox/Avatar'
+import type { ActiveTenant } from '@/components/inbox/InboxClient'
+import {useChatScroll} from '@/hooks/inbox/useChatScroll'
+import {ConversationMarkers} from '@/components/inbox/ConversationMarkers'
+import {useInboxWorkspace} from '@/hooks/inbox/useInboxWorkspace'
+import {formatWindowCountdown} from '@/lib/features/inbox/inbox-v2'
+import {useMessengerWindow} from '@/hooks/inbox/useMessengerWindow'
+import {useInboxExpiry} from '@/hooks/inbox/useInboxExpiry'
+import { ReplyBox } from '@/components/inbox/ReplyBox'
+import { SlipStatusCard } from '@/components/inbox/SlipStatusCard'
+import {ConversationActions} from '@/components/inbox/ConversationActions'
+import type {InboxState,ConversationState} from '@/lib/features/inbox/inbox-types'
 
 const SENDER = { customer: 'ลูกค้า', bot: "ระบบอัตโนมัติ", agent: 'แอดมิน' } as const
 const BUBBLE = {
@@ -63,6 +66,17 @@ export function Conversation({
   olderError:string
 }) {
   const {viewport:scrollRef,content:messageList,onScroll,latest}=useChatScroll(customer?.id,messages)
+  const workspace=useInboxWorkspace(customer?.id??null)
+  const policyWindow=useMessengerWindow(workspace.data?.lastInboundAt,workspace.data?.serverNow)
+  const expiryError=useInboxExpiry(customer?.id??null,!!workspace.data&&policyWindow.expired&&conversationState?.bot_enabled===true,workspace.data?.lastInboundAt,onStateChange)
+  const inboundMessage=messages.filter(message=>message.sender==='customer').at(-1)?.id
+  const refreshWorkspace=workspace.refresh
+  useEffect(()=>{
+    if(!inboundMessage)return
+    // Coalesce message bursts; fetch signed inbound evidence after commit.
+    const timer=setTimeout(refreshWorkspace,1000)
+    return()=>clearTimeout(timer)
+  },[inboundMessage,refreshWorkspace])
   const { items, slipsByMessage } = useMemo(() => {
     const byMessage = new Map<string, SlipRow[]>()
     const loaded = new Set(messages.map((m) => m.id))
@@ -79,27 +93,26 @@ export function Conversation({
 
   if (!customer) {
     return (
-      <section className={cn('min-h-0 flex-col items-center justify-center bg-slate-50 p-6 text-center text-sm text-slate-500', className)}>
+      <section className={cn('min-h-0 min-w-0 flex-col items-center justify-center bg-slate-50 p-4 text-center text-sm text-slate-500', className)}>
         เลือกแชททางซ้ายเพื่อเริ่มสนทนา
       </section>
     )
   }
 
   const assigned=conversationState?conversationState.assigned_user_id:customer.assigned_user_id
-  const botActive=(conversationState?.bot_enabled??customer.bot_enabled)&&tenant?.autoReply!==false
+  const botActive=policyWindow.allowed&&(conversationState?.bot_enabled??customer.bot_enabled)&&(inbox?.autoReplyEnabled??(tenant?.autoReply!==false))
   const closed=(conversationState?.conversation_status??customer.conversation_status)==='closed'
   const handler=closed?'ปิดแชทแล้ว':assigned?'แอดมินรับช่วงแล้ว':botActive?"ระบบอัตโนมัติดูแลอยู่":'รอแอดมินรับช่วง'
   return (
     <section data-testid="inbox-thread" aria-label={`แชทกับ ${customerName(customer)}`} className={cn('min-h-0 min-w-0 flex-col overflow-hidden bg-slate-50/60', className)}>
-      <ConversationActions key={customer.id} state={conversationState} inbox={inbox} onChange={onStateChange}>
+      <ConversationActions key={customer.id} state={conversationState} inbox={inbox} onChange={onStateChange} autoReplyEnabled={tenant?.autoReply!==false} windowAllowed={policyWindow.allowed} toolbar={<><ConversationMarkers workspace={workspace}/><span data-messenger-window aria-label="เวลาตอบกลับคงเหลือ" className={cn('rounded-md px-2 py-1 text-xs font-medium tabular-nums',policyWindow.allowed&&!policyWindow.nearExpiry?'bg-orange-50 text-orange-800':'bg-rose-50 text-rose-700')}>{!workspace.data?'ตรวจสอบเวลา…':policyWindow.allowed?`24 ชม. · ${formatWindowCountdown(policyWindow.remaining)}`:policyWindow.humanAllowed?`แอดมิน · ${formatWindowCountdown(policyWindow.humanRemaining)}`:'หมดเวลาตอบกลับ'}</span></> }>
         <Button variant="ghost" size="icon" onClick={onBack} aria-label="กลับไปรายชื่อแชท" className="h-8 w-8 shrink-0 md:hidden"><ArrowLeft className="h-4 w-4"/></Button>
         <Avatar c={customer} className="h-8 w-8 text-xs"/>
         <div className="min-w-0 flex-1" title={inbox?.pageName||"ช่องทางแชทของเพจ"}><h2 className="truncate text-sm font-semibold">{customerName(customer)}</h2><p className="truncate text-[11px] text-slate-500">{handler}{assigned&&!closed?` · ${inbox?.members.find(m=>m.id===assigned)?.name??'ผู้ดูแล'}`:''}</p></div>
-        <details className="relative shrink-0"><summary title="ตัวเลือกการตอบอัตโนมัติ" className="cursor-pointer rounded-lg p-1.5 text-[11px] text-slate-500">ตัวเลือก</summary><div className="absolute right-0 top-full z-20 mt-2 w-60 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg"><AutoPilotToggle tenant={tenant}/></div></details>
         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onOpenInspector} aria-label="รายละเอียดลูกค้าและสลิป" aria-expanded={inspectorOpen} title={inspectorOpen?'ซ่อนข้อมูลลูกค้า':'ดูข้อมูลลูกค้า'}><PanelRightOpen className="h-4 w-4"/></Button>
       </ConversationActions>
 
-      <div ref={scrollRef} onScroll={onScroll} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-1.5 [overflow-anchor:none]" data-message-list aria-busy={state === 'loading'}>
+      <div ref={scrollRef} onScroll={onScroll} className="scrollbar-thin min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-1.5 sm:px-3 [overflow-anchor:none]" data-message-list aria-busy={state === 'loading'}>
         {hasOlder&&<div className="mb-4 text-center"><Button size="sm" variant="secondary" loading={olderLoading} onClick={onLoadOlder}>โหลดข้อความก่อนหน้า</Button></div>}
         {olderError&&<p role="alert" className="mb-2 text-center text-xs text-rose-700">{olderError}</p>}
         {state === 'loading' && messages.length === 0 && <ThreadSkeleton />}
@@ -142,8 +155,12 @@ export function Conversation({
         </ol>
       </div>
 
-      {<WorkspaceTools key={`policy:${customer.id}`} mode="header" customerId={customer.id} members={inbox?.members??[]}/>}
-      <ReplyBox key={customer.id} customerId={customer.id} tenantId={customer.tenant_id!} inbox={inbox} enabled={!!conversationState&&conversationState.conversation_status==='open'&&(inbox?.autoClaimOnReply?(!conversationState.assigned_user_id||conversationState.assigned_user_id===inbox.viewerId):(conversationState.assigned_user_id===inbox?.viewerId&&!conversationState.bot_enabled))} onSent={()=>{latest();onRetry();void onStateChange()}}/>
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-1 text-xs">
+        <span className="text-slate-600">{!workspace.data?'กำลังตรวจสอบเวลาตอบกลับ…':policyWindow.allowed?'ตอบกลับได้ภายใน 24 ชม.':!policyWindow.humanAllowed?'หมดเวลาตอบกลับ · รอลูกค้าทักมาใหม่':''}</span>
+        {workspace.data&&!policyWindow.allowed&&policyWindow.humanAllowed&&<span className="text-slate-600">{workspace.data.humanAgentAvailable?'AI หยุดตอบ · เฉพาะแอดมินดูแลภายใน 7 วัน':'AI หยุดตอบ · ยังไม่เปิดสิทธิ์แอดมินตอบภายใน 7 วัน'}</span>}
+        {expiryError&&<span role="alert" className="text-rose-700">{expiryError}</span>}
+      </div>
+      <ReplyBox key={`${customer.id}:${policyWindow.allowed?'standard':'human'}`} customerId={customer.id} tenantId={customer.tenant_id!} inbox={inbox} humanAgent={!policyWindow.allowed} enabled={!!workspace.data&&(policyWindow.allowed||policyWindow.humanAllowed&&workspace.data.humanAgentAvailable===true)&&!!conversationState&&conversationState.conversation_status==='open'&&(policyWindow.allowed&&inbox?.autoClaimOnReply?(!conversationState.assigned_user_id||conversationState.assigned_user_id===inbox.viewerId):(conversationState.assigned_user_id===inbox?.viewerId&&!conversationState.bot_enabled))} onSent={()=>{latest();onRetry();void onStateChange()}}/>
     </section>
   )
 }

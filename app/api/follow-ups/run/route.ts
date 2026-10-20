@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { hasFeature, featureLockedResponse } from '@/lib/feature-access'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
-import { runFollowUps } from '@/lib/follow-ups'
+import { runFollowUps } from '@/lib/features/follow-ups/follow-ups'
 import { UUID } from '@/lib/utils'
-import { getBilling } from '@/lib/billing'
-import { canUseFollowUps } from '@/lib/plans'
+import { getBilling } from '@/lib/features/billing/billing'
+import { canUseFollowUps } from '@/lib/features/billing/plans'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60

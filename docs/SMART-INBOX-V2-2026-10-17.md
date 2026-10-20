@@ -44,7 +44,7 @@ INBOX_CUSTOMER_PANEL_V2_ENABLED=true
 - `GET/POST /api/inbox/conversations/[id]/workspace`: notes/star/window/read ใช้ inboxCustomer ตรวจ session, tenant, package ก่อนข้อมูลส่วนตัว และป้องกัน cross-site POST
 - `GET /api/inbox/stars?tenantId=...`: ดาวของผู้ใช้ปัจจุบัน scope ร้านค้า
 - ใช้ PATCH conversations, read RPC, search, messages send/media/draft และ history เดิม
-- `lib/inbox-v2.ts`: flags และการคำนวณเวลา; `lib/inbox-policy-server.ts`: signed evidence + Page token validation
+- `lib/features/inbox/inbox-v2.ts`: flags และการคำนวณเวลา; `lib/features/inbox/inbox-policy-server.ts`: signed evidence + Page token validation
 - `app/api/messages/send/route.ts`: ยังคง lease/idempotency/delivery receipt เดิม เพิ่มตรวจเวลาและ policy V2
 
 ## ฐานข้อมูลและความปลอดภัย

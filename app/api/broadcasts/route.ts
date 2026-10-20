@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
-import { broadcastScope, parseBroadcastDraft, readBroadcast } from '@/lib/broadcast-service'
-import { BROADCAST_COLUMNS } from '@/lib/chatbot'
-import { InboxError, inboxError } from '@/lib/inbox-server'
+import { broadcastScope, parseBroadcastDraft, readBroadcast } from '@/lib/features/broadcast/broadcast-service'
+import { BROADCAST_COLUMNS } from '@/lib/features/agents/chatbot'
+import { InboxError, inboxError } from '@/lib/features/inbox/inbox-server'
 import { UUID } from '@/lib/utils'
 
 export async function POST(req: NextRequest) {
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       : await scope.db.from('broadcasts').insert({ ...value, id: input.id, tenant_id: scope.tenantId, created_by: scope.actor.id }).select(BROADCAST_COLUMNS).single()
     if (result.error?.code === '23505') {
       const existing = await readBroadcast(scope.db, input.id, scope.tenantId)
-      if (existing.name === draft.name && existing.message === draft.message && existing.audience_segment === draft.audience_segment && JSON.stringify(existing.audience_tags) === JSON.stringify(draft.audience_tags)) return NextResponse.json({ broadcast: existing }, { headers: { 'Cache-Control': 'private, no-store' } })
+      if (existing.name === draft.name && existing.message === draft.message && existing.audience_segment === draft.audience_segment && JSON.stringify(existing.audience_tags) === JSON.stringify(draft.audience_tags) && JSON.stringify(existing.selected_customer_ids??null)===JSON.stringify(draft.selected_customer_ids??null)) return NextResponse.json({ broadcast: existing }, { headers: { 'Cache-Control': 'private, no-store' } })
       throw new InboxError('มีฉบับร่างรหัสนี้แล้ว กรุณาโหลดข้อมูลใหม่', 409)
     }
     if (result.error || !result.data) throw new InboxError('บันทึกฉบับร่างไม่ได้ กรุณาลองใหม่', 503)

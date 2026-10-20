@@ -6,7 +6,7 @@ const vm = require('node:vm')
 const ts = require('typescript')
 
 // Isolated credentials and mocked fetch: these tests never read .env or contact Meta.
-const code = ts.transpileModule(readFileSync(path.join(__dirname, '../lib/facebook.ts'), 'utf8'), {
+const code = ts.transpileModule(readFileSync(path.join(__dirname, '../lib/integrations/facebook/client.ts'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
 
@@ -15,6 +15,7 @@ function facebook({ env = {}, status = 200, json = null, networkError = false } 
   const exports = {}
   vm.runInNewContext(code, {
     exports,
+    require: name => { assert.equal(name, '@/lib/safe-logging'); return require('./helpers/load-safe-logging.cjs')() },
     process: { env },
     AbortSignal,
     fetch: async (url, options) => {

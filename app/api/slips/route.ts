@@ -4,7 +4,7 @@ import { getActiveTenant, tenantFilter } from '@/lib/tenant'
 import { supabaseServer } from '@/lib/supabase/server'
 import { SLIP_COLUMNS } from '@/lib/types'
 import { UUID } from '@/lib/utils'
-import { InboxError, inboxError } from '@/lib/inbox-server'
+import { InboxError, inboxError } from '@/lib/features/inbox/inbox-server'
 
 /** Session/RLS read endpoint. Verification remains in /api/slips/verify. */
 export async function GET(req: NextRequest) {

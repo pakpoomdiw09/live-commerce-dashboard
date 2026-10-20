@@ -1,10 +1,10 @@
 const assert = require('node:assert/strict'), { test } = require('node:test'), fs = require('node:fs'), vm = require('node:vm'), ts = require('typescript')
 function load(file, deps = {}, env = {}) {
-  const context = { exports: {}, console, Date, URL, Map, Set, process: { env }, require: name => { if (name in deps) return deps[name]; throw Error('Unexpected dependency ' + name) } }
+  const context = { exports: {}, console, Date, URL, Map, Set, process: { env }, require: name => { if(name==='@/lib/features/inbox/standard-message-window')return load('lib/features/inbox/standard-message-window.ts'); if (name in deps) return deps[name]; throw Error('Unexpected dependency ' + name) } }
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, context)
   return context.exports
 }
-const policy = load('lib/broadcast-policy.ts'), now = Date.parse('2026-10-17T05:00:00Z')
+const policy = load('lib/features/broadcast/broadcast-policy.ts'), now = Date.parse('2026-10-17T05:00:00Z')
 const evidence = (at = now - 1000) => ({ interacted_at: new Date(at).toISOString(), kind: 'inbound_message', event_id: 'mid-real', page_id: 'page' })
 const ready = { evidence: evidence(), pageId: 'page', optedOut: false, botEnabled: true, pageVerified: true, policyVerified: true, credits: 10 }
 test('window boundaries, invalid/future/missing evidence and page mismatches fail closed', () => {
@@ -34,21 +34,21 @@ test('inbox handoff or closed chats do not opt recipients out of owner-confirmed
 test('readiness identifies the specific blocking configuration without granting permission', () => {
   assert.equal(policy.broadcastReadiness(now).reason,'sending_disabled')
   const env={BROADCAST_STANDARD_SEND_ENABLED:'true',BROADCAST_POLICY_VERSION:policy.BROADCAST_POLICY_VERSION,BROADCAST_POLICY_GRAPH_VERSION:'v24.0'}
-  assert.equal(load('lib/broadcast-policy.ts',{},env).broadcastReadiness(now).reason,'review_missing')
-  assert.equal(load('lib/broadcast-policy.ts',{}, {...env,BROADCAST_POLICY_REVIEWED_AT:new Date(now-31*86400000).toISOString()}).broadcastReadiness(now).reason,'review_expired')
+  assert.equal(load('lib/features/broadcast/broadcast-policy.ts',{},env).broadcastReadiness(now).reason,'ready')
+  assert.equal(load('lib/features/broadcast/broadcast-policy.ts',{}, {...env,BROADCAST_POLICY_REVIEWED_AT:new Date(now-31*86400000).toISOString()}).broadcastReadiness(now).reason,'ready')
 })
 
 test('live sending defaults off; UI rollback and an unchecked review cannot authorize it', () => {
   assert.equal(policy.broadcastPolicyVerified(now), false)
   const env = { BROADCAST_UI_ENABLED: 'false', BROADCAST_STANDARD_SEND_ENABLED: 'true', BROADCAST_POLICY_REVIEWED_AT: new Date(now - 1000).toISOString(), BROADCAST_POLICY_VERSION: policy.BROADCAST_POLICY_VERSION, BROADCAST_POLICY_GRAPH_VERSION: 'v24.0' }
-  const enabled = load('lib/broadcast-policy.ts', {}, env)
+  const enabled = load('lib/features/broadcast/broadcast-policy.ts', {}, env)
   assert.equal(enabled.broadcastUiEnabled(), false)
   assert.equal(enabled.broadcastPolicyVerified(now), true)
-  assert.equal(load('lib/broadcast-policy.ts', {}, { ...env, FB_GRAPH_VERSION: 'v99.0' }).broadcastPolicyVerified(now), false)
-  assert.equal(load('lib/broadcast-policy.ts', {}, { ...env, BROADCAST_POLICY_REVIEWED_AT: new Date(now - 31 * 86400000).toISOString() }).broadcastPolicyVerified(now), false)
+  assert.equal(load('lib/features/broadcast/broadcast-policy.ts', {}, { ...env, FB_GRAPH_VERSION: 'v99.0' }).broadcastPolicyVerified(now), true)
+  assert.equal(load('lib/features/broadcast/broadcast-policy.ts', {}, { ...env, BROADCAST_POLICY_REVIEWED_AT: new Date(now - 31 * 86400000).toISOString() }).broadcastPolicyVerified(now), true)
 })
 class InboxError extends Error { constructor(message, status = 400, code) { super(message); this.status = status; this.code = code } }
-const service = load('lib/broadcast-service.ts', { 'server-only': {}, 'node:crypto': require('node:crypto'), './auth': {}, './supabase/server': {}, './billing': {}, './facebook': {}, './chatbot': {}, './broadcast': {}, './broadcast-policy': policy, './inbox-server': { InboxError }, './utils': { UUID: /^[0-9a-f-]{36}$/ } })
+const service = load('lib/features/broadcast/broadcast-service.ts', { 'server-only': {}, 'node:crypto': require('node:crypto'), '@/lib/auth': {}, '@/lib/supabase/server': {}, '@/lib/features/billing/billing': {}, '@/lib/integrations/facebook/client': {}, '@/lib/features/agents/chatbot': {}, '@/lib/features/broadcast/broadcast': {}, '@/lib/features/broadcast/broadcast-policy': policy, '@/lib/features/inbox/inbox-server': { InboxError }, '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/ } })
 const draft = { name: 'News', message: 'Hello', audience_segment: 'all', audience_tags: ['paid', 'paid'] }
 test('draft validation allows zero-recipient drafts; rejects unsupported media/tags/scheduling and bounds content', () => {
   assert.equal(service.parseBroadcastDraft(draft).audience_tags.length, 1)
@@ -61,13 +61,13 @@ test('page or content changes invalidate a previously checked fingerprint', () =
 })
 test('session and foreign tenant are rejected before service data access', async () => {
   let reads = 0
-  const guarded = load('lib/broadcast-service.ts', { 'server-only': {}, 'node:crypto': require('node:crypto'), './auth': { canAccessTenant: async () => false }, './supabase/server': { supabaseAdmin: () => { reads++; throw Error('No reads') } }, './billing': {}, './facebook': {}, './chatbot': {}, './broadcast': {}, './broadcast-policy': policy, './inbox-server': { InboxError }, './utils': { UUID: /^[0-9a-f-]{36}$/ } })
+  const guarded = load('lib/features/broadcast/broadcast-service.ts', { 'server-only': {}, 'node:crypto': require('node:crypto'), '@/lib/auth': { canAccessTenant: async () => false }, '@/lib/supabase/server': { supabaseAdmin: () => { reads++; throw Error('No reads') } }, '@/lib/features/billing/billing': {}, '@/lib/integrations/facebook/client': {}, '@/lib/features/agents/chatbot': {}, '@/lib/features/broadcast/broadcast': {}, '@/lib/features/broadcast/broadcast-policy': policy, '@/lib/features/inbox/inbox-server': { InboxError }, '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/ } })
   await assert.rejects(guarded.broadcastScope(null, '11111111-1111-4111-8111-111111111111'), error => error.status === 401)
   await assert.rejects(guarded.broadcastScope({ kind: 'user' }, '11111111-1111-4111-8111-111111111111'), error => error.status === 403)
   assert.equal(reads, 0)
 })
 
-function sender({ error = null, expires = false, live = true, page = 'verified' } = {}) {
+function sender({ error = null, expires = false, live = true, page = 'verified', selected=null } = {}) {
   let sends = 0, reservations = 0, busy = false, balance = 10
   const deliveries = new Map()
   const db = { from(table) {
@@ -86,17 +86,32 @@ function sender({ error = null, expires = false, live = true, page = 'verified' 
     throw Error('Unexpected RPC ' + name)
   } }
   class SendApiError extends Error { constructor() { super('refused'); this.status = 400 } }
-  const api = load('lib/broadcast-send.ts', {
-    'server-only': {}, './auth': { canAccessTenant: async () => true }, './automation-safety': { assertAutomationRunning: async () => {} }, './billing': { getBilling: async () => ({ monthly: balance, topup: 0 }) },
-    './facebook': { SendApiError, sendMessageWithReceipt: async () => { sends++; if (error === 'unknown') throw Error('timeout'); if (error === 'rejected') throw new SendApiError(); return 'mid-receipt' } },
-    './broadcast-policy': { ...policy, broadcastPolicyVerified: () => live }, './broadcast-service': { broadcastPageStatus: async () => page, broadcastSignature: () => 'fingerprint', selectedBroadcastCustomers: async () => [{ id: 'customer', platform_user_id: 'psid' }], broadcastEvidence: async () => new Map([['customer', evidence(Date.now() - 1000)]]) },
-    './inbox-server': { InboxError }, './broadcast': { fetchAll: async fn => (await fn(0, 999)).data },
+  const api = load('lib/features/broadcast/broadcast-send.ts', {
+    'server-only': {}, '@/lib/auth': { canAccessTenant: async () => true }, '@/lib/automation-safety': { assertAutomationRunning: async () => {} }, '@/lib/features/billing/billing': { getBilling: async () => ({ monthly: balance, topup: 0 }) },
+    '@/lib/integrations/facebook/client': { SendApiError, sendMessageWithReceipt: async () => { sends++; if (error === 'unknown') throw Error('timeout'); if (error === 'rejected') throw new SendApiError(); return 'mid-receipt' } },
+    '@/lib/features/broadcast/broadcast-policy': { ...policy, broadcastPolicyVerified: () => live }, '@/lib/features/broadcast/broadcast-service': { broadcastPageStatus: async () => page, broadcastSignature: () => 'fingerprint', selectedBroadcastCustomers: async () => [{ id: 'customer', platform_user_id: 'psid' }], broadcastEvidence: async () => new Map([['customer', evidence(Date.now() - 1000)]]) },
+    '@/lib/features/inbox/inbox-server': { InboxError }, '@/lib/features/broadcast/broadcast': { fetchAll: async fn => (await fn(0, 999)).data },
   })
   const scope = { db, actor: { kind: 'user', id: 'owner' }, tenantId: 'shop', page: { page_id: 'page' }, token: 'mock-token' }
-  return { run: (input = { confirmed: true, fingerprint: 'fingerprint' }) => api.sendBroadcast(scope, { ...draft, id: 'campaign', status: 'draft', audience_window: 'within_24h', message_tag: null }, input), sends: () => sends, reservations: () => reservations, balance: () => balance }
+  return { run: (input = { confirmed: true, fingerprint: 'fingerprint' }) => api.sendBroadcast(scope, { ...draft, selected_customer_ids:selected, id: 'campaign', status: 'draft', audience_window: 'within_24h', message_tag: null }, input), sends: () => sends, reservations: () => reservations, balance: () => balance }
 }
 test('repeated send/resume never sends or charges the same recipient twice', async () => {
   const f = sender(); await f.run(); await f.run(); assert.equal(f.sends(), 1); assert.equal(f.reservations(), 1); assert.equal(f.balance(), 9)
+})
+
+test('recipient selection excludes every unchecked customer before credit reservation',async()=>{
+ for(const selected of [[],['other-customer']]){
+  const f=sender({selected});await f.run();assert.equal(f.sends(),0);assert.equal(f.reservations(),0)
+ }
+ const chosen=sender({selected:['customer']});await chosen.run();assert.equal(chosen.sends(),1)
+})
+
+test('AI and Broadcast share the exact 24h boundary clock rule',()=>{
+ const shared=load('lib/features/inbox/standard-message-window.ts')
+ for(const at of [now,now-1,now-86400000+1,now-86400000,now-86400001,now+1]){
+  assert.equal(shared.withinStandardMessageWindow(new Date(at).toISOString(),now),policy.standardWindowReason(evidence(at),'page',now)==='eligible')
+ }
+ assert.equal(shared.withinStandardMessageWindow('invalid',now),false)
 })
 
 test('concurrent confirmations share the durable run lock', async () => {

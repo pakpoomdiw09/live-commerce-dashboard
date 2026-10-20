@@ -1,7 +1,7 @@
 'use client'
 
 import './globals.css'
-import { ErrorState } from '@/components/ErrorState'
+import { ErrorState } from '@/components/shared/ErrorState'
 
 /** Last resort: the root layout itself failed. Must render its own <html>. */
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {

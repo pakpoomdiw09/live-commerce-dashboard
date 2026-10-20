@@ -1,5 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {inboxCustomer,inboxError,InboxError,checkRpc} from '@/lib/inbox-server'
+import {inboxCustomer,inboxError,InboxError,checkRpc} from '@/lib/features/inbox/inbox-server'
 import {UUID} from '@/lib/utils'
 export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>}){try{
  const {db,actor,customer}=await inboxCustomer(req,(await params).id)

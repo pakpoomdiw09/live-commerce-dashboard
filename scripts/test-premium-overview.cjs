@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),React=require('react'),{renderToStaticMarkup}=require('react-dom/server')
 function load(file,deps={},globals={}){const context={exports:{},console,Date,JSON,Math,Object,Number,URLSearchParams,process:{env:{}},require:n=>{if(n in deps)return deps[n];throw Error('Unexpected dependency '+n)},...globals};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,context);return context.exports}
-const tenant='11111111-1111-4111-8111-111111111111',core=load('lib/premium-overview-core.ts')
+const tenant='11111111-1111-4111-8111-111111111111',core=load('lib/features/overview/premium-overview-core.ts')
 test('range uses Bangkok calendar boundaries, spans 7/30/90 days and validates untrusted filters',()=>{
  const now=new Date('2026-10-15T18:00:00Z')
  for(const days of ['7','30','90']){const f=core.overviewFilters({range:days},now);assert.equal(f.from,new Date(new Date('2026-10-15T17:00:00Z').getTime()-(Number(days)-1)*86400000).toISOString());assert.equal(new Date(f.from)-new Date(f.previousFrom),Number(days)*86400000)}
@@ -9,13 +9,13 @@ test('range uses Bangkok calendar boundaries, spans 7/30/90 days and validates u
  assert.equal(core.overviewFilters({q:'  own shop  '},now).q,'own shop')
 })
 test('direct-table overview defaults on and supports an explicit rollback in every environment',()=>{
- for(const [env,expected]of [[{},true],[{NODE_ENV:'development'},true],[{NODE_ENV:'production'},true],[{NODE_ENV:'development',PREMIUM_OVERVIEW_ENABLED:'false'},false],[{NODE_ENV:'production',PREMIUM_OVERVIEW_ENABLED:'false'},false]])assert.equal(load('lib/premium-overview-core.ts',{},{process:{env}}).premiumOverviewEnabled(),expected)
+ for(const [env,expected]of [[{},true],[{NODE_ENV:'development'},true],[{NODE_ENV:'production'},true],[{NODE_ENV:'development',PREMIUM_OVERVIEW_ENABLED:'false'},false],[{NODE_ENV:'production',PREMIUM_OVERVIEW_ENABLED:'false'},false]])assert.equal(load('lib/features/overview/premium-overview-core.ts',{},{process:{env}}).premiumOverviewEnabled(),expected)
  assert.equal(core.PREMIUM_OVERVIEW_FLAGS.premium_overview_enabled,true)
 })
 class InboxError extends Error{constructor(message,status=400,code='BAD_REQUEST'){super(message);this.status=status;this.code=code}}
 function fixture({member=true,enabled=true,error=null,data=null}={}){
  let queries=0;const calls=[],db={rpc:async(name,args)=>{queries++;calls.push({name,args});return {data:data??sample(),error}}}
- const server=load('lib/premium-overview-server.ts',{'server-only':{},'./auth':{canAccessTenant:async()=>member},'./supabase/server':{supabaseAdmin:()=>db},'./overview-tables':{overviewFromTables:async(_db,t,f)=>{const response=await db.rpc('direct-table-fixture',{p_tenant:t,p_from:f.from,p_to:f.to,p_previous:f.previousFrom,p_page:f.page,p_query:f.q});if(response.error)throw new InboxError('unavailable',503,'OVERVIEW_UNAVAILABLE');return {summary:response.data,notices:[]}}},'./inbox-server':{InboxError},'./utils':{UUID:/^[0-9a-f-]{36}$/},'./premium-overview-core':{...core,premiumOverviewEnabled:()=>enabled}})
+ const server=load('lib/features/overview/premium-overview-server.ts',{'server-only':{},'@/lib/auth':{canAccessTenant:async()=>member},'@/lib/supabase/server':{supabaseAdmin:()=>db},'@/lib/features/overview/overview-tables':{overviewFromTables:async(_db,t,f)=>{const response=await db.rpc('direct-table-fixture',{p_tenant:t,p_from:f.from,p_to:f.to,p_previous:f.previousFrom,p_page:f.page,p_query:f.q});if(response.error)throw new InboxError('unavailable',503,'OVERVIEW_UNAVAILABLE');return {summary:response.data,notices:[]}}},'@/lib/features/inbox/inbox-server':{InboxError},'@/lib/utils':{UUID:/^[0-9a-f-]{36}$/},'@/lib/features/overview/premium-overview-core':{...core,premiumOverviewEnabled:()=>enabled}})
  return {run:(actor={kind:'user',id:'user'},t=tenant,f={})=>server.loadPremiumOverview(actor,t,f),calls,get queries(){return queries}}
 }
 function sample(){return {shop:{id:tenant,name:'Test shop — isolated fixture'},updatedAt:'2026-10-16T02:00:00Z',filters:core.overviewFilters({range:'7'},new Date('2026-10-16T02:00:00Z')),access:{slips:true,customers:true,ai:true},metrics:{reconciledRevenue:null,messages:0,approved:0,totalSlips:0,pending:0,slipCredits:0,verifiedSlipAmount:0},previous:null,results:{passed:0,pending:0,rejected:0,error:0},series:[],bucket:'day',slips:[],slipMatches:0,chats:[],chatMatches:0,ai:null,health:[{name:'Database',status:'observed',detail:'อ่านข้อมูลสำเร็จ'},{name:'Messenger',status:'unknown',detail:'ยังไม่ได้ตรวจสอบ'}]}}
@@ -32,9 +32,9 @@ test('RPC failure and wrong-tenant response fail without fabricating zero metric
 })
 test('Dashboard API passes authenticated scope, rejects failed guards and disables shared caching',async()=>{
  let called=0
- const api=load('app/api/overview/route.ts',{'next/server':{NextResponse:{json:(body,options)=>({body,...options})}},'@/lib/auth':{getActor:async()=>({kind:'user'})},'@/lib/premium-overview-server':{loadPremiumOverview:async(a,t,p)=>{called++;assert.equal(t,tenant);assert.equal(p.range,'7');return sample()}},'@/lib/inbox-server':{inboxError:e=>({status:e.status})}})
+ const api=load('app/api/overview/route.ts',{'next/server':{NextResponse:{json:(body,options)=>({body,...options})}},'@/lib/auth':{getActor:async()=>({kind:'user'})},'@/lib/features/overview/premium-overview-server':{loadPremiumOverview:async(a,t,p)=>{called++;assert.equal(t,tenant);assert.equal(p.range,'7');return sample()}},'@/lib/features/inbox/inbox-server':{inboxError:e=>({status:e.status})}})
  const result=await api.GET({nextUrl:new URL('https://local/api/overview?tenantId='+tenant+'&range=7')});assert.equal(called,1);assert.equal(result.headers['Cache-Control'],'private, no-store')
- const denied=load('app/api/overview/route.ts',{'next/server':{},'@/lib/auth':{getActor:async()=>null},'@/lib/premium-overview-server':{loadPremiumOverview:async()=>{throw new InboxError('unauthorized',401)}},'@/lib/inbox-server':{inboxError:e=>({status:e.status})}});assert.equal((await denied.GET({nextUrl:new URL('https://local/api/overview')})).status,401)
+ const denied=load('app/api/overview/route.ts',{'next/server':{},'@/lib/auth':{getActor:async()=>null},'@/lib/features/overview/premium-overview-server':{loadPremiumOverview:async()=>{throw new InboxError('unauthorized',401)}},'@/lib/features/inbox/inbox-server':{inboxError:e=>({status:e.status})}});assert.equal((await denied.GET({nextUrl:new URL('https://local/api/overview')})).status,401)
 })
 function component(){return load('components/overview/PremiumOverview.tsx',{
  'react':React,'react/jsx-runtime':require('react/jsx-runtime'),'next/link':{default:({href,children,...props})=>React.createElement('a',{href,...props},children)},'next/navigation':{useRouter:()=>({refresh(){}})},'lucide-react':require('lucide-react'),

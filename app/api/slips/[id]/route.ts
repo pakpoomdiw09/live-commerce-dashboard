@@ -2,7 +2,7 @@ import { hasFeature, featureLockedResponse } from '@/lib/feature-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
-import { loadSlipDetail } from '@/lib/slip/detail'
+import { loadSlipDetail } from '@/lib/features/slips/detail'
 import { UUID } from '@/lib/utils'
 
 export const runtime = 'nodejs'

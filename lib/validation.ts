@@ -1,6 +1,6 @@
-import { BANK_CODES, isSupportedBank, UNSUPPORTED_BANK_MESSAGE } from './banks'
-import { ORDER_STATUSES } from './status'
-import type { OrderStatus, TenantRow } from './types'
+import { BANK_CODES, isSupportedBank, UNSUPPORTED_BANK_MESSAGE } from '@/lib/features/banking/banks'
+import { ORDER_STATUSES } from '@/lib/status'
+import type { OrderStatus, TenantRow } from '@/lib/types'
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 const fail = (error: string): Result<never> => ({ ok: false, error })

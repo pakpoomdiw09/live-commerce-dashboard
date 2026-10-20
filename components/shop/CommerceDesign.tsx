@@ -1,4 +1,4 @@
-import type { SalesDesign } from '@/lib/commerce-core'
+import type { SalesDesign } from '@/lib/features/commerce/commerce-core'
 import type { ReactNode } from 'react'
 /** Plain React text only. No HTML, iframe, script or arbitrary CTA URL. */
 export function CommerceDesign({ design, products }: { design: SalesDesign | null; products?: ReactNode }) {

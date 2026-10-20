@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
-import { callbackUrl, exchangeCode, listPages, verifiedAdminPages, STATE_COOKIE, STATE_COOKIE_PATH, subscribePage } from '@/lib/facebook-oauth'
+import { callbackUrl, exchangeCode, listPages, verifiedAdminPages, STATE_COOKIE, STATE_COOKIE_PATH, subscribePage } from '@/lib/integrations/facebook/oauth'
 import { supabaseAdmin } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'

@@ -18,9 +18,9 @@ Implemented at `/chatbot/conversations`, retaining the existing Keyword editor, 
 
 New UI: `components/chatbot/AgentControlCenter.tsx`.
 
-New services: `lib/agent-control-core.ts`, `lib/agent-control-flags.ts`, `lib/agent-control-ai.ts`, `lib/agent-control-server.ts`, `lib/agent-orchestrator.ts`.
+New services: `lib/features/agents/agent-control-core.ts`, `lib/features/agents/agent-control-flags.ts`, `lib/features/agents/agent-control-ai.ts`, `lib/features/agents/agent-control-server.ts`, `lib/features/agents/agent-orchestrator.ts`.
 
-Integration: `lib/ai-agent.ts`, `lib/chatbot-server.ts`, `lib/chatbot.ts`, `components/chatbot/ConversationsClient.tsx`, `app/(dashboard)/chatbot/conversations/page.tsx`.
+Integration: `lib/features/agents/ai-agent.ts`, `lib/features/agents/chatbot-server.ts`, `lib/features/agents/chatbot.ts`, `components/chatbot/ConversationsClient.tsx`, `app/(dashboard)/chatbot/conversations/page.tsx`.
 
 New API routes:
 

@@ -2,17 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import { CUSTOMER_COLUMNS, SLIP_COLUMNS, type CustomerRow, type MessageRow, type SlipRow, type SlipStatus } from '@/lib/types'
-import { reconcileThread, type ThreadChange } from '@/lib/inbox-realtime'
+import { CUSTOMER_COLUMNS, CUSTOMER_COLUMNS_WITHOUT_AVATAR, isMissingCustomerAvatarColumn, SLIP_COLUMNS, type CustomerRow, type MessageRow, type SlipRow, type SlipStatus } from '@/lib/types'
+import { inboxChannelName, reconcileThread, type ThreadChange } from '@/lib/features/inbox/inbox-realtime'
 import { cn } from '@/lib/utils'
-import { ChatList } from './ChatList'
-import { Conversation } from './Conversation'
-import { Inspector } from './Inspector'
-import { CommentsFeed } from './CommentsFeed'
-import {useInboxState} from './useInboxState'
-import {ReadMarker} from './ReadMarker'
-import {LatestInboxRequest,InboxEventDeduplicator} from '@/lib/inbox-request'
-import {InboxProCenter,type InboxView} from './InboxProCenter'
+import { ChatList } from '@/components/inbox/ChatList'
+import { Conversation } from '@/components/inbox/Conversation'
+import { Inspector } from '@/components/inbox/Inspector'
+import { CommentsFeed } from '@/components/inbox/CommentsFeed'
+import {useInboxState} from '@/hooks/inbox/useInboxState'
+import {ReadMarker} from '@/components/inbox/ReadMarker'
+import {LatestInboxRequest,InboxEventDeduplicator} from '@/lib/features/inbox/inbox-request'
+import {InboxProCenter,type InboxView} from '@/components/inbox/InboxProCenter'
 
 export type Preview = Pick<MessageRow, 'sender' | 'body' | 'attachments' | 'created_at'>
 export type ChatSummary = { customer: CustomerRow; preview: Preview | null; latestSlip: SlipStatus | null }
@@ -37,6 +37,7 @@ export function InboxClient({
   initialSelectedId: string | null
   tenant: ActiveTenant | null
 }) {
+  const tenantId=tenant?.id
   const db = useMemo(() => supabaseBrowser(), [])
   const [tab, setTab] = useState<'chat' | 'comments'>('chat')
   const [view,setView]=useState<InboxView>('all')
@@ -61,7 +62,7 @@ export function InboxClient({
   const listBusy = useRef(false)
   const olderBusy = useRef(false)
   const [connection, setConnection] = useState<'connecting'|'live'|'offline'>('connecting')
-  const inbox=useInboxState(tenant?.id)
+  const inbox=useInboxState(tenant?.id,chats.map(chat=>chat.customer.id))
   const refreshInbox=inbox.refresh
   useEffect(()=>{const refresh=()=>{void refreshInbox()};window.addEventListener('inbox:refresh',refresh);return()=>window.removeEventListener('inbox:refresh',refresh)},[refreshInbox])
   const [olderLoading,setOlderLoading]=useState(false)
@@ -89,25 +90,23 @@ export function InboxClient({
     finally{listBusy.current=false;setListLoading(false)}
   }
 
-  // Shared realtime events must match the selected Page's tenant exactly.
-  const mine = useCallback((tenantId: string | null) => !!tenant && tenantId === tenant.id, [tenant])
-
   // load the thread and the customer's slips when the selection changes
   const loadThread = useCallback(
     async (customerId: string, background = false) => {
-      if (!tenant) return
+      if (!tenantId) return
       if (!background) setThreadState('loading')
       const request = ++threadRequest.current
       const ticket = threadGate.current.begin()
       const since = revision.current
       const [m, s] = await Promise.all([
         // newest 200, shown oldest first
-        db.from('messages').select('id, customer_id, sender, body, attachments, created_at, inbound_seq, provider_message_id, delivery_status, customers!inner(tenant_id)').eq('customer_id', customerId).eq('customers.tenant_id',tenant.id).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(200).abortSignal(ticket.signal),
-        db.from('slips').select(SLIP_COLUMNS).eq('customer_id', customerId).eq('tenant_id', tenant.id).order('created_at', { ascending: false }).limit(50).abortSignal(ticket.signal),
+        db.from('messages').select('id, customer_id, sender, body, attachments, created_at, inbound_seq, provider_message_id, delivery_status, customers!inner(tenant_id)').eq('customer_id', customerId).eq('customers.tenant_id',tenantId).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(200).abortSignal(ticket.signal),
+        db.from('slips').select(SLIP_COLUMNS).eq('customer_id', customerId).eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(50).abortSignal(ticket.signal),
       ])
       if (!ticket.current() || selectedRef.current !== customerId || request !== threadRequest.current) return
-      if (m.error || s.error) {
-        console.error('[inbox] thread load failed', m.error ?? s.error)
+      if (s.error) console.error('[inbox] slips load failed', { code: s.error.code })
+      if (m.error) {
+        console.error('[inbox] thread load failed', m.error)
         if (!background) setThreadState('error')
         return
       }
@@ -117,15 +116,19 @@ export function InboxClient({
         return reconcileThread(background&&oldest?[...previous.filter(row=>row.created_at<oldest),...rows]:rows,changes.current,since,customerId)
       })
       if(!background)setOlderEnd((m.data?.length??0)<200)
-      setSlips((s.data ?? []) as SlipRow[])
+      if (!s.error) setSlips((s.data ?? []) as SlipRow[])
       setThreadState('idle')
     },
-    [db, tenant],
+    [db, tenantId],
   )
+  // Keep callbacks current without making subscription lifetime depend on them.
+  const latestThreadLoader=useRef(loadThread)
+  useEffect(()=>{latestThreadLoader.current=loadThread},[loadThread])
 
   useEffect(() => {
     const activeThreadGate=threadGate.current,activeOlderGate=olderGate.current
     selectedRef.current = selectedId
+    console.log('[DEBUG-REALTIME] Selected thread:',{tenantId:tenantId??null,customerId:selectedId})
     changes.current.clear()
     threadRequest.current++
     setMessages([])
@@ -139,17 +142,25 @@ export function InboxClient({
     setInspectorOpen(false)
     if (selectedId) void loadThread(selectedId)
     return () => { activeThreadGate.cancel(); activeOlderGate.cancel() }
-  }, [selectedId, loadThread])
+  }, [selectedId, loadThread, tenantId])
 
   // one Realtime channel for everything on this screen
   useEffect(() => {
-    if (!tenant) return
+    console.log('[DEBUG-REALTIME] Inbox effect mounted:', {tenantId:tenantId??null,selectedId:selectedRef.current})
+    if (!tenantId) {console.warn('[DEBUG-REALTIME] Inbox subscription skipped: no tenant');return}
+    const db=supabaseBrowser()
+    const mine=(rowTenantId:string|null)=>rowTenantId===tenantId
+    const loadThread=(customerId:string,background=false)=>latestThreadLoader.current(customerId,background)
+    setConnection('connecting')
     let disposed = false
     let recovering = false
+    let live = false
+    let lastRecovery = 0
+    const customerRequests = new Map<string, Promise<void>>()
     const recentMessages = new Map<string,{revision:number;message:MessageRow}>()
     const events = new InboxEventDeduplicator()
-    const scope = `tenant_id=eq.${tenant.id}`
-    const chatColumns = `${CUSTOMER_COLUMNS}, messages(sender,body,attachments,created_at), slips(status,created_at)`
+    const scope = `tenant_id=eq.${tenantId}`
+    const chatColumns = (withAvatar = true) => `${withAvatar ? CUSTOMER_COLUMNS : CUSTOMER_COLUMNS_WITHOUT_AVATAR}, messages(sender,body,attachments,created_at), slips(status,created_at)`
     type Snapshot = CustomerRow & { messages: Preview[]; slips: {status: SlipStatus}[] }
     const summary = ({messages,slips,...customer}: Snapshot): ChatSummary => ({customer,preview:messages[0]??null,latestSlip:slips[0]?.status??null})
     const replayPreview = (chat:ChatSummary,since:number) => {
@@ -157,13 +168,16 @@ export function InboxClient({
       return event && event.revision>since && event.message.created_at>=(chat.preview?.created_at??'')
         ? {...chat,preview:event.message,customer:{...chat.customer,last_message_at:event.message.created_at>(chat.customer.last_message_at??'')?event.message.created_at:chat.customer.last_message_at}}:chat
     }
-    const chatsQuery = () => db.from('customers').select(chatColumns).eq('tenant_id',tenant.id).eq('slips.tenant_id',tenant.id)
+    const chatsQuery = (withAvatar = true) => db.from('customers').select(chatColumns(withAvatar)).eq('tenant_id',tenantId).eq('slips.tenant_id',tenantId)
       .order('created_at',{ascending:false,referencedTable:'messages'}).limit(1,{referencedTable:'messages'})
       .order('created_at',{ascending:false,referencedTable:'slips'}).limit(1,{referencedTable:'slips'})
-    const refreshCustomer = async (id: string) => {
+    const fetchCustomer = async (id: string) => {
       const since=revision.current
-      const {data,error} = await chatsQuery().eq('id',id).maybeSingle()
-      if (disposed || error) return
+      let result = await chatsQuery().eq('id',id).maybeSingle()
+      if(isMissingCustomerAvatarColumn(result.error))result=await chatsQuery(false).eq('id',id).maybeSingle()
+      const {data,error}=result
+      if (disposed) return
+      if (error) { console.error('[inbox] customer refresh failed', { customerId: id, code: error.code }); return }
       if (!data) {
         knownCustomers.current.delete(id)
         recentMessages.delete(id)
@@ -175,17 +189,35 @@ export function InboxClient({
       setChats(prev=>[chat,...prev.filter(item=>item.customer.id!==id)].sort(byRecent))
       setSelectedId(prev=>prev??id)
     }
+    // Customer INSERT, message INSERT and profile UPDATE can arrive together.
+    const refreshCustomer = (id: string) => {
+      const pending = customerRequests.get(id)
+      if (pending) return pending
+      const request = fetchCustomer(id).finally(()=>customerRequests.delete(id))
+      customerRequests.set(id,request)
+      return request
+    }
     const recover = async () => {
       if (disposed || recovering) return
       recovering = true
+      lastRecovery = Date.now()
       const startingIds = new Set(knownCustomers.current)
       const since=revision.current
       try {
-        const [customers,comments] = await Promise.all([
+        let [customers,comments] = await Promise.all([
           chatsQuery().order('last_message_at',{ascending:false,nullsFirst:false}).limit(150),
-          db.from('comments').select('id,tenant_id,author_name,body,created_at').eq('tenant_id',tenant.id).order('created_at',{ascending:false}).limit(100),
+          db.from('comments').select('id,tenant_id,author_name,body,created_at').eq('tenant_id',tenantId).order('created_at',{ascending:false}).limit(100),
         ])
-        if (disposed || customers.error || comments.error) return
+        if(isMissingCustomerAvatarColumn(customers.error))customers=await chatsQuery(false).order('last_message_at',{ascending:false,nullsFirst:false}).limit(150)
+        if (disposed) return
+        if (comments.error) console.error('[inbox] comments recovery failed', { code: comments.error.code })
+        else setComments((comments.data??[]) as CommentItem[])
+        if (customers.error) {
+          console.error('[inbox] conversations recovery failed', { code: customers.error.code })
+          const selected=selectedRef.current
+          if(selected) await loadThread(selected,true)
+          return
+        }
         const next = ((customers.data??[]) as unknown as Snapshot[]).map(row=>replayPreview(summary(row),since))
         const arrived = new Set([...knownCustomers.current].filter(id=>!startingIds.has(id)))
         knownCustomers.current = new Set([...next.map(chat=>chat.customer.id),...arrived])
@@ -193,10 +225,9 @@ export function InboxClient({
           ...next,
           ...previous.filter(chat=>!next.some(item=>item.customer.id===chat.customer.id)),
         ].sort(byRecent))
-        setComments((comments.data??[]) as CommentItem[])
         setSelectedId(current=>current??next[0]?.customer.id??null)
         const selected=selectedRef.current
-        if(selected){await refreshCustomer(selected);if(!disposed&&selectedRef.current===selected)await loadThread(selected,true)}
+        if(selected){if(!next.some(chat=>chat.customer.id===selected))await refreshCustomer(selected);if(!disposed&&selectedRef.current===selected)await loadThread(selected,true)}
       } catch { if (!disposed) console.error('[inbox] snapshot recovery failed') }
       finally { recovering=false }
     }
@@ -206,30 +237,41 @@ export function InboxClient({
       const recent=recentMessages.get(message.customer_id)
       if (!recent || message.created_at>=recent.message.created_at) recentMessages.set(message.customer_id,{revision:version,message})
       if (recentMessages.size>300) recentMessages.delete(recentMessages.keys().next().value!)
+      // The selected thread may be outside the latest 150-customer snapshot.
+      // Apply its event before asynchronous customer hydration completes.
+      if (message.customer_id===selectedRef.current) {
+        changes.current.set(message.id,{revision:version,message})
+        if (changes.current.size>1000) changes.current.delete(changes.current.keys().next().value!)
+        setMessages(prev=>reconcileThread(prev,new Map([[message.id,{revision:1,message}]]),0,message.customer_id))
+      }
       if (!knownCustomers.current.has(message.customer_id)) { void refreshCustomer(message.customer_id); return }
       setChats(prev=>prev.map(chat=>chat.customer.id===message.customer_id?{
         ...chat,preview:!chat.preview || message.created_at>=chat.preview.created_at?message:chat.preview,
         customer:{...chat.customer,last_message_at:message.created_at>(chat.customer.last_message_at??'')?message.created_at:chat.customer.last_message_at},
       }:chat).sort(byRecent))
-      if (message.customer_id!==selectedRef.current) return
-      changes.current.set(message.id,{revision:version,message})
-      if (changes.current.size>1000) changes.current.delete(changes.current.keys().next().value!)
-      setMessages(prev=>reconcileThread(prev,new Map([[message.id,{revision:1,message}]]),0,message.customer_id))
     }
+    const channelName=inboxChannelName('inbox',tenantId)
+    console.log('[DEBUG-REALTIME] Creating channel:', {channelName,tables:['messages','customers','comments','slips'],messageFilter:'RLS only; no tenant_id filter on messages'})
     const channel = db
-      .channel(`inbox:${tenant.id}`)
+      // Removal is asynchronous: never reuse a channel being cleaned up by
+      // Strict Mode, navigation or another mounted Inbox for this tenant.
+      .channel(channelName)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, ({ new: row }) => {
         const m = row as MessageRow
+        // Production logs identify delivery without copying customer message bodies.
+        console.log('[DEBUG-REALTIME] Message INSERT:', {eventType:'INSERT',table:'messages',id:m?.id,customerId:m?.customer_id,selected: m?.customer_id===selectedRef.current})
+        if (process.env.NODE_ENV !== 'production') console.log('[DEBUG-REALTIME] INSERT payload:', {eventType:'INSERT',schema:'public',table:'messages',new:row})
         apply(m)
       })
       // bot notices are rewritten when the Send API fails ("[ส่งไม่สำเร็จ] ...")
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, ({ new: row }) => {
         const m = row as MessageRow
+        if (process.env.NODE_ENV !== 'production') console.log('[inbox/realtime] UPDATE message', { id: m?.id, customerId: m?.customer_id })
         apply(m)
       })
       // an admin reply the Send API rejected is deleted again (see /api/messages/send)
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, ({ old }) => {
-        if (!old.id || !events.accept(String(old.id),null)) return
+        if (disposed || !old.id || !events.accept(String(old.id),null)) return
         for (const [customer,event] of recentMessages) if (event.message.id===old.id) recentMessages.delete(customer)
         changes.current.set(String(old.id),{revision:++revision.current,message:null})
         if (changes.current.size>1000) changes.current.delete(changes.current.keys().next().value!)
@@ -237,10 +279,12 @@ export function InboxClient({
         void recover()
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments', filter:scope }, ({ new: row }) => {
+        if (disposed) return
         const k = row as CommentItem
         if (mine(k.tenant_id)) setComments((prev) => [k, ...prev.filter(item=>item.id!==k.id)].slice(0,100))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, (p) => {
+        if (disposed) return
         if (p.eventType === 'DELETE') {
           const id = String(p.old.id??'')
           knownCustomers.current.delete(id)
@@ -249,7 +293,11 @@ export function InboxClient({
           return
         }
         const c = p.new as CustomerRow
-        if (mine(c.tenant_id)) { knownCustomers.current.add(c.id); void refreshCustomer(c.id) }
+        if (process.env.NODE_ENV !== 'production') console.log('[inbox/realtime] customer event', { id: c?.id, tenantId: c?.tenant_id, isMine: mine(c?.tenant_id) })
+        if (mine(c.tenant_id)) {
+          if (!knownCustomers.current.has(c.id)) void refreshCustomer(c.id)
+          knownCustomers.current.add(c.id)
+        }
         else knownCustomers.current.delete(c.id)
         setChats((prev) => {
           const existing = prev.find((x) => x.customer.id === c.id)
@@ -262,6 +310,8 @@ export function InboxClient({
         if (mine(c.tenant_id)) setSelectedId((prev) => prev ?? c.id)
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'slips', filter:scope }, (p) => {
+        if (disposed) return
+        window.dispatchEvent(new Event('inbox:payments'))
         if (p.eventType === 'DELETE') return
         const s = p.new as SlipRow
         if (!s.customer_id || !mine(s.tenant_id)) return
@@ -269,24 +319,41 @@ export function InboxClient({
         if (s.customer_id !== selectedRef.current) return
         setSlips((prev) => [s, ...prev.filter((x) => x.id !== s.id)].sort(newestFirst).slice(0, 50))
       })
-      .subscribe((status) => {
+      .subscribe((status, err) => {
+        console.log('[DEBUG-REALTIME] Channel Status:', status, err, {channelName,ignored:disposed})
         if (disposed) return
-        if (status==='SUBSCRIBED') { setConnection('live'); void recover() }
-        else if (['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)) setConnection('offline')
-        if (status === 'CHANNEL_ERROR') console.error('[inbox] Realtime channel error: is the table in the supabase_realtime publication?')
+        console.info('[inbox/realtime] status', { status, tenantId: tenantId })
+        if (status==='SUBSCRIBED') { live=true; setConnection('live'); void recover() }
+        else if (['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)) {
+          setConnection('offline')
+          live=false
+          console.warn('[inbox/realtime] disconnected; polling continues every 30 seconds', { status, tenantId: tenantId })
+        }
       })
-    const timer = setInterval(()=>void recover(),30000)
+    console.log('[DEBUG-REALTIME] Subscribe invoked:', {channelName})
+    const connectionWatchdog=setTimeout(()=>{
+      if(!disposed&&!live)console.warn('[DEBUG-REALTIME] Channel not subscribed after 15 seconds:', {channelName,hint:'Check WebSocket connection, browser auth session and Realtime service; inspect Channel Status errors'})
+    },15000)
+    void recover()
+    // Keep a safety snapshot for silent replication failures, but prefer events.
+    const timer = setInterval(()=>{
+      if(document.visibilityState==='hidden')return
+      if(live&&Date.now()-lastRecovery<120000)return
+      void recover()
+    },30000)
     const onVisible=()=>{if(document.visibilityState==='visible')void recover()}
     window.addEventListener('online',recover)
     document.addEventListener('visibilitychange',onVisible)
     return () => {
       disposed=true
+      console.log('[DEBUG-REALTIME] Cleaning up channel:', {channelName})
+      clearTimeout(connectionWatchdog)
       clearInterval(timer)
       window.removeEventListener('online',recover)
       document.removeEventListener('visibilitychange',onVisible)
       void db.removeChannel(channel)
     }
-  }, [db, mine, tenant, loadThread])
+  }, [tenantId])
 
   const selectedCustomer = chats.find((c) => c.customer.id === selectedId)?.customer ?? null
   const currentState=inbox.data?.conversations.find(c=>c.id===selectedId)??(selectedCustomer&&selectedCustomer.conversation_version!==undefined?{id:selectedCustomer.id,assigned_user_id:selectedCustomer.assigned_user_id??null,conversation_status:selectedCustomer.conversation_status??'open',conversation_version:selectedCustomer.conversation_version,inbound_seq:selectedCustomer.inbound_seq??0,bot_enabled:selectedCustomer.bot_enabled,unread_count:0}:undefined)
@@ -337,14 +404,15 @@ export function InboxClient({
 
   return (
     <div data-inbox-version="v2" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-    {tenant&&<InboxProCenter compact={mobileChat} query={searchQuery} onQuery={value=>{setSearchQuery(value);setMobileChat(false)}} assignee={assigneeFilter} onAssignee={value=>{setAssigneeFilter(value);setMobileChat(false)}} counts={filterCounts} autoReply={tenant.autoReply} onBulk={()=>{setMobileChat(false);window.dispatchEvent(new Event('inbox:bulk'))}} tenantId={tenant.id} inbox={inbox.data} view={view} onView={next=>{setView(next);setMobileChat(false)}}/>}
+    {tenant&&<InboxProCenter compact={mobileChat} assignee={assigneeFilter} onAssignee={value=>{setAssigneeFilter(value);setMobileChat(false)}} counts={filterCounts} autoReply={tenant.autoReply} onBulk={()=>{setMobileChat(false);window.dispatchEvent(new Event('inbox:bulk'))}} tenantId={tenant.id} inbox={inbox.data} view={view} onView={next=>{setView(next);setMobileChat(false)}}/>}
     {!inbox.data&&<div role={inbox.error?'alert':'status'} className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-600">{inbox.error||'กำลังโหลดสถานะและผู้ดูแลแชท…'}{inbox.error&&<button type="button" onClick={()=>void inbox.refresh()} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-orange-700">ลองโหลดสถานะอีกครั้ง</button>}</div>}
-    <div className={`relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[16rem_minmax(0,1fr)] ${inspectorOpen?'xl:grid-cols-[17rem_minmax(0,1fr)_19rem] 2xl:grid-cols-[18rem_minmax(0,1fr)_20rem]':''}`}>
+    <div className={`relative mx-3 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] md:grid-cols-[clamp(18rem,25vw,22rem)_minmax(0,1fr)] ${inspectorOpen?'xl:grid-cols-[clamp(18rem,25vw,22rem)_minmax(0,1fr)_clamp(17rem,22vw,19rem)]':''}`}>
       <ReadMarker customerId={selectedId} messages={messages} onRead={inbox.refresh} mobileOpen={mobileChat}/>
       {inbox.error&&<p role="alert" className="absolute top-1 left-2 z-20 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{inbox.error}</p>}
       {connection!=='live'&&<p role="status" className="absolute bottom-2 left-2 z-20 max-w-xs rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow ring-1 ring-amber-200">{connection==='connecting'?'กำลังเชื่อมต่อแชทสด…':'การเชื่อมต่อแชทสดขัดข้อง ระบบจะตรวจข้อความใหม่ทุก 30 วินาที'}</p>}
       <ChatList
         query={searchQuery}
+        onQuery={value=>{setSearchQuery(value);setMobileChat(false)}}
         assignee={assigneeFilter}
         onCounts={setFilterCounts}
         section={view}
@@ -391,7 +459,7 @@ export function InboxClient({
         key={`inspector:${selectedId??'empty'}`}
         inbox={inbox.data}
         className={cn(
-          inspectorOpen ? 'fixed inset-y-0 right-0 z-40 flex w-[min(24rem,100vw)] shadow-2xl' : 'hidden',
+          inspectorOpen ? 'fixed inset-y-0 right-0 z-40 flex w-[min(22rem,100vw)] shadow-2xl' : 'hidden',
           inspectorOpen?'xl:static xl:z-auto xl:flex xl:w-auto xl:shadow-none':'xl:hidden',
         )}
         customer={selected}

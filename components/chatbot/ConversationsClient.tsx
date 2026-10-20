@@ -1,8 +1,7 @@
 'use client'
 
-import { FeatureLocked } from '@/components/FeatureLocked'
-import {AutomationEmergencyStop} from './AutomationEmergencyStop'
-import { LockKeyhole } from 'lucide-react'
+import { FeatureLocked } from '@/components/shared/FeatureLocked'
+
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -15,24 +14,29 @@ import {
   ListChecks,
   MessageSquareText,
   Pencil,
-  Plus,
   Sparkles,
+  type LucideIcon,
+  Plus,
   Trash2,
   UserRound,
-  type LucideIcon,
 } from 'lucide-react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import { DEFAULT_FALLBACK_MESSAGE, DEFAULT_HANDOVER_MESSAGE, fallbackMessages, handoverMessages, MAX_FALLBACK_MESSAGES } from '@/lib/fallback-messages'
-import { DEFAULT_AI_INSTRUCTIONS, ruleOrder, type BotSettings, type ChatRule, type ReplyMode } from '@/lib/chatbot'
+import { parseStoreRules } from '@/lib/features/store-rules/store-rule-items'
+import { DEFAULT_HANDOVER_MESSAGE, handoverMessages, MAX_FALLBACK_MESSAGES } from '@/lib/features/agents/fallback-messages'
+import { DEFAULT_AI_INSTRUCTIONS, ruleOrder, type BotSettings, type ChatRule, type ReplyMode } from '@/lib/features/agents/chatbot'
 import { cn, customerName, when } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
 import { Field, IconTile, Notice, inputClass } from '@/components/ui/field'
-import { Switch } from '@/components/ui/Switch'
+
 import { KeywordInput } from '@/components/comment-rules/RuleEditor'
-import { ChatRuleForm } from './ChatRuleForm'
-import { BotPlayground } from './BotPlayground'
+
+import {LockKeyhole} from 'lucide-react'
+import {Badge} from '@/components/ui/badge'
+import {Switch} from '@/components/ui/Switch'
+import {ChatRuleForm} from '@/components/chatbot/ChatRuleForm'
+import { AiTestingStudio } from '@/components/chatbot/AiTestingStudio'
 
 export type HandedOver = { id: string; display_name: string | null; platform_user_id: string; handover_at: string; conversation_version?:number }
 
@@ -49,16 +53,16 @@ type Props = {
 
 const MODES: { value: ReplyMode; label: string; icon: LucideIcon; desc: string }[] = [
   { value: 'keyword', label: 'ตอบตามคีย์เวิร์ด', icon: ListChecks, desc: 'ตอบตามคีย์เวิร์ดที่ตั้งไว้ คาดเดาได้ 100% เหมาะกับคำถามซ้ำ ๆ' },
-  { value: 'ai', label: 'ผู้ช่วย AI', icon: Sparkles, desc: 'AI อ่านแชทแล้วตอบเองจากข้อมูลร้านและรายการสินค้า' },
+  { value: 'ai', label: 'ผู้ช่วย AI', icon: Sparkles, desc: 'AI จะอ่านข้อมูลร้านค้า รายการสินค้า และข้อความที่บันทึกไว้ทั้งหมดเป็นคลังความรู้ เพื่อตอบคำถามลูกค้าอย่างฉลาดและเป็นธรรมชาติ พร้อมส่งต่อให้แอดมินทันทีเมื่อข้อมูลไม่เพียงพอ' },
 ]
 
 export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed, initialSettings, initialRules, handedOver, hidePlayground=false }: Props) {
   const router = useRouter()
   const db = useMemo(() => supabaseBrowser(), [])
-  const [draftSettings, setSettings] = useState(() => ({ ...initialSettings, ai_instructions: initialSettings.ai_instructions?.trim() ? initialSettings.ai_instructions : DEFAULT_AI_INSTRUCTIONS, fallback_messages: fallbackMessages(initialSettings), handover_messages: handoverMessages(initialSettings) }))
-  const settings = !aiAllowed && draftSettings.reply_mode === 'ai' ? { ...draftSettings, reply_mode: 'keyword' as const } : draftSettings
-  const [rules, setRules] = useState(initialRules)
-  const [editing, setEditing] = useState<ChatRule | 'new' | null>(null)
+  const [draftSettings, setSettings] = useState(() => ({ ...initialSettings, ai_instructions: initialSettings.ai_instructions ?? '', handover_messages: handoverMessages(initialSettings) }))
+  const settings = !aiAllowed && draftSettings.reply_mode==='ai'?{...draftSettings,reply_mode:'keyword' as const}:draftSettings
+  const [rules,setRules]=useState(initialRules)
+  const [editing,setEditing]=useState<ChatRule|'new'|null>(null)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const [released, setReleased] = useState<string[]>([])
@@ -66,14 +70,16 @@ export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed,
   const set = <K extends keyof BotSettings>(k: K, v: BotSettings[K]) => setSettings((s) => ({ ...s, [k]: v }))
 
   async function saveSettings() {
+    if (aiAllowed && !hidePlayground) {
+      const rules = parseStoreRules(settings.ai_instructions)
+      if (!rules.ok) { setNotice({ tone: 'error', text: rules.issues[0].message }); return }
+    }
     setSaving(true)
     setNotice(null)
     const { error } = await db.from('bot_settings').upsert({
       tenant_id: tenantId,
       reply_mode: settings.reply_mode,
-      ...(aiAllowed ? { ai_instructions: settings.ai_instructions?.trim() || null } : {}),
-      fallback_text: fallbackMessages(settings)[0] ?? null,
-      fallback_messages: fallbackMessages(settings),
+      ...(aiAllowed && !hidePlayground ? { ai_instructions: settings.ai_instructions?.trim() || null } : {}),
       handover_keywords: settings.handover_keywords,
       handover_text: handoverMessages(settings)[0] ?? null,
       handover_messages: handoverMessages(settings),
@@ -112,11 +118,10 @@ export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed,
   const waiting = handedOver.filter((c) => !released.includes(c.id))
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-8">
-      {!hidePlayground&&<AutomationEmergencyStop tenantId={tenantId}/>}
-      <PageHeader
+    <div className={hidePlayground ? 'w-full min-w-0 space-y-6' : 'mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8'}>
+      <PageHeader variant={hidePlayground ? 'section' : 'page'}
         title="ผู้ช่วยตอบบทสนทนา"
-        description="ตั้งค่าการตอบแชท Messenger อัตโนมัติ: คีย์เวิร์ด, AI Agent และการส่งต่อให้แอดมิน"
+        description="ผู้ช่วย AI ตอบจากข้อมูลร้าน สินค้า และข้อความที่บันทึกไว้ พร้อมส่งต่อแอดมินเมื่อข้อมูลไม่เพียงพอ"
         action={
           <Button onClick={saveSettings} loading={saving}>
             บันทึกการตั้งค่า
@@ -132,6 +137,7 @@ export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed,
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
 
       {!aiAllowed && <FeatureLocked />}
+      <div className="space-y-6">
       {/* mode */}
       <div role="radiogroup" aria-label="โหมดการตอบ" className="grid gap-3 sm:grid-cols-2">
         {MODES.map((m) => {
@@ -154,7 +160,7 @@ export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed,
                   {m.label}{locked && <LockKeyhole className="h-4 w-4 text-orange-500" aria-label="ยังไม่เปิดใช้งาน" />}
                   {active && <Badge tone="success">ใช้งานอยู่</Badge>}
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-500">{m.desc}</span>
+                <span className="mt-1.5 block text-xs leading-6 text-slate-500">{m.desc}</span>
               </span>
             </label>
           )
@@ -224,22 +230,27 @@ export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed,
                 )}
               </Card>
             )
+          ) : hidePlayground ? (
+            <p className="rounded-2xl border border-orange-100 bg-orange-50/50 p-4 text-sm text-orange-900">จัดการเงื่อนไขและแนวทางตอบลูกค้าได้ที่แท็บ “กฎของทางร้าน”</p>
           ) : (
             <Card>
-              <CardHeader title="ผู้ช่วย AI" description="AI ตอบจากข้อมูลด้านล่าง + รายการสินค้าในเมนูร้านค้า (ราคาและสต็อกล่าสุด)" />
+              <CardHeader
+                title="กฎของทางร้าน"
+                description="ข้อมูลและแนวทางที่ AI ใช้ร่วมกับสินค้าและข้อความตอบกลับที่บันทึกไว้เพื่อตอบลูกค้า"
+              />
               <div className="space-y-4 p-5">
                 {!aiReady && (
                   <p className="flex gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                     <span>
-                      ยังไม่ได้ตั้งค่า API Key สำหรับ AI บนเซิร์ฟเวอร์ ระหว่างนี้บอทจะตอบด้วยข้อความสำรองแทน
+                      ยังไม่ได้ตั้งค่าการเชื่อมต่อบริการ AI บนเซิร์ฟเวอร์ ระบบจะส่งต่อให้แอดมินดูแลเมื่อ AI ไม่พร้อม
                     </span>
                   </p>
                 )}
                 <Field label="ข้อมูลร้านและคำสั่งสำหรับ AI" hint="เขียนเหมือนบรีฟพนักงานใหม่: ค่าส่ง เวลาจัดส่ง นโยบายเปลี่ยนคืน โปรโมชัน น้ำเสียงที่ต้องการ">
                   <textarea
                     rows={10}
-                    maxLength={8000}
+                    maxLength={50000}
                     value={settings.ai_instructions ?? ''}
                     onChange={(e) => set('ai_instructions', e.target.value)}
                     placeholder={DEFAULT_AI_INSTRUCTIONS}
@@ -262,34 +273,17 @@ export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed,
             </Card>
           )}
 
-          <Card>
-            <CardHeader
-              title="ข้อความสำรอง"
-              description="ระบบสุ่มเลือกหนึ่งข้อความเมื่อ AI ตอบไม่ได้หรือไม่มีคีย์เวิร์ดตรง เพิ่มได้สูงสุด 20 ข้อความ"
-            />
-            <div className="space-y-3 p-5">
-              {settings.fallback_messages.map((text, index) => (
-                <div key={index} className="flex items-start gap-2">
-                  <label className="min-w-0 flex-1">
-                    <span className="mb-1 block text-xs text-slate-500">ข้อความสำรอง {index + 1}</span>
-                    <textarea rows={3} maxLength={2000} value={text} placeholder={DEFAULT_FALLBACK_MESSAGE}
-                      onChange={event => set('fallback_messages', settings.fallback_messages.map((message, i) => i === index ? event.target.value : message))}
-                      className={cn(inputClass, 'resize-none')} />
-                  </label>
-                  <Button size="icon" variant="ghost" className="mt-5 text-rose-500" aria-label={`ลบข้อความสำรอง ${index + 1}`}
-                    onClick={() => set('fallback_messages', settings.fallback_messages.filter((_, i) => i !== index))}><Trash2 className="h-4 w-4" aria-hidden /></Button>
-                </div>
-              ))}
-              <Button variant="secondary" disabled={settings.fallback_messages.length >= MAX_FALLBACK_MESSAGES}
-                onClick={() => set('fallback_messages', [...settings.fallback_messages, ''])}><Plus className="h-4 w-4" aria-hidden />เพิ่มข้อความสำรอง</Button>
-              <p className="text-xs text-slate-500">หากยังไม่มีข้อความ ระบบจะตอบว่า “{DEFAULT_FALLBACK_MESSAGE}”</p>
-            </div>
-          </Card>
+
+          <AiTestingStudio
+            key={tenantId}
+            tenantId={tenantId}
+            settings={settings}
+            activeRuleCount={rules.filter(rule=>rule.is_active).length}
+            aiAllowed={aiAllowed}
+          />
         </div>
 
         <div className="space-y-6">
-          {!hidePlayground&&<BotPlayground key={tenantId} tenantId={tenantId} settings={settings} />}
-
           <Card>
             <CardHeader title="ส่งต่อให้แอดมิน (หยุดบอทชั่วคราว)" description="เมื่อลูกค้าพิมพ์คำเหล่านี้ ระบบจะหยุดการตอบอัตโนมัติทันที เพื่อให้แอดมินเข้ามารับช่วงต่อ" />
             <div className="space-y-4 p-5">
@@ -347,6 +341,7 @@ export function ConversationsClient({ tenantId, tenantBotOn, aiReady, aiAllowed,
           </Card>
         </div>
       </div>
+        </div>
     </div>
   )
 }

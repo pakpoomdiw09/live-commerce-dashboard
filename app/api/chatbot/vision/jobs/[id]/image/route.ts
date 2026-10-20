@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { visionTenant } from '@/lib/vision-server'
-import { inboxError, InboxError } from '@/lib/inbox-server'
+import { visionTenant } from '@/lib/features/vision/vision-server'
+import { inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
 import { UUID } from '@/lib/utils'
 export async function GET(req:NextRequest,{params}:{params:Promise<{id:string}>}) {
   try{

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
-import { broadcastScope, parseBroadcastDraft, previewBroadcast } from '@/lib/broadcast-service'
-import type { BroadcastRow } from '@/lib/chatbot'
-import { InboxError, inboxError } from '@/lib/inbox-server'
+import { broadcastScope, parseBroadcastDraft, previewBroadcast } from '@/lib/features/broadcast/broadcast-service'
+import type { BroadcastRow } from '@/lib/features/agents/chatbot'
+import { InboxError, inboxError } from '@/lib/features/inbox/inbox-server'
 
 /** Legacy UI uses the same policy; rolling back the UI cannot restore old tag permissions. */
 export async function GET(req: NextRequest) {

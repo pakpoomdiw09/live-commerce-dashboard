@@ -4,6 +4,12 @@ import { CommerceWorkspace } from '@/components/shop/CommerceWorkspace'
 import { CommerceStorefront } from '@/components/shop/CommerceStorefront'
 const tenantId = '11111111-1111-4111-8111-111111111111', productId = '22222222-2222-4222-8222-222222222222'
 const data: any = { tenant: { id: tenantId, name: 'ร้านทดสอบออฟไลน์' }, canManage: true, limits: { max_products: null, max_pages: 3, checkout: true, reports: true, advanced_templates: true }, flags: { dashboard: true, products: true, editor: true, storefront: true }, store: { slug: 'offline-only', name: 'ร้านทดสอบออฟไลน์', description: 'ข้อมูลจำลองสำหรับทดสอบเท่านั้น', logo: '', banner: '', contact: 'ไม่มีการติดต่อจริง', is_open: true }, products: [{ id: productId, code: 'A1', name: 'สินค้าทดสอบออฟไลน์', description: 'ข้อมูลทดสอบ ไม่มีการขายจริง', price: 100, stock: 3, is_active: true, image_url: null, commerce_images: [], commerce_featured: true, commerce_version: 0, commerce_category_id: null, created_at: new Date().toISOString() }], categories: [], variants: [], pages: [], orders: [], items: [], customers: [], audit: [] }
+data.filters = { tab: 'overview', productPage: 1, orderPage: 1, customerPage: 1, categoryPage: 1, pagePage: 1, q: '', category: '', sort: 'new', status: 'all' }
+data.pageSize = 50
+data.categoryRows = []
+data.counts = { products: 1, orders: 0, customers: 0, categories: 0, pages: 0 }
+data.stats = { products: 1, customers: 0, todayOrders: 0, pending: 0, shipping: 0, revenue: 0, amounts: Array.from({ length: 14 }, (_, i) => ({ label: String(i + 1), amount: 0 })), best: [], low: [] }
+data.report = { monthly: [] }
 const fixture = { data, calls: [] as any[], checkoutCalls: 0 }
 ;(window as any).commerceFixture = fixture
 window.fetch = async (input, init) => {
@@ -22,6 +28,9 @@ window.fetch = async (input, init) => {
     else if (value.action === 'unpublish') { const page = data.pages.find((p: any) => p.id === id); page.published = null; page.version++ }
   } else if (url.includes('/checkout')) { fixture.checkoutCalls++; result = { number: 'TEST-OFFLINE-ONLY', total: 100, status: 'pending_payment' } }
   else throw Error('Network blocked: ' + url)
+  data.counts.products = data.products.length
+  data.counts.pages = data.pages.length
+  data.stats.products = data.products.length
   return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } })
 }
 function Fixture() {

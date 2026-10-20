@@ -1,7 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server'
 import {getActor,canAccessTenant} from '@/lib/auth'
 import {supabaseAdmin} from '@/lib/supabase/server'
-import {inboxTenant,inboxError,InboxError} from '@/lib/inbox-server'
+import {inboxTenant,inboxError,InboxError} from '@/lib/features/inbox/inbox-server'
 import {UUID} from '@/lib/utils'
 export async function GET(req:NextRequest,{params}:{params:Promise<{id:string}>}){try{
  const actor=await getActor(req)

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { getBilling } from '@/lib/billing'
-import { PAYMENT_SESSION_COLUMNS, paymentReceiver, publicPaymentSession, type PaymentSessionRow } from '@/lib/payments'
+import { getBilling } from '@/lib/features/billing/billing'
+import { PAYMENT_SESSION_COLUMNS, paymentReceiver, publicPaymentSession, type PaymentSessionRow } from '@/lib/features/payments/payments'
 import { UUID } from '@/lib/utils'
 
 export const runtime = 'nodejs'

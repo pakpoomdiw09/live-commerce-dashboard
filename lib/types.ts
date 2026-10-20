@@ -1,7 +1,7 @@
 /** Row shapes shared by server and client code. Keep in sync with supabase/*.sql. */
 
-export type {LegacySlipState as SlipStatus, LegacyCustomerOrderState as OrderStatus} from './domain-state'
-import type {LegacySlipState as SlipStatus, LegacyCustomerOrderState as OrderStatus} from './domain-state'
+export type {LegacySlipState as SlipStatus, LegacyCustomerOrderState as OrderStatus} from '@/lib/domain-state'
+import type {LegacySlipState as SlipStatus, LegacyCustomerOrderState as OrderStatus} from '@/lib/domain-state'
 
 
 export type Sender = 'customer' | 'bot' | 'agent'
@@ -57,6 +57,20 @@ export type CustomerRow = {
 
 export const CUSTOMER_COLUMNS =
   'id, tenant_id, display_name, avatar_url, platform_user_id, bot_enabled, assigned_user_id, conversation_status, conversation_version, inbound_seq, last_message_at, phone, address, tags, notes, order_status, created_at'
+export const CUSTOMER_COLUMNS_WITHOUT_AVATAR =
+  'id, tenant_id, display_name, platform_user_id, bot_enabled, assigned_user_id, conversation_status, conversation_version, inbound_seq, last_message_at, phone, address, tags, notes, order_status, created_at'
+
+export function isMissingDatabaseColumn(error: unknown, column: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const issue = error as { code?: unknown; message?: unknown }
+  return ['42703', 'PGRST204'].includes(String(issue.code ?? ''))
+    && typeof issue.message === 'string'
+    && issue.message.includes(column)
+}
+
+export function isMissingCustomerAvatarColumn(error: unknown): boolean {
+  return isMissingDatabaseColumn(error, 'avatar_url')
+}
 
 export type Attachment = { type: string; payload?: { url?: string; sticker_id?: number } }
 

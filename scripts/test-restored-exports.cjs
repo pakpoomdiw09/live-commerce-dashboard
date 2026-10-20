@@ -8,6 +8,7 @@ const ts = require('typescript')
 function load(file, dependencies = {}, globals = {}) {
   const context = { exports: {}, process: { env: {} }, console, URL, AbortSignal,
     require: name => {
+      if (name === '@/lib/safe-logging') return require('./helpers/load-safe-logging.cjs')()
       if (name in dependencies) return dependencies[name]
       throw Error('Unexpected dependency: ' + name)
     }, ...globals }
@@ -19,7 +20,7 @@ function load(file, dependencies = {}, globals = {}) {
 
 test('send receipt preserves messaging type, tag and bearer authorization', async () => {
   const calls = []
-  const api = load('lib/facebook.ts', {}, { fetch: async (url, options) => {
+  const api = load('lib/integrations/facebook/client.ts', {}, { fetch: async (url, options) => {
     calls.push({ url, options })
     return { ok: true, status: 200, json: async () => ({ message_id: 'mid-real' }) }
   } })
@@ -36,7 +37,7 @@ test('send receipt preserves messaging type, tag and bearer authorization', asyn
 
 test('explicit Send API refusal exposes structured error; missing receipt remains uncertain', async () => {
   let response = { ok: false, status: 400, text: async () => JSON.stringify({ error: { code: 10, error_subcode: 2018278, message: 'window closed' } }) }
-  const api = load('lib/facebook.ts', {}, { fetch: async () => response })
+  const api = load('lib/integrations/facebook/client.ts', {}, { fetch: async () => response })
   await assert.rejects(api.sendMessageWithReceipt('token', 'psid', { text: 'hello' }), error =>
     error instanceof api.SendApiError && error.status === 400 && error.code === 10 && api.isWindowOrTagError(error))
   response = { ok: true, status: 200, json: async () => ({}) }
@@ -45,7 +46,7 @@ test('explicit Send API refusal exposes structured error; missing receipt remain
 })
 
 test('quick replies omit empty labels and respect title/count limits', () => {
-  const api = load('lib/facebook.ts')
+  const api = load('lib/integrations/facebook/client.ts')
   assert.equal(Object.keys(api.quickReplies([' ', ''])).length, 0)
   const buttons = api.quickReplies([' ', 'x'.repeat(30), ...Array(20).fill('choice')]).quick_replies
   assert.equal(buttons.length, 13)
@@ -54,8 +55,8 @@ test('quick replies omit empty labels and respect title/count limits', () => {
 })
 
 test('customer profiles retain usable names/photos and do not erase saved data after errors', async () => {
-  let response = { ok: true, status: 200, headers: new Headers(), text: async () => JSON.stringify({ first_name: 'Test', last_name: 'Customer', profile_pic: 'https://example.com/avatar.png' }) }
-  const api = load('lib/facebook.ts', {}, { fetch: async () => response })
+  let response = { ok: true, status: 200, headers: new Headers(), json: async () => ({ first_name: 'Test', last_name: 'Customer', profile_pic: 'https://example.com/avatar.png' }) }
+  const api = load('lib/integrations/facebook/client.ts', {}, { fetch: async () => response })
   const profile = await api.getCustomerProfile('token', '123456')
   assert.equal(profile.display_name, 'Test Customer')
   assert.equal(profile.avatar_url, 'https://example.com/avatar.png')
@@ -65,8 +66,8 @@ test('customer profiles retain usable names/photos and do not erase saved data a
 })
 
 test('receiver matching requires an active account with matching bank and visible digits', () => {
-  const banks = load('lib/banks.ts')
-  const api = load('lib/slip/process.ts', { 'server-only': {}, './slipok': {}, '@/lib/banks': banks, '@/lib/feature-access': {}, '@/lib/orders': {} })
+  const banks = load('lib/features/banking/banks.ts')
+  const api = load('lib/features/slips/process.ts', { 'server-only': {}, '@/lib/features/slips/receiver-matching': load('lib/features/slips/receiver-matching.ts', { '@/lib/features/banking/banks': banks }), '@/lib/features/slips/slipok': {}, '@/lib/features/banking/banks': banks, '@/lib/feature-access': {}, '@/lib/features/commerce/orders': {} })
   const accounts = [
     { bank_code: 'KBANK', account_number: '1234567890', is_active: false },
     { bank_code: 'TTB', account_number: '9876543210', is_active: true },
@@ -87,7 +88,7 @@ test('connected Page lookup scopes by user and Page and exposes no access token'
   const query = { select(value) { columns = value; return this }, eq(key, value) { filters.push([key, value]); return this },
     maybeSingle: async () => ({ data: { page_id: 'page', name: 'Shop', picture: null }, error: null }) }
   const api = load('lib/tenant.ts', { 'server-only': {}, react: { cache: fn => fn }, 'next/headers': {},
-    '@/lib/supabase/server': { supabaseAdmin: () => ({ from: () => query }) }, '@/lib/auth': {}, '@/lib/facebook': {}, '@/lib/types': {} })
+    '@/lib/supabase/server': { supabaseAdmin: () => ({ from: () => query }) }, '@/lib/auth': {}, '@/lib/integrations/facebook/client': {}, '@/lib/types': {} })
   const page = await api.connectedFacebookPage('owner', 'page')
   assert.equal(page.page_id, 'page')
   assert.equal(columns.replace(/\s/g, ''), 'page_id,name,picture')

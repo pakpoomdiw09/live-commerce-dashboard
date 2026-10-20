@@ -3,8 +3,8 @@ import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BankAccountsManager } from '@/components/settings/BankAccountsManager'
 import { TenantSettingsForm } from '@/components/settings/TenantSettingsForm'
-import { SUPPORTED_BANKS } from '@/lib/banks'
-import type { BankAccount } from '@/lib/bank-accounts'
+import { SUPPORTED_BANKS } from '@/lib/features/banking/banks'
+import type { BankAccount } from '@/lib/features/banking/bank-accounts'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const initialAccount: BankAccount = {

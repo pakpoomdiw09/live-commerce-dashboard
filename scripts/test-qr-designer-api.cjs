@@ -6,15 +6,15 @@ function fixture({denied=false,conflict=false}={}){
  const db={from(table){const q={select(){return q},eq(column,value){calls.push({table,column,value});return q},maybeSingle:async()=>({data:table==='bank_accounts'?row:null,error:null})};return q},storage:{from:()=>storage},rpc:async(name,args)=>{calls.push({name,args});return {error:conflict?{code:'40001'}:null}}}
  const deps={
   'next/server':{NextResponse:{json:(body,options)=>({body,...options})}},
-  '@/lib/payment-codes-server':{receivingCodeTenant:async()=>{if(denied)throw new InboxError('Denied',403);return {db,tenantId:tenant,actor:{id:'server-actor'}}},createReceivingQr:()=> 'generated-payload',decodeReceivingQr:async()=> 'decoded-payload'},
-  '@/lib/payment-codes-core':{codeMatchesAccount:()=>({amountSatang:12500}),receivingAmount:()=>null},
-  '@/lib/qr-design':{validateQrDesign:JSON.parse.bind(JSON)},
-  '@/lib/vision-image':{validateVisionFile:async f=>Buffer.from(await f.arrayBuffer())},
-  '@/lib/inbox-server':{InboxError,inboxError:e=>({status:e.status??500}),checkRpc:e=>{if(e)throw e}},
+  '@/lib/features/payments/payment-codes-server':{receivingCodeTenant:async()=>{if(denied)throw new InboxError('Denied',403);return {db,tenantId:tenant,actor:{id:'server-actor'}}},createReceivingQr:()=> 'generated-payload',decodeReceivingQr:async()=> 'decoded-payload'},
+  '@/lib/features/payments/payment-codes-core':{codeMatchesAccount:()=>({amountSatang:12500}),receivingAmount:()=>null},
+  '@/lib/features/payments/qr-design':{validateQrDesign:JSON.parse.bind(JSON)},
+  '@/lib/features/vision/vision-image':{validateVisionFile:async f=>Buffer.from(await f.arrayBuffer())},
+  '@/lib/features/inbox/inbox-server':{InboxError,inboxError:e=>({status:e.status??500}),checkRpc:e=>{if(e)throw e}},
   '@/lib/utils':{UUID:/^[0-9a-f-]{36}$/},sharp:{default:()=>({resize:()=>({png:()=>({toBuffer:async()=>Buffer.from('validated')})})})},
  }
  // Validator double deliberately returns an object; production validator is tested separately.
- deps['@/lib/qr-design'].validateQrDesign=v=>v
+ deps['@/lib/features/payments/qr-design'].validateQrDesign=v=>v
  const ctx={exports:{},require:n=>{if(!(n in deps))throw Error(n);return deps[n]},process:{env:{QR_PAYMENT_DESIGNER_ENABLED:'true'}},File,Request,Buffer,crypto,JSON,Number,String}
  vm.runInNewContext(ts.transpileModule(fs.readFileSync('app/api/payment-designs/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx)
  function req(origin='https://offline.test'){

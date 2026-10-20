@@ -4,13 +4,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
 import { Bot, CheckCircle2, Coins, KeyRound, Landmark, LockKeyhole, MessageSquareReply, RefreshCw, Save, Store } from 'lucide-react'
-import { canUseAutoSlip, PLANS, type Billing } from '@/lib/plans'
-import { BankSelector } from '@/components/BankSelector'
+import { canUseAutoSlip, PLANS, type Billing } from '@/lib/features/billing/plans'
+import { BankSelector } from '@/components/banking/BankSelector'
 import { BankAccountsManager } from '@/components/settings/BankAccountsManager'
 import { FacebookIcon } from '@/components/ui/FacebookIcon'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
-import type { PageProfile } from '@/lib/facebook'
+import type { PageProfile } from '@/lib/integrations/facebook/client'
 import type { ConnectedPageInfo } from '@/lib/tenant'
 import type { PageConnectionStatus, TenantRole, TenantRow } from '@/lib/types'
 import { apiError, cn } from '@/lib/utils'
@@ -34,6 +34,8 @@ export function TenantSettingsForm({
   section = 'create',
   connectionStatus = 'unverified',
   embedded = false,
+  automationOnly = false,
+  slipAccess,
 }: {
   tenant: TenantRow | null
   billing: Billing | null
@@ -46,6 +48,8 @@ export function TenantSettingsForm({
   section?: 'facebook' | 'bank-slip' | 'create'
   connectionStatus?: PageConnectionStatus
   embedded?: boolean
+  automationOnly?: boolean
+  slipAccess?: boolean
 }) {
   const router = useRouter()
   const isOwner = role === 'owner' || role === 'admin'
@@ -60,9 +64,9 @@ export function TenantSettingsForm({
   const [accountName, setAccountName] = useState(tenant?.account_name ?? '')
   const [accountNumber, setAccountNumber] = useState(tenant?.account_number ?? '')
   const creditsLeft = Math.max(slipCredits.quota - slipCredits.used, 0)
-  const slipAllowed = isAdmin || (billing !== null && canUseAutoSlip(billing, creditsLeft))
+  const slipAllowed = slipAccess ?? (isAdmin || (billing !== null && canUseAutoSlip(billing, creditsLeft)))
   const [autoVerifyDraft, setAutoVerify] = useState(tenant?.auto_verify_enabled ?? false)
-  const autoVerify = slipAllowed && autoVerifyDraft
+  const autoVerify = autoVerifyDraft
   const [autoReply, setAutoReply] = useState(tenant?.auto_reply_enabled ?? true)
   const [quota, setQuota] = useState(String(tenant ? tenant.slip_quota : 500))
   const [saving, setSaving] = useState(false)
@@ -73,18 +77,29 @@ export function TenantSettingsForm({
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
+    if (tenant?.page_id && pageId !== tenant.page_id && !pageToken.trim()
+      && !window.confirm('การเปลี่ยน Page ID โดยไม่ใส่ข้อมูลเชื่อมต่อใหม่จะลบการเชื่อมต่อเพจเดิม ต้องการดำเนินการต่อหรือไม่?')) return
     setSaving(true)
     setResult(null)
-    // only what this role may change: the API refuses the rest
-    const body: Record<string, unknown> = showBankSlip ? { auto_verify_enabled: autoVerify, auto_reply_enabled: autoReply } : {}
+    const body: Record<string, unknown> = {}
+    if (showBankSlip) {
+      if (autoReply !== (tenant?.auto_reply_enabled ?? true)) body.auto_reply_enabled = autoReply
+      if (autoVerify !== (tenant?.auto_verify_enabled ?? false) && (!autoVerify || slipAllowed)) body.auto_verify_enabled = autoVerify
+    }
     if (isOwner) {
       if (showFacebook) {
-        Object.assign(body, { name, page_id: pageId })
+        if (!tenant || name !== tenant.name) body.name = name
+        if (!tenant || pageId !== (tenant.page_id ?? '')) body.page_id = pageId
         if (pageToken.trim()) body.page_access_token = pageToken.trim()
       }
       if (showBankSlip && !tenant) Object.assign(body, { bank_code: bankCode, account_name: accountName, account_number: accountNumber })
     }
-    if (isAdmin && showBankSlip) body.slip_quota = Number(quota)
+    if (isAdmin && showBankSlip && Number(quota) !== (tenant?.slip_quota ?? 500)) body.slip_quota = Number(quota)
+    if (Object.keys(body).length === 0) {
+      setResult({ ok: true, text: 'ไม่มีการเปลี่ยนแปลงการตั้งค่า' })
+      setSaving(false)
+      return
+    }
     try {
       const res = await fetch(tenant ? `/api/tenants/${tenant.id}` : '/api/tenants', {
         method: tenant ? 'PATCH' : 'POST',
@@ -113,8 +128,8 @@ export function TenantSettingsForm({
   }
 
   return (
-    <form onSubmit={save} className={cn('mx-auto w-full max-w-4xl space-y-6 pb-28', !embedded && 'p-4 md:p-8 md:pb-28')}>
-      {!(embedded&&section==='bank-slip')&&<PageHeader
+    <form onSubmit={save} className={cn(embedded ? 'w-full min-w-0 space-y-6 pb-6' : 'mx-0 w-full min-w-0 max-w-none space-y-6 pb-28 p-4 md:p-8 md:pb-28')}>
+      {!embedded && <PageHeader
         title={tenant ? (showFacebook ? 'ข้อมูลร้านค้า & เชื่อมต่อเพจ' : 'บัญชีรับเงิน & ตรวจสลิป') : isFirst ? 'สร้างร้านค้าแรก' : 'เพิ่มร้านค้าใหม่'}
         description={tenant ? `การตั้งค่าของ ${tenant.name}` : 'เชื่อมต่อเพจและตั้งค่าบัญชีรับเงินสำหรับร้านใหม่'}
         action={tenant ? <Link href={showFacebook ? '/slips?tab=settings' : '/settings'} className="text-sm font-medium text-emerald-700 underline">{showFacebook ? 'ตั้งค่าบัญชีรับเงิน & ตรวจสลิป' : 'ตั้งค่า Facebook Page'}</Link> : undefined}
@@ -156,7 +171,7 @@ export function TenantSettingsForm({
                 <span className={cn('mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ring-1',
                   connectionStatus === 'verified' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-amber-50 text-amber-800 ring-amber-200')}>
                   <FacebookIcon className="h-3.5 w-3.5" />
-                  {connectionStatus === 'verified' ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />เชื่อมต่อเรียบร้อยแล้ว (Connected)</> :
+                  {connectionStatus === 'verified' ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />เชื่อมต่อเรียบร้อยแล้ว</> :
                     connectionStatus === 'missing-page' ? 'ยังไม่ได้เลือกเพจ' : connectionStatus === 'missing-token' ? 'ยังไม่ได้เชื่อมต่อเพจ' :
                     connectionStatus === 'invalid' ? 'กรุณาเชื่อมต่อเพจใหม่' : connectionStatus === 'limited' ? 'เชื่อมต่อแล้ว · สิทธิ์ยังไม่ครบ' : 'ยังยืนยันการเชื่อมต่อไม่ได้'}
                 </span>
@@ -164,11 +179,9 @@ export function TenantSettingsForm({
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-4 border-t border-orange-100 px-6 py-5">
-            <div><p className="flex items-center gap-2 text-xs font-medium text-slate-500"><KeyRound className="h-4 w-4" aria-hidden />Access Token</p>
-              <p className="mt-1 tracking-widest text-slate-700" aria-label={tenant.page_token_set ? 'บันทึก Access Token แล้ว' : 'ยังไม่มี Access Token'}>{tenant.page_token_set ? '••••••••' : 'ยังไม่ได้ตั้งค่า'}</p>
-            </div>
+            <p className="text-xs text-slate-500">ข้อมูลการเชื่อมต่อจัดเก็บอย่างปลอดภัยและไม่แสดงในหน้านี้</p>
             <Button variant="secondary" disabled={!isOwner} aria-expanded={editingPage} aria-controls="facebook-page-editor" onClick={() => setEditingPage(!editingPage)} className="rounded-xl border border-orange-200 text-orange-700">
-              <RefreshCw className="h-4 w-4" aria-hidden />{editingPage ? 'ปิดส่วนแก้ไข' : 'เปลี่ยนเพจ / เชื่อมต่อใหม่'}
+              <RefreshCw className="h-4 w-4" aria-hidden />{editingPage ? 'ปิดส่วนแก้ไข' : 'จัดการการเชื่อมต่อ'}
             </Button>
           </div>
         </>}
@@ -219,7 +232,7 @@ export function TenantSettingsForm({
         </div>}
       </Card>
       )}
-      {showBankSlip && <>
+      {showBankSlip && !automationOnly && <>
       {tenant ? <BankAccountsManager key={tenant.id} tenantId={tenant.id} canManage={isOwner} /> : <Card>
         <CardHeader title={<Title icon={Landmark}>บัญชีรับเงิน</Title>} description="สลิปต้องโอนเข้าบัญชีนี้เท่านั้น (ใช้ตรวจ wrong_receiver)" />
         <div className="space-y-5 p-5">
@@ -262,9 +275,9 @@ export function TenantSettingsForm({
             title="ระบบตรวจสอบสลิปอัตโนมัติ"
             description="ตรวจรูปสลิปที่ลูกค้าส่งในแชททันที ปิดแล้วแอดมินกดตรวจเองจากกล่องข้อความ"
             checked={autoVerify}
-            disabled={!slipAllowed}
+            disabled={!slipAllowed && !autoVerifyDraft}
             describedBy={!slipAllowed ? 'slip-upgrade-hint' : undefined}
-            onChange={(value) => { if (slipAllowed) setAutoVerify(value) }}
+            onChange={(value) => { if (!value || slipAllowed) setAutoVerify(value) }}
           />
           <ToggleRow
             icon={MessageSquareReply}
@@ -276,7 +289,7 @@ export function TenantSettingsForm({
         </div>
       </Card>
 
-      <Card id="credits">
+      {!automationOnly && <Card id="credits">
         <CardHeader
           title={<Title icon={Coins}>เครดิตตรวจสลิป</Title>}
           description={`ตรวจ 1 สลิป ใช้ 1 เครดิต (คืนให้อัตโนมัติถ้าระบบตรวจสอบสลิปขัดข้อง) เมื่อเครดิตหมดระบบจะหยุดตรวจสอบสลิป${isAdmin ? '' : ' · เติมเครดิตได้โดยติดต่อผู้ดูแลแพลตฟอร์ม'}`}
@@ -292,7 +305,7 @@ export function TenantSettingsForm({
           <Stat label="ใช้ไปแล้ว" value={slipCredits.used} />
           <Stat label="คงเหลือ" value={creditsLeft} />
         </div>
-      </Card>
+      </Card>}
       </>}
       {/* sticky save bar */}
       <div className="sticky bottom-4 z-10 flex items-center justify-end gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-lg backdrop-blur">

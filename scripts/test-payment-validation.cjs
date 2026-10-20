@@ -14,14 +14,15 @@ function compile(file) {
 
 // Real validation and bank helpers, fake receipt data only. No .env, API, or database access.
 const banks = {}
-vm.runInNewContext(compile('lib/banks.ts'), { exports: banks })
+vm.runInNewContext(compile('lib/features/banking/banks.ts'), { exports: banks })
 const api = {}
-vm.runInNewContext(compile('lib/payment-validation.ts'), {
+vm.runInNewContext(compile('lib/features/payments/payment-validation.ts'), {
   exports: api,
   Uint8Array,
   require(name) {
     if (name === 'server-only') return {}
-    if (name === '@/lib/banks') return banks
+    if (name === '@/lib/image-signature') return require('./helpers/load-typescript.cjs')('lib/image-signature.ts')
+    if (name === '@/lib/features/banking/banks') return banks
     throw new Error(`Unexpected validation dependency: ${name}`)
   },
 })

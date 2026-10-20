@@ -21,7 +21,7 @@ test('connect callback uses verified Pages and current session user for tenant s
   const api=load('app/api/auth/facebook/callback/route.ts', {
     'next/server':{NextResponse:{redirect:url=>({location:String(url),cookies:{delete(){}}})}},
     '@/lib/auth':{getActor:async()=>({kind:'user',id:'session-user'})},
-    '@/lib/facebook-oauth':{
+    '@/lib/integrations/facebook/oauth':{
       STATE_COOKIE:'state',STATE_COOKIE_PATH:'/api/auth/facebook',callbackUrl:origin=>origin+'/callback',
       exchangeCode:async()=>{calls.push('exchange');return 'user-token'},
       listPages:async()=>[page,{...page,id:'unverified'}],
@@ -47,7 +47,7 @@ test('connect callback uses verified Pages and current session user for tenant s
 })
 test('automatic membership requires MANAGE plus a verified Page messaging token', async () => {
   const checked=[]
-  const api=load('lib/facebook-oauth.ts', {'server-only':{}, '@/lib/facebook':{
+  const api=load('lib/integrations/facebook/oauth.ts', {'server-only':{}, '@/lib/integrations/facebook/client':{
     graph:path=>path,
     getPageTokenStatus:async(token,id)=>{checked.push(id);return token},
   }}, {console:{warn(){}},process:{env:{}}})
@@ -75,7 +75,7 @@ function callback(options={}) {
       }}}),
       supabaseAdmin:()=>({rpc:async(...args)=>{rpcCalls.push(args);return {data:1,error:options.rpcError??null}}}),
     },
-    '@/lib/facebook-oauth':{verifiedAdminPages:async pages=>pages,listPages:async(token)=>{pageCalls.push(token);if(options.pageError)throw Error('private-graph-detail');return options.pages??[{id:'page-id',name:'Shop',accessToken:'private-page-token'}]}},
+    '@/lib/integrations/facebook/oauth':{verifiedAdminPages:async pages=>pages,listPages:async(token)=>{pageCalls.push(token);if(options.pageError)throw Error('private-graph-detail');return options.pages??[{id:'page-id',name:'Shop',accessToken:'private-page-token'}]}},
   },{console:{error:(...args)=>logs.push(args)}})
   const run=async(path,cookie)=>{
     const url=new URL(path,'http://localhost:3000')
@@ -161,7 +161,7 @@ test('Page sync errors remain on select-page after login rather than being repor
 test('Page listing retries without optional picture permission and redacts Page tokens in debug logs',async()=>{
   const logs=[],requests=[]
   const token='private-page-secret'
-  const api=load('lib/facebook-oauth.ts',{'server-only':{},'@/lib/facebook':{graph:path=>`https://graph.facebook.com/v24.0/${path}`}}, {
+  const api=load('lib/integrations/facebook/oauth.ts',{'server-only':{},'@/lib/integrations/facebook/client':{graph:path=>`https://graph.facebook.com/v24.0/${path}`}}, {
     process:{env:{FB_DEBUG:'true'}},AbortSignal,
     console:{log:(...args)=>logs.push(args)},
     fetch:async url=>{

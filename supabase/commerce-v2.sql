@@ -19,6 +19,10 @@ alter table products add column if not exists commerce_compare_price numeric(12,
 alter table products add column if not exists commerce_cost numeric(12,2);
 alter table products add column if not exists commerce_featured boolean not null default false;
 alter table products add column if not exists commerce_archived boolean not null default false;
+-- Supersedes orders.sql's unconditional SKU index. Closed-for-sale products
+-- still reserve their code; only explicitly archived products release it.
+drop index if exists public.products_tenant_code;
+create unique index products_tenant_code on public.products(tenant_id,lower(code)) where not commerce_archived;
 alter table products add column if not exists commerce_version integer not null default 0;
 create table if not exists commerce_variants (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),product_id uuid not null references products(id),label text not null,price numeric(12,2) not null check(price>0),stock integer not null check(stock>=0),is_active boolean not null default true);
 create index if not exists commerce_variant_product on commerce_variants(tenant_id,product_id);

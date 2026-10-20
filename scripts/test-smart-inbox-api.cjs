@@ -1,12 +1,12 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript')
-function load(file,deps,env={}){const context={exports:{},console,Date,Map,crypto,process:{env},require:n=>{if(n==='./feature-flags')return load('lib/feature-flags.ts',{},env);if(n in deps)return deps[n];throw Error('Unexpected dependency '+n)}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return context.exports}
+function load(file,deps,env={}){const context={exports:{},console,Date,Map,crypto,process:{env},require:n=>{if(n==='@/lib/feature-flags')return load('lib/feature-flags.ts',{},env);if(n in deps)return deps[n];throw Error('Unexpected dependency '+n)}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return context.exports}
 const next={NextResponse:{json:(body,options={})=>({body,status:options.status??200})}}
 const id='11111111-1111-4111-8111-111111111111',shop='22222222-2222-4222-8222-222222222222',user='33333333-3333-4333-8333-333333333333',requestId='44444444-4444-4444-8444-444444444444'
 const utils={UUID:/^[a-f0-9-]{36}$/}
 function guardFixture({actor={kind:'user',id:user},member=true,allowed=true}={}){
  const columns=[];let clients=0
  const db={from(){const q={select(value){columns.push(value);return q},eq(){return q},maybeSingle:async()=>({data:{id,tenant_id:shop},error:null})};return q}}
- const guard=load('lib/inbox-server.ts',{'server-only':{},'next/server':next,'@/lib/auth':{getActor:async()=>actor,canAccessTenant:async()=>member},'@/lib/supabase/server':{supabaseAdmin:()=>{clients++;return db}},'@/lib/feature-access':{hasFeature:async()=>allowed},'@/lib/types':{CUSTOMER_COLUMNS:'PRIVATE_CUSTOMER_DETAILS'},'@/lib/utils':utils})
+ const guard=load('lib/features/inbox/inbox-server.ts',{'server-only':{},'next/server':next,'@/lib/auth':{getActor:async()=>actor,canAccessTenant:async()=>member},'@/lib/supabase/server':{supabaseAdmin:()=>{clients++;return db}},'@/lib/feature-access':{hasFeature:async()=>allowed},'@/lib/types':{CUSTOMER_COLUMNS:'PRIVATE_CUSTOMER_DETAILS'},'@/lib/utils':utils})
  return {guard,columns,clients:()=>clients}
 }
 test('Inbox session guard refuses anonymous/internal callers before service-role data access',async()=>{
@@ -19,7 +19,7 @@ test('private attachment API denies foreign tenants before creating signed URLs'
  let signed=0
  const db={from:()=>({select(){return this},eq(){return this},maybeSingle:async()=>({data:{tenant_id:shop,path:'private'},error:null})}),storage:{from:()=>({createSignedUrl:async()=>{signed++;throw Error('Must not sign')}})}}
  const f=guardFixture()
- const api=load('app/api/inbox/media/[id]/route.ts',{'next/server':next,'@/lib/inbox-server':f.guard,'@/lib/auth':{getActor:async()=>({kind:'user',id:user}),canAccessTenant:async()=>false},'@/lib/supabase/server':{supabaseAdmin:()=>db},'@/lib/utils':utils})
+ const api=load('app/api/inbox/media/[id]/route.ts',{'next/server':next,'@/lib/features/inbox/inbox-server':f.guard,'@/lib/auth':{getActor:async()=>({kind:'user',id:user}),canAccessTenant:async()=>false},'@/lib/supabase/server':{supabaseAdmin:()=>db},'@/lib/utils':utils})
  const result=await api.GET({},{params:Promise.resolve({id})});assert.equal(result.status,404);assert.equal(signed,0)
 })
 const guard=guardFixture().guard
@@ -33,8 +33,8 @@ function sendFixture({previous=null,leaseError=null,providerError=null,old=false
   single:async()=>{if(table==='tenants')return {data:{page_id:'page',page_access_token:missingToken?null:'secret'},error:null};if(stored)return {error:{code:'23505'}};stored={id,delivery_status:payload.delivery_status};return {data:{id},error:null}},
   then(resolve,reject){return Promise.resolve({error:null}).then(resolve,reject)},
  };return q}}
- const api=load('app/api/messages/send/route.ts',{'next/server':next,'@/lib/inbox-server':{...guard,inboxCustomer:async()=>({db,actor:{id:user,kind:'user'},customer:{id,tenant_id:shop,platform_user_id:'psid',conversation_version:7},tenantId:shop})},'@/lib/facebook':{pageTokenFor:p=>p.page_access_token,SendApiError,isWindowOrTagError:e=>e instanceof SendApiError,sendMessageWithReceipt:async()=>{sends++;if(providerError)throw providerError;return 'mid-real'}},'@/lib/inbox-policy-server':{assertInboxPolicy:async()=>{}},'@/lib/utils':utils,'@/lib/inbox-v2':load('lib/inbox-v2.ts',{})},{SNAPBOT_SAFETY_ENABLED:safety?'true':'false'})
- const send=(extra={})=>api.POST({json:async()=>({customerId:id,clientId:requestId,text:'Hello',...extra})})
+ const api=load('app/api/messages/send/route.ts',{'next/server':next,'@/lib/features/inbox/inbox-server':{...guard,inboxCustomer:async()=>({db,actor:{id:user,kind:'user'},customer:{id,tenant_id:shop,platform_user_id:'psid',conversation_version:7},tenantId:shop})},'@/lib/integrations/facebook/client':{pageTokenFor:p=>p.page_access_token,SendApiError,isWindowOrTagError:e=>e instanceof SendApiError,sendMessageWithReceipt:async()=>{sends++;if(providerError)throw providerError;return 'mid-real'}},'@/lib/features/inbox/inbox-policy-server':{assertInboxPolicy:async()=>{if(old)throw new guard.InboxError('expired',409,'MESSAGING_WINDOW_CLOSED');return 'RESPONSE'}},'@/lib/utils':utils,'@/lib/features/inbox/inbox-v2':load('lib/features/inbox/inbox-v2.ts',{})},{SNAPBOT_SAFETY_ENABLED:safety?'true':'false'})
+ const send=(extra={})=>api.POST({headers:{get:()=>null},nextUrl:{origin:'https://shop.test'},json:async()=>({customerId:id,clientId:requestId,text:'Hello',...extra})})
  return {send,statuses,rpcCalls,sends:()=>sends,inserts:()=>inserts,releases:()=>releases}
 }
 
@@ -65,7 +65,35 @@ test('provider rejection stays failed; ambiguous network timeout stays unknown; 
 test('all new Inbox entry points reject a failed guard before data, mutation or provider work',async()=>{
  const guarded={...guard,inboxTenant:async()=>{throw new guard.InboxError('locked',403,'FEATURE_LOCKED')},inboxCustomer:async()=>{throw new guard.InboxError('locked',403,'FEATURE_LOCKED')}}
  for(const [file,methods]of [['app/api/inbox/state/route.ts',['GET']],['app/api/inbox/conversations/route.ts',['GET']],['app/api/inbox/search/route.ts',['GET']],['app/api/inbox/media/route.ts',['POST']],['app/api/inbox/conversations/[id]/messages/route.ts',['GET']],['app/api/inbox/conversations/[id]/read/route.ts',['POST']],['app/api/inbox/conversations/[id]/route.ts',['GET','PATCH']],['app/api/inbox/conversations/[id]/draft/route.ts',['POST']]]){
-  const api=load(file,{'next/server':next,'@/lib/inbox-server':guarded,'@/lib/types':{},'@/lib/utils':utils,'@/lib/feature-access':{hasFeature(){throw Error('No provider work')}},'@/lib/ai-agent':{AiAgentError:class extends Error{}}})
+  const api=load(file,{'next/server':next,'@/lib/features/inbox/inbox-server':guarded,'@/lib/types':{},'@/lib/utils':utils,'@/lib/feature-access':{hasFeature(){throw Error('No provider work')}},'@/lib/features/agents/ai-agent':{AiAgentError:class extends Error{}}})
   for(const method of methods){const result=await api[method]({nextUrl:{searchParams:new URLSearchParams({tenantId:shop})}},{params:Promise.resolve({id})});assert.equal(result.status,403,file);assert.equal(result.body.code,'FEATURE_LOCKED')}
+ }
+})
+
+test('draft endpoint returns a safe editable draft when AI hands off or returns no text',async()=>{
+ const aiErrors={AiAgentError:class extends Error{}}
+ for(const aiResult of [null,'[HANDOVER]','Generated reply']){
+  const calls=[]
+  const db={from(table){
+   let columns=''
+   const q={select(value){columns=value;return q},eq(){return q},order(){return q},limit(){return q},
+    single:async()=>({data:columns==='page_id'?{page_id:'page'}:{name:'Shop'},error:null}),
+    maybeSingle:async()=>({data:table==='broadcast_messaging_events'?{interacted_at:new Date().toISOString()}:{ai_instructions:'Shop notes'},error:null})}
+   return q
+  }}
+  const api=load('app/api/inbox/conversations/[id]/draft/route.ts',{
+   'next/server':next,
+   '@/lib/features/inbox/inbox-server':{...guard,inboxCustomer:async()=>({db,customer:{id,display_name:'Customer',platform_user_id:'psid'},tenantId:shop})},
+   '@/lib/features/inbox/inbox-policy-server':{inboxInboundEvidence:async()=>new Date().toISOString()},
+   '@/lib/features/inbox/inbox-v2':{inboxWindow:()=>({allowed:true})},
+   '@/lib/feature-access':{hasFeature:async()=>true},
+   '@/lib/features/agents/ai-agent':{...aiErrors,HANDOVER_TOKEN:'[HANDOVER]',DRAFT_FALLBACK:'Safe draft',aiReply:async(...args)=>{calls.push(args);return aiResult}},
+   '@/lib/utils':{customerName:()=> 'Customer'},
+  })
+  const response=await api.POST({}, {params:Promise.resolve({id})})
+  assert.equal(response.status,200)
+  assert.equal(response.body.draft,aiResult==='Generated reply'?'Generated reply':'Safe draft')
+  assert.equal(calls.length,1)
+  assert.equal(calls[0][6],true,'Draft requests must activate draft-specific prompting')
  }
 })

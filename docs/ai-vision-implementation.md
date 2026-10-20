@@ -76,7 +76,7 @@ not fall back to verifying an unclassified photo as a payment slip. A human can 
 Created:
 
 - `supabase/ai-vision.sql`, `supabase/ai-vision-setup.md`
-- `lib/vision-types.ts`, `lib/vision-image.ts`, `lib/vision-provider.ts`, `lib/vision-server.ts`, `lib/vision.ts`
+- `lib/features/vision/vision-types.ts`, `lib/features/vision/vision-image.ts`, `lib/features/vision/vision-provider.ts`, `lib/features/vision/vision-server.ts`, `lib/features/vision/vision.ts`
 - `components/chatbot/VisionCenter.tsx`
 - All five `/api/chatbot/vision` routes in the table above and `/api/cron/vision/route.ts`
 - `scripts/test-ai-vision.cjs`, `scripts/test-ai-vision-sql.cjs`, this report
@@ -84,7 +84,7 @@ Created:
 Modified:
 
 - `app/(dashboard)/chatbot/images/page.tsx`
-- `components/chatbot/ImageRulesClient.tsx`, `lib/image-rules.ts`
+- `components/chatbot/ImageRulesClient.tsx`, `lib/features/vision/image-rules.ts`
 - `app/api/webhook/facebook/route.ts`
 - `.env.example` (safe off-by-default automation flag; `.env.local` was not changed)
 

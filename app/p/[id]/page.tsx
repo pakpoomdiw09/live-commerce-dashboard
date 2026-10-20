@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { MessageCircle, Package, ShieldCheck } from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { baht, UUID } from '@/lib/utils'
-import { CopyCode } from './CopyCode'
+import { CopyCode } from '@/app/p/[id]/CopyCode'
 
 /**
  * Public mini sale page for one product (no login): the link admins paste in Messenger.

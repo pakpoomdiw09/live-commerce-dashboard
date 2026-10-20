@@ -3,8 +3,8 @@
 import { useMemo, useState } from 'react'
 import { Image as ImageIcon, MessageSquareText, Plus, X } from 'lucide-react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import { ruleMatches } from '@/lib/comment-rules'
-import { CHAT_RULE_COLUMNS, QUICK_REPLY_MAX, QUICK_REPLY_TITLE_MAX, type ChatRule } from '@/lib/chatbot'
+import { ruleMatches } from '@/lib/features/comments/comment-rules'
+import { CHAT_RULE_COLUMNS, QUICK_REPLY_MAX, QUICK_REPLY_TITLE_MAX, type ChatRule } from '@/lib/features/agents/chatbot'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
@@ -12,7 +12,7 @@ import { Field, Notice, inputClass } from '@/components/ui/field'
 import { Switch } from '@/components/ui/Switch'
 import { ImagePicker } from '@/components/ui/ImagePicker'
 import { KeywordInput } from '@/components/comment-rules/RuleEditor'
-import { MessengerPreview } from './MessengerPreview'
+import { MessengerPreview } from '@/components/chatbot/MessengerPreview'
 
 type Draft = Pick<ChatRule, 'name' | 'match_type' | 'keywords' | 'reply_type' | 'reply_text' | 'image_url' | 'quick_replies' | 'priority' | 'is_active'>
 
@@ -47,7 +47,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
 
   const problems = [
     !draft.name.trim() && 'ตั้งชื่อคำตอบ',
-    !draft.keywords.length && 'เพิ่มคีย์เวิร์ดอย่างน้อย 1 คำ',
+    !draft.keywords.length && 'เพิ่มคำสำคัญอย่างน้อย 1 คำ',
     draft.reply_type === 'text' && !draft.reply_text?.trim() && 'ใส่ข้อความตอบกลับ',
     draft.reply_type === 'image' && !draft.image_url && 'อัปโหลดรูปภาพ',
   ].filter((p): p is string => !!p)
@@ -74,6 +74,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
     const q = rule ? db.from('chat_rules').update(row).eq('id', rule.id) : db.from('chat_rules').insert(row)
     const { data, error: saveError } = await q.select(CHAT_RULE_COLUMNS).single()
     setSaving(false)
+    if(saveError?.code==='P0422')return setError('จำนวนคำตอบคีย์เวิร์ดเต็มแล้ว: แพ็กเกจทั่วไปเพิ่มได้ 3 รายการ แพ็กเกจชำระเงินที่ยังใช้งานได้เพิ่มได้ 20 รายการ')
     if (saveError || !data) return setError(`บันทึกไม่สำเร็จ: ${saveError?.message ?? 'ไม่มีข้อมูลตอบกลับ'}`)
     onSaved(data as ChatRule)
   }
@@ -82,7 +83,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
     <Card>
       <CardHeader
         title={rule ? 'แก้ไขคำตอบอัตโนมัติ' : 'เพิ่มคำตอบอัตโนมัติ'}
-        description="ตอบในแชท Messenger เมื่อข้อความของลูกค้าตรงกับคีย์เวิร์ด"
+        description="ตอบในแชทเพจเมื่อลูกค้าส่งข้อความที่ตรงกับคำสำคัญ"
         action={
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={onCancel}>
@@ -116,7 +117,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
           <div role="radiogroup" aria-label="รูปแบบการตรวจจับ" className="grid grid-cols-2 gap-2">
             {(
               [
-                ['keyword', 'มีคีย์เวิร์ด', 'ข้อความมีคำนี้อยู่'],
+                ['keyword', 'มีคำสำคัญ', 'ข้อความมีคำนี้อยู่'],
                 ['exact', 'ทั้งประโยค', 'ข้อความตรงทุกตัวอักษร'],
               ] as const
             ).map(([value, label, hint]) => (
@@ -134,7 +135,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
           </div>
 
           <div>
-            <span className="mb-1.5 block text-sm font-medium text-slate-700">คีย์เวิร์ด</span>
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">คำสำคัญ</span>
             <KeywordInput value={draft.keywords} onChange={(v) => set('keywords', v)} />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {SUGGESTIONS.filter((s) => !draft.keywords.includes(s)).map((s) => (
@@ -193,7 +194,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
 
           <div>
             <span className="mb-1.5 block text-sm font-medium text-slate-700">
-              ปุ่ม Quick Reply <span className="font-normal text-slate-400">({draft.quick_replies.length}/{QUICK_REPLY_MAX})</span>
+              ปุ่มตอบกลับด่วน <span className="font-normal text-slate-400">({draft.quick_replies.length}/{QUICK_REPLY_MAX})</span>
             </span>
             <div className="flex gap-2">
               <input
@@ -208,7 +209,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
                 maxLength={QUICK_REPLY_TITLE_MAX}
                 placeholder={`ข้อความบนปุ่ม (ไม่เกิน ${QUICK_REPLY_TITLE_MAX} ตัวอักษร)`}
                 className={inputClass}
-                aria-label="เพิ่มปุ่ม Quick Reply"
+                aria-label="เพิ่มปุ่มตอบกลับด่วน"
               />
               <Button variant="secondary" onClick={addQuickReply} disabled={!qr.trim() || draft.quick_replies.length >= QUICK_REPLY_MAX}>
                 <Plus className="h-4 w-4" aria-hidden />
@@ -238,7 +239,7 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
 
         <div className="space-y-4">
           <div>
-            <p className="mb-2 text-sm font-medium text-slate-700">ตัวอย่างใน Messenger</p>
+            <p className="mb-2 text-sm font-medium text-slate-700">ตัวอย่างในแชทเพจ</p>
             <MessengerPreview text={draft.reply_text} imageUrl={draft.reply_type === 'image' ? draft.image_url : null} quickReplies={draft.quick_replies} />
           </div>
           <div className="rounded-xl bg-slate-50 p-3">

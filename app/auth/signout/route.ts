@@ -7,5 +7,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error('signout failed', e)
   }
-  return NextResponse.redirect(new URL('/login', req.url), { status: 303 })
+  const response = NextResponse.redirect(new URL('/login', req.url), { status: 303 })
+  response.cookies.set('snapbot_session_mode', '', { path: '/', maxAge: 0, sameSite: 'lax', secure: req.nextUrl.protocol === 'https:' })
+  return response
 }

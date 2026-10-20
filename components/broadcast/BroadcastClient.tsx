@@ -14,15 +14,15 @@ import {
   type BroadcastSegment,
   type BroadcastWindow,
   type MessageTag,
-} from '@/lib/chatbot'
-import { creditsLeft, OUT_OF_CREDITS, PLANS, UPGRADE_FOR_TAGS, type Billing } from '@/lib/plans'
+} from '@/lib/features/agents/chatbot'
+import { creditsLeft, OUT_OF_CREDITS, PLANS, UPGRADE_FOR_TAGS, type Billing } from '@/lib/features/billing/plans'
 import type { Tone } from '@/lib/status'
 import { apiError, cn, when } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
 import { Field, IconTile, Notice, inputClass } from '@/components/ui/field'
-import { BroadcastPreview } from './BroadcastPreview'
+import { BroadcastPreview } from '@/components/broadcast/BroadcastPreview'
 
 type Props = {
   tenantId: string
@@ -156,7 +156,7 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
   const outside = customerCount - reachableCount
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-8">
+    <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
       <PageHeader title="ส่งข้อความหาลูกค้าทั้งหมด" description="ส่งข้อความถึงลูกค้าหลายคนพร้อมกัน เลือกกลุ่มลูกค้าและป้ายกำกับได้" />
 
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}

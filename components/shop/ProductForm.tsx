@@ -13,7 +13,7 @@ import { ImagePicker } from '@/components/ui/ImagePicker'
 
 type Draft = { code: string; name: string; price: string; stock: string; description: string; image_url: string | null; is_active: boolean }
 
-/** Same rule as cfCode() in lib/orders.ts: what a customer can type after "CF". */
+/** Same rule as cfCode() in lib/features/commerce/orders.ts: what a customer can type after "CF". */
 const CODE = /^[\p{L}\p{N}_-]{1,20}$/u
 
 export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantId: string; product: ProductRow | null; takenCodes: string[]; onDone: () => void }) {

@@ -1,9 +1,9 @@
 import 'server-only'
 import { cache } from 'react'
 import { cookies } from 'next/headers'
-import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
-import { getActor, requireDashboardUser, tenantRole, type Actor } from '@/lib/auth'
-import { getPagePicture, getPageProfile, getPageTokenStatus, inspectPageToken, pageTokenFor, type PageProfile } from '@/lib/facebook'
+import { supabaseAdmin } from '@/lib/supabase/server'
+import { getActor, tenantRole, type Actor } from '@/lib/auth'
+import { getPagePicture, getPageProfile, getPageTokenStatus, inspectPageToken, pageTokenFor, type PageProfile } from '@/lib/integrations/facebook/client'
 import { TENANT_COLUMNS, type PageConnectionStatus, type TenantRole, type TenantRow } from '@/lib/types'
 import type { TenantInput } from '@/lib/validation'
 

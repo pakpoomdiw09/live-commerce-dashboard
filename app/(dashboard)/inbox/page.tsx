@@ -1,12 +1,12 @@
 import { hasFeature } from '@/lib/feature-access'
-import { FeatureLocked } from '@/components/FeatureLocked'
+import { FeatureLocked } from '@/components/shared/FeatureLocked'
 import { supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant } from '@/lib/tenant'
-import { SetupNotice } from '@/components/SetupNotice'
-import { CUSTOMER_COLUMNS, type CustomerRow, type MessageRow, type SlipStatus } from '@/lib/types'
+import { SetupNotice } from '@/components/shared/SetupNotice'
+import { CUSTOMER_COLUMNS, CUSTOMER_COLUMNS_WITHOUT_AVATAR, isMissingCustomerAvatarColumn, type CustomerRow, type MessageRow, type SlipStatus } from '@/lib/types'
 import type { ChatSummary, CommentItem } from '@/components/inbox/InboxClient'
 import { SmartInboxV2 } from '@/components/inbox/SmartInboxV2'
-import { InlineError } from '@/components/ErrorState'
+import { InlineError } from '@/components/shared/ErrorState'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,24 +20,27 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   if (!tenant) return <SetupNotice kind="no-tenant" />
   if (!(await hasFeature(db, tenant.id, 'customer_management'))) return <FeatureLocked />
 
-  let customersQuery = db
-    .from('customers')
-    // newest message (chat list preview) and newest slip (status badge) per customer
-    .select(`${CUSTOMER_COLUMNS}, messages(sender, body, attachments, created_at), slips(status, created_at)`)
-    .order('last_message_at', { ascending: false, nullsFirst: false })
-    .order('id', { ascending: false })
-    .order('created_at', { ascending: false, referencedTable: 'messages' })
-    .limit(1, { referencedTable: 'messages' })
-    .order('created_at', { ascending: false, referencedTable: 'slips' })
-    .limit(1, { referencedTable: 'slips' })
-    .limit(150)
-  let commentsQuery = db.from('comments').select('id, tenant_id, author_name, body, created_at').order('created_at', { ascending: false }).limit(100)
-  if (tenant) {
-    customersQuery = customersQuery.eq('tenant_id', tenant.id).eq('slips.tenant_id', tenant.id)
-    commentsQuery = commentsQuery.eq('tenant_id', tenant.id)
+  const loadCustomers = (withAvatar: boolean) => {
+    const query = withAvatar
+      ? db.from('customers').select(`${CUSTOMER_COLUMNS}, messages(sender, body, attachments, created_at), slips(status, created_at)`)
+      : db.from('customers').select(`${CUSTOMER_COLUMNS_WITHOUT_AVATAR}, messages(sender, body, attachments, created_at), slips(status, created_at)`)
+    return query
+      .eq('tenant_id', tenant.id)
+      .eq('slips.tenant_id', tenant.id)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .order('created_at', { ascending: false, referencedTable: 'messages' })
+      .limit(1, { referencedTable: 'messages' })
+      .order('created_at', { ascending: false, referencedTable: 'slips' })
+      .limit(1, { referencedTable: 'slips' })
+      .limit(150)
   }
+  const commentsQuery = db.from('comments').select('id, tenant_id, author_name, body, created_at').eq('tenant_id', tenant.id).order('created_at', { ascending: false }).limit(100)
 
-  const [customers, comments] = await Promise.all([customersQuery, commentsQuery])
+  let [customers, comments] = await Promise.all([loadCustomers(true), commentsQuery])
+  if (isMissingCustomerAvatarColumn(customers.error)) {
+    customers = await loadCustomers(false)
+  }
 
   if (customers.error) {
     return (

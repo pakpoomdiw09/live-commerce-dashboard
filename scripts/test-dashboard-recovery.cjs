@@ -20,7 +20,7 @@ function tenants(results, picked = id) {
   const db = { from: () => ({ select(columns) { selections.push(columns); return this }, order() { return this }, returns: async () => results.shift() }) }
   const api = load('lib/tenant.ts', {
     'server-only': {}, react: { cache: fn => fn }, 'next/headers': { cookies: async () => ({ get: () => ({ value: picked }) }) },
-    '@/lib/supabase/server': { supabaseAdmin: () => db }, '@/lib/auth': { getActor: async () => ({ kind: 'user', id: 'admin', isPlatformAdmin: true }) }, '@/lib/facebook': {},
+    '@/lib/supabase/server': { supabaseAdmin: () => db }, '@/lib/auth': { getActor: async () => ({ kind: 'user', id: 'admin', isPlatformAdmin: true }) }, '@/lib/integrations/facebook/client': {},
     '@/lib/types': { TENANT_COLUMNS: 'id,name,slip_quota_credits' },
   })
   return { api, selections }
@@ -61,7 +61,7 @@ test('service-role tenant reads scope ordinary users by stored membership before
     return query
   } }
   const api = load('lib/tenant.ts', {
-    'server-only': {}, react: { cache: fn => fn }, 'next/headers': {}, '@/lib/auth': {}, '@/lib/facebook': {},
+    'server-only': {}, react: { cache: fn => fn }, 'next/headers': {}, '@/lib/auth': {}, '@/lib/integrations/facebook/client': {},
     '@/lib/supabase/server': { supabaseAdmin: () => db }, '@/lib/types': { TENANT_COLUMNS: 'id,name' },
   })
   assert.equal((await api.getTenantsForActor(null)).tenants.length, 0)
@@ -76,7 +76,7 @@ test('service-role tenant reads scope ordinary users by stored membership before
 test('service-role membership lookup fails closed without reading tenant records', async () => {
   for (const result of [{ data: [], error: null }, { data: null, error: { message: 'membership unavailable' } }]) {
     const api = load('lib/tenant.ts', {
-      'server-only': {}, react: { cache: fn => fn }, 'next/headers': {}, '@/lib/auth': {}, '@/lib/facebook': {}, '@/lib/types': {},
+      'server-only': {}, react: { cache: fn => fn }, 'next/headers': {}, '@/lib/auth': {}, '@/lib/integrations/facebook/client': {}, '@/lib/types': {},
       '@/lib/supabase/server': { supabaseAdmin: () => ({ from: table => {
         assert.equal(table, 'tenant_members')
         return { select() { return this }, eq: async () => result }
@@ -94,7 +94,7 @@ test('overview route restores the premium component and retains an authenticated
   const api = load('app/(dashboard)/overview/page.tsx', {
     'react/jsx-runtime': require('react/jsx-runtime'),
     '@/lib/auth': { requireDashboardUser: async () => { checks++ } },
-    '@/lib/premium-overview-core': { premiumOverviewEnabled: () => enabled },
+    '@/lib/features/overview/premium-overview-core': { premiumOverviewEnabled: () => enabled },
     '@/components/overview/PremiumOverviewPage': { PremiumOverviewPage: Premium },
     '@/components/overview/BasicOverviewPage': { BasicOverviewPage: Basic },
   })
@@ -106,12 +106,12 @@ test('overview route restores the premium component and retains an authenticated
 })
 
 test('development overview RPC errors are visible and never fabricate zero metrics', async () => {
-  const api = load('lib/premium-overview-server.ts', {
-    'server-only': {}, './auth': { canAccessTenant: async () => true },
-    './supabase/server': { supabaseAdmin: () => ({ rpc: async () => ({ error: { code: '42883' }, data: null }) }) },
-    './inbox-server': { InboxError }, './utils': { UUID: /^[0-9a-f-]{36}$/ },
-    './premium-overview-core': { premiumOverviewEnabled: () => true, overviewFilters: () => ({}) },
-    './overview-tables': { overviewFromTables: async () => { throw new InboxError('unavailable', 503, 'OVERVIEW_UNAVAILABLE') } },
+  const api = load('lib/features/overview/premium-overview-server.ts', {
+    'server-only': {}, '@/lib/auth': { canAccessTenant: async () => true },
+    '@/lib/supabase/server': { supabaseAdmin: () => ({ rpc: async () => ({ error: { code: '42883' }, data: null }) }) },
+    '@/lib/features/inbox/inbox-server': { InboxError }, '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/ },
+    '@/lib/features/overview/premium-overview-core': { premiumOverviewEnabled: () => true, overviewFilters: () => ({}) },
+    '@/lib/features/overview/overview-tables': { overviewFromTables: async () => { throw new InboxError('unavailable', 503, 'OVERVIEW_UNAVAILABLE') } },
   }, { process: { env: { NODE_ENV: 'development' } } })
   await assert.rejects(api.loadPremiumOverview({ kind: 'user' }, id, {}), error => error.status === 503 && error.code === 'OVERVIEW_UNAVAILABLE')
 })
@@ -126,7 +126,7 @@ function slipApi({ actor = { kind: 'user' }, allowed = true, error = null } = {}
     '@/lib/tenant': { getActiveTenant: async () => ({ id }), tenantFilter: value => 'tenant_id.eq.' + value },
     '@/lib/supabase/server': { supabaseServer: async () => ({ from: () => { reads++; return query } }) },
     '@/lib/types': { SLIP_COLUMNS: 'id' }, '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/ },
-    '@/lib/inbox-server': { InboxError, inboxError: error => ({ status: error.status }) },
+    '@/lib/features/inbox/inbox-server': { InboxError, inboxError: error => ({ status: error.status }) },
   })
   return { run: (limit = '200') => api.GET({ nextUrl: new URL('https://test/api/slips?tenantId=' + id + '&limit=' + limit) }), filters, reads: () => reads }
 }

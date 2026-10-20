@@ -1,7 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {followUpTenant,followUpDashboard} from '@/lib/smart-followup-server'
-import {inboxError,InboxError,checkRpc} from '@/lib/inbox-server'
-import {parseFollowUpSettings} from '@/lib/smart-followup-validation'
+import {followUpTenant,followUpDashboard} from '@/lib/features/follow-ups/smart-followup-server'
+import {inboxError,InboxError,checkRpc} from '@/lib/features/inbox/inbox-server'
+import {parseFollowUpSettings} from '@/lib/features/follow-ups/smart-followup-validation'
 export async function GET(req:NextRequest){try{
  const {db,tenantId}=await followUpTenant(req,req.nextUrl.searchParams.get('tenantId')??'')
  return NextResponse.json(await followUpDashboard(db,tenantId,req.nextUrl.searchParams.get('before'),req.nextUrl.searchParams.get('beforeId')),{headers:{'Cache-Control':'no-store'}})

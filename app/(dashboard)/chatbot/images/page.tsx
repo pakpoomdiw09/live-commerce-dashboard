@@ -1,12 +1,12 @@
 import { hasFeature } from '@/lib/feature-access'
-import { FeatureLocked } from '@/components/FeatureLocked'
+import { FeatureLocked } from '@/components/shared/FeatureLocked'
 import { supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant, getViewer } from '@/lib/tenant'
 import { roleAtLeast } from '@/lib/auth'
-import { IMAGE_RULE_COLUMNS, type ImageResponseRule } from '@/lib/image-rules'
+import { IMAGE_RULE_COLUMNS, type ImageResponseRule } from '@/lib/features/vision/image-rules'
 import { ImageRulesClient } from '@/components/chatbot/ImageRulesClient'
-import { SetupNotice } from '@/components/SetupNotice'
-import { InlineError } from '@/components/ErrorState'
+import { SetupNotice } from '@/components/shared/SetupNotice'
+import { InlineError } from '@/components/shared/ErrorState'
 import { VisionCenter } from '@/components/chatbot/VisionCenter'
 
 export const metadata = { title: 'ผู้ช่วยตอบรูปภาพ' }

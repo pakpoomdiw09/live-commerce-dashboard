@@ -1,11 +1,11 @@
 import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant, getViewer } from '@/lib/tenant'
 import { roleAtLeast } from '@/lib/auth'
-import { getBilling } from '@/lib/billing'
-import { BROADCAST_COLUMNS, MESSAGING_WINDOW_MS, type BroadcastRow } from '@/lib/chatbot'
+import { getBilling } from '@/lib/features/billing/billing'
+import { BROADCAST_COLUMNS, MESSAGING_WINDOW_MS, type BroadcastRow } from '@/lib/features/agents/chatbot'
 import { BroadcastClient } from '@/components/broadcast/BroadcastClient'
-import { LiveRefresh } from '@/components/LiveRefresh'
-import { SetupNotice } from '@/components/SetupNotice'
+import { LiveRefresh } from '@/components/shared/LiveRefresh'
+import { SetupNotice } from '@/components/shared/SetupNotice'
 
 export const metadata = { title: 'ส่งข้อความหาลูกค้าทั้งหมด' }
 

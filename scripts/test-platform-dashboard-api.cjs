@@ -21,8 +21,8 @@ function load(file, dependencies={}, extra={}) {
   }, { filename: file })
   return exports
 }
-const plans = load('lib/plans.ts')
-const validation = load('lib/payment-validation.ts', { '@/lib/banks': { findBank: () => null } })
+const plans = load('lib/features/billing/plans.ts')
+const validation = load('lib/features/payments/payment-validation.ts', { '@/lib/features/banking/banks': { findBank: () => null } })
 function fixture(actor=admin, options={}) {
   const calls=[], stored=[], removed=[]
   const db = {
@@ -45,9 +45,9 @@ function fixture(actor=admin, options={}) {
     '@/lib/auth': { getActor: async()=>actor, isPlatformAdmin:a=>a.kind==='internal'||a.isPlatformAdmin, canAccessTenant:async()=>options.access !== false },
     '@/lib/supabase/server': {supabaseAdmin:()=>db},
     '@/lib/utils': { UUID:/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i },
-    '@/lib/payment-validation': validation,
-    '@/lib/billing': { getBilling: async()=>({ plan:'starter',monthly:1500,topup:0,slipRemaining:500 }) },
-    '@/lib/billing-verification': {
+    '@/lib/features/payments/payment-validation': validation,
+    '@/lib/features/billing/billing': { getBilling: async()=>({ plan:'starter',monthly:1500,topup:0,slipRemaining:500 }) },
+    '@/lib/features/billing/billing-verification': {
       APPROVAL_SUCCESS: 'อนุมัติสำเร็จ! ระบบเพิ่มเครดิตให้เรียบร้อยแล้ว',
       BILLING_VERIFICATION_COLUMNS: 'tenant_id,status,proof_path',
       verifyBillingRequest: async()=>({ ok:true,status:'pending',message:'รอตรวจสอบ' }),
@@ -192,12 +192,12 @@ function billingVerificationFixture(options={}) {
     rpc:async(name,args)=>{assert.equal(name,'activate_billing_payment');assert.equal(args.p_request,id);state.activationCalls++;return options.activationFailure?{data:false,error:{code:'XX001'}}:{data:true,error:null}},
     storage:{from:()=>({download:async()=>({data:new Blob([new Uint8Array([0xff,0xd8,0xff])],{type:'image/jpeg'}),error:null})})},
   }
-  const mod=load('lib/billing-verification.ts',{
+  const mod=load('lib/features/billing/billing-verification.ts',{
     'node:crypto':require('node:crypto'),
-    '@/lib/billing':{getBilling:async()=>({plan:'starter',monthly:1500,topup:400,slipRemaining:500})},
-    '@/lib/payments':{paymentReceiver:()=>({promptpayId:'0812345678',bankAccountNo:'1234567890',bankCode:'004'})},
-    '@/lib/payment-validation':validation,
-    '@/lib/slip/slipok':{verifyWithSlipOK:async input=>{state.providerCalls++;assert.equal(input.expectedAmount,undefined);return options.verdict?{...valid,...options.verdict}:valid}},
+    '@/lib/features/billing/billing':{getBilling:async()=>({plan:'starter',monthly:1500,topup:400,slipRemaining:500})},
+    '@/lib/features/payments/payments':{paymentReceiver:()=>({promptpayId:'0812345678',bankAccountNo:'1234567890',bankCode:'004'})},
+    '@/lib/features/payments/payment-validation':validation,
+    '@/lib/features/slips/slipok':{verifyWithSlipOK:async input=>{state.providerCalls++;assert.equal(input.expectedAmount,undefined);return options.verdict?{...valid,...options.verdict}:valid}},
   },{Buffer,process:{env:{SLIPOK_BRANCH_ID:'test-branch',SLIPOK_API_KEY:'test-key'}}})
   const request={tenant_id:tenant,status:'pending',proof_path:'private.jpg',price_baht:100,created_at:new Date(now.getTime()-60000).toISOString(),receiver_promptpay_id:null,receiver_account_no:null,receiver_bank_code:null}
   return {state,run:()=>mod.verifyBillingRequest(db,id,request)}

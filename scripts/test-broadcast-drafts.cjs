@@ -13,7 +13,7 @@ function fixture({ actor = { kind: 'user', role: 'owner' }, tenant = 'shop', sta
   const deps = {
     'next/server': { NextResponse: { json: (body, options = {}) => ({ body, ...options }) } },
     '@/lib/auth': { getActor: async () => actor }, '@/lib/supabase/server': { supabaseAdmin: () => db },
-    '@/lib/broadcast-service': {
+    '@/lib/features/broadcast/broadcast-service': {
       broadcastScope: async (user, id, owner) => {
         if (!user) throw new InboxError('Login required', 401)
         if (id !== 'shop' || owner && user.role !== 'owner') throw new InboxError('Forbidden', 403)
@@ -21,8 +21,8 @@ function fixture({ actor = { kind: 'user', role: 'owner' }, tenant = 'shop', sta
       },
       readBroadcast: async (_db, id, shop) => { reads++; assert.equal(id, 'draft'); assert.equal(shop, 'shop'); return { id, tenant_id: 'shop', status, name: 'Fresh draft', message: 'Latest text', audience_segment: 'all', audience_tags: ['tag'] } },
     },
-    '@/lib/broadcast-send': { broadcastDeliveryStats: async () => { stats++; return { sent: 1 } } },
-    '@/lib/inbox-server': { InboxError, inboxError: error => ({ status: error.status ?? 500 }) },
+    '@/lib/features/broadcast/broadcast-send': { broadcastDeliveryStats: async () => { stats++; return { sent: 1 } } },
+    '@/lib/features/inbox/inbox-server': { InboxError, inboxError: error => ({ status: error.status ?? 500 }) },
   }
   const context = { exports: {}, require: name => { assert.ok(name in deps, name); return deps[name] } }
   vm.runInNewContext(code, context)

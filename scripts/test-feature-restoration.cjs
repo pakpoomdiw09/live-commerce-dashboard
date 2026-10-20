@@ -10,15 +10,16 @@ function load(file, deps = {}) {
   return context.exports
 }
 class InboxError extends Error { constructor(message, status, code) { super(message); this.status = status; this.code = code } }
-const moduleDeps = { 'server-only': {}, './feature-access': { hasFeature: async (_db, _id, feature) => feature === 'slip_auto_pilot' }, './inbox-server': { InboxError } }
-const reader = load('lib/overview-tables.ts', moduleDeps)
-const core = load('lib/premium-overview-core.ts')
+const moduleDeps = { 'server-only': {}, '@/lib/feature-access': { hasFeature: async (_db, _id, feature) => feature === 'slip_auto_pilot' }, '@/lib/features/inbox/inbox-server': { InboxError } }
+const reader = load('lib/features/overview/overview-tables.ts', moduleDeps)
+const aggregate = load('scripts/fixtures/overview-slips.ts')
+const core = load('lib/features/overview/premium-overview-core.ts')
 const filters = core.overviewFilters({ range: '7' }, new Date('2026-10-17T05:00:00Z'))
 const slip = (id, status = 'valid', amount = 1, date = '2026-10-16T18:00:00+00:00', approved_at = null) => ({ id, customer_id: 'customer', created_at: date, status, amount, approved_at, note: null, trans_ref: id })
 
 test('direct slip aggregates use Bangkok dates, exact amounts, previous period and approved outcomes', () => {
   const slips = [slip('one', 'valid', 0.1), slip('two', 'error', 0.2, undefined, 'approved'), slip('dup', 'duplicate', 900, undefined, 'approved'), slip('wait', 'pending'), slip('old', 'valid', 12, '2026-10-09T18:00:00Z')]
-  const result = reader.aggregateOverviewSlips(slips, [], filters)
+  const result = aggregate.aggregateOverviewSlips(slips, [], filters)
   assert.equal(result.totalSlips, 4)
   assert.equal(result.approved, 2)
   assert.equal(result.pending, 1)
@@ -31,34 +32,24 @@ test('direct slip aggregates use Bangkok dates, exact amounts, previous period a
 
 test('search paginates lists without changing totals and never reveals unauthorized customer names', () => {
   const slips = Array.from({ length: 15 }, (_, i) => slip('ref-' + i))
-  const result = reader.aggregateOverviewSlips(slips, [], { ...filters, q: 'ref-', page: 2 })
+  const result = aggregate.aggregateOverviewSlips(slips, [], { ...filters, q: 'ref-', page: 2 })
   assert.equal(result.slips.length, 5)
   assert.equal(result.slipMatches, 15)
   assert.equal(result.totalSlips, 15)
   assert.ok(result.slips.every(row => row.customer === null))
-  const named = reader.aggregateOverviewSlips(slips, [{ id: 'customer', display_name: 'Own customer' }], { ...filters, q: 'own customer' })
+  const named = aggregate.aggregateOverviewSlips(slips, [{ id: 'customer', display_name: 'Own customer' }], { ...filters, q: 'own customer' })
   assert.equal(named.slipMatches, 15)
 })
 
-test('direct reader pages beyond 1000 records, scopes every read, and never calls the missing overview RPC', async () => {
-  const entries = Array.from({ length: 1001 }, (_, i) => slip(String(i)))
-  const scopes = [], ranges = []
-  let fail = false
-  const db = { from(table) {
-    const q = { select() { return this }, eq(key, value) { scopes.push([table, key, value]); return this }, lt() { return this }, gte() { return this }, order() { return this },
-      range(start, end) { ranges.push([start, end]); this.start = start; this.end = end; return this },
-      returns: async function () { return fail ? { data: null, error: { message: 'offline' } } : { data: entries.slice(this.start, this.end + 1), error: null } },
-      maybeSingle: async () => ({ data: { id: 'shop', name: 'Shop', slip_quota: 100, slip_quota_credits: 30, slip_used: 10 }, error: null }) }
-    return q
-  }, rpc() { throw Error('Dashboard must not call an aggregation RPC') } }
-  const { summary } = await reader.overviewFromTables(db, 'shop', filters)
-  assert.equal(summary.metrics.totalSlips, 1001)
-  assert.equal(summary.metrics.slipCredits, 120)
-  assert.equal(summary.metrics.messages, null)
-  assert.deepEqual(ranges, [[0, 999], [1000, 1999]])
-  assert.ok(scopes.some(([table, key, value]) => table === 'slips' && key === 'tenant_id' && value === 'shop'))
-  fail = true
-  await assert.rejects(reader.overviewFromTables(db, 'shop', filters), error => error.status === 503)
+test('overview uses bounded SQL aggregates, preserves full totals and returns a recoverable error when unavailable', async () => {
+ const calls = []; let fail = false
+ const data = { access: {slips:true,customers:false,ai:false},totals:{totalSlips:1001,approved:1001,pending:0,verifiedSlipAmount:1001},series:[],activity:[],hours:[],slips:[],chats:[],slipMatches:1001,chatMatches:0 }
+ const db = { from(table) { assert.equal(table,'tenants');const q = { select(){return q},eq(){return q},maybeSingle:async()=>({data:{id:'shop',name:'Shop',slip_quota:100,slip_quota_credits:30,slip_used:10},error:null}) };return q },
+ rpc:async(name,args)=>{calls.push({name,args});return fail?{data:null,error:{code:'PGRST202'}}:{data,error:null}} }
+ const {summary}=await reader.overviewFromTables(db,'shop',filters)
+ assert.equal(summary.metrics.totalSlips,1001);assert.equal(summary.metrics.slipCredits,120);assert.equal(summary.metrics.messages,null)
+ assert.equal(calls.length,1);assert.equal(calls[0].name,'overview_dashboard_stats');assert.equal(calls[0].args.p_tenant,'shop');assert.equal(calls[0].args.p_page,1)
+ fail=true;await assert.rejects(reader.overviewFromTables(db,'shop',filters),e=>e.status===503)
 })
 
 test('Sidebar exposes bank-tab slip and AI links without provider branding', () => {
@@ -91,10 +82,10 @@ test('Chatbot page restores the saved editor and Gemini readiness after checking
     'react/jsx-runtime': require('react/jsx-runtime'),
     '@/lib/auth': { requireDashboardUser: async () => ({}), getActor: async () => ({ kind: 'user' }), canAccessTenant: async () => allowed },
     '@/lib/tenant': { getActiveTenant: async () => ({ id: 'shop', auto_reply_enabled: true }), getViewer: async () => ({ role: allowed ? 'owner' : null }) },
-    '@/lib/agent-control-flags': { agentControlConfig: async () => null }, '@/components/chatbot/AgentControlCenter': { AgentControlCenter: () => null },
+    '@/lib/features/agents/agent-control-flags': { agentControlConfig: async () => null }, '@/components/chatbot/AgentControlCenter': { AgentControlCenter: () => null },
     '@/lib/supabase/server': { supabaseAdmin: () => db }, '@/lib/feature-access': { hasFeature: async () => true },
-    '@/lib/ai-agent': { aiConfigured: () => true }, '@/lib/chatbot': { defaultBotSettings: id => ({ tenant_id: id, reply_mode: 'keyword' }), ruleOrder: () => 0 },
-    '@/components/chatbot/ConversationsClient': { ConversationsClient: Editor }, '@/components/SetupNotice': {}, '@/components/ErrorState': { InlineError: () => null },
+    '@/lib/features/agents/ai-agent': { aiConfigured: () => true }, '@/lib/features/agents/chatbot': { defaultBotSettings: id => ({ tenant_id: id, reply_mode: 'keyword' }), ruleOrder: () => 0 },
+    '@/components/chatbot/ConversationsClient': { ConversationsClient: Editor }, '@/components/shared/SetupNotice': {}, '@/components/shared/ErrorState': { InlineError: () => null },
   }).default
   const rendered = await page()
   assert.equal(rendered.type, Editor)
@@ -105,4 +96,21 @@ test('Chatbot page restores the saved editor and Gemini readiness after checking
   allowed = false
   assert.notEqual((await page()).type, Editor)
   assert.equal(reads, before)
+})
+
+test('overview carries SQL avatar output and initials fallback into both recent tables without raw customer reads',async()=>{
+ for(const avatar_url of ['https://images.example.test/customer.jpg',null]){
+ const db={from(table){assert.equal(table,'tenants');const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:{id:'shop',name:'Shop',slip_quota:10,slip_used:0},error:null})};return q},rpc:async()=>({error:null,data:{access:{slips:true,customers:true,ai:false},totals:{},series:[],activity:[],hours:[],slips:[{id:'slip',customer:'ลูกค้าทดสอบ',avatar_url}],chats:[{id:'customer',name:'ลูกค้าทดสอบ',avatar_url}],slipMatches:1,chatMatches:1}})}
+ const {summary}=await reader.overviewFromTables(db,'shop',filters)
+ assert.equal(summary.slips[0].avatar_url,avatar_url);assert.equal(summary.chats[0].avatar_url,avatar_url)
+ }
+})
+
+test('Avatar renders real stored URLs and keeps initials when missing, invalid or image load fails',()=>{
+ let failed=null
+ const Avatar=load('components/inbox/Avatar.tsx',{'react':{useState:()=>[failed,value=>{failed=value}]},'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/utils':{cn:(...values)=>values.filter(Boolean).join(' '),customerName:c=>c.display_name||'ลูกค้า'}}).Avatar
+ const customer={id:'customer',display_name:'ทดสอบ',platform_user_id:'customer',avatar_url:' https://images.example.test/customer.jpg '}
+ const image=Avatar({c:customer}).props.children[1];assert.equal(image.props.src,customer.avatar_url.trim());image.props.onError()
+ const fallback=Avatar({c:customer});assert.equal(fallback.props.children[0],'ท');assert.equal(fallback.props.children[1],false)
+ for(const avatar_url of [null,'','http://insecure.example.test/image','javascript:alert(1)'])assert.equal(Avatar({c:{...customer,avatar_url}}).props.children[1],null)
 })

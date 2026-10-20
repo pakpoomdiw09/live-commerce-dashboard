@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { requirePlatformOwner } from '@/lib/admin'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { BILLING_REQUEST_COLUMNS, type BillingRequestRow } from '@/lib/plans'
+import { BILLING_REQUEST_COLUMNS, type BillingRequestRow } from '@/lib/features/billing/plans'
 import { PendingApprovals, type AdminPendingRequest } from '@/components/admin/PendingApprovals'
 import { PageHeader } from '@/components/ui/card'
 import { Notice } from '@/components/ui/field'

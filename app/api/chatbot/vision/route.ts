@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { visionTenant, visionOverview } from '@/lib/vision-server'
-import { inboxError, InboxError } from '@/lib/inbox-server'
+import { visionTenant, visionOverview } from '@/lib/features/vision/vision-server'
+import { inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
 
 export async function GET(req:NextRequest) {
   try{const {db,tenantId}=await visionTenant(req,req.nextUrl.searchParams.get('tenantId')??'');return NextResponse.json(await visionOverview(db,tenantId))}catch(error){return inboxError(error)}

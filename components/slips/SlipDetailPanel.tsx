@@ -3,7 +3,7 @@
 import { neutralSlipText } from '@/lib/ui-labels'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, BadgeCheck, Check, Copy, ExternalLink, FileText, ImageOff, MessageSquareShare } from 'lucide-react'
-import { BankLogo, bankName } from '@/components/BankLogo'
+import { BankLogo, bankName } from '@/components/banking/BankLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'

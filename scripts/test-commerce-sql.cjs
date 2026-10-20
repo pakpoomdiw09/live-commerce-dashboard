@@ -69,6 +69,20 @@ test('commerce migration, tenant guards, product versioning, publication, atomic
   await manage('archive',{id:vp})
   assert.equal((await db.query('select commerce_archived from products where id=$1',[vp])).rows[0].commerce_archived,true)
   assert.equal((await db.query('select count(*)::int n from commerce_order_items where product_id=$1',[vp])).rows[0].n,1)
+  // Reproduce an existing deployment with the old unconditional index.
+  await db.exec('update commerce_limits set max_products=null; drop index products_tenant_code; create unique index products_tenant_code on products(tenant_id,lower(code))')
+  await assert.rejects(db.query('select commerce_save_product($1,$2,null,$3)',[tenant,actor,JSON.stringify({...value,code:'v1'})]),e=>e.code==='23505')
+  const reuse=fs.readFileSync('supabase/product-sku-reuse.sql','utf8')
+  await db.exec(reuse);await db.exec(reuse)
+  const replacement=(await db.query('select commerce_save_product($1,$2,null,$3) id',[tenant,actor,JSON.stringify({...value,code:'v1'})])).rows[0].id
+  assert.notEqual(replacement,vp)
+  assert.equal((await db.query('select commerce_archived from products where id=$1',[vp])).rows[0].commerce_archived,true)
+  assert.equal((await db.query('select count(*)::int n from commerce_order_items where product_id=$1',[vp])).rows[0].n,1)
+  // Case-insensitive duplicate protection includes unpublished products.
+  await db.query('update products set is_active=false where id=$1',[replacement])
+  await assert.rejects(db.query('select commerce_save_product($1,$2,null,$3)',[tenant,actor,JSON.stringify({...value,code:'V1'})]),e=>e.code==='23505')
+  await assert.rejects(db.query('update products set commerce_archived=false where id=$1',[vp]),e=>e.code==='23505')
+  await db.query("insert into products(tenant_id,code,name,price,stock) values($1,'V1','Same code, different tenant',1,1)",[foreign])
   await db.query("update tenants set plan='free' where id=$1",[tenant]);await assert.rejects(checkout({...request,key:'88888888-8888-4888-8888-888888888888'}))
  } finally {await db.close()}
 })

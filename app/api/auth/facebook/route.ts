@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
-import { callbackUrl, dialogUrl, isFacebookConnectConfigured, STATE_COOKIE, STATE_COOKIE_PATH } from '@/lib/facebook-oauth'
+import { callbackUrl, dialogUrl, isFacebookConnectConfigured, STATE_COOKIE, STATE_COOKIE_PATH } from '@/lib/integrations/facebook/oauth'
 
 export const runtime = 'nodejs'
 

@@ -4,8 +4,8 @@ import { FallbackImg } from '@/components/ui/FallbackImg'
 import { cn } from '@/lib/utils'
 
 /**
- * Brand loading state for data fetches and slip checks: the animated logo
- * (public/brand-loader.gif, 64x64) with a caption. Falls back to a spinner while the GIF is missing.
+ * Brand loading state with an animated 64x64 spinner and caption.
+ * Falls back to a CSS spinner if the public GIF cannot load.
  */
 export function BrandLoader({ label = 'กำลังโหลดข้อมูลระบบ...', className }: { label?: string; className?: string }) {
   return (

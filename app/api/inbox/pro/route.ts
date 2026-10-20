@@ -1,5 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {inboxTenant,inboxError,InboxError} from '@/lib/inbox-server'
+import {inboxTenant,inboxError,InboxError} from '@/lib/features/inbox/inbox-server'
 export async function GET(req:NextRequest){try{
  const {db,tenantId}=await inboxTenant(req,req.nextUrl.searchParams.get('tenantId')??'')
  if(process.env.SMART_INBOX_PRO_ENABLED!=='true')return NextResponse.json({enabled:false},{headers:{'Cache-Control':'private, no-store'}})

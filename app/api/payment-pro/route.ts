@@ -1,7 +1,7 @@
 import { NextRequest,NextResponse } from 'next/server'
-import { paymentProTenant,paymentProOverview,PRO_LIST_COLUMNS } from '@/lib/payment-pro-server'
-import { inboxError,InboxError } from '@/lib/inbox-server'
-import { csvCell,paymentReportFilters } from '@/lib/payment-pro-core'
+import { paymentProTenant,paymentProOverview,PRO_LIST_COLUMNS } from '@/lib/features/payments/payment-pro-server'
+import { inboxError,InboxError } from '@/lib/features/inbox/inbox-server'
+import { csvCell,paymentReportFilters } from '@/lib/features/payments/payment-pro-core'
 export async function GET(req:NextRequest){
   try{
     const {db,tenantId,flags}=await paymentProTenant(req,req.nextUrl.searchParams.get('tenantId')??'')

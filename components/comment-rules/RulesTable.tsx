@@ -1,10 +1,11 @@
 'use client'
 
+import { PageBanner } from '@/components/ui/page-banner'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import type { CommentRule } from '@/lib/comment-rules'
-import type { PageProfile } from '@/lib/facebook'
+import type { CommentRule } from '@/lib/features/comments/comment-rules'
+import type { PageProfile } from '@/lib/integrations/facebook/client'
 import { ICONS, Icon } from '@/components/ui/Icon'
 import { Switch } from '@/components/ui/Switch'
 
@@ -44,20 +45,20 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
+      <PageBanner className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">ตอบกลับคอมเมนต์</h1>
-          <p className="mt-1 text-sm text-slate-500">ตั้งกฎให้ระบบตอบใต้คอมเมนต์ และส่งข้อความเข้าอินบ็อกซ์ของลูกค้าอัตโนมัติ</p>
+          <p className="mt-1 text-sm leading-6 text-white">ตั้งกฎให้ระบบตอบใต้คอมเมนต์ และส่งข้อความเข้าอินบ็อกซ์ของลูกค้าอัตโนมัติ</p>
         </div>
         <Link
           href="/comment-replies/new"
-          className="inline-flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-red-200 transition hover:bg-red-600 active:scale-95"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-orange-700 shadow-sm transition hover:bg-orange-50 active:scale-95"
         >
           <Icon d={ICONS.plus} className="h-4 w-4" />
           เพิ่มใหม่
         </Link>
-      </div>
+      </PageBanner>
 
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <label className="relative min-w-60 flex-1">

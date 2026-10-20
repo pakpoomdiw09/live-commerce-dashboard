@@ -1,12 +1,11 @@
 import {getActor,requireDashboardUser} from '@/lib/auth'
 import {getActiveTenant,getTenants} from '@/lib/tenant'
-import {SetupNotice} from '@/components/SetupNotice'
-import {loadPremiumOverview} from '@/lib/premium-overview-server'
-import {PremiumOverview} from './PremiumOverview'
-import {InlineError} from '@/components/ErrorState'
+import {SetupNotice} from '@/components/shared/SetupNotice'
+import {loadPremiumOverview} from '@/lib/features/overview/premium-overview-server'
+import {PremiumOverview} from '@/components/overview/PremiumOverview'
+import {InlineError} from '@/components/shared/ErrorState'
 import Link from 'next/link'
-import {ActionRequired} from './ActionRequired'
-import {BasicOverviewPage} from './BasicOverviewPage'
+import {BasicOverviewPage} from '@/components/overview/BasicOverviewPage'
 export async function PremiumOverviewPage({filters}:{filters:{range?:string;page?:string;q?:string}}){
  const user=await requireDashboardUser()
  const {error:tenantError}=await getTenants()
@@ -14,7 +13,13 @@ export async function PremiumOverviewPage({filters}:{filters:{range?:string;page
  const tenant=await getActiveTenant()
  if(!tenant)return <SetupNotice kind="no-tenant"/>
  try{
-  const [data,shops]=await Promise.all([loadPremiumOverview(await getActor(),tenant.id,filters),getTenants()])
-  return <><div className="p-4 md:px-8"><ActionRequired tenant={tenant}/></div><PremiumOverview key={`${tenant.id}:${data.filters.range}:${data.filters.page}:${data.filters.q}`} data={data} shopCount={shops.tenants.length} userName={user.email??'สมาชิก SnapBot'}/></>
+ const metadataImage=user.user_metadata?.avatar_url??user.user_metadata?.picture
+ const profileImageUrl=typeof metadataImage==='string'&&metadataImage.startsWith('https://')?metadataImage:null
+ const [data,shops]=await Promise.all([loadPremiumOverview(await getActor(),tenant.id,filters,{
+   autoVerifyEnabled:tenant.auto_verify_enabled,
+   bankConfigured:!!tenant.bank_code&&!!tenant.account_name,
+   pageConfigured:!!tenant.page_id&&tenant.page_token_set,
+  }),getTenants()])
+  return <PremiumOverview key={`${tenant.id}:${data.filters.range}:${data.filters.page}:${data.filters.q}`} data={data} shopCount={shops.tenants.length} userName={user.email??'สมาชิก SnapBot'} profileImageUrl={profileImageUrl}/>
  }catch(error){return <><div className="space-y-4 p-6"><InlineError title="ภาพรวมขั้นสูงไม่พร้อมใช้งาน กำลังแสดงข้อมูลสรุปพื้นฐาน" message={error instanceof Error?error.message:'กรุณาลองใหม่'}/><Link href="/overview?view=basic" className="text-orange-700 underline">เปิดภาพรวมพื้นฐาน</Link></div><BasicOverviewPage/></>}
 }

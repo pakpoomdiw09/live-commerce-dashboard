@@ -1,12 +1,12 @@
 import { hasFeature } from '@/lib/feature-access'
-import { FeatureLocked } from '@/components/FeatureLocked'
+import { FeatureLocked } from '@/components/shared/FeatureLocked'
 import { notFound, redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
-import { loadSlipDetail } from '@/lib/slip/detail'
+import { loadSlipDetail } from '@/lib/features/slips/detail'
 import { baht, UUID } from '@/lib/utils'
-import { BankLogo, bankName } from '@/components/BankLogo'
-import { PrintButton } from './PrintButton'
+import { BankLogo, bankName } from '@/components/banking/BankLogo'
+import { PrintButton } from '@/app/receipts/[id]/PrintButton'
 
 export const metadata = { title: 'ใบเสร็จรับเงิน' }
 

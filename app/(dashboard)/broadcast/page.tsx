@@ -1,14 +1,14 @@
 import { getActor, requireDashboardUser, canAccessTenant } from '@/lib/auth'
 import { getActiveTenant } from '@/lib/tenant'
-import { broadcastUiEnabled } from '@/lib/broadcast-policy'
-import { broadcastScope, broadcastPageStatus } from '@/lib/broadcast-service'
-import { BROADCAST_COLUMNS, type BroadcastRow } from '@/lib/chatbot'
-import { getBilling } from '@/lib/billing'
-import { fetchAll } from '@/lib/broadcast'
+import { broadcastUiEnabled } from '@/lib/features/broadcast/broadcast-policy'
+import { broadcastScope, broadcastPageStatus } from '@/lib/features/broadcast/broadcast-service'
+import { BROADCAST_COLUMNS, type BroadcastRow } from '@/lib/features/agents/chatbot'
+import { getBilling } from '@/lib/features/billing/billing'
+import { fetchAll } from '@/lib/features/broadcast/broadcast'
 import { BroadcastWorkspace } from '@/components/broadcast/BroadcastWorkspace'
 import LegacyBroadcastPage from '@/components/broadcast/LegacyBroadcastPage'
-import { SetupNotice } from '@/components/SetupNotice'
-import { InlineError } from '@/components/ErrorState'
+import { SetupNotice } from '@/components/shared/SetupNotice'
+import { InlineError } from '@/components/shared/ErrorState'
 
 export const metadata = { title: 'บรอดแคสต์' }
 export default async function BroadcastPage() {

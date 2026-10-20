@@ -1,9 +1,9 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {slipBankTenant,bankQr} from '@/lib/slip-bank-server'
-import {bankAccountError} from '@/lib/bank-accounts'
-import {InboxError,inboxError,checkRpc} from '@/lib/inbox-server'
+import {slipBankTenant,bankQr} from '@/lib/features/slips/slip-bank-server'
+import {bankAccountError} from '@/lib/features/banking/bank-accounts'
+import {InboxError,inboxError,checkRpc} from '@/lib/features/inbox/inbox-server'
 import {UUID} from '@/lib/utils'
-import {isSupportedBank,UNSUPPORTED_BANK_MESSAGE} from '@/lib/banks'
+import {isSupportedBank,UNSUPPORTED_BANK_MESSAGE} from '@/lib/features/banking/banks'
 export async function GET(req:NextRequest){try{
  const {db,tenantId,owner}=await slipBankTenant(req,req.nextUrl.searchParams.get('tenantId')??'')
  const result=await db.from('bank_accounts').select('id,tenant_id,bank_code,account_name,account_number,is_active,is_primary,created_at').eq('tenant_id',tenantId).order('created_at').order('id')

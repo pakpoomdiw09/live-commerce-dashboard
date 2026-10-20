@@ -29,17 +29,20 @@ function fixture({ amount = 0.3, error = null, empty = false, accounts = [{tenan
     }; return builder
   } }
   const orders = {}
-  vm.runInNewContext(compile('lib/orders.ts'), { exports: orders, console, require: () => ({}) })
+  vm.runInNewContext(compile('lib/features/commerce/orders.ts'), { exports: orders, console, require: () => ({}) })
   const banks={}
-  vm.runInNewContext(compile('lib/banks.ts'),{exports:banks})
+  vm.runInNewContext(compile('lib/features/banking/banks.ts'),{exports:banks})
+  const matching = {}
+  vm.runInNewContext(compile('lib/features/slips/receiver-matching.ts'), { exports: matching, require: () => banks })
   const process = {}
-  vm.runInNewContext(compile('lib/slip/process.ts'), { exports: process, console, Date,
+  vm.runInNewContext(compile('lib/features/slips/process.ts'), { exports: process, console, Date,
     process: { env: { NODE_ENV: 'production' } }, require(name) {
-      if (name === '@/lib/banks') return banks
-      if (name === '@/lib/orders') return orders
+      if (name === '@/lib/features/slips/receiver-matching') return matching
+      if (name === '@/lib/features/banking/banks') return banks
+      if (name === '@/lib/features/commerce/orders') return orders
       if (name === '@/lib/feature-access') return { requireFeature: async () => {} }
       if (name === '@/lib/auth') return { tenantHasFeatureBypass: async () => true }
-      if (name === './slipok') return { verifyWithSlipOK: async args => {
+      if (name === '@/lib/features/slips/slipok') return { verifyWithSlipOK: async args => {
         checks.push(args); return { verdict: 'valid', amount, transRef: 'ref', receiverBank: '004', receiverAccount: '1234567890', ...slip }
       } }
       return {}

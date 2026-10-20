@@ -31,7 +31,7 @@ export function CustomersTable({ rows, tenantName }: { rows: CustomerListRow[]; 
   const totalPaid = rows.reduce((s, r) => s + r.paidTotal, 0)
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-8">
+    <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
       <PageHeader
         title="จัดการลูกค้า"
         description={`${rows.length.toLocaleString('th-TH')} รายชื่อ${tenantName ? ` ของ ${tenantName}` : ''} · ยอดชำระรวม ${baht(totalPaid)}`}

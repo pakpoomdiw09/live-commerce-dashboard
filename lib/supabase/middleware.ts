@@ -1,10 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { getSupabaseEnv } from './env'
+import { getSupabaseEnv } from '@/lib/supabase/env'
 import { safeAuthNext } from '@/lib/oauth'
 
 // หน้าที่เข้าได้โดยไม่ต้องล็อกอิน
-const PUBLIC_PATHS = ['/login', '/auth', '/p', '/s']
+const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/auth', '/p', '/s']
 const isPublic = (p: string) => PUBLIC_PATHS.some((x) => p === x || p.startsWith(x + '/'))
 
 export async function updateSession(request: NextRequest) {
@@ -34,7 +34,15 @@ export async function updateSession(request: NextRequest) {
       setAll: (list) => {
         list.forEach(({ name, value }) => request.cookies.set(name, value))
         response = NextResponse.next({ request })
-        list.forEach(({ name, value, options }) => response.cookies.set(name, value, options))
+        const sessionOnly = request.cookies.get('snapbot_session_mode')?.value === 'session'
+        list.forEach(({ name, value, options }) => {
+          if (sessionOnly && options.maxAge && options.maxAge > 0) {
+            const { maxAge: _maxAge, ...sessionOptions } = options
+            response.cookies.set(name, value, sessionOptions)
+          } else {
+            response.cookies.set(name, value, options)
+          }
+        })
       },
     },
   })

@@ -11,12 +11,14 @@ function transpile(file) {
   }).outputText
 }
 
-const agentCode = transpile('lib/ai-agent.ts')
-const chatbotCode = transpile('lib/chatbot-server.ts')
+const aiErrors = {}
+vm.runInNewContext(transpile('lib/features/agents/ai-errors.ts'), { exports: aiErrors })
+const agentCode = transpile('lib/features/agents/ai-agent.ts')
+const chatbotCode = transpile('lib/features/agents/chatbot-server.ts')
 const plans = {}
-vm.runInNewContext(transpile('lib/plans.ts'), { exports: plans })
+vm.runInNewContext(transpile('lib/features/billing/plans.ts'), { exports: plans })
 const fallbacks = {}
-vm.runInNewContext(transpile('lib/fallback-messages.ts'), { exports: fallbacks })
+vm.runInNewContext(transpile('lib/features/agents/fallback-messages.ts'), { exports: fallbacks })
 const FAKE_KEY = 'mock-gemini-key-never-used-on-network'
 const context = {
   shopName: 'ร้านทดสอบ',
@@ -112,7 +114,7 @@ function fixture({
   }
 
   const log = (...args) => logs.push(args)
-  const modules = { '@/lib/feature-access': { hasFeature: async () => billing.plan === 'pro' }, 'server-only': {}, '@google/genai': { GoogleGenAI, ApiError } }
+  const modules = { '@/lib/features/agents/ai-errors': aiErrors, '@/lib/feature-access': { hasFeature: async () => billing.plan === 'pro' }, 'server-only': {}, '@google/genai': { GoogleGenAI, ApiError } }
   const agent = {}
   vm.runInNewContext(agentCode, {
     exports: agent,
@@ -127,17 +129,17 @@ function fixture({
 
   const chatbotModules = {
     'server-only': {},
-    '@/lib/ai-agent': agent,
-    '@/lib/billing': { getBilling: async () => billing },
-    '@/lib/plans': plans,
-    '@/lib/fallback-messages': fallbacks,
-    '@/lib/bot': { botReply: async () => 'legacy reply' },
-    '@/lib/facebook': { quickReplies: () => ({}) },
-    '@/lib/slip/notify': {
+    '@/lib/features/agents/ai-agent': agent,
+    '@/lib/features/billing/billing': { getBilling: async () => billing },
+    '@/lib/features/billing/plans': plans,
+    '@/lib/features/agents/fallback-messages': fallbacks,
+    '@/lib/features/agents/bot': { botReply: async () => 'legacy reply' },
+    '@/lib/integrations/facebook/client': { quickReplies: () => ({}) },
+    '@/lib/features/slips/notify': {
       deliverOnce: async (...args) => deliveries.push(args),
       deliverRichOnce: async () => { throw new Error('Unexpected keyword-rule delivery') },
     },
-    '@/lib/chatbot': {
+    '@/lib/features/agents/chatbot': {
       BOT_SETTINGS_COLUMNS: 'tenant_id,reply_mode,ai_instructions,fallback_text,handover_keywords,handover_text',
       CHAT_RULE_COLUMNS: '',
       matchChatRule: () => null,
@@ -145,6 +147,9 @@ function fixture({
       wantsHuman: () => false,
     },
   }
+  const actions = {}
+  vm.runInNewContext(transpile('lib/features/agents/chatbot-actions.ts'), { exports: actions, console: { warn: log, error: log, log }, require: name => chatbotModules[name] })
+  chatbotModules['@/lib/features/agents/chatbot-actions'] = actions
   const chatbot = {}
   vm.runInNewContext(chatbotCode, {
     exports: chatbot,

@@ -14,7 +14,7 @@ import { Card, CardHeader, PageHeader } from '@/components/ui/card'
 import { IconTile, Notice } from '@/components/ui/field'
 import { StatTile } from '@/components/ui/StatTile'
 import { Switch } from '@/components/ui/Switch'
-import { ProductForm } from './ProductForm'
+import { ProductForm } from '@/components/shop/ProductForm'
 
 export type ShopOrder = {
   id: string
@@ -104,7 +104,7 @@ export function ShopClient({ tenantId, pageLinked, products, orders }: { tenantI
 
   if (editing) {
     return (
-      <div className="mx-auto w-full max-w-5xl p-4 md:p-8">
+      <div className="mx-0 w-full min-w-0 max-w-none p-4 md:p-8">
         <ProductForm
           tenantId={tenantId}
           product={editing === 'new' ? null : editing}
@@ -119,7 +119,7 @@ export function ShopClient({ tenantId, pageLinked, products, orders }: { tenantI
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-8">
+    <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
       <PageHeader
         title="ร้านค้า / เซลเพจ"
         description="จัดการสินค้า สต็อก และลิงก์เซลเพจสำหรับส่งในแชท ลูกค้าพิมพ์ CF + รหัสสินค้าเพื่อสั่งซื้อ ระบบตัดสต็อกให้อัตโนมัติ"

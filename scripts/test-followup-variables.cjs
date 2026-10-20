@@ -5,7 +5,7 @@ const { test } = require('node:test')
 const vm = require('node:vm')
 const ts = require('typescript')
 const api = {}
-vm.runInNewContext(ts.transpileModule(readFileSync(join(__dirname, '../lib/chatbot.ts'), 'utf8'), {
+vm.runInNewContext(ts.transpileModule(readFileSync(join(__dirname, '../lib/features/agents/chatbot.ts'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports: api, require: () => ({}) })
 test('Thai and legacy variables work together and replace every occurrence', () => {

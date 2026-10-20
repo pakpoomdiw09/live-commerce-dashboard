@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { apiError } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Notice } from '@/components/ui/field'
-import type { Billing } from '@/lib/plans'
+import type { Billing } from '@/lib/features/billing/plans'
 
 export function BillingProof({ id, pending, hasProof, onApproved }: { id: string; pending: boolean; hasProof: boolean; onApproved?: (billing?: Billing) => void }) {
   const router = useRouter()

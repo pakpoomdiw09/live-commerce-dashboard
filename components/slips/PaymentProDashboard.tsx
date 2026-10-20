@@ -1,10 +1,12 @@
 'use client'
+import {createBackgroundRefresh} from '@/lib/background-refresh'
+import { PageBanner } from '@/components/ui/page-banner'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import Link from 'next/link'
 import {Download,RefreshCw,ShieldCheck} from 'lucide-react'
-import type {PaymentProFlags,PaymentProState} from '@/lib/payment-pro-core'
-import {PaymentProEvidence} from './PaymentProEvidence'
-import {PaymentProCharts} from './PaymentProCharts'
+import type {PaymentProFlags,PaymentProState} from '@/lib/features/payments/payment-pro-core'
+import {PaymentProEvidence} from '@/components/slips/PaymentProEvidence'
+import {PaymentProCharts} from '@/components/slips/PaymentProCharts'
 
 type Attempt={id:string;slip_id:string;status:PaymentProState;reason:string|null;expected_satang:number|null;eligible:boolean;credit_charged:boolean;credit_refunded:boolean;created_at:string;provider_started_at:string|null}
 type Overview={attempts:Attempt[];audit:{id:string;event:string;reason:string|null;created_at:string}[];credits:{quota:number;used:number;remaining:number};stats:Record<string,number>|null;series:{day:string;amount:number;count:number}[];provider:{configured:boolean;liveCheckPerformed:boolean};flags:PaymentProFlags}
@@ -19,7 +21,7 @@ export function PaymentProDashboard({tenantId,canManage,embedded=false}:{tenantI
  const [range,setRange]=useState('30'),[search,setSearch]=useState(''),[query,setQuery]=useState('')
  const endpoint=`/api/payment-pro?${new URLSearchParams({tenantId,range,q:query})}`
  const load=useCallback(async(signal?:AbortSignal)=>{const r=await fetch(endpoint,{cache:'no-store',signal}),v=await r.json();if(!r.ok)throw new Error(v.error??'โหลดข้อมูล Payment Pro ไม่สำเร็จ ตรวจสอบ payment-pro-dashboard.sql');if(!signal?.aborted){setData(v);setError('')}},[endpoint])
- useEffect(()=>{const abort=new AbortController();const reload=()=>void load(abort.signal).catch(e=>{if(!abort.signal.aborted)setError(e.message)});reload();const timer=setInterval(reload,30000);return()=>{abort.abort();clearInterval(timer)}},[load])
+ useEffect(()=>{const refresh=createBackgroundRefresh(signal=>load(signal),error=>setError(error instanceof Error?error.message:'Refresh failed'));refresh.request();const visible=()=>refresh.request();document.addEventListener('visibilitychange',visible);return()=>{refresh.stop();document.removeEventListener('visibilitychange',visible)}},[load])
  async function review(){
   if(!selected||!canManage||reviewLock.current)return
   reviewLock.current=true
@@ -29,7 +31,7 @@ export function PaymentProDashboard({tenantId,canManage,embedded=false}:{tenantI
  }
  const visible=data?.attempts.filter(row=>filter==='all'||row.status===filter||row.reason===filter)??[]
  return <section className="space-y-5">
-  {!embedded&&<header className="rounded-3xl bg-gradient-to-r from-orange-500 to-pink-500 p-6 text-white"><ShieldCheck className="mb-2 h-8 w-8"/><h1 className="text-2xl font-bold">Payment Verification Pro</h1><p className="mt-2 text-sm">ตรวจจากผู้ให้บริการ จริง · ยอดออเดอร์จากฐานข้อมูล · รายการเสี่ยงรอเจ้าของร้านตรวจสอบ</p></header>}
+  {!embedded&&<PageBanner><ShieldCheck className="mb-2 h-8 w-8"/><h1 className="text-2xl font-bold">Payment Verification Pro</h1><p className="mt-2 text-sm">ตรวจจากผู้ให้บริการ จริง · ยอดออเดอร์จากฐานข้อมูล · รายการเสี่ยงรอเจ้าของร้านตรวจสอบ</p></PageBanner>}
   {error&&<p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error}</p>}{notice&&<p role="status" className="rounded-xl bg-green-50 p-4 text-sm text-green-800">{notice}</p>}
   <form className="flex flex-wrap gap-3 rounded-2xl border border-orange-100 bg-white p-4" onSubmit={e=>{e.preventDefault();setQuery(search.trim())}}><label className="flex items-center gap-2 text-sm">ช่วงเวลา<select aria-label="ช่วงเวลารายงาน" className="rounded-xl border p-2" value={range} onChange={e=>setRange(e.target.value)}>{['7','30','90'].map(v=><option key={v} value={v}>{v} วัน</option>)}</select></label><input aria-label="ค้นหาเหตุผลตรวจสลิป" maxLength={100} className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm" placeholder="ค้นหารหัสเหตุผล เช่น AMOUNT_MISMATCH" value={search} onChange={e=>setSearch(e.target.value)}/><button className={button}>ค้นหา</button><p className="basis-full text-xs text-slate-500">คำค้นกรองรายการและ CSV · KPI และกราฟแสดงทั้งช่วงเวลา · ข้อมูลเฉพาะรายการที่ผ่านระบบ Payment Pro</p></form>
   {!data?<p className="text-sm text-slate-500">กำลังโหลดข้อมูลจริงจากระบบ…</p>:<>

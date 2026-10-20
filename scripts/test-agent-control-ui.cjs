@@ -8,7 +8,7 @@ test('all eight Thai menu buttons switch content without invoking any network or
  const state=[],react={useState(initial){const i=react.index++;if(!(i in state))state[i]=i===1?data:initial;return [state[i],next=>state[i]=next]},useEffect(){},useCallback:fn=>fn,useRef:()=>({current:null})}
  const shared={'react':react,'react/jsx-runtime':jsx,'next/link':'a'}
  const guide=load('components/chatbot/AgentUserGuide.tsx',shared)
- const {AgentControlCenter}=load('components/chatbot/AgentControlCenter.tsx',{...shared,'./AgentUserGuide':guide,'./AutomationEmergencyStop':{AutomationEmergencyStop:'section'},'lucide-react':{Bot:'svg',LockKeyhole:'svg',RefreshCw:'svg'},'@/lib/agent-control-core':{AGENT_FLAG_KEYS:Object.keys(flags)}})
+ const {AgentControlCenter}=load('components/chatbot/AgentControlCenter.tsx',{...shared,'@/components/chatbot/AgentUserGuide':guide,'./AutomationEmergencyStop':{AutomationEmergencyStop:'section'},'lucide-react':{Bot:'svg',LockKeyhole:'svg',RefreshCw:'svg'},'@/lib/features/agents/agent-control-core':{AGENT_FLAG_KEYS:Object.keys(flags)}})
  const render=()=>{react.index=0;return nodes(AgentControlCenter({tenantId:'test-only',children:jsx.jsx('div',{children:'keyword-editor-marker'})}))}
  for(let i=0;i<guide.agentTabs.length;i++){
   let tree=render();const menu=tree.find(n=>n.type==='nav');const buttons=nodes(menu.props.children).filter(n=>n.type==='button');assert.equal(buttons.length,8)

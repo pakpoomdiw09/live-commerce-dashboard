@@ -1,11 +1,11 @@
 import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant, getViewer } from '@/lib/tenant'
 import { roleAtLeast } from '@/lib/auth'
-import { getBilling } from '@/lib/billing'
-import { BILLING_REQUEST_COLUMNS, type BillingRequestRow } from '@/lib/plans'
+import { getBilling } from '@/lib/features/billing/billing'
+import { BILLING_REQUEST_COLUMNS, type BillingRequestRow } from '@/lib/features/billing/plans'
 import { BillingClient } from '@/components/billing/BillingClient'
-import { LiveRefresh } from '@/components/LiveRefresh'
-import { SetupNotice } from '@/components/SetupNotice'
+import { LiveRefresh } from '@/components/shared/LiveRefresh'
+import { SetupNotice } from '@/components/shared/SetupNotice'
 
 export const metadata = { title: 'แพ็กเกจและการเติมเงิน' }
 

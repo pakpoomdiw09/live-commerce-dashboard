@@ -1,6 +1,6 @@
 'use client'
 import {useRef,useState} from 'react'
-import type {InboxState} from '@/lib/inbox-types'
+import type {InboxState} from '@/lib/features/inbox/inbox-types'
 import {apiError} from '@/lib/utils'
 export function BulkActions({ids,inbox,onDone}:{ids:string[];inbox:InboxState|null;onDone:()=>void}) {
  const [action,setAction]=useState('claim'),[assignee,setAssignee]=useState(''),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[result,setResult]=useState('')

@@ -1,11 +1,11 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript')
 const {test}=require('node:test')
 function load(file,deps){const context={exports:{},console,process:{env:{}},require:n=>deps[n]};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);return context.exports}
-function fixture(remaining){let balance=remaining,sent=0;const claims=new Set();const quota=load('lib/message-quota.ts',{'server-only':{},'@/lib/billing':{
+function fixture(remaining){let balance=remaining,sent=0;const claims=new Set();const quota=load('lib/message-quota.ts',{'server-only':{},'@/lib/features/inbox/inbox-automation-window':{assertAutomationWindow:async()=>{}},'@/lib/features/billing/billing':{
  reserveCredits:async()=>{if(balance<=0)return {monthly:0,topup:0};balance--;return {monthly:1,topup:0}},
  settleCredits:async(_db,_tenant,r,used)=>{balance+=r.monthly+r.topup-used},
 }});const db={rpc:async(name)=>({data:name==='start_inbox_delivery'?'lease':null,error:null}),from:()=>{let external;return {insert(v){external=v.external_id;return this},select(){return this},eq(){return this},update(){return this},single:async()=>{if(claims.has(external))return {error:{code:'23505'}};claims.add(external);return {data:{id:'message'}}},maybeSingle:async()=>({data:{tenant_id:'shop'}})}}};
- const notify=load('lib/slip/notify.ts',{'server-only':{},'@/lib/message-quota':quota,'@/lib/facebook':{SendApiError:class extends Error{},sendMessage:async()=>{sent++},sendText:async()=>{sent++},sendPaymentCard:async()=>{sent++},isWindowOrTagError:()=>false}})
+ const notify=load('lib/features/slips/notify.ts',{'server-only':{},'@/lib/features/inbox/inbox-automation-window':{assertAutomationWindow:async()=>{}},'@/lib/message-quota':quota,'@/lib/integrations/facebook/client':{SendApiError:class extends Error{},sendMessage:async()=>{sent++},sendText:async()=>{sent++},sendPaymentCard:async()=>{sent++},isWindowOrTagError:()=>false}})
  return {quota,notify,db,customer:{id:'customer',psid:'123',token:'test'},balance:()=>balance,sent:()=>sent}
 }
 test('Auto-reply cannot send message 101 and duplicate delivery never consumes extra credits',async()=>{

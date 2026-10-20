@@ -1,4 +1,4 @@
-import type { CfOrderStatus, OrderStatus, SlipStatus } from './types'
+import type { CfOrderStatus, OrderStatus, SlipStatus } from '@/lib/types'
 
 /** Status tones are reserved for state: never reuse them for decoration. Always shown with a label. */
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'

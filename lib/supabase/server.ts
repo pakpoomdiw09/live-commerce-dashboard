@@ -2,16 +2,20 @@ import 'server-only'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { requireSupabaseEnv } from './env'
+import { requireSupabaseEnv } from '@/lib/supabase/env'
 
 /** Service role: bypasses RLS. Webhooks and trusted API routes only. */
-export const supabaseAdmin = () => {
+export const supabaseAdmin = (options: {timeoutMs?:number} = {}) => {
   const { url } = requireSupabaseEnv()
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim()
   if (!serviceKey) throw new Error('ยังไม่ได้ตั้งค่า SUPABASE_SERVICE_ROLE_KEY ใน .env.local')
   return createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+    global: { fetch: (input, init) => {
+      const timeout=options.timeoutMs?AbortSignal.timeout(options.timeoutMs):undefined
+      const signal=timeout?(init?.signal?AbortSignal.any([init.signal,timeout]):timeout):init?.signal
+      return fetch(input, { ...init, signal, cache: 'no-store' })
+    } },
   })
 }
 

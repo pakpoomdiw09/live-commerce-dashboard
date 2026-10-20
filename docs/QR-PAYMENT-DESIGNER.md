@@ -17,7 +17,7 @@ Next.js App Router / React / Tailwind และ Supabase เดิม ไม่�
 
 ## ไฟล์
 
-ใหม่: `components/slips/BankQrWorkspace.tsx`, `lib/qr-design.ts`, `app/api/payment-designs/route.ts`, `supabase/qr-payment-designer.sql`, ชุดทดสอบ `scripts/test-qr-designer*.cjs` และ `scripts/check-qr-designer-browser.cjs`
+ใหม่: `components/slips/BankQrWorkspace.tsx`, `lib/features/payments/qr-design.ts`, `app/api/payment-designs/route.ts`, `supabase/qr-payment-designer.sql`, ชุดทดสอบ `scripts/test-qr-designer*.cjs` และ `scripts/check-qr-designer-browser.cjs`
 
 ปรับ: BankAccountsManager, SlipTabs, SlipsDashboard, PaymentChannelsGuide, `/slips/page.tsx`, `.env.example` และ fixture/mock เดิมสำหรับทดสอบ rollback
 

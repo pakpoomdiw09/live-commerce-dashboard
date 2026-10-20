@@ -3,12 +3,12 @@ import { AlertTriangle, ArrowRight, Banknote, CheckCircle2, Coins, Hourglass, ty
 import { supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant, getTenants, tenantFilter } from '@/lib/tenant'
 import { APPROVABLE, SLIP_STATUS } from '@/lib/status'
-import { LiveRefresh } from '@/components/LiveRefresh'
+import { LiveRefresh } from '@/components/shared/LiveRefresh'
 import type { SlipStatus } from '@/lib/types'
 import { baht, cn, when } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
-import { InlineError } from '@/components/ErrorState'
+import { InlineError } from '@/components/shared/ErrorState'
 import { RevenueChart, type DayPoint } from '@/components/overview/RevenueChart'
 
 const DAYS = 14
@@ -78,15 +78,16 @@ export async function BasicOverviewPage() {
   const totalSlips = rows.length
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-8">
+    <div className="mx-0 w-full min-w-0 max-w-none min-h-full space-y-6 bg-[#fffaf8] p-4 md:space-y-7 md:p-8">
       {/* new slips, verdicts and approvals update the tiles and the chart without a reload */}
       <LiveRefresh channel="overview" tables={['slips', 'orders']} />
       <PageHeader
-        title="แดชบอร์ดสรุปยอด"
+        title="ภาพรวมธุรกิจ"
         description={`${tenant ? tenant.name : 'ทุกร้านค้า'} · ข้อมูล ${DAYS} วันล่าสุด`}
+        className="rounded-3xl border border-orange-100 bg-gradient-to-r from-white via-white to-orange-50/70 p-5 shadow-sm [&_h1]:text-2xl [&_h1]:font-bold md:p-6 md:[&_h1]:text-3xl [&_p]:text-sm"
         action={
           <Link href="/inbox" className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 hover:underline">
-            ไปกล่องข้อความ <ArrowRight className="h-4 w-4" aria-hidden />
+            ไปยังกล่องข้อความ <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         }
       />
@@ -116,15 +117,15 @@ export async function BasicOverviewPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader title="ยอดรับเงินรายวัน (สลิปถูกต้อง + อนุมัติเอง)" description={`รวม ${baht(periodTotal)} ใน ${DAYS} วัน`} />
+        <Card className="xl:col-span-2 border-slate-200/80 shadow-[0_10px_35px_-25px_#33415555]">
+          <CardHeader title="ยอดรับเงินรายวัน (สลิปผ่านและอนุมัติแล้ว)" description={`รวม ${baht(periodTotal)} ใน ${DAYS} วัน`} className="[&_h2]:text-base [&_h2]:font-bold [&_p]:mt-1 [&_p]:text-sm" />
           <div className="p-5">
             <RevenueChart data={points} />
           </div>
         </Card>
 
-        <Card>
-          <CardHeader title="ผลตรวจสลิป" description={`${totalSlips.toLocaleString('th-TH')} สลิปใน ${DAYS} วัน`} />
+        <Card className="border-slate-200/80 shadow-[0_10px_35px_-25px_#33415555]">
+          <CardHeader title="ผลตรวจสลิป" description={`${totalSlips.toLocaleString('th-TH')} สลิปใน ${DAYS} วัน`} className="[&_h2]:text-base [&_h2]:font-bold [&_p]:mt-1 [&_p]:text-sm" />
           <ul className="space-y-3 p-5">
             {(Object.keys(SLIP_STATUS) as SlipStatus[]).map((s) => {
               const n = byStatus.get(s) ?? 0
@@ -147,10 +148,11 @@ export async function BasicOverviewPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="border-slate-200/80 shadow-[0_10px_35px_-25px_#33415555]">
         <CardHeader
           title="สลิปที่ต้องตรวจสอบ"
           description="สลิปที่ระบบยังตัดสินไม่ได้ หรือไม่ผ่าน และยังไม่ได้อนุมัติด้วยตนเอง"
+          className="[&_h2]:text-base [&_h2]:font-bold [&_p]:mt-1 [&_p]:text-sm"
           action={
             <Link href="/slips" className="text-xs font-medium text-emerald-700 hover:underline">
               ดูทั้งหมด
@@ -194,9 +196,9 @@ function StatTile({ icon: Icon, label, value, foot, href }: { icon: LucideIcon; 
       <p className="mt-1 text-xs text-slate-500">{foot}</p>
     </>
   )
-  const cls = 'block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm'
+  const cls = 'block rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md'
   return href ? (
-    <Link href={href} className={cn(cls, 'transition hover:border-slate-300 hover:shadow-md')}>
+    <Link href={href} className={cn(cls)}>
       {body}
     </Link>
   ) : (

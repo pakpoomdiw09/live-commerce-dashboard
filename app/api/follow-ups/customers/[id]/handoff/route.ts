@@ -1,6 +1,6 @@
 import {NextRequest,NextResponse} from 'next/server'
-import {followUpTenant} from '@/lib/smart-followup-server'
-import {inboxError,InboxError,checkRpc} from '@/lib/inbox-server'
+import {followUpTenant} from '@/lib/features/follow-ups/smart-followup-server'
+import {inboxError,InboxError,checkRpc} from '@/lib/features/inbox/inbox-server'
 import {UUID} from '@/lib/utils'
 
 /** Take responsibility through the same version/lease/audit guard used by the Inbox. */

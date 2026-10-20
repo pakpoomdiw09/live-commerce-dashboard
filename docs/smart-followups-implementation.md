@@ -14,7 +14,7 @@
 ## ไฟล์ที่สร้าง
 
 - `supabase/smart-follow-ups.sql`, `supabase/smart-follow-ups-setup.md`
-- `lib/smart-followup-types.ts`, `lib/smart-followup-validation.ts`, `lib/smart-followup-server.ts`, `lib/followup-ai.ts`
+- `lib/features/follow-ups/smart-followup-types.ts`, `lib/features/follow-ups/smart-followup-validation.ts`, `lib/features/follow-ups/smart-followup-server.ts`, `lib/features/follow-ups/followup-ai.ts`
 - `components/chatbot/SmartFollowUpsClient.tsx`, `components/inbox/FollowUpContactControl.tsx`
 - `app/api/follow-ups/route.ts`
 - `app/api/follow-ups/jobs/[id]/route.ts`, `app/api/follow-ups/jobs/[id]/draft/route.ts`
@@ -25,12 +25,12 @@
 
 ## ไฟล์ที่แก้
 
-- `lib/follow-ups.ts`: worker transaction protocol / send flag / unknown-result handling
+- `lib/features/follow-ups/follow-ups.ts`: worker transaction protocol / send flag / unknown-result handling
 - `app/(dashboard)/chatbot/follow-ups/page.tsx`: authenticated server data และ Smart Dashboard
 - `components/chatbot/FollowUpsClient.tsx`: ใช้ entry point เดิมส่งต่อไป Smart Dashboard เอา UI และ browser mutations รุ่นเก่าที่ไม่ได้ใช้ออก
 - `app/api/webhook/facebook/route.ts`: observe stored incoming messages / real AI classification / complaint handoff; signature และ slip pipeline เดิมคงทำงาน
 - `app/(dashboard)/shop/page.tsx`, `components/shop/ShopClient.tsx`: confirmed order และบันทึกหลักฐานส่งถึง
-- `components/inbox/Inspector.tsx`, `components/inbox/useInboxState.ts`: contact controls และ cleanup ของ request generation
+- `components/inbox/Inspector.tsx`, `hooks/inbox/useInboxState.ts`: contact controls และ cleanup ของ request generation
 - `.env.example`, `package.json`, `package-lock.json`: flag ตัวอย่างและ dev tooling lint
 
 ## TESTED
@@ -56,4 +56,4 @@
 
 ไม่คัดลอก `PLAN_ENTITLEMENTS` ตัวอย่างมาทับสิทธิ์ลูกค้า และไม่เพิ่ม `evaluateFollowUp` ฝั่ง client ที่ทำให้เงื่อนไขซ้ำซ้อน ระบบใช้ `has_tenant_feature` ตรวจ subscription/expiry จากฐานข้อมูล และ `prepare_follow_up` ตรวจเงื่อนไข/จองเครดิตภายใน transaction ก่อนส่งจริงอยู่แล้ว
 
-รอบนี้เพิ่ม `app/api/follow-ups/customers/[id]/handoff/route.ts` และแก้ `lib/smart-followup-server.ts`, `lib/smart-followup-types.ts`, `components/chatbot/SmartFollowUpsClient.tsx`, tests ทั้งสองไฟล์ และเอกสาร เพื่อเติมการแสดงยอดจริง/ปุ่มจัดการจาก Dashboard ไม่มี schema หรือ migration ใหม่ ใช้ `smart-follow-ups.sql` และ `smart-inbox.sql` ที่เตรียมไว้ ไม่แก้ `.env.local` และไม่เปิด live send
+รอบนี้เพิ่ม `app/api/follow-ups/customers/[id]/handoff/route.ts` และแก้ `lib/features/follow-ups/smart-followup-server.ts`, `lib/features/follow-ups/smart-followup-types.ts`, `components/chatbot/SmartFollowUpsClient.tsx`, tests ทั้งสองไฟล์ และเอกสาร เพื่อเติมการแสดงยอดจริง/ปุ่มจัดการจาก Dashboard ไม่มี schema หรือ migration ใหม่ ใช้ `smart-follow-ups.sql` และ `smart-inbox.sql` ที่เตรียมไว้ ไม่แก้ `.env.local` และไม่เปิด live send

@@ -11,7 +11,7 @@ function transpile(file) {
   }).outputText
 }
 
-const facebookCode = transpile('lib/facebook.ts')
+const facebookCode = transpile('lib/integrations/facebook/client.ts')
 const tenantCode = transpile('lib/tenant.ts')
 
 // Use the real Facebook helpers with fake credentials and mocked Supabase/Meta responses.
@@ -23,6 +23,7 @@ function fixture({ rows = [], env = {}, dbError = null, dbThrows = false, debugE
   const facebook = {}
   vm.runInNewContext(facebookCode, {
     exports: facebook,
+    require: name => { assert.equal(name, '@/lib/safe-logging'); return require('./helpers/load-safe-logging.cjs')({ info: (...args) => logs.push(args), warn: (...args) => logs.push(args), error: (...args) => logs.push(args) }) },
     process: { env },
     AbortSignal,
     URL,
@@ -87,7 +88,7 @@ function fixture({ rows = [], env = {}, dbError = null, dbThrows = false, debugE
     'next/headers': { cookies: async () => ({ get: () => undefined }) },
     '@/lib/supabase/server': { supabaseAdmin: admin, supabaseServer: admin },
     '@/lib/auth': { getActor: async () => null, tenantRole: async () => null },
-    '@/lib/facebook': facebook,
+    '@/lib/integrations/facebook/client': facebook,
     '@/lib/types': { TENANT_COLUMNS: 'id,page_id,page_name,page_token_set' },
   }
   const tenant = {}
@@ -149,7 +150,9 @@ test('direct Page picture works without metadata permission and debug output nev
   assert.equal(page.name, tenant.page_name)
   assert.equal(page.picture, 'https://cdn.example/profile.jpg')
   assert.ok(!JSON.stringify(api.logs).includes(row.page_access_token))
-  assert.ok(JSON.stringify(api.logs).includes('REDACTED'))
+  const safeRecords = api.logs.filter(args => typeof args[0] === 'string' && args[0].startsWith('{'))
+  assert.ok(safeRecords.length > 0)
+  assert.ok(safeRecords.every(args => Object.keys(JSON.parse(args[0])).every(key => ['requestId','eventType','status','durationMs','errorCode'].includes(key))))
 })
 
 test('tenantPages retains its viewer-safe Page name during a service-role read failure', async () => {

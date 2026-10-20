@@ -1,7 +1,7 @@
 import { getActor } from '@/lib/auth'
 import { connectedFacebookPage, getTenants, getViewer } from '@/lib/tenant'
 import { TenantSettingsForm } from '@/components/settings/TenantSettingsForm'
-import { InlineError } from '@/components/ErrorState'
+import { InlineError } from '@/components/shared/ErrorState'
 
 export const metadata = { title: 'สร้างร้านค้าใหม่' }
 

@@ -1,11 +1,11 @@
 import { hasFeature } from '@/lib/feature-access'
-import { FeatureLocked } from '@/components/FeatureLocked'
+import { FeatureLocked } from '@/components/shared/FeatureLocked'
 import { supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant } from '@/lib/tenant'
-import { SetupNotice } from '@/components/SetupNotice'
+import { SetupNotice } from '@/components/shared/SetupNotice'
 import { CUSTOMER_COLUMNS, type CustomerRow } from '@/lib/types'
 import { CustomersTable, type CustomerListRow } from '@/components/customers/CustomersTable'
-import { InlineError } from '@/components/ErrorState'
+import { InlineError } from '@/components/shared/ErrorState'
 
 export const metadata = { title: 'จัดการลูกค้า' }
 

@@ -42,7 +42,8 @@ language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.sender='customer' then
   update public.customers set inbound_seq=inbound_seq+1,conversation_status='open',conversation_version=conversation_version+1,
-    last_message_at=greatest(coalesce(last_message_at,new.created_at),new.created_at)
+    last_message_at=case when platform='facebook' then last_message_at
+      else greatest(coalesce(last_message_at,new.created_at),new.created_at) end
     where id=new.customer_id returning inbound_seq into new.inbound_seq;
  end if;
  return new;

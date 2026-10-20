@@ -28,9 +28,9 @@ function fixture({ actor = {}, member = true, owner = true, scope = { tenant_id:
     '@/lib/supabase/server': { supabaseAdmin() { calls.push('admin'); return db } },
     '@/lib/auth': { getActor: async () => actor, canAccessTenant: async (_actor, tenant, role) => { calls.push(role || 'member'); assert.equal(tenant, 'shop'); return role === 'owner' ? owner : member } },
     '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/ },
-    '@/lib/slip/detail': { loadSlipDetail: async (_db, _id, tenant) => { calls.push('detail'); assert.equal(tenant, 'shop'); return { tenant_id: 'shop' } } },
-    '@/lib/orders': { pendingOrders() { throw Error('Must not modify orders') } },
-    '@/lib/slip/process': { markOrdersPaid() { throw Error('Must not modify orders') } },
+    '@/lib/features/slips/detail': { loadSlipDetail: async (_db, _id, tenant) => { calls.push('detail'); assert.equal(tenant, 'shop'); return { tenant_id: 'shop' } } },
+    '@/lib/features/commerce/orders': { pendingOrders() { throw Error('Must not modify orders') } },
+    '@/lib/features/slips/process': { markOrdersPaid() { throw Error('Must not modify orders') } },
     '@/lib/status': { APPROVABLE: ['valid'] },
   }
   return { calls, mocks }

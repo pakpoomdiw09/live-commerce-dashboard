@@ -17,9 +17,9 @@ import {
   type PlanId,
   type TopupId,
   type SlipTopupId,
-} from '@/lib/plans'
+} from '@/lib/features/billing/plans'
 import type { Tone } from '@/lib/status'
-import type { PaidPlan } from '@/lib/payment-types'
+import type { PaidPlan } from '@/lib/features/payments/payment-types'
 import { apiError, cn, when } from '@/lib/utils'
 import { PaymentModal } from '@/components/payments/PaymentModal'
 import { BillingProof } from '@/components/billing/BillingProof'
@@ -100,7 +100,7 @@ export function BillingClient({ tenantId, billing: initialBilling, canBuy, payme
   const left = creditsLeft(billing)
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-8">
+    <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
       {paymentPlan && (
         <PaymentModal
           key={`${tenantId}:${paymentPlan}`} tenantId={tenantId} plan={paymentPlan}

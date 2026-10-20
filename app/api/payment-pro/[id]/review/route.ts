@@ -1,6 +1,6 @@
 import { NextRequest,NextResponse } from 'next/server'
-import { paymentProTenant } from '@/lib/payment-pro-server'
-import { inboxError,InboxError } from '@/lib/inbox-server'
+import { paymentProTenant } from '@/lib/features/payments/payment-pro-server'
+import { inboxError,InboxError } from '@/lib/features/inbox/inbox-server'
 import { UUID } from '@/lib/utils'
 export const runtime='nodejs'
 export const maxDuration=60
@@ -19,7 +19,7 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{id:string}>
     if(result.error)throw result.error
     if(result.data!==true)throw new InboxError('ไม่สามารถยืนยันได้ หลักฐานจาก Provider หรือออเดอร์ยังไม่ผ่านเงื่อนไข',409,'PAYMENT_REVIEW_REQUIRED')
     if(body.action==='retry'){
-      const {resumePaymentPro}=await import('@/lib/payment-pro')
+      const {resumePaymentPro}=await import('@/lib/features/payments/payment-pro')
       await resumePaymentPro(db,id,tenantId)
     }
     return NextResponse.json({ok:true})

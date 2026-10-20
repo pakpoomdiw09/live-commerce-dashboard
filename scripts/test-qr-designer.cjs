@@ -1,6 +1,6 @@
 const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),assert=require('node:assert/strict'),{test}=require('node:test'),{PGlite}=require('@electric-sql/pglite')
 test('designer validates colors and bounded text; five distinct templates',()=>{
- const context={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/qr-design.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,context)
+ const context={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/features/payments/qr-design.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,context)
  const {validateQrDesign,defaultQrDesign,qrTemplates}=context.exports
  assert.equal(qrTemplates.length,5);assert.equal(new Set(qrTemplates.map(t=>t.frame)).size,5)
  assert.equal(validateQrDesign(defaultQrDesign).caption,'สแกนเพื่อชำระเงิน')

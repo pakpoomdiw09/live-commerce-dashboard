@@ -8,7 +8,7 @@ const {PGlite}=require(process.argv[2]||'@electric-sql/pglite')
  create table tenants(id uuid primary key default gen_random_uuid(),plan text default 'starter',is_active boolean default true,auto_reply_enabled boolean default true);
  create table tenant_members(tenant_id uuid references tenants(id),user_id uuid references auth.users(id),role text);
  create table platform_admins(user_id uuid primary key references auth.users(id));
- create table customers(id uuid primary key default gen_random_uuid(),tenant_id uuid references tenants(id),bot_enabled boolean default true,last_message_at timestamptz,handover_at timestamptz);
+ create table customers(id uuid primary key default gen_random_uuid(),platform text not null default 'facebook',tenant_id uuid references tenants(id),bot_enabled boolean default true,last_message_at timestamptz,handover_at timestamptz);
  create table messages(id uuid primary key default gen_random_uuid(),customer_id uuid references customers(id),sender text,external_id text unique,created_at timestamptz default now());
  create table bot_settings(tenant_id uuid primary key references tenants(id),reply_mode text);
  create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);

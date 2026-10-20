@@ -10,10 +10,10 @@
 
 | ระบบ | หลักฐานใน source | ขอบเขตที่ยืนยันได้ |
 |---|---|---|
-| สลิป | `lib/slip/slipok.ts`, `lib/slip/process.ts` | ผลผ่านมาจาก SlipOK และตรวจบัญชีร้าน ไม่ใช้คำตอบโมเดลยืนยันเงิน |
-| AI ภาพ | `lib/vision-provider.ts`, `lib/vision-types.ts`, `lib/vision.ts` | ตรวจประเภทภาพและส่งต่อสลิปให้ verifier ไม่มีเส้นทางให้โมเดลตั้งสถานะ paid เอง |
+| สลิป | `lib/features/slips/slipok.ts`, `lib/features/slips/process.ts` | ผลผ่านมาจาก SlipOK และตรวจบัญชีร้าน ไม่ใช้คำตอบโมเดลยืนยันเงิน |
+| AI ภาพ | `lib/features/vision/vision-provider.ts`, `lib/features/vision/vision-types.ts`, `lib/features/vision/vision.ts` | ตรวจประเภทภาพและส่งต่อสลิปให้ verifier ไม่มีเส้นทางให้โมเดลตั้งสถานะ paid เอง |
 | ป้องกันธุรกรรมซ้ำ | `supabase/schema.sql`, `payments.sql`, `payment-pro.sql` | unique index ของ valid slip และ permanent transfer ledger ข้ามช่องทาง ต้องติดตั้ง migrations จริง |
-| ธนาคาร | `app/api/bank-accounts/route.ts`, `lib/slip-bank-server.ts`, `supabase/slip-bank-controls.sql` | staff ได้เลขปิดบัง Owner/platform Admin แก้ผ่าน RPC พร้อม audit โดยไม่เก็บเลขเต็มใน audit |
+| ธนาคาร | `app/api/bank-accounts/route.ts`, `lib/features/slips/slip-bank-server.ts`, `supabase/slip-bank-controls.sql` | staff ได้เลขปิดบัง Owner/platform Admin แก้ผ่าน RPC พร้อม audit โดยไม่เก็บเลขเต็มใน audit |
 | Inbox | `supabase/smart-inbox.sql`, `app/api/messages/send/route.ts` | version, assignment, delivery lease, durable client ID และผลส่ง unknown |
 | Payment Pro | `supabase/payment-pro.sql` | ตรวจ receiver/amount/order snapshot/เวลา จับ ledger conflict และเปลี่ยน order/หยุด payment follow-up ภายใน transaction |
 | Webhook | `app/api/webhook/facebook/route.ts` | มี signature/dedup และใช้โมดูลเดิม ไม่แก้ route หรือการตรวจลายเซ็นในงานนี้ |
@@ -22,8 +22,8 @@
 
 ### แก้ในรอบนี้
 
-- `lib/slip/process.ts`: valid ต้องมีเลขอ้างอิงที่ไม่ว่างและยอด finite > 0 แม้ไม่มี expected amount ป้องกัน NULL reference หลุด unique index
-- `lib/slip/slipok.ts`: รับ transRef เฉพาะ string และ trim ก่อนใช้กับ ledger/index
+- `lib/features/slips/process.ts`: valid ต้องมีเลขอ้างอิงที่ไม่ว่างและยอด finite > 0 แม้ไม่มี expected amount ป้องกัน NULL reference หลุด unique index
+- `lib/features/slips/slipok.ts`: รับ transRef เฉพาะ string และ trim ก่อนใช้กับ ledger/index
 - อัปเดต customer เฉพาะ tenant เดียวกันและสถานะ `new`/`pending_review` ไม่เขียนทับ `paid`/`approved`/`shipped` เมื่อส่งสลิปที่มีปัญหาภายหลัง
 - `supabase/security.sql` และ `facebook-tenants.sql`: ตัดการ grant เลขบัญชีเต็มกลับให้สมาชิกทุกคนเมื่อรัน setup ซ้ำ เส้นทางอ่านเลขเต็มผ่าน API ที่ตรวจ Owner/platform Admin ยังคงเดิม
 - เพิ่ม regression tests สำหรับเลขอ้างอิงหาย ยอดผิด และสถานะถอยหลัง
@@ -45,10 +45,10 @@
 - `app/api/automation-safety/route.ts`: GET ตรวจสมาชิก, PATCH ตรวจ Owner/platform Admin; ไม่รับ actor/tenant จาก body ไม่ผูก emergency stop กับสิทธิ์ซื้อ AI เพื่อให้หยุดได้แม้แพ็กเกจหมด
 - `lib/automation-safety.ts`: อ่านสถานะใหม่ทุก boundary ไม่ cache; ถ้า query ล้มเหลวให้หยุดงานด้วย error ไม่มี fallback เป็นอนุญาตส่ง
 - `AutomationEmergencyStop.tsx`: ปุ่ม “หยุดฉุกเฉิน” ใน Control Center และหน้า legacy; หาก flag ไม่เปิด แสดงว่ายังไม่เปิดใช้งาน การเปิดกลับต้องยืนยัน
-- `lib/ai-agent.ts`: ตรวจ tenant stop ก่อนเรียกโมเดล ก่อน retry และหลังได้คำตอบ
-- `lib/followup-ai.ts` และ `lib/vision.ts`: เพิ่ม global/tenant stop ที่ provider boundary และตรวจหลังผลลัพธ์ ไม่ให้ผล AI ที่เสร็จช้าเปิดระบบกลับเอง
-- `lib/slip/notify.ts`: ตรวจ stop ก่อน automatic bot message แต่ละส่วน ไม่รวม Broadcast ที่ผู้ใช้สั่งและปุ่มยืนยันสลิปที่แอดมินสั่งเอง
-- `lib/follow-ups.ts`: งานที่หยุดก่อน prepare ไป `requires_review`; หากหยุดหลัง reserve แต่ก่อนส่ง ให้ settle แบบ failed เพื่อคืนเครดิตตาม RPC เดิม
+- `lib/features/agents/ai-agent.ts`: ตรวจ tenant stop ก่อนเรียกโมเดล ก่อน retry และหลังได้คำตอบ
+- `lib/features/follow-ups/followup-ai.ts` และ `lib/features/vision/vision.ts`: เพิ่ม global/tenant stop ที่ provider boundary และตรวจหลังผลลัพธ์ ไม่ให้ผล AI ที่เสร็จช้าเปิดระบบกลับเอง
+- `lib/features/slips/notify.ts`: ตรวจ stop ก่อน automatic bot message แต่ละส่วน ไม่รวม Broadcast ที่ผู้ใช้สั่งและปุ่มยืนยันสลิปที่แอดมินสั่งเอง
+- `lib/features/follow-ups/follow-ups.ts`: งานที่หยุดก่อน prepare ไป `requires_review`; หากหยุดหลัง reserve แต่ก่อนส่ง ให้ settle แบบ failed เพื่อคืนเครดิตตาม RPC เดิม
 - `claim_and_start_inbox_reply`: รับช่วง ownership และขอ delivery lease ใน transaction เดียวก่อนส่งข้อความจาก Inbox ป้องกันการแย่งงาน admin อื่น ไม่ข้าม version หรือ lease เดิม
 - Inbox ใช้ server capability `autoClaimOnReply` เพื่อเปิดพิมพ์แชทที่ยังไม่มีคนรับเมื่อ flag เปิด ไม่อ้างสิทธิ์จาก client อย่างเดียว
 
@@ -139,7 +139,7 @@ Rollback UI/policy รุ่นใหม่: ใช้ขั้นตอนใ�
 
 ## รายการไฟล์
 
-ไฟล์ core ที่เปลี่ยน: `lib/slip/process.ts`, `lib/slip/slipok.ts`, `lib/ai-agent.ts`, `lib/followup-ai.ts`, `lib/vision.ts`, `lib/slip/notify.ts`, `lib/follow-ups.ts`, `lib/agent-control-core.ts`, `lib/types.ts`, `lib/inbox-types.ts`, `app/api/messages/send/route.ts`, `app/api/inbox/state/route.ts` และ grant ใน `supabase/security.sql`, `supabase/facebook-tenants.sql`
+ไฟล์ core ที่เปลี่ยน: `lib/features/slips/process.ts`, `lib/features/slips/slipok.ts`, `lib/features/agents/ai-agent.ts`, `lib/features/follow-ups/followup-ai.ts`, `lib/features/vision/vision.ts`, `lib/features/slips/notify.ts`, `lib/features/follow-ups/follow-ups.ts`, `lib/features/agents/agent-control-core.ts`, `lib/types.ts`, `lib/features/inbox/inbox-types.ts`, `app/api/messages/send/route.ts`, `app/api/inbox/state/route.ts` และ grant ใน `supabase/security.sql`, `supabase/facebook-tenants.sql`
 
 ไฟล์ core ใหม่: `lib/domain-state.ts`, `lib/automation-safety.ts`, `app/api/automation-safety/route.ts`, `supabase/automation-safety.sql`
 

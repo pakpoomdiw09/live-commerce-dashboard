@@ -1,10 +1,10 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { Package, ShoppingCart, X } from 'lucide-react'
-import { parseCheckout } from '@/lib/commerce-core'
-import type { PublicStoreData } from '@/lib/commerce-server'
-import { CommerceDesign } from './CommerceDesign'
-import { commerceButton as btn, commerceInput as input, commercePrimary as primary } from './CommerceEditor'
+import { parseCheckout } from '@/lib/features/commerce/commerce-core'
+import type { PublicStoreData } from '@/lib/features/commerce/commerce-server'
+import { CommerceDesign } from '@/components/shop/CommerceDesign'
+import { commerceButton as btn, commerceInput as input, commercePrimary as primary } from '@/components/shop/CommerceEditor'
 type CartItem = { product_id: string; variant_id: string | null; qty: number }
 const price = (n: any) => `฿${Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`
 export function CommerceStorefront({ data }: { data: PublicStoreData }) {

@@ -1,4 +1,4 @@
-import { getBilling } from '@/lib/billing'
+import { getBilling } from '@/lib/features/billing/billing'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { loadFeatureAccess, LOCKED_ACCESS } from '@/lib/feature-access'
 import { AppShell } from '@/components/shell/AppShell'

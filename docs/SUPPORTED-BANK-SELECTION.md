@@ -1,6 +1,6 @@
 # Supported bank selection
 
-The selector now uses `SUPPORTED_BANKS` from `lib/banks.ts`: the 18 institutions in https://slipok.com/api-documentation/bank-code/ (checked 2026-10-16).
+The selector now uses `SUPPORTED_BANKS` from `lib/features/banking/banks.ts`: the 18 institutions in https://slipok.com/api-documentation/bank-code/ (checked 2026-10-16).
 
 The full 36-entry registry, aliases, assets, database constraints and existing account rows are preserved. PromptPay is a payment channel outside this list and is no longer offered for new bank selections. Existing QR data and rendering remain available.
 
@@ -21,8 +21,8 @@ Final results: TypeScript and production build passed (existing lint warnings re
 
 Changed files:
 
-- `lib/banks.ts`, `lib/bank-accounts.ts`, `lib/validation.ts`
-- `components/BankSelector.tsx`, `components/settings/BankAccountsManager.tsx`
+- `lib/features/banking/banks.ts`, `lib/features/banking/bank-accounts.ts`, `lib/validation.ts`
+- `components/banking/BankSelector.tsx`, `components/settings/BankAccountsManager.tsx`
 - `app/api/bank-accounts/route.ts`, `app/api/tenants/[id]/route.ts`
 - `scripts/test-bank-registry.cjs`, `scripts/test-slip-single-page.cjs`, `scripts/test-supported-bank-guard.cjs`
 - `scripts/check-bank-selector-browser.cjs`, `scripts/fixtures/bank-selector-entry.tsx`

@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react'
 import type {CustomerRow} from '@/lib/types'
 import {apiError,baht,when} from '@/lib/utils'
-import type {InboxMember} from '@/lib/inbox-types'
+import type {InboxMember} from '@/lib/features/inbox/inbox-types'
 type Detail={orders:{id:string;product_name:string;amount:number;status:string;created_at:string}[];events:{id:string;actor_id:string|null;next_assignee:string|null;action:string;created_at:string;reason?:string|null}[];followups?:{id:string;kind:string;status:string;run_at:string;sent_at:string|null}[]}
 const ACTION:Record<string,string>={claim:'รับแชท',transfer:'โอนแชท',close:'ปิดแชท',reopen:'เปิดแชทใหม่',pause:"หยุดตอบอัตโนมัติชั่วคราว",bot:"เปิดการตอบอัตโนมัติ",handover:"ระบบอัตโนมัติส่งต่อให้แอดมิน",release:'คืนคิวรอรับ',start:'เริ่มดูแล',resolve:'แก้ไขเสร็จแล้ว'}
 export function ConversationHistory({customer,members,section}:{customer:CustomerRow;members:InboxMember[];section?:'orders'|'history'}){

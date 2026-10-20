@@ -1,6 +1,6 @@
 # Bank Registry และตัวเลือกธนาคาร SnapBot
 
-ตรวจข้อมูลวันที่ 16 ตุลาคม 2569 ใช้ `lib/banks.ts` เป็นแหล่งข้อมูลกลางสำหรับรหัส ชื่อไทย/อังกฤษ alias ประเภท สถานะตรวจสลิป และไฟล์โลโก้
+ตรวจข้อมูลวันที่ 16 ตุลาคม 2569 ใช้ `lib/features/banking/banks.ts` เป็นแหล่งข้อมูลกลางสำหรับรหัส ชื่อไทย/อังกฤษ alias ประเภท สถานะตรวจสลิป และไฟล์โลโก้
 
 ## ขอบเขตและแหล่งอ้างอิง
 
@@ -40,16 +40,16 @@
 
 ธนาคารอีก 17 แห่งมี `slipCode:null`, `support:manual` และข้อความยังไม่รองรับการตรวจอัตโนมัติ ได้แก่ SCBT, SMTB, MEGA, BOC, CLICX, JPM, CITI, SMBC, DB, BNP, MHCB, BOFA, RHB, IOB, OCBC, HSBC, IBANK ไม่เดารหัสจาก SWIFT/ชุดรูปหรือถือว่ามีธนาคารแล้วจะตรวจเงินได้
 
-`lib/slip/process.ts` ใช้ `findBank` จาก Registry แทน mapping อีกชุดสำหรับเทียบธนาคาร เงื่อนไขยอด ผู้รับ สลิปซ้ำ เครดิต และการยืนยันเงินจาก SlipOK เดิมยังทำงานตามเดิม ไม่ใช้ AI ยืนยันเงิน พร้อมเพย์คงการเทียบ proxy เดิม
+`lib/features/slips/process.ts` ใช้ `findBank` จาก Registry แทน mapping อีกชุดสำหรับเทียบธนาคาร เงื่อนไขยอด ผู้รับ สลิปซ้ำ เครดิต และการยืนยันเงินจาก SlipOK เดิมยังทำงานตามเดิม ไม่ใช้ AI ยืนยันเงิน พร้อมเพย์คงการเทียบ proxy เดิม
 
 ไม่เพิ่ม TMB/ธนชาตเป็นธนาคารแยก ไม่เพิ่ม RBS, ANZ หรือ MUFG/BTMU ที่พ้นรายชื่อปัจจุบัน Citi สาขาไทยยังเป็นนิติบุคคลที่เปิดดำเนินการ แม้ธุรกิจรายย่อยย้ายไป UOB; SMBC/SMTB และ ICBC/BOC เป็นคนละธนาคารและห้ามใช้โลโก้แทนกัน
 
 ## Component ที่หน้าใช้งานจริง
 
-- `components/BankSelector.tsx`: combobox/listbox ค้นหาไทย อังกฤษ รหัส SlipOK และ alias ใช้ลูกศร Home/End/Enter/Escape/Tab ปิดเมื่อคลิกภายนอก รองรับ IME และหยุด Enter ไม่ให้ไปบันทึกบัญชีโดยไม่ตั้งใจ
+- `components/banking/BankSelector.tsx`: combobox/listbox ค้นหาไทย อังกฤษ รหัส SlipOK และ alias ใช้ลูกศร Home/End/Enter/Escape/Tab ปิดเมื่อคลิกภายนอก รองรับ IME และหยุด Enter ไม่ให้ไปบันทึกบัญชีโดยไม่ตั้งใจ
 - `components/settings/BankAccountsManager.tsx`: เพิ่ม/แก้บัญชีจริงบน `/slips?tab=banks` ใช้ selector ใหม่ มีโลโก้ 56px บนการ์ด
 - `components/settings/TenantSettingsForm.tsx`: ใช้ selector เดียวกันสำหรับสร้างร้าน ไม่มี mapping ซ้ำ
-- `components/BankLogo.tsx` และ `BankLogoImage.tsx`: ใช้ไฟล์ local พร้อม fallback เมื่อไม่มีไฟล์หรือโหลดล้มเหลว ไม่ใช้ตัวอักษรเป็นโลโก้ และไม่โหลด CDN ภายนอกใน production
+- `components/banking/BankLogo.tsx` และ `BankLogoImage.tsx`: ใช้ไฟล์ local พร้อม fallback เมื่อไม่มีไฟล์หรือโหลดล้มเหลว ไม่ใช้ตัวอักษรเป็นโลโก้ และไม่โหลด CDN ภายนอกใน production
 
 รายละเอียดโลโก้ที่ติดตั้ง เวอร์ชัน ไฟล์ แหล่งที่มา สิทธิ์ และรายการที่ขาดอยู่ใน `docs/BANK-LOGO-SOURCES.md` และ `public/banks/manifest.json` ไม่อ้างสิทธิ์เครื่องหมายการค้าหรือการรับรองจากธนาคาร
 

@@ -1,7 +1,6 @@
-import {inboxWindow} from '@/lib/inbox-v2'
 import {NextRequest,NextResponse} from 'next/server'
-import {inboxCustomer,inboxError,InboxError,checkRpc} from '@/lib/inbox-server'
-import {pageTokenFor,sendMessageWithReceipt,SendApiError,isWindowOrTagError} from '@/lib/facebook'
+import {inboxCustomer,inboxError,InboxError,checkRpc} from '@/lib/features/inbox/inbox-server'
+import {pageTokenFor,sendMessageWithReceipt,SendApiError,isWindowOrTagError} from '@/lib/integrations/facebook/client'
 import {UUID} from '@/lib/utils'
 export const runtime='nodejs'
 
@@ -23,15 +22,15 @@ export async function POST(req:NextRequest){
    if(['sent','delivered','read'].includes(previous.data.delivery_status))return NextResponse.json({ok:true,...previous.data,duplicate:true})
    throw new InboxError('คำขอนี้ถูกประมวลผลแล้ว กรุณาตรวจสถานะข้อความในแชทก่อนส่งใหม่',409,'SEND_ALREADY_CLAIMED')
   }
-  const [page,last]=await Promise.all([
-   db.from('tenants').select('page_id,page_access_token').eq('id',tenantId).single(),
-   db.from('messages').select('created_at').eq('customer_id',customer.id).eq('sender','customer').order('created_at',{ascending:false}).limit(1).maybeSingle(),
-  ])
-  if(page.error||last.error)throw page.error||last.error
+  if(req.headers.get('sec-fetch-site')==='cross-site'||req.headers.get('origin')&&req.headers.get('origin')!==req.nextUrl.origin)throw new InboxError('ไม่อนุญาตคำขอจากเว็บไซต์อื่น',403)
+  const humanAgent=input.humanAgent===true
+  if(humanAgent&&(customer.assigned_user_id!==actor.id||customer.bot_enabled||customer.conversation_status!=='open'))throw new InboxError('กรุณารับแชทเพื่อให้แอดมินตอบด้วยตนเองก่อน',409,'HUMAN_HANDOVER_REQUIRED')
+  const page=await db.from('tenants').select('page_id,page_access_token').eq('id',tenantId).single()
+  if(page.error)throw page.error
   const token=pageTokenFor(page.data)
   if(!token)throw new InboxError("เพจนี้ยังไม่มี สิทธิ์เชื่อมต่อเพจ",409)
-  if(!inboxWindow(last.data?.created_at).allowed)throw new InboxError('ส่งไม่ได้: เกิน 24 ชั่วโมงนับจากข้อความล่าสุดของลูกค้า',409,'MESSAGING_WINDOW_CLOSED')
-  await (await import('@/lib/inbox-policy-server')).assertInboxPolicy(db,tenantId,customer.id,page.data.page_id,token)
+  const {assertInboxPolicy}=await import('@/lib/features/inbox/inbox-policy-server')
+  await assertInboxPolicy(db,tenantId,customer.id,page.data.page_id,token,humanAgent)
   let message:object={text},attachments:object[]=[]
   if(input.mediaId){
    if(!UUID.test(input.mediaId))throw new InboxError('ไฟล์แนบไม่ถูกต้อง')
@@ -47,12 +46,13 @@ export async function POST(req:NextRequest){
    ? await db.rpc('claim_and_start_inbox_reply',{p_customer:customer.id,p_actor:actor.id,p_version:customer.conversation_version??0})
    : await db.rpc('start_inbox_delivery',{p_customer:customer.id,p_actor:actor.id})
   checkRpc(started.error);lease=started.data
+  const messagingType=await assertInboxPolicy(db,tenantId,customer.id,page.data.page_id,token,humanAgent)
   const inserted=await db.from('messages').insert({customer_id:customer.id,external_id:externalId,sender:'agent',body:text||null,attachments,delivery_status:'pending'}).select('id').single()
   if(inserted.error?.code==='23505')throw new InboxError('ข้อความนี้กำลังถูกส่งแล้ว',409,'SEND_ALREADY_CLAIMED')
   if(inserted.error)throw inserted.error
   const id=inserted.data.id
   try{
-   const providerId=await sendMessageWithReceipt(token,customer.platform_user_id,message)
+   const providerId=await sendMessageWithReceipt(token,customer.platform_user_id,message,messagingType)
    const saved=await db.from('messages').update({provider_message_id:providerId,delivery_status:'sent'}).eq('id',id)
    if(saved.error){console.error('[inbox/send] receipt persistence failed',{id,code:saved.error.code});throw new Error('Receipt persistence failed')}
    return NextResponse.json({ok:true,id,delivery_status:'sent'})

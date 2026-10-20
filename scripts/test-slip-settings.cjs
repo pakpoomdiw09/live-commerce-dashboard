@@ -8,9 +8,9 @@ const compile = file => ts.transpileModule(readFileSync(join(__dirname, '..', fi
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText
 const plans = {}
-vm.runInNewContext(compile('lib/plans.ts'), { exports: plans })
+vm.runInNewContext(compile('lib/features/billing/plans.ts'), { exports: plans })
 const summary = {}
-vm.runInNewContext(compile('lib/slip-summary.ts'), { exports: summary })
+vm.runInNewContext(compile('lib/features/slips/slip-summary.ts'), { exports: summary })
 
 test('Slip dashboard totals distinguish passed, rejected, pending and provider errors', () => {
   const rows = [
@@ -35,8 +35,8 @@ async function submit(section, role = 'owner', featureBypass = false, tenantId =
       if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx }
       if (name === 'react') return { useState: initial => [initial, () => {}] }
       if (name === 'next/navigation') return { useRouter: () => ({ refresh() { refreshes++ }, replace() { throw new Error('Saving existing settings must not navigate away') } }) }
-      if (name === '@/lib/plans') return plans
-      if (name === '@/lib/banks') return { BANKS: [] }
+      if (name === '@/lib/features/billing/plans') return plans
+      if (name === '@/lib/features/banking/banks') return { BANKS: [] }
       if (name === '@/lib/utils') return { cn: (...args) => args.join(' '), apiError: async () => 'error' }
       return new Proxy({}, { get: (_, key) => String(key) })
     },

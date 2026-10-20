@@ -4,7 +4,7 @@ function load(file,deps={}){
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,ctx)
  return ctx.exports
 }
-const banks=load('lib/banks.ts'),validation=load('lib/validation.ts',{'./banks':banks,'./status':{}})
+const banks=load('lib/features/banking/banks.ts'),validation=load('lib/validation.ts',{'@/lib/features/banking/banks':banks,'@/lib/status':{}})
 test('selection allow-list is exactly 18 documented banks; aliases work and legacy registry stays intact',()=>{
  assert.equal(banks.SUPPORTED_BANKS.length,18)
  assert.equal(banks.BANKS.length,36)
@@ -23,8 +23,8 @@ function fixture(accounts,error=null){
   'next/server':{NextResponse:{json:(body,options={})=>({body,status:options.status??200})}},
   '@/lib/feature-access':{hasFeature:async()=>true},'@/lib/supabase/server':{supabaseAdmin:()=>({from:()=>q})},
   '@/lib/auth':{getActor:async()=>({kind:'user',id:'owner'}),tenantRole:async()=>'owner',roleAtLeast:()=>true},
-  '@/lib/facebook-oauth':{},'@/lib/tenant':{checkPageToken:async()=>({warnings:[]})},
-  '@/lib/validation':validation,'@/lib/types':{},'@/lib/utils':{UUID:/^[a-f0-9-]{36}$/},'@/lib/banks':banks,
+  '@/lib/integrations/facebook/oauth':{},'@/lib/tenant':{checkPageToken:async()=>({warnings:[]})},
+  '@/lib/validation':validation,'@/lib/types':{},'@/lib/utils':{UUID:/^[a-f0-9-]{36}$/},'@/lib/features/banking/banks':banks,
  })
  return {patch:enabled=>api.PATCH({json:async()=>({auto_verify_enabled:enabled})},{params:Promise.resolve({id:'11111111-1111-4111-8111-111111111111'})}),updates:()=>updates}
 }

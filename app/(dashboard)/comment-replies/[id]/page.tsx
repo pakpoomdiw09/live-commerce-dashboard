@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { supabaseServer } from '@/lib/supabase/server'
 import { getActiveTenant, tenantPages } from '@/lib/tenant'
-import { RULE_COLUMNS, type CommentRule } from '@/lib/comment-rules'
+import { RULE_COLUMNS, type CommentRule } from '@/lib/features/comments/comment-rules'
 import { RuleEditor } from '@/components/comment-rules/RuleEditor'
 
 export const metadata = { title: 'แก้ไขกฎตอบกลับคอมเมนต์' }

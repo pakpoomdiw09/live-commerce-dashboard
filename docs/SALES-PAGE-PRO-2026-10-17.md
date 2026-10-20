@@ -177,7 +177,7 @@ real shipping integration หรือระบบ CRM/notification ของอ
 - `POST /api/storefront/[slug]/checkout` สั่งซื้อแบบ transaction และ idempotency
 - Public pages `/s/[slug]`, `/s/[slug]/[page]` ดึงเฉพาะ published snapshot
 
-ไฟล์ใหม่หลัก: `lib/commerce-core.ts`, `lib/commerce-server.ts`,
+ไฟล์ใหม่หลัก: `lib/features/commerce/commerce-core.ts`, `lib/features/commerce/commerce-server.ts`,
 `components/shop/CommerceWorkspace.tsx`, `CommerceProducts.tsx`, `CommerceEditor.tsx`,
 `CommerceDesign.tsx`, `CommerceStorefront.tsx`, API/หน้า public ข้างต้น,
 หน้า loading/error, migration และชุดทดสอบ `scripts/test-commerce*.cjs`
