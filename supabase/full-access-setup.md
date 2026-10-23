@@ -9,9 +9,12 @@ subscriptions. It does not approve payments or change subscription dates/balance
 1. Run **all of `supabase/full-access.sql`** in the SQL Editor of the same Supabase
    project used by Vercel. Run it last, after feature-access, AI paid access,
    agent-overview, AI vision, commerce and keyword/follow-up migrations.
-2. The SQL runs in one transaction and saves the installed function definitions.
-   If it reports a missing prerequisite or unexpected expression, stop and resolve
-   that migration mismatch; no partial activation should be committed.
+2. The SQL runs in one transaction, saves existing function definitions for rollback
+   and installs explicit `CREATE OR REPLACE FUNCTION` definitions. It does not
+   search, parse, modify or execute the old function text during activation.
+   Function-body differences and whitespace therefore do not affect installation.
+   The underlying application tables/types must still exist from the prerequisite
+   migrations; this file is not a replacement for the base schema.
 3. Deploy the matching application commit. This repository does not automatically
    execute SQL on a GitHub push. The UI switch alone cannot unlock database RPCs
    or restrictive RLS policies. Until SQL is applied, existing database denials can

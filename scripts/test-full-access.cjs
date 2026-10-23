@@ -121,8 +121,22 @@ test('SQL bypass unlocks real reads and usage, preserves isolation and restores 
       (await one("select has_tenant_feature($1,'ai_agent') allowed", [tenant])).allowed,
       false,
     )
-    await db.exec(read('full-access.sql'))
-    await db.exec(read('full-access.sql')) // Rerunning never captures the bypass as the backup.
+    // Production may have a different function body, not just different spacing.
+    // Installation must not inspect or search the old implementation.
+    await db.exec(`create or replace function public.set_agent_overview_capability(
+      p_tenant uuid,p_actor uuid,p_capability text,p_enabled boolean
+    ) returns void language plpgsql set search_path=pg_catalog,public as $$
+    begin
+      raise exception 'LEGACY_QUOTA_IMPLEMENTATION';
+    end $$;`)
+    const activation = read('full-access.sql')
+    assert.ok(
+      !/pg_temp|full_access_replace|\bexecute\b\s+(body|definition)|\breplace\s*\(|\bstrpos\s*\(/i.test(
+        activation,
+      ),
+    )
+    await db.exec(activation)
+    await db.exec(activation) // Rerunning never captures the bypass as the backup.
     for (const feature of [
       'ai_agent',
       'slip_auto_pilot',
