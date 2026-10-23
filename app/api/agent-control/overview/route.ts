@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { agentControlTenant } from '@/lib/features/agents/agent-control-server'
 import { canAccessTenant } from '@/lib/auth'
@@ -7,6 +8,14 @@ import { inboxError, InboxError, checkRpc } from '@/lib/features/inbox/inbox-ser
 import { isSupportedBank, UNSUPPORTED_BANK_MESSAGE } from '@/lib/features/banking/banks'
 
 function upgradeResponse(code: 'FEATURE_LOCKED' | 'AI_QUOTA_EXHAUSTED' | 'SLIP_QUOTA_EXHAUSTED') {
+  if (temporaryFullAccess)
+    return NextResponse.json(
+      {
+        error: 'ระบบ Full Access ยังตั้งค่าไม่ครบ กรุณาติดต่อผู้ดูแลระบบ',
+        code: 'FULL_ACCESS_MIGRATION_REQUIRED',
+      },
+      { status: 503 },
+    )
   const messages = {
     FEATURE_LOCKED:
       'กรุณาชำระแพ็กเกจ Starter หรือ Pro ที่รองรับความสามารถนี้ก่อนใช้งาน หากแพ็กเกจหมดอายุ กรุณาต่ออายุแพ็กเกจ',
@@ -60,37 +69,39 @@ export async function PATCH(req: NextRequest) {
     )
       throw new InboxError('ข้อมูลการตั้งค่าไม่ถูกต้อง')
     if (input.capability === 'slips' && input.enabled) {
-      // Give entitlement/quota errors priority over bank setup errors. RPC rechecks atomically.
-      const [ai, slip, settings, usage, credits] = await Promise.all([
-        db.rpc('has_tenant_feature', { p_tenant: tenantId, p_feature: 'ai_agent' }),
-        db.rpc('has_tenant_feature', { p_tenant: tenantId, p_feature: 'slip_auto_pilot' }),
-        db
-          .from('agent_control_settings')
-          .select('ai_monthly_limit')
-          .eq('tenant_id', tenantId)
-          .maybeSingle(),
-        db
-          .from('agent_ai_monthly_usage')
-          .select('used')
-          .eq('tenant_id', tenantId)
-          .eq('month', new Date().toISOString().slice(0, 7) + '-01')
-          .maybeSingle(),
-        db
-          .from('tenants')
-          .select('slip_quota,slip_quota_credits,slip_used')
-          .eq('id', tenantId)
-          .maybeSingle(),
-      ])
-      if ([ai, slip, settings, usage, credits].some((result) => result.error) || !credits.data)
-        throw new InboxError('ตรวจสอบแพ็กเกจและโควตาไม่ได้ กรุณาลองใหม่', 503)
-      if (ai.data !== true || slip.data !== true) return upgradeResponse('FEATURE_LOCKED')
-      if ((settings.data?.ai_monthly_limit ?? 0) <= (usage.data?.used ?? 0))
-        return upgradeResponse('AI_QUOTA_EXHAUSTED')
-      if (
-        Number(credits.data.slip_quota) + Number(credits.data.slip_quota_credits) <=
-        Number(credits.data.slip_used)
-      )
-        return upgradeResponse('SLIP_QUOTA_EXHAUSTED')
+      if (!temporaryFullAccess) {
+        // Give entitlement/quota errors priority over bank setup errors. RPC rechecks atomically.
+        const [ai, slip, settings, usage, credits] = await Promise.all([
+          db.rpc('has_tenant_feature', { p_tenant: tenantId, p_feature: 'ai_agent' }),
+          db.rpc('has_tenant_feature', { p_tenant: tenantId, p_feature: 'slip_auto_pilot' }),
+          db
+            .from('agent_control_settings')
+            .select('ai_monthly_limit')
+            .eq('tenant_id', tenantId)
+            .maybeSingle(),
+          db
+            .from('agent_ai_monthly_usage')
+            .select('used')
+            .eq('tenant_id', tenantId)
+            .eq('month', new Date().toISOString().slice(0, 7) + '-01')
+            .maybeSingle(),
+          db
+            .from('tenants')
+            .select('slip_quota,slip_quota_credits,slip_used')
+            .eq('id', tenantId)
+            .maybeSingle(),
+        ])
+        if ([ai, slip, settings, usage, credits].some((result) => result.error) || !credits.data)
+          throw new InboxError('ตรวจสอบแพ็กเกจและโควตาไม่ได้ กรุณาลองใหม่', 503)
+        if (ai.data !== true || slip.data !== true) return upgradeResponse('FEATURE_LOCKED')
+        if ((settings.data?.ai_monthly_limit ?? 0) <= (usage.data?.used ?? 0))
+          return upgradeResponse('AI_QUOTA_EXHAUSTED')
+        if (
+          Number(credits.data.slip_quota) + Number(credits.data.slip_quota_credits) <=
+          Number(credits.data.slip_used)
+        )
+          return upgradeResponse('SLIP_QUOTA_EXHAUSTED')
+      }
       const accounts = await db
         .from('bank_accounts')
         .select('bank_code')

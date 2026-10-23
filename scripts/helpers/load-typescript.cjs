@@ -10,6 +10,9 @@ module.exports = function loadTypeScript(file, dependencies = {}, globals = {}) 
     require(name) {
       if (name === '@/lib/single-flight') return module.exports('lib/single-flight.ts', {}, globals)
       if (Object.hasOwn(dependencies, name)) return dependencies[name]
+      // Legacy entitlement tests exercise enforcement with the temporary mode OFF.
+      // Full Access tests explicitly inject the actual flag value instead.
+      if (name === '@/lib/full-access') return { temporaryFullAccess: false }
       throw new Error(`Unexpected dependency in ${file}: ${name}`)
     },
     ...globals,

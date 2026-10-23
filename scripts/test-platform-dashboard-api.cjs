@@ -22,6 +22,7 @@ function load(file, dependencies = {}, extra = {}) {
       require: (name) => {
         if (name === 'server-only') return {}
         if (name in dependencies) return dependencies[name]
+        if (name === '@/lib/full-access') return { temporaryFullAccess: false }
         throw Error(`Unexpected dependency: ${name}`)
       },
       console,

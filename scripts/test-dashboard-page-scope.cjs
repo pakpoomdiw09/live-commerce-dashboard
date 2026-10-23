@@ -104,7 +104,40 @@ function fixture(page) {
       console,
       require(name) {
         if (name === 'server-only') return {}
-        if (name === '@/lib/auth') return { requireDashboardUser: async () => ({ id: 'viewer' }) }
+        if (name === '@/lib/auth')
+          return {
+            requireDashboardUser: async () => ({ id: 'viewer' }),
+            getActor: async () => ({ kind: 'user', id: 'viewer' }),
+          }
+        if (name === '@/components/overview/PremiumOverviewPage')
+          return loadModule('components/overview/PremiumOverviewPage.tsx')
+        if (name === '@/lib/features/overview/premium-overview-server')
+          return {
+            loadPremiumOverview: async (_actor, tenantId) => {
+              queries.push({
+                table: 'overview_dashboard_stats',
+                filters: [['tenant_id', tenantId]],
+              })
+              return {
+                shop: { id: tenantId, name: `Page ${tenantId}` },
+                filters: { range: '30', page: 1, q: '' },
+                access: { slips: true, customers: true, ai: true },
+                metrics: {
+                  uniqueCustomers: 1,
+                  incomingMessages: 1,
+                  pending: 0,
+                  verifiedSlipAmount: rows
+                    .filter((row) => row.tenant_id === tenantId)
+                    .reduce((sum, row) => sum + row.amount, 0),
+                },
+                health: [],
+                slips: [],
+                chats: [],
+                activity: null,
+                hourActivity: null,
+              }
+            },
+          }
         if (name === '@/components/overview/BasicOverviewPage')
           return loadModule('components/overview/BasicOverviewPage.tsx')
         if (name === '@/lib/features/overview/basic-overview-server')
@@ -124,7 +157,7 @@ function fixture(page) {
         if (name === '@/lib/tenant')
           return {
             getActiveTenant: async () => tenant,
-            getTenants: async () => ({ error: null }),
+            getTenants: async () => ({ error: null, tenants: tenant ? [tenant] : [] }),
             getViewer: async () => ({ isPlatformAdmin: false, role: 'owner' }),
           }
         if (name === '@/lib/features/billing/billing')
@@ -180,10 +213,10 @@ test('Overview re-queries A → B → A, excludes unassigned/other Page slips an
     f.switchTo(id)
     const tree = await f.render()
     assert.equal(
-      find(tree, (n) => n.props?.label === 'ยอดรับเงินวันนี้').props.value,
-      `THB ${amount}`,
+      find(tree, (n) => n.type === 'PremiumOverview').props.data.metrics.verifiedSlipAmount,
+      amount,
     )
-    assert.equal(find(tree, (n) => n.type === 'LiveRefresh').props.filter, `tenant_id=eq.${id}`)
+    assert.equal(find(tree, (n) => n.type === 'PremiumOverview').props.data.shop.id, id)
     assert.equal(f.queries.at(-1).filters[0][1], id)
   }
 })

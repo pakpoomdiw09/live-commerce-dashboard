@@ -1,4 +1,5 @@
 'use client'
+import { temporaryFullAccess } from '@/lib/full-access'
 import { PageBanner } from '@/components/ui/page-banner'
 import { neutralSlipText } from '@/lib/ui-labels'
 import Image from 'next/image'
@@ -18,7 +19,7 @@ const date=(value:string|null)=>value?new Date(value).toLocaleString('th-TH',{ti
 const resultInfo={passed:{label:'ผ่าน / อนุมัติ',color:'#22c55e',style:'bg-green-50 text-green-700'},pending:{label:'รอตรวจสอบ',color:'#fb923c',style:'bg-orange-50 text-orange-700'},rejected:{label:'ไม่ผ่าน',color:'#f43f5e',style:'bg-rose-50 text-rose-700'},error:{label:'ตรวจไม่สำเร็จ',color:'#94a3b8',style:'bg-slate-100 text-slate-600'}}
 function Panel({title,subtitle,action,children,className=''}:{title:string;subtitle?:string;action?:ReactNode;children:ReactNode;className?:string}){return <section className={`min-w-0 rounded-3xl border border-orange-100/80 bg-white p-5 shadow-[0_8px_30px_-18px_#9a341233] md:p-6 ${className}`}><header className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4"><div><h2 className="text-lg font-bold tracking-tight text-slate-900">{title}</h2>{subtitle&&<p className="mt-1.5 text-sm leading-6 text-slate-500">{subtitle}</p>}</div>{action}</header>{children}</section>}
 function Empty({children}:{children:ReactNode}){return <p className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm leading-6 text-slate-500">{children}</p>}
-function Locked(){return <Empty><LockKeyhole className="mx-auto mb-2 h-5 w-5"/>แพ็กเกจปัจจุบันไม่รองรับข้อมูลส่วนนี้<br/><Link href="/billing" className="font-medium text-orange-700 underline">อัปเกรดแพ็กเกจ</Link></Empty>}
+function Locked(){if(temporaryFullAccess)return <Empty>ยังโหลดข้อมูลส่วนนี้ไม่ได้ กรุณาอัปเดตข้อมูลเพื่อลองใหม่</Empty>;return <Empty><LockKeyhole className="mx-auto mb-2 h-5 w-5"/>แพ็กเกจปัจจุบันไม่รองรับข้อมูลส่วนนี้<br/><Link href="/billing" className="font-medium text-orange-700 underline">อัปเกรดแพ็กเกจ</Link></Empty>}
 function Donut({data}:{data:PremiumOverviewData['results']}){
  if(!data)return <Locked/>
  const total=Object.values(data).reduce((a,b)=>a+b,0)

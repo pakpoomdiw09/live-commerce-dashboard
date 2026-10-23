@@ -1,4 +1,5 @@
 'use client'
+import { temporaryFullAccess } from '@/lib/full-access'
 
 import { PageBanner } from '@/components/ui/page-banner'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -290,7 +291,11 @@ export function VisionCenter({
             </section>
             <section className={box}>
               <p className="text-sm text-slate-500">โควตาภาพคงเหลือ</p>
-              <p className="mt-2 text-3xl font-bold">{data.usage.remaining.toLocaleString()}</p>
+              <p className="mt-2 text-3xl font-bold">
+                {temporaryFullAccess
+                  ? 'ไม่จำกัด (Full Access)'
+                  : data.usage.remaining.toLocaleString()}
+              </p>
               <p className="mt-1 text-xs text-slate-500">แยกจากเครดิตตรวจสลิปและข้อความ</p>
             </section>
             <section className={box}>
@@ -387,7 +392,7 @@ export function VisionCenter({
               />
               <button
                 className={button}
-                disabled={!file || busy || data.usage.remaining <= 0}
+                disabled={!file || busy || (!temporaryFullAccess && data.usage.remaining <= 0)}
                 onClick={() => void test()}
               >
                 {busy ? 'กำลังดำเนินการ…' : 'วิเคราะห์ภาพ'}

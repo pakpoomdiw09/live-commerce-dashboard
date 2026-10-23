@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasFeature, hasSlipAccess } from '@/lib/feature-access'
@@ -170,7 +171,8 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       .single()
     if (limit.error) throw limit.error
     const productSearch =
-      limit.data.product_search === true && (await hasFeature(db, job.tenant_id, 'ai_agent'))
+      (temporaryFullAccess || limit.data.product_search === true) &&
+      (await hasFeature(db, job.tenant_id, 'ai_agent'))
     const products = productSearch
       ? await db
           .from('products')

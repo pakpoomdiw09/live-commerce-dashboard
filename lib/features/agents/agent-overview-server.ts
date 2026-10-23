@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
@@ -23,6 +24,8 @@ export async function loadAgentOverview(
   const now = new Date(),
     month = now.toISOString().slice(0, 7) + '-01'
   const feature = async (name: string) => {
+    if (temporaryFullAccess)
+      return hasFeature(db, tenantId, name as import('@/lib/feature-access').Feature)
     const result = await db.rpc('has_tenant_feature', { p_tenant: tenantId, p_feature: name })
     if (result.error || typeof result.data !== 'boolean')
       throw new InboxError('ตรวจสอบสิทธิ์แพ็กเกจไม่ได้ กรุณาลองใหม่', 503)

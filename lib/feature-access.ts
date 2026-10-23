@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
@@ -25,6 +26,15 @@ export async function hasFeature(
   tenantId: string,
   feature: Feature,
 ): Promise<boolean> {
+  if (temporaryFullAccess) {
+    const { data, error } = await db
+      .from('tenants')
+      .select('id')
+      .eq('id', tenantId)
+      .eq('is_active', true)
+      .maybeSingle()
+    return !error && !!data
+  }
   try {
     const { data, error } = await db.rpc('has_tenant_feature', {
       p_tenant: tenantId,
@@ -60,6 +70,7 @@ export async function requireFeature(db: SupabaseClient, tenantId: string, featu
 }
 export async function hasSlipAccess(db: SupabaseClient, tenantId: string): Promise<boolean> {
   if (!(await hasFeature(db, tenantId, 'slip_auto_pilot'))) return false
+  if (temporaryFullAccess) return true
   const { data, error } = await db
     .from('tenants')
     .select('slip_quota,slip_quota_credits,slip_used')

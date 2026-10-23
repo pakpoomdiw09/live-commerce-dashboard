@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Billing, PlanId } from '@/lib/features/billing/plans'
@@ -12,7 +13,8 @@ export async function getBilling(
   tenantId: string,
   adminBypass = false,
 ): Promise<Billing> {
-  const featureBypass = adminBypass || (await tenantHasFeatureBypass(db, tenantId))
+  const featureBypass =
+    temporaryFullAccess || adminBypass || (await tenantHasFeatureBypass(db, tenantId))
   const refreshed = await db.rpc('refresh_broadcast_credits', { p_tenant: tenantId })
   if (refreshed.error)
     throw new Error(`${refreshed.error.message} (did you run supabase/billing.sql?)`)

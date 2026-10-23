@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 import 'server-only'
 import type { NextRequest } from 'next/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
@@ -55,7 +56,8 @@ export async function visionOverview(db: ReturnType<typeof supabaseAdmin>, tenan
     settings: (settings.data ?? defaultVisionSettings(tenantId)) as VisionSettings,
     usage: { used, limit, remaining: Math.max(0, limit - used), month },
     productSearch:
-      limits.data.product_search === true && (await hasFeature(db, tenantId, 'ai_agent')),
+      (temporaryFullAccess || limits.data.product_search === true) &&
+      (await hasFeature(db, tenantId, 'ai_agent')),
     jobs: jobs.data ?? [],
     automationEnabled: process.env.AI_VISION_AUTOMATION_ENABLED === 'true',
   }

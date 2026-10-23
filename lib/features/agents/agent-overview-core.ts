@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 export type AgentOverviewJob = {
   id: string
   customer_id: string
@@ -27,6 +28,10 @@ export function agentCapabilityEntitlements(
   aiRemaining: number,
   slipRemaining: number,
 ): Record<AgentCapability, CapabilityEntitlement> {
+  if (temporaryFullAccess)
+    return Object.fromEntries(
+      CAPABILITY_KEYS.map((key) => [key, { allowed: true, code: null, message: '' }]),
+    ) as Record<AgentCapability, CapabilityEntitlement>
   return Object.fromEntries(
     CAPABILITY_KEYS.map((key) => {
       const supported =

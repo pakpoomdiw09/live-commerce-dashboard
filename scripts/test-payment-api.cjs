@@ -238,6 +238,7 @@ function fixture(options = {}) {
         log: (...args) => logs.push(args),
       },
       require(id) {
+        if (id === '@/lib/full-access') return { temporaryFullAccess: false }
         assert.ok(Object.hasOwn(modules, id), `Unexpected route dependency: ${id}`)
         return modules[id]
       },

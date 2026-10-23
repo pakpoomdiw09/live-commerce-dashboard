@@ -23,6 +23,7 @@ function load(file, deps = {}, env = {}) {
       process: { env },
       require: (name) => {
         if (name in deps) return deps[name]
+        if (name === '@/lib/full-access') return { temporaryFullAccess: false }
         throw Error('Unexpected dependency ' + name)
       },
     },

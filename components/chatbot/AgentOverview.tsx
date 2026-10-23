@@ -1,4 +1,5 @@
 'use client'
+import { temporaryFullAccess } from '@/lib/full-access'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AgentUpgradeDialog } from '@/components/chatbot/AgentUpgradeDialog'
@@ -470,47 +471,56 @@ export function AgentOverview({
         <section className={panel}>
           <CreditCard className="mb-3 h-6 w-6 text-orange-500" />
           <h2 className="text-lg font-bold">โควตาผู้ช่วย AI</h2>
-          <p className="mt-1 text-sm text-slate-500">{data.quota.plan}</p>
-          <p className="mt-5 text-3xl font-bold tabular-nums">
-            {n(data.quota.remaining)}{' '}
-            <span className="text-sm font-normal text-slate-500">ครั้งคงเหลือ</span>
-          </p>
-          <div
-            role="progressbar"
-            aria-label="การใช้โควตา AI"
-            aria-valuemin={0}
-            aria-valuemax={Math.max(1, data.quota.limit)}
-            aria-valuenow={Math.min(data.quota.used, Math.max(1, data.quota.limit))}
-            className="mt-4 h-2 overflow-hidden rounded-full bg-orange-50"
-          >
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-orange-400 to-pink-400"
-              style={{
-                width: `${data.quota.limit ? Math.min(100, (data.quota.used / data.quota.limit) * 100) : 0}%`,
-              }}
-            />
-          </div>
-          <p className="mt-3 text-sm text-slate-600">
-            ใช้แล้ว {n(data.quota.used)} / {n(data.quota.limit)} ครั้ง
-          </p>
-          <p className="mt-3 text-xs leading-5 text-slate-500">
-            รอบเดือน{' '}
-            {new Date(data.quota.month).toLocaleDateString('th-TH', {
-              month: 'long',
-              year: 'numeric',
-              timeZone: 'UTC',
-            })}{' '}
-            ตามเวลาสากล · แยกจากเครดิตส่งข้อความ
-          </p>
-          {!data.quota.limit && (
-            <p className="mt-3 text-xs text-amber-800">ยังไม่ได้กำหนดโควตา AI ให้ร้านนี้</p>
+          {temporaryFullAccess ? (
+            <div className="mt-5 space-y-3">
+              <p className="text-2xl font-bold">ไม่จำกัด (Full Access)</p>
+              <p className="text-sm text-slate-500">ใช้จริงในเดือนนี้ {n(data.quota.used)} ครั้ง</p>
+            </div>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-slate-500">{data.quota.plan}</p>
+              <p className="mt-5 text-3xl font-bold tabular-nums">
+                {n(data.quota.remaining)}{' '}
+                <span className="text-sm font-normal text-slate-500">ครั้งคงเหลือ</span>
+              </p>
+              <div
+                role="progressbar"
+                aria-label="การใช้โควตา AI"
+                aria-valuemin={0}
+                aria-valuemax={Math.max(1, data.quota.limit)}
+                aria-valuenow={Math.min(data.quota.used, Math.max(1, data.quota.limit))}
+                className="mt-4 h-2 overflow-hidden rounded-full bg-orange-50"
+              >
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-orange-400 to-pink-400"
+                  style={{
+                    width: `${data.quota.limit ? Math.min(100, (data.quota.used / data.quota.limit) * 100) : 0}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-3 text-sm text-slate-600">
+                ใช้แล้ว {n(data.quota.used)} / {n(data.quota.limit)} ครั้ง
+              </p>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                รอบเดือน{' '}
+                {new Date(data.quota.month).toLocaleDateString('th-TH', {
+                  month: 'long',
+                  year: 'numeric',
+                  timeZone: 'UTC',
+                })}{' '}
+                ตามเวลาสากล · แยกจากเครดิตส่งข้อความ
+              </p>
+              {!data.quota.limit && (
+                <p className="mt-3 text-xs text-amber-800">ยังไม่ได้กำหนดโควตา AI ให้ร้านนี้</p>
+              )}
+              <Link
+                href="/billing"
+                className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-orange-700"
+              >
+                ดูแพ็กเกจและเครดิต <ArrowRight className="h-4 w-4" />
+              </Link>
+            </>
           )}
-          <Link
-            href="/billing"
-            className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-orange-700"
-          >
-            ดูแพ็กเกจและเครดิต <ArrowRight className="h-4 w-4" />
-          </Link>
         </section>
       </div>
       <section className={panel}>

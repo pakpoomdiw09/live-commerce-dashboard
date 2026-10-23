@@ -12,6 +12,7 @@ function load(file, deps, globals = {}) {
     process: { env: { NODE_ENV: 'production', GEMINI_API_KEY: 'test' } },
     require: (n) => {
       if (n in deps) return deps[n]
+      if (n === '@/lib/full-access') return { temporaryFullAccess: false }
       throw Error(n)
     },
     ...globals,

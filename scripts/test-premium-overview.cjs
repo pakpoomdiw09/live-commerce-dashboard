@@ -18,6 +18,7 @@ function load(file, deps = {}, globals = {}) {
     process: { env: {} },
     require: (n) => {
       if (n in deps) return deps[n]
+      if (n === '@/lib/full-access') return { temporaryFullAccess: false }
       if (n === 'next/image')
         return { default: ({ src, alt }) => React.createElement('img', { src, alt }) }
       if (
@@ -276,8 +277,9 @@ test('Dashboard API passes authenticated scope, rejects failed guards and disabl
   })
   assert.equal((await denied.GET({ nextUrl: new URL('https://local/api/overview') })).status, 401)
 })
-function component() {
+function component(temporaryFullAccess = false) {
   return load('components/overview/PremiumOverview.tsx', {
+    '@/lib/full-access': { temporaryFullAccess },
     react: React,
     'react/jsx-runtime': require('react/jsx-runtime'),
     'next/link': {
@@ -365,3 +367,16 @@ test('locked modules hide records and show upgrade links; unsafe text is escaped
   assert.ok(html.includes('&lt;script&gt;'))
 })
 module.exports = { sample, component }
+
+test('Full Access preserves the orange overview without package locks when data is unavailable', () => {
+  const data = sample()
+  data.access = { slips: false, customers: false, ai: false }
+  data.results = null
+  const html = renderToStaticMarkup(
+    React.createElement(component(true), { data, shopCount: 1, userName: 'Test' }),
+  )
+  assert.ok(html.includes('xl:grid-cols-5'))
+  assert.ok(html.includes('ยังโหลดข้อมูลส่วนนี้ไม่ได้'))
+  assert.ok(!html.includes('อัปเกรดแพ็กเกจ'))
+  assert.ok(!html.includes('แพ็กเกจปัจจุบันไม่รองรับ'))
+})

@@ -1,3 +1,4 @@
+import { temporaryFullAccess } from '@/lib/full-access'
 // Plans and broadcast credit packs. Shared by the dashboard and the API. Keep in sync with supabase/billing.sql.
 
 export type PlanId = 'free' | 'starter' | 'pro'
@@ -76,23 +77,26 @@ export const canUseFollowUps = (
   b: Pick<Billing, 'plan' | 'planExpiresAt' | 'featureBypass'>,
   now = Date.now(),
 ) =>
-  (b.plan === 'starter' || b.plan === 'pro') &&
-  b.planExpiresAt !== null &&
-  Date.parse(b.planExpiresAt) > now
+  temporaryFullAccess ||
+  ((b.plan === 'starter' || b.plan === 'pro') &&
+    b.planExpiresAt !== null &&
+    Date.parse(b.planExpiresAt) > now)
 
 /** UI helper only; server execution must use database feature-access guards. */
 export const canUseAiAgent = (b: Pick<Billing, 'plan' | 'planExpiresAt'>, now = Date.now()) =>
-  b.plan === 'pro' && b.planExpiresAt !== null && Date.parse(b.planExpiresAt) > now
+  temporaryFullAccess ||
+  (b.plan === 'pro' && b.planExpiresAt !== null && Date.parse(b.planExpiresAt) > now)
 
 export const canUseAutoSlip = (
   b: Pick<Billing, 'plan' | 'planExpiresAt' | 'featureBypass'>,
   credits: number,
   now = Date.now(),
 ) =>
-  (b.plan === 'starter' || b.plan === 'pro') &&
-  b.planExpiresAt !== null &&
-  Date.parse(b.planExpiresAt) > now &&
-  credits > 0
+  temporaryFullAccess ||
+  ((b.plan === 'starter' || b.plan === 'pro') &&
+    b.planExpiresAt !== null &&
+    Date.parse(b.planExpiresAt) > now &&
+    credits > 0)
 
 export type BillingRequestRow = {
   id: string
