@@ -125,11 +125,19 @@ export async function sendBroadcast(
     )
     const previous = await broadcastDeliveryStats(scope, draft.id)
     const attempted = new Set(previous.deliveries.map((row) => row.customer_id))
-    const queue = customers.filter(
-      (customer) =>
-        !attempted.has(customer.id) &&
-        (!draft.selected_customer_ids || draft.selected_customer_ids.includes(customer.id)),
-    )
+    const queue = customers
+      .filter(
+        (customer) =>
+          !attempted.has(customer.id) &&
+          (!draft.selected_customer_ids || draft.selected_customer_ids.includes(customer.id)),
+      )
+      .sort((left, right) => {
+        const leftAt = Date.parse(left.last_message_at ?? '')
+        const rightAt = Date.parse(right.last_message_at ?? '')
+        const leftTimestamp = Number.isFinite(leftAt) ? leftAt : 0
+        const rightTimestamp = Number.isFinite(rightAt) ? rightAt : 0
+        return rightTimestamp - leftTimestamp || left.id.localeCompare(right.id)
+      })
     const deadline = Date.now() + 25_000
     let processed = 0,
       outOfCredits = false
@@ -194,7 +202,16 @@ export async function sendBroadcast(
         break
       }
       processed++
-      if (reserved.data !== 'claimed') continue
+      if (reserved.data !== 'claimed') {
+        console.info('[broadcast] recipient not claimed', {
+          broadcastId: draft.id,
+          customerId: customer.id,
+          reason: reserved.data ?? 'unknown',
+          lastMessageAt: customer.last_message_at,
+          pageId: scope.page.page_id,
+        })
+        continue
+      }
       const settle = async (
         result: string,
         detail: string | null,
@@ -215,8 +232,24 @@ export async function sendBroadcast(
             'SEND_REQUIRES_REVIEW',
           )
       }
+      if (!customer.platform_user_id.trim()) {
+        await settle('skipped', 'missing_psid')
+        console.info('[broadcast] recipient skipped', {
+          broadcastId: draft.id,
+          customerId: customer.id,
+          reason: 'missing_psid',
+        })
+        continue
+      }
       if (reason !== 'eligible') {
         await settle('skipped', reason)
+        console.info('[broadcast] recipient skipped', {
+          broadcastId: draft.id,
+          customerId: customer.id,
+          reason,
+          lastMessageAt: customer.last_message_at,
+          pageId: scope.page.page_id,
+        })
         continue
       }
       const started = await scope.db.rpc('begin_broadcast_transport', {

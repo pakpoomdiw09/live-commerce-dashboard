@@ -17,10 +17,17 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Run follow-up worker
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is not configured"
+            exit 1
+          fi
           curl --fail-with-body --show-error --silent \
             --connect-timeout 15 \
             --max-time 90 \
             --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
             --write-out '\nHTTP %{http_code}\n' \
-            'https://live-commerce-dashboard-xi.vercel.app/api/cron/follow-ups'
+            'https://live-commerce-dashboard-faxh.vercel.app/api/cron/follow-ups'

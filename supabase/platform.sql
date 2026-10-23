@@ -20,6 +20,7 @@ alter table customers add column if not exists address text;
 alter table customers add column if not exists tags text[] not null default '{}';
 alter table customers add column if not exists notes text;
 alter table customers add column if not exists order_status text not null default 'new';
+alter table customers add column if not exists last_interaction_at timestamptz;
 do $$ begin
   alter table customers add constraint customers_order_status_check
     check (order_status in ('new', 'pending_review', 'paid', 'approved', 'shipped'));

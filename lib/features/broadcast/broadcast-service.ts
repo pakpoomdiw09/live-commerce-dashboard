@@ -132,6 +132,7 @@ export type BroadcastCustomer = {
   id: string
   platform_user_id: string
   display_name: string | null
+  last_message_at: string | null
   agent_opted_out?: boolean
 }
 export async function selectedBroadcastCustomers(
@@ -152,9 +153,9 @@ export async function selectedBroadcastCustomers(
     })
   let customers: BroadcastCustomer[]
   try {
-    customers = await select('id,platform_user_id,display_name,agent_opted_out')
+    customers = await select('id,platform_user_id,display_name,last_message_at,agent_opted_out')
   } catch {
-    customers = await select('id,platform_user_id,display_name')
+    customers = await select('id,platform_user_id,display_name,last_message_at')
   }
   const unique = [...new Map(customers.map((customer) => [customer.id, customer])).values()]
   if (segment === 'all') return unique

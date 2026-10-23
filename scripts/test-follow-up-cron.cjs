@@ -23,11 +23,16 @@ function fixture() {
       return query
     },
     async limit() {
-      return { data: [{ id: 'job', run_at: '2026-10-20T00:00:00Z' }], error: null }
+      return {
+        data: [{ id: 'job', tenant_id: 'tenant', run_at: '2026-10-20T00:00:00Z' }],
+        count: 1,
+        error: null,
+      }
     },
   }
   const modules = {
     '@/lib/single-flight': { singleFlight: (_key, work) => work() },
+    'node:crypto': require('node:crypto'),
     'next/server': {
       NextResponse: {
         json: (body, options = {}) => ({
@@ -58,7 +63,9 @@ function fixture() {
     }).outputText,
     {
       exports,
-      console: { info() {}, error() {} },
+      console: { info() {}, warn() {}, error() {} },
+      Buffer,
+      process: { env: { CRON_SECRET: 'test-secret' } },
       require: (name) => {
         assert.ok(name in modules, name)
         return modules[name]
@@ -75,11 +82,16 @@ function fixture() {
       headers: new Headers(),
       nextUrl: new URL('https://example.test/api/cron/follow-ups?dryRun=1'),
     }
+    const unauthorized = await f.api[method](req)
+    assert.equal(unauthorized.status, 401)
+    assert.equal(f.queries(), 0)
+    req.headers.set('Authorization', 'Bearer test-secret')
     const dry = await f.api[method](req)
     assert.equal(dry.status, 200)
     assert.equal(dry.body.success, true)
     assert.equal(dry.body.dryRun, true)
     assert.equal(dry.body.nextDueJob.id, 'job')
+    assert.equal(dry.body.dueCount, 1)
     assert.equal(f.calls(), 0)
     assert.equal(f.queries(), 1)
     req.nextUrl.search = ''
@@ -96,8 +108,15 @@ function fixture() {
       .sort(),
     ['GET', 'POST'],
   )
+  const workflow = fs.readFileSync('.github/workflows/cron.yml', 'utf8')
+  assert.match(workflow, /workflow_dispatch:/)
+  assert.match(
+    workflow,
+    /https:\/\/live-commerce-dashboard-faxh\.vercel\.app\/api\/cron\/follow-ups/,
+  )
+  assert.match(workflow, /Authorization: Bearer \$CRON_SECRET/)
   console.log(
-    'PASS: public GET/POST worker invocation, dry-run queue inspection without dispatch, no-store responses, explicit GET/POST exports',
+    'PASS: authenticated GET/POST worker invocation, unauthorized requests stop before DB access, dry-run queue diagnostics without dispatch, no-store responses and GitHub Actions configuration',
   )
 })().catch((error) => {
   console.error(error)

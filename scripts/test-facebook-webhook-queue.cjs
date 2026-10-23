@@ -91,7 +91,7 @@ async function database() {
   const pg = new PGlite()
   await pg.exec(`create role anon;create role authenticated;create role service_role;
     create table tenants(id uuid primary key,page_id text,is_active boolean default true);
-    create table customers(id uuid primary key default gen_random_uuid(),platform text,platform_user_id text,tenant_id uuid,display_name text,bot_enabled boolean default true,last_message_at timestamptz,inbound_seq bigint not null default 0,conversation_status text default 'open',conversation_version integer default 0,unique(platform,platform_user_id));
+    create table customers(id uuid primary key default gen_random_uuid(),platform text,platform_user_id text,tenant_id uuid,display_name text,bot_enabled boolean default true,last_message_at timestamptz,last_interaction_at timestamptz,inbound_seq bigint not null default 0,conversation_status text default 'open',conversation_version integer default 0,unique(platform,platform_user_id));
     create table messages(id uuid primary key default gen_random_uuid(),customer_id uuid,external_id text unique,sender text,body text,attachments jsonb,created_at timestamptz default now(),inbound_seq bigint);
     create table comments(id uuid primary key default gen_random_uuid(),customer_id uuid,tenant_id uuid,external_id text unique,post_id text,author_name text,body text);`)
   const migration = fs.readFileSync('supabase/facebook-webhook-queue.sql', 'utf8')
@@ -220,8 +220,9 @@ test('persisted message completes despite optional failure and the next customer
     await f.pg.exec("update facebook_webhook_events set available_at=now()-interval '1 second'")
     assert.equal((await worker.runFacebookWebhookWorker(f.db, handler)).claimed, 0)
     assert.equal((await f.one('select count(*)::int n from messages')).n, 1)
-    const customer = await f.one('select last_message_at from customers')
-    assert.equal(Date.parse(customer.last_message_at), 1700000000000)
+    const customer = await f.one('select last_message_at,last_interaction_at from customers')
+    assert.equal(milliseconds(customer.last_message_at), 1700000000000)
+    assert.equal(milliseconds(customer.last_interaction_at), 1700000000000)
     assert.equal((await f.one('select attempts from facebook_webhook_events')).attempts, 1)
     await f.enqueue(payload('next-message'))
     assert.equal(
@@ -901,21 +902,29 @@ test('duplicate, stale and out-of-order events cannot advance or rewind the cust
     const newer = Date.now() - 2000,
       older = newer - 86400000 * 2
     await submit('newer', newer)
-    const first = await f.one('select last_message_at,inbound_seq from customers')
+    const first = await f.one('select last_message_at,last_interaction_at,inbound_seq from customers')
     assert.equal(milliseconds(first.last_message_at), newer)
+    assert.equal(milliseconds(first.last_interaction_at), newer)
     await submit('older', older)
     assert.equal(
       milliseconds((await f.one('select last_message_at from customers')).last_message_at),
       newer,
     )
     await submit('newer', Date.now() - 1)
-    const duplicate = await f.one('select last_message_at,inbound_seq from customers')
+    const duplicate = await f.one(
+      'select last_message_at,last_interaction_at,inbound_seq from customers',
+    )
     assert.equal(milliseconds(duplicate.last_message_at), newer)
+    assert.equal(milliseconds(duplicate.last_interaction_at), newer)
     assert.equal(Number(duplicate.inbound_seq), Number(first.inbound_seq) + 1)
     assert.equal((await f.one('select count(*)::int n from messages')).n, 2)
     await submit('newest', newer + 500)
     assert.equal(
       milliseconds((await f.one('select last_message_at from customers')).last_message_at),
+      newer + 500,
+    )
+    assert.equal(
+      milliseconds((await f.one('select last_interaction_at from customers')).last_interaction_at),
       newer + 500,
     )
     const staleCustomer = payload('stale-customer', '111')

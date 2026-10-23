@@ -259,12 +259,14 @@ function sender({
   live = true,
   page = 'verified',
   selected = null,
+  customers = [{ id: 'customer', platform_user_id: 'psid', last_message_at: null }],
 } = {}) {
   let sends = 0,
     reservations = 0,
     busy = false,
     balance = 10
   const deliveries = new Map()
+  const recipients = []
   const db = {
     from(table) {
       const q = {
@@ -343,8 +345,9 @@ function sender({
     '@/lib/features/billing/billing': { getBilling: async () => ({ monthly: balance, topup: 0 }) },
     '@/lib/integrations/facebook/client': {
       SendApiError,
-      sendMessageWithReceipt: async () => {
+      sendMessageWithReceipt: async (_token, psid) => {
         sends++
+        recipients.push(psid)
         if (error === 'unknown') throw Error('timeout')
         if (error === 'rejected') throw new SendApiError()
         return 'mid-receipt'
@@ -354,8 +357,9 @@ function sender({
     '@/lib/features/broadcast/broadcast-service': {
       broadcastPageStatus: async () => page,
       broadcastSignature: () => 'fingerprint',
-      selectedBroadcastCustomers: async () => [{ id: 'customer', platform_user_id: 'psid' }],
-      broadcastEvidence: async () => new Map([['customer', evidence(Date.now() - 1000)]]),
+      selectedBroadcastCustomers: async () => customers,
+      broadcastEvidence: async (_db, _tenant, _page, customerId) =>
+        new Map([[customerId, evidence(Date.now() - 1000)]]),
     },
     '@/lib/features/inbox/inbox-server': { InboxError },
     '@/lib/features/broadcast/broadcast': { fetchAll: async (fn) => (await fn(0, 999)).data },
@@ -382,6 +386,7 @@ function sender({
         input,
       ),
     sends: () => sends,
+    recipients: () => recipients,
     reservations: () => reservations,
     balance: () => balance,
   }
@@ -393,6 +398,25 @@ test('repeated send/resume never sends or charges the same recipient twice', asy
   assert.equal(f.sends(), 1)
   assert.equal(f.reservations(), 1)
   assert.equal(f.balance(), 9)
+})
+
+test('broadcast sends to the most recently active eligible customer first', async () => {
+  const f = sender({
+    customers: [
+      {
+        id: 'older',
+        platform_user_id: 'psid-older',
+        last_message_at: new Date(Date.now() - 60_000).toISOString(),
+      },
+      {
+        id: 'newest',
+        platform_user_id: 'psid-newest',
+        last_message_at: new Date(Date.now() - 1_000).toISOString(),
+      },
+    ],
+  })
+  await f.run()
+  assert.deepEqual(f.recipients(), ['psid-newest', 'psid-older'])
 })
 
 test('recipient selection excludes every unchecked customer before credit reservation', async () => {

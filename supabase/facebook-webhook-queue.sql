@@ -1,5 +1,6 @@
 -- Service-only durable ingress. Apply before deploying the queue-backed webhook.
 begin;
+alter table public.customers add column if not exists last_interaction_at timestamptz;
 create table if not exists public.facebook_webhook_payloads (
  id uuid primary key default gen_random_uuid(), payload_sha256 text not null unique check(payload_sha256 ~ '^[a-f0-9]{64}$'),
  raw_payload text not null check(octet_length(raw_payload)<=2097152), received_at timestamptz not null default clock_timestamp(),
@@ -201,7 +202,10 @@ begin
   on conflict(external_id) do nothing returning id into record_id;
   duplicate:=record_id is null;
   if not duplicate then
-   update public.customers set last_message_at=event_time where id=c.id and (last_message_at is null or last_message_at<event_time);
+   update public.customers set
+    last_message_at=greatest(coalesce(last_message_at,event_time),event_time),
+    last_interaction_at=greatest(coalesce(last_interaction_at,event_time),event_time)
+   where id=c.id;
   end if;
  else
   insert into public.comments(customer_id,tenant_id,external_id,post_id,author_name,body)
