@@ -15,7 +15,9 @@ export type Actor = { kind: 'internal' } | { kind: 'user'; id: string; isPlatfor
 
 // Layout and page guards share one verified session per RSC request.
 // Keep this request-scoped: never persist authentication across users.
-const verifiedSession = cache(async () => (await supabaseServer()).auth.getUser())
+const verifiedSession = cache(async () =>
+  (await supabaseServer({ timeoutMs: 10000 })).auth.getUser(),
+)
 
 /** Page/data-layer guard: verify the session before any dashboard data is loaded. */
 export const requireDashboardUser = cache(async () => {
@@ -28,7 +30,7 @@ export const requireDashboardUser = cache(async () => {
 const currentUser = cache(async (): Promise<{ id: string; isPlatformAdmin: boolean } | null> => {
   const { data, error: sessionError } = await verifiedSession()
   if (sessionError || !data.user) return null
-  const { data: admin, error } = await supabaseAdmin()
+  const { data: admin, error } = await supabaseAdmin({ timeoutMs: 10000 })
     .from('platform_admins')
     .select('user_id')
     .eq('user_id', data.user.id)
@@ -74,13 +76,13 @@ export async function tenantRole(
 ): Promise<TenantRole | null> {
   if (isPlatformAdmin(actor)) return 'admin'
   if (!tenantId || actor.kind !== 'user') return null
-  const { data: tenant, error: tenantError } = await supabaseAdmin()
+  const { data: tenant, error: tenantError } = await supabaseAdmin({ timeoutMs: 10000 })
     .from('tenants')
     .select('is_active')
     .eq('id', tenantId)
     .maybeSingle()
   if (tenantError || tenant?.is_active !== true) return null
-  const { data, error } = await supabaseAdmin()
+  const { data, error } = await supabaseAdmin({ timeoutMs: 10000 })
     .from('tenant_members')
     .select('role')
     .eq('tenant_id', tenantId)

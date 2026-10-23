@@ -4,6 +4,8 @@ import { hasFeature } from '@/lib/feature-access'
 import { aiConfigured } from '@/lib/features/agents/ai-agent'
 import { UUID } from '@/lib/utils'
 type Context = { params: Promise<{ id: string }> }
+export const runtime = 'nodejs'
+export const maxDuration = 30
 export async function GET(req: NextRequest, { params }: Context) {
   try {
     const { db, customer, tenantId } = await inboxCustomer(req, (await params).id)
@@ -46,8 +48,12 @@ export async function GET(req: NextRequest, { params }: Context) {
   }
 }
 export async function PATCH(req: NextRequest, { params }: Context) {
+  const started = Date.now()
+  let stage = 'authorization'
+  console.log('[inbox/action] started')
   try {
     const { db, actor, customer, tenantId } = await inboxCustomer(req, (await params).id)
+    stage = 'validation'
     const pro = process.env.SMART_INBOX_PRO_ENABLED === 'true'
     if (pro) {
       const origin = req.headers.get('origin'),
@@ -105,6 +111,12 @@ export async function PATCH(req: NextRequest, { params }: Context) {
           throw new InboxError('ยังไม่ได้ตั้งค่า ผู้ให้บริการผู้ช่วยอัจฉริยะ', 503)
       }
     }
+    stage = pro ? 'manage_inbox_pro' : 'manage_inbox_conversation'
+    console.log('[inbox/action] rpc started', {
+      rpc: stage,
+      action: input.action,
+      elapsedMs: Date.now() - started,
+    })
     const { error, data } = pro
       ? await db.rpc('manage_inbox_pro', {
           p_customer: customer.id,
@@ -123,8 +135,20 @@ export async function PATCH(req: NextRequest, { params }: Context) {
           p_assignee: input.assigneeId ?? null,
         })
     checkRpc(error)
-    return NextResponse.json(pro ? data : { ok: true })
+    console.log('[inbox/action] completed', {
+      rpc: stage,
+      action: input.action,
+      elapsedMs: Date.now() - started,
+    })
+    return NextResponse.json(pro ? data : { ok: true }, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
   } catch (error) {
+    console.error('[inbox/action] failed', {
+      stage,
+      elapsedMs: Date.now() - started,
+      code: (error as { code?: string })?.code ?? 'UNKNOWN',
+    })
     return inboxError(error)
   }
 }

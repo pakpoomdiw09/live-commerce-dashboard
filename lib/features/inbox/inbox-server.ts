@@ -34,7 +34,7 @@ export async function inboxTenant(req: NextRequest, tenantId: string) {
   if (!actor || actor.kind !== 'user') throw new InboxError('กรุณาเข้าสู่ระบบ', 401)
   if (!UUID.test(tenantId) || !(await canAccessTenant(actor, tenantId)))
     throw new InboxError('ไม่พบร้านค้า', 404)
-  const db = supabaseAdmin()
+  const db = supabaseAdmin({ timeoutMs: 10000 })
   if (!(await hasFeature(db, tenantId, 'customer_management')))
     throw new InboxError('ฟีเจอร์นี้สำหรับสมาชิกที่อัปเกรดแพ็กเกจ', 403, 'FEATURE_LOCKED')
   return { db, actor, tenantId }
@@ -43,7 +43,7 @@ export async function inboxCustomer(req: NextRequest, id: string) {
   const actor = await getActor(req)
   if (!actor || actor.kind !== 'user') throw new InboxError('กรุณาเข้าสู่ระบบ', 401)
   if (!UUID.test(id)) throw new InboxError('รหัสลูกค้าไม่ถูกต้อง')
-  const db = supabaseAdmin()
+  const db = supabaseAdmin({ timeoutMs: 10000 })
   const scope = await db.from('customers').select('tenant_id').eq('id', id).maybeSingle()
   if (scope.error) throw scope.error
   if (!scope.data?.tenant_id || !(await canAccessTenant(actor, scope.data.tenant_id)))
@@ -67,6 +67,14 @@ export async function inboxCustomer(req: NextRequest, id: string) {
 }
 export function checkRpc(error: { code?: string } | null) {
   if (!error) return
+  if (error.code === '57014')
+    throw new InboxError('ฐานข้อมูลตอบช้า กรุณาตรวจสถานะแชทก่อนลองใหม่', 503, 'DATABASE_TIMEOUT')
+  if (['PGRST202', '42883'].includes(error.code ?? ''))
+    throw new InboxError(
+      'ระบบจัดการแชทยังไม่พร้อม กรุณาติดต่อผู้ดูแล',
+      503,
+      'INBOX_SCHEMA_UNAVAILABLE',
+    )
   if (error.code === 'P0424')
     throw new InboxError('หมดเวลาตอบกลับ รอลูกค้าส่งข้อความมาใหม่', 409, 'MESSAGING_WINDOW_CLOSED')
   if (error.code === 'P0429')

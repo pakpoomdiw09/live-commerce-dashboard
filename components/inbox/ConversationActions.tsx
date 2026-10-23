@@ -3,7 +3,8 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Bot, LoaderCircle, UserRoundCheck } from 'lucide-react'
 import type { ConversationState, InboxState } from '@/lib/features/inbox/inbox-types'
-import { apiError, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { inboxActionRequest, refreshInboxAction } from '@/lib/features/inbox/inbox-action-request'
 
 type Action = 'claim' | 'pause' | 'bot'
 type PendingAction = {
@@ -85,14 +86,17 @@ export function ConversationActions({
     pending.current = { signature, body }
     let saved = false
     try {
-      const response = await fetch(`/api/inbox/conversations/${state.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      const { response, data } = await inboxActionRequest(
+        `/api/inbox/conversations/${state.id}`,
+        body,
+      )
       if (!response.ok) {
         if (response.status < 500) pending.current = null
-        throw new Error(await apiError(response))
+        throw new Error(
+          typeof data?.error === 'string'
+            ? data.error
+            : `ดำเนินการไม่สำเร็จ (HTTP ${response.status})`,
+        )
       }
       pending.current = null
       saved = true
@@ -103,13 +107,9 @@ export function ConversationActions({
       setError(error instanceof Error ? error.message : 'บันทึกสถานะ AI ไม่สำเร็จ กรุณาลองอีกครั้ง')
     } finally {
       try {
-        await onChange()
+        await refreshInboxAction(onChange)
       } catch {
-        setError(
-          saved
-            ? 'บันทึกแล้ว แต่โหลดสถานะล่าสุดไม่ได้ กรุณาตรวจสอบอีกครั้ง'
-            : 'โหลดสถานะล่าสุดไม่ได้ กรุณาลองอีกครั้ง',
-        )
+        if (saved) setError('บันทึกแล้ว แต่โหลดสถานะล่าสุดไม่ได้ กรุณาตรวจสอบอีกครั้ง')
       } finally {
         locked.current = false
         setBusy(false)

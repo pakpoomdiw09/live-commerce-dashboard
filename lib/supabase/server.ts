@@ -26,11 +26,21 @@ export const supabaseAdmin = (options: { timeoutMs?: number } = {}) => {
 }
 
 /** The signed-in staff member's session (cookie based), for server components and routes. */
-export async function supabaseServer() {
+export async function supabaseServer(options: { timeoutMs?: number } = {}) {
   const { url, anonKey } = requireSupabaseEnv()
   const store = await cookies()
   return createServerClient(url, anonKey, {
-    global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+    global: {
+      fetch: (input, init) => {
+        const timeout = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
+        const signal = timeout
+          ? init?.signal
+            ? AbortSignal.any([init.signal, timeout])
+            : timeout
+          : init?.signal
+        return fetch(input, { ...init, signal, cache: 'no-store' })
+      },
+    },
     cookies: {
       getAll: () => store.getAll(),
       setAll: (list) => {

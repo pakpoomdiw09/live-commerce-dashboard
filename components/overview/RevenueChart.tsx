@@ -18,20 +18,8 @@ function niceMax(v: number) {
  * Daily accepted revenue. One series → one hue, no legend (the card title names it).
  * Bars: rounded data-end, 2px gap, hover tooltip with a hit target wider than the bar.
  */
-export function RevenueChart({
-  data,
-  unit = 'สลิปผ่าน',
-  caption = 'ยอดรับเงินรายวัน',
-  orange = false,
-  numberOnly = false,
-}: {
-  data: DayPoint[]
-  unit?: string
-  caption?: string
-  orange?: boolean
-  numberOnly?: boolean
-}) {
-  const format = (n: number) => (numberOnly ? n.toLocaleString('th-TH') : baht(n))
+export function RevenueChart({ data, unit = 'สลิปผ่าน', caption = 'ยอดรับเงินรายวัน', orange = false, numberOnly = false }: { data: DayPoint[]; unit?: string; caption?: string; orange?: boolean; numberOnly?: boolean }) {
+  const format=(n:number)=>numberOnly?n.toLocaleString('th-TH'):baht(n)
   const [hover, setHover] = useState<number | null>(null)
   const max = niceMax(Math.max(...data.map((d) => d.amount)))
   const ticks = [0, 0.5, 1].map((f) => f * max)
@@ -42,18 +30,10 @@ export function RevenueChart({
     <figure className="relative">
       <div className="flex gap-3">
         {/* y axis */}
-        <div
-          className="relative w-12 shrink-0 text-right text-[11px] text-slate-400 tabular-nums"
-          style={{ height: H }}
-          aria-hidden
-        >
+        <div className="relative w-12 shrink-0 text-right text-[11px] text-slate-400 tabular-nums" style={{ height: H }} aria-hidden>
           {ticks.map((t) => (
-            <span
-              key={t}
-              className="absolute right-0 -translate-y-1/2"
-              style={{ top: H - (t / max) * H }}
-            >
-              {numberOnly ? t.toLocaleString('th-TH') : bahtShort(t)}
+            <span key={t} className="absolute right-0 -translate-y-1/2" style={{ top: H - (t / max) * H }}>
+              {numberOnly?t.toLocaleString('th-TH'):bahtShort(t)}
             </span>
           ))}
         </div>
@@ -61,25 +41,11 @@ export function RevenueChart({
         <div className="relative min-w-0 flex-1">
           {/* recessive grid */}
           {ticks.map((t) => (
-            <div
-              key={t}
-              aria-hidden
-              className="absolute inset-x-0 border-t border-slate-100"
-              style={{ top: H - (t / max) * H }}
-            />
+            <div key={t} aria-hidden className="absolute inset-x-0 border-t border-slate-100" style={{ top: H - (t / max) * H }} />
           ))}
-          <div
-            className="relative flex items-end gap-0.5"
-            style={{ height: H }}
-            onMouseLeave={() => setHover(null)}
-            aria-hidden
-          >
+          <div className="relative flex items-end gap-0.5" style={{ height: H }} onMouseLeave={() => setHover(null)} aria-hidden>
             {data.map((d, i) => (
-              <div
-                key={d.day}
-                className="flex h-full flex-1 cursor-default items-end"
-                onMouseEnter={() => setHover(i)}
-              >
+              <div key={d.day} className="flex h-full flex-1 cursor-default items-end" onMouseEnter={() => setHover(i)}>
                 <div
                   className={`w-full rounded-t transition-colors ${orange ? 'bg-linear-to-t from-orange-500 to-pink-400' : hover === i ? 'bg-emerald-700' : 'bg-emerald-600'}`}
                   style={{ height: d.amount > 0 ? Math.max((d.amount / max) * H, 2) : 0 }}
@@ -100,10 +66,7 @@ export function RevenueChart({
             <div
               role="tooltip"
               className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg"
-              style={{
-                left: `${((hover + 0.5) / data.length) * 100}%`,
-                top: Math.max(H - (h.amount / max) * H - 64, 0),
-              }}
+              style={{ left: `${((hover + 0.5) / data.length) * 100}%`, top: Math.max(H - (h.amount / max) * H - 64, 0) }}
             >
               <p className="text-slate-300">{h.label}</p>
               <p className="font-semibold tabular-nums">{format(h.amount)}</p>
