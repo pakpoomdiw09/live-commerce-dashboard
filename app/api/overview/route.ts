@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
 import { loadPremiumOverview } from '@/lib/features/overview/premium-overview-server'
 import { inboxError } from '@/lib/features/inbox/inbox-server'
+import { logOverviewError } from '@/lib/features/overview/overview-diagnostics'
+export const maxDuration = 60
 export async function GET(req: NextRequest) {
   try {
     const p = req.nextUrl.searchParams
@@ -12,6 +14,7 @@ export async function GET(req: NextRequest) {
     })
     return NextResponse.json(data, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
+    logOverviewError('api.GET', error)
     return inboxError(error)
   }
 }

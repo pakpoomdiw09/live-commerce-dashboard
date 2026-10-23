@@ -8,6 +8,7 @@ import {
 } from '@/lib/features/overview/premium-overview-core'
 import { PremiumOverview } from '@/components/overview/PremiumOverview'
 import { InlineError } from '@/components/shared/ErrorState'
+import { logOverviewError } from '@/lib/features/overview/overview-diagnostics'
 
 /** Keep the Premium layout without reporting a failed read as real zero statistics. */
 function unavailableOverview(
@@ -96,16 +97,17 @@ export async function PremiumOverviewPage({
     )
       throw new Error('INCOMPLETE_OVERVIEW')
   } catch (error) {
-    console.error('[overview/page] data unavailable', {
-      code: (error as { code?: string })?.code ?? 'OVERVIEW_UNAVAILABLE',
-    })
+    logOverviewError('page.loadPremiumOverview', error, { tenantId: tenant.id })
     loadError = true
     data = unavailableOverview({ id: tenant.id, name: tenant.name }, filters)
   }
 
+  const partialNotice = data.health.find(
+    (item) => item.name === 'ฐานข้อมูลร้านค้า' && item.status === 'setup',
+  )?.detail
   return (
     <>
-      {loadError && (
+      {loadError ? (
         <div
           role="alert"
           className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 md:mx-8"
@@ -113,6 +115,12 @@ export async function PremiumOverviewPage({
           โหลดข้อมูลภาพรวมไม่สำเร็จ สถิติที่แสดงเป็น — ยังไม่ใช่ยอดจริง
           กรุณากดอัปเดตข้อมูลเพื่อลองใหม่
         </div>
+      ) : partialNotice ? (
+        <p role="status" className="mx-4 mt-3 text-xs text-slate-500 md:mx-8">
+          {partialNotice}
+        </p>
+      ) : (
+        false
       )}
       <PremiumOverview
         key={`${tenant.id}:${data.filters.range}:${data.filters.page}:${data.filters.q}`}

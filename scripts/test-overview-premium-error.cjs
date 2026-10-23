@@ -50,6 +50,8 @@ test('Premium layout survives failed/incomplete loads, uses unknown metrics and 
         console: { error() {} },
         require(name) {
           if (name in deps) return deps[name]
+          if (name === '@/lib/features/overview/overview-diagnostics')
+            return { logOverviewError() {} }
           throw Error('Unexpected import: ' + name)
         },
       },
@@ -59,7 +61,7 @@ test('Premium layout survives failed/incomplete loads, uses unknown metrics and 
     assert.equal(premium.type, 'premium')
     assert.equal(premium.props.data.shop.id, 'tenant')
     if (mode === 'success') {
-      assert.equal(alert, false)
+      assert.equal(alert.props.role, 'status')
       assert.equal(premium.props.data, valid)
     } else {
       assert.equal(alert.props.role, 'alert')

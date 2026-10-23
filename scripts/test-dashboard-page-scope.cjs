@@ -103,6 +103,8 @@ function fixture(page) {
       URLSearchParams,
       console,
       require(name) {
+        if (name === '@/lib/features/overview/overview-diagnostics')
+          return { logOverviewError() {} }
         if (name === 'server-only') return {}
         if (name === '@/lib/auth')
           return {

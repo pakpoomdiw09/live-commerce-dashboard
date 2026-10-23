@@ -11,6 +11,8 @@ function load(file, deps, globals = {}) {
     process: { env: {} },
     require: (name) => {
       if (name in deps) return deps[name]
+      if (name === '@/lib/full-access') return { temporaryFullAccess: false }
+      if (name === '@/lib/features/overview/overview-diagnostics') return { logOverviewError() {} }
       throw Error('Unexpected dependency ' + name)
     },
     ...globals,

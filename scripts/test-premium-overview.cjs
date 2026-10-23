@@ -18,6 +18,7 @@ function load(file, deps = {}, globals = {}) {
     process: { env: {} },
     require: (n) => {
       if (n in deps) return deps[n]
+      if (n === '@/lib/features/overview/overview-diagnostics') return { logOverviewError() {} }
       if (n === '@/lib/full-access') return { temporaryFullAccess: false }
       if (n === 'next/image')
         return { default: ({ src, alt }) => React.createElement('img', { src, alt }) }
@@ -103,7 +104,13 @@ class InboxError extends Error {
     this.code = code
   }
 }
-function fixture({ member = true, enabled = true, error = null, data = null } = {}) {
+function fixture({
+  member = true,
+  enabled = true,
+  fullAccess = false,
+  error = null,
+  data = null,
+} = {}) {
   let queries = 0
   const calls = [],
     db = {
@@ -140,6 +147,7 @@ function fixture({ member = true, enabled = true, error = null, data = null } = 
       },
     }
   const server = load('lib/features/overview/premium-overview-server.ts', {
+    '@/lib/full-access': { temporaryFullAccess: fullAccess },
     'server-only': {},
     '@/lib/auth': { canAccessTenant: async () => member },
     '@/lib/supabase/server': { supabaseAdmin: () => db },
@@ -173,6 +181,15 @@ function fixture({ member = true, enabled = true, error = null, data = null } = 
     },
   }
 }
+test('Full Access ignores the legacy overview switch while preserving tenant authorization', async () => {
+  const f = fixture({ enabled: false, fullAccess: true })
+  assert.equal((await f.run()).shop.id, tenant)
+  assert.equal(f.queries, 1)
+  const denied = fixture({ member: false, enabled: false, fullAccess: true })
+  await assert.rejects(denied.run(), (error) => error.status === 404)
+  assert.equal(denied.queries, 0)
+})
+
 function sample() {
   return {
     shop: { id: tenant, name: 'Test shop — isolated fixture' },

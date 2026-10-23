@@ -10,6 +10,8 @@ import {
   type PremiumOverviewData,
 } from '@/lib/features/overview/premium-overview-core'
 import { overviewFromTables } from '@/lib/features/overview/overview-tables'
+import { temporaryFullAccess } from '@/lib/full-access'
+import { logOverviewError } from '@/lib/features/overview/overview-diagnostics'
 
 export async function loadPremiumOverview(
   actor: Actor | null,
@@ -20,8 +22,9 @@ export async function loadPremiumOverview(
   if (!actor || actor.kind !== 'user') throw new InboxError('กรุณาเข้าสู่ระบบ', 401)
   if (!UUID.test(tenantId) || !(await canAccessTenant(actor, tenantId)))
     throw new InboxError('ไม่พบร้านค้า', 404)
-  if (!premiumOverviewEnabled())
+  if (!temporaryFullAccess && !premiumOverviewEnabled())
     throw new InboxError('ยังไม่เปิดใช้ภาพรวมรูปแบบนี้', 403, 'FEATURE_DISABLED')
+  const db = supabaseAdmin({ timeoutMs: 8000 })
   let filters
   try {
     filters = overviewFilters(input)
@@ -29,29 +32,39 @@ export async function loadPremiumOverview(
     throw new InboxError('ช่วงเวลา หน้า หรือคำค้นไม่ถูกต้อง', 400, 'INVALID_FILTER')
   }
   if (!setup) {
-    const tenant = await supabaseAdmin()
+    const tenant = await db
       .from('tenants')
       .select('auto_verify_enabled,bank_code,account_name,page_id,page_token_set')
       .eq('id', tenantId)
       .maybeSingle()
-    if (tenant.error || !tenant.data)
+    if (tenant.error || !tenant.data) {
+      logOverviewError('tenants.setup', tenant.error ?? new Error('TENANT_NOT_FOUND'), {
+        tenantId,
+        status: tenant.status,
+      })
       throw new InboxError('อ่านการตั้งค่าร้านค้าไม่ได้', 503, 'OVERVIEW_UNAVAILABLE')
+    }
     setup = {
       autoVerifyEnabled: tenant.data.auto_verify_enabled,
       bankConfigured: !!tenant.data.bank_code && !!tenant.data.account_name,
       pageConfigured: !!tenant.data.page_id && tenant.data.page_token_set,
     }
   }
-  const { summary, notices } = await overviewFromTables(supabaseAdmin(), tenantId, filters)
+  const { summary, notices } = await overviewFromTables(db, tenantId, filters)
   if (summary.shop.id !== tenantId)
     throw new InboxError('ข้อมูลร้านค้าไม่ตรงกัน', 503, 'OVERVIEW_UNAVAILABLE')
-  const aiSettings = await supabaseAdmin()
+  const aiSettings = await db
     .from('agent_control_settings')
     .select('flags')
     .eq('tenant_id', tenantId)
     .maybeSingle()
   const aiConfigured =
     !aiSettings.error && aiSettings.data?.flags?.agent_orchestrator_enabled === true
+  if (aiSettings.error)
+    logOverviewError('agent_control_settings.flags', aiSettings.error, {
+      tenantId,
+      status: aiSettings.status,
+    })
   const databaseConfigured = notices.length === 0
   const slipConfigured = setup.autoVerifyEnabled && setup.bankConfigured
   return {
@@ -87,9 +100,7 @@ export async function loadPremiumOverview(
       {
         name: 'ฐานข้อมูลร้านค้า',
         status: databaseConfigured ? 'active' : 'setup',
-        detail: databaseConfigured
-          ? 'อ่านข้อมูลร้านค้าได้แล้ว'
-          : 'ข้อมูลบางส่วนยังไม่พร้อม กรุณาตรวจสอบการตั้งค่าร้านค้า',
+        detail: databaseConfigured ? 'อ่านข้อมูลร้านค้าได้แล้ว' : notices.join(' · '),
         setupHref: '/settings',
       },
       {
