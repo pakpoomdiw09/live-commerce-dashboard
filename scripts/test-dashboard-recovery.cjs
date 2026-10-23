@@ -190,11 +190,9 @@ test('service-role membership lookup fails closed without reading tenant records
   }
 })
 
-test('overview route restores the premium component and retains an authenticated basic view', async () => {
-  let enabled = true,
-    checks = 0
-  const Premium = () => null,
-    Basic = () => null
+test('overview always renders Premium and authenticates even for basic view requests', async () => {
+  let checks = 0
+  const Premium = () => null
   const api = load('app/(dashboard)/overview/page.tsx', {
     'react/jsx-runtime': require('react/jsx-runtime'),
     '@/lib/auth': {
@@ -202,17 +200,13 @@ test('overview route restores the premium component and retains an authenticated
         checks++
       },
     },
-    '@/lib/features/overview/premium-overview-core': { premiumOverviewEnabled: () => enabled },
     '@/components/overview/PremiumOverviewPage': { PremiumOverviewPage: Premium },
-    '@/components/overview/BasicOverviewPage': { BasicOverviewPage: Basic },
   })
-  assert.equal((await api.default({ searchParams: Promise.resolve({ range: '7' }) })).type, Premium)
-  assert.equal(
-    (await api.default({ searchParams: Promise.resolve({ view: 'basic' }) })).type,
-    Basic,
-  )
-  enabled = false
-  assert.equal((await api.default({ searchParams: Promise.resolve({}) })).type, Basic)
+  for (const filters of [{ range: '7' }, { view: 'basic' }, {}]) {
+    const result = await api.default({ searchParams: Promise.resolve(filters) })
+    assert.equal(result.type, Premium)
+    assert.equal(result.props.filters, filters)
+  }
   assert.equal(checks, 3)
 })
 
