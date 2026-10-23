@@ -37,17 +37,21 @@ export const SLIP_TOPUPS: Record<SlipTopupId, { name: string; price: number; cre
 /** What a shop can buy: a month of a paid plan, or a top-up pack. */
 export type BillingItem = Exclude<PlanId, 'free'> | TopupId | SlipTopupId
 
-export const BILLING_ITEMS: Record<BillingItem, { name: string; price: number; credits: number }> = {
-  starter: PLANS.starter,
-  pro: PLANS.pro,
-  ...TOPUPS,
-  ...SLIP_TOPUPS,
-}
+export const BILLING_ITEMS: Record<BillingItem, { name: string; price: number; credits: number }> =
+  {
+    starter: PLANS.starter,
+    pro: PLANS.pro,
+    ...TOPUPS,
+    ...SLIP_TOPUPS,
+  }
 
-export const isSlipTopup = (item: BillingItem): item is SlipTopupId => item.startsWith('slip_topup_')
-export const billingUnit = (item: BillingItem) => isSlipTopup(item) ? 'รายการตรวจสลิป' : 'ข้อความบรอดแคสต์'
+export const isSlipTopup = (item: BillingItem): item is SlipTopupId =>
+  item.startsWith('slip_topup_')
+export const billingUnit = (item: BillingItem) =>
+  isSlipTopup(item) ? 'รายการตรวจสลิป' : 'ข้อความบรอดแคสต์'
 
-export const isTopup = (item: BillingItem): item is TopupId | SlipTopupId => item.startsWith('topup_') || isSlipTopup(item)
+export const isTopup = (item: BillingItem): item is TopupId | SlipTopupId =>
+  item.startsWith('topup_') || isSlipTopup(item)
 
 /** A tenant's plan and broadcast credits right now. */
 export type Billing = {
@@ -68,15 +72,27 @@ export type Billing = {
 
 export const creditsLeft = (b: Billing) => b.monthly + b.topup
 
-export const canUseFollowUps = (b: Pick<Billing, 'plan' | 'planExpiresAt' | 'featureBypass'>, now = Date.now()) =>
-  (b.plan === 'starter' || b.plan === 'pro') && b.planExpiresAt !== null && Date.parse(b.planExpiresAt) > now
+export const canUseFollowUps = (
+  b: Pick<Billing, 'plan' | 'planExpiresAt' | 'featureBypass'>,
+  now = Date.now(),
+) =>
+  (b.plan === 'starter' || b.plan === 'pro') &&
+  b.planExpiresAt !== null &&
+  Date.parse(b.planExpiresAt) > now
 
 /** UI helper only; server execution must use database feature-access guards. */
 export const canUseAiAgent = (b: Pick<Billing, 'plan' | 'planExpiresAt'>, now = Date.now()) =>
   b.plan === 'pro' && b.planExpiresAt !== null && Date.parse(b.planExpiresAt) > now
 
-export const canUseAutoSlip = (b: Pick<Billing, 'plan' | 'planExpiresAt' | 'featureBypass'>, credits: number, now = Date.now()) =>
-  (b.plan === 'starter' || b.plan === 'pro') && b.planExpiresAt !== null && Date.parse(b.planExpiresAt) > now && credits > 0
+export const canUseAutoSlip = (
+  b: Pick<Billing, 'plan' | 'planExpiresAt' | 'featureBypass'>,
+  credits: number,
+  now = Date.now(),
+) =>
+  (b.plan === 'starter' || b.plan === 'pro') &&
+  b.planExpiresAt !== null &&
+  Date.parse(b.planExpiresAt) > now &&
+  credits > 0
 
 export type BillingRequestRow = {
   id: string
@@ -93,7 +109,9 @@ export type BillingRequestRow = {
   verification_error?: string | null
 }
 
-export const BILLING_REQUEST_COLUMNS = 'id, tenant_id, item, price_baht, credits, status, note, created_at, decided_at'
+export const BILLING_REQUEST_COLUMNS =
+  'id, tenant_id, item, price_baht, credits, status, note, created_at, decided_at'
 
-export const UPGRADE_FOR_TAGS = 'แพ็กเกจฟรีส่งข้อความได้เฉพาะลูกค้าภายใน 24 ชม. กรุณาอัปเกรดแพ็กเกจเพื่อส่งหาลูกค้าที่ไม่ได้ทักเกิน 24 ชม. โดยเลือกหมวดหมู่ข้อความให้ตรงกับเนื้อหา'
+export const UPGRADE_FOR_TAGS =
+  'แพ็กเกจฟรีส่งข้อความได้เฉพาะลูกค้าภายใน 24 ชม. กรุณาอัปเกรดแพ็กเกจเพื่อส่งหาลูกค้าที่ไม่ได้ทักเกิน 24 ชม. โดยเลือกหมวดหมู่ข้อความให้ตรงกับเนื้อหา'
 export const OUT_OF_CREDITS = 'เครดิตบรอดแคสต์หมดแล้ว อัปเกรดแพ็กเกจหรือเติมเครดิตเพื่อส่งต่อ'

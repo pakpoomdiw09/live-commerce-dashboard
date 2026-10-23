@@ -23,7 +23,16 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = 'primary', size = 'md', loading, disabled, className, children, type = 'button', ...props },
+  {
+    variant = 'primary',
+    size = 'md',
+    loading,
+    disabled,
+    className,
+    children,
+    type = 'button',
+    ...props
+  },
   ref,
 ) {
   return (

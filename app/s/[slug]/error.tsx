@@ -1,2 +1,12 @@
 'use client'
-export default function StoreError({ reset }: { reset: () => void }) { return <main className="mx-auto max-w-lg space-y-4 p-8 text-center"><h1 className="text-xl font-bold">ยังโหลดหน้าร้านไม่ได้</h1><p className="text-sm text-slate-500">กรุณาลองใหม่อีกครั้ง หากยังไม่ได้ให้ติดต่อร้านค้า</p><button className="rounded-xl bg-orange-500 px-5 py-3 text-white" onClick={reset}>ลองใหม่</button></main> }
+export default function StoreError({ reset }: { reset: () => void }) {
+  return (
+    <main className="mx-auto max-w-lg space-y-4 p-8 text-center">
+      <h1 className="text-xl font-bold">ยังโหลดหน้าร้านไม่ได้</h1>
+      <p className="text-sm text-slate-500">กรุณาลองใหม่อีกครั้ง หากยังไม่ได้ให้ติดต่อร้านค้า</p>
+      <button className="rounded-xl bg-orange-500 px-5 py-3 text-white" onClick={reset}>
+        ลองใหม่
+      </button>
+    </main>
+  )
+}

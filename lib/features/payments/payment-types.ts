@@ -11,7 +11,12 @@ export type PaymentSession = {
   createdAt: string
   expiresAt: string
   qrPayload: string
-  receiver: { promptpayId: string; bankAccountNo: string; bankAccountName: string; bankName: string }
+  receiver: {
+    promptpayId: string
+    bankAccountNo: string
+    bankAccountName: string
+    bankName: string
+  }
 }
 
 export type PaymentSuccess = { success: true; sessionId: string; billing: Billing }

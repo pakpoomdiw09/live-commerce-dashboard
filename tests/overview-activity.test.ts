@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { aggregateOverviewActivity, type InboundActivityMessage } from '../lib/features/overview/overview-activity-core'
+import {
+  aggregateOverviewActivity,
+  type InboundActivityMessage,
+} from '../lib/features/overview/overview-activity-core'
 import type { OverviewFilters } from '../lib/features/overview/premium-overview-core'
 
 function filters(from: string | null, to: string): OverviewFilters {
@@ -22,17 +25,23 @@ test('groups inbound messages by Bangkok date and counts distinct customers', ()
     { customer_id: 'customer-2', created_at: '2024-01-03T17:00:00.000Z' },
   ]
 
-  const result = aggregateOverviewActivity(messages, filters('2024-01-01T17:00:00.000Z', '2024-01-05T17:00:00.000Z'))
+  const result = aggregateOverviewActivity(
+    messages,
+    filters('2024-01-01T17:00:00.000Z', '2024-01-05T17:00:00.000Z'),
+  )
 
   assert.equal(result.messages, 3)
   assert.equal(result.uniqueCustomers, 2)
   assert.equal(result.points.length, 4)
-  assert.deepEqual(result.points.map(({ key, messages, customers }) => ({ key, messages, customers })), [
-    { key: '2024-01-02', messages: 1, customers: 1 },
-    { key: '2024-01-03', messages: 1, customers: 1 },
-    { key: '2024-01-04', messages: 1, customers: 1 },
-    { key: '2024-01-05', messages: 0, customers: 0 },
-  ])
+  assert.deepEqual(
+    result.points.map(({ key, messages, customers }) => ({ key, messages, customers })),
+    [
+      { key: '2024-01-02', messages: 1, customers: 1 },
+      { key: '2024-01-03', messages: 1, customers: 1 },
+      { key: '2024-01-04', messages: 1, customers: 1 },
+      { key: '2024-01-05', messages: 0, customers: 0 },
+    ],
+  )
   assert.equal(result.hours[0].messages, 2)
   assert.equal(result.hours[1].messages, 1)
   assert.equal(result.hours[7].messages, 0)
@@ -49,12 +58,15 @@ test('keeps all-time monthly buckets continuous across year boundaries', () => {
 
   assert.equal(result.messages, 2)
   assert.equal(result.uniqueCustomers, 2)
-  assert.deepEqual(result.points.map(point => [point.key, point.messages]), [
-    ['2024-01-01', 1],
-    ['2024-02-01', 1],
-    ['2024-03-01', 0],
-    ['2024-04-01', 0],
-  ])
+  assert.deepEqual(
+    result.points.map((point) => [point.key, point.messages]),
+    [
+      ['2024-01-01', 1],
+      ['2024-02-01', 1],
+      ['2024-03-01', 0],
+      ['2024-04-01', 0],
+    ],
+  )
 })
 
 test('returns zeroes for empty periods and excludes the exclusive end timestamp', () => {
@@ -63,7 +75,10 @@ test('returns zeroes for empty periods and excludes the exclusive end timestamp'
     { customer_id: 'customer-2', created_at: 'not-a-date' },
   ]
 
-  const result = aggregateOverviewActivity(messages, filters('2024-01-01T17:00:00.000Z', '2024-01-02T17:00:00.000Z'))
+  const result = aggregateOverviewActivity(
+    messages,
+    filters('2024-01-01T17:00:00.000Z', '2024-01-02T17:00:00.000Z'),
+  )
 
   assert.equal(result.messages, 0)
   assert.equal(result.uniqueCustomers, 0)

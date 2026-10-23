@@ -84,7 +84,12 @@ export function PageStatus({ page }: { page: ActivePage | null }) {
             เครดิต {page.creditsLeft.toLocaleString('th-TH')}
           </span>
         </span>
-        <Link href="/select-page" aria-label="สลับเพจ" title="สลับเพจ" className="rounded-lg p-1.5 text-white/80 hover:bg-white/15 hover:text-white">
+        <Link
+          href="/select-page"
+          aria-label="สลับเพจ"
+          title="สลับเพจ"
+          className="rounded-lg p-1.5 text-white/80 hover:bg-white/15 hover:text-white"
+        >
           <ArrowLeftRight className="h-4 w-4" />
         </Link>
       </div>
@@ -100,14 +105,31 @@ export function PageStatus({ page }: { page: ActivePage | null }) {
         className="mt-3 flex w-full items-center justify-between rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60"
       >
         <span className="flex items-center gap-2">
-          <span className={cn('h-2 w-2 rounded-full', on ? 'bg-lime-300' : 'bg-white/40')} aria-hidden />
+          <span
+            className={cn('h-2 w-2 rounded-full', on ? 'bg-lime-300' : 'bg-white/40')}
+            aria-hidden
+          />
           {on ? 'กำลังทำงาน' : 'ปิดบอทอยู่'}
         </span>
-        <span className={cn('flex h-5 w-9 items-center rounded-full p-0.5 transition-colors', on ? 'bg-lime-400' : 'bg-white/30')}>
-          <span className={cn('h-4 w-4 rounded-full bg-white shadow transition-transform', on && 'translate-x-4')} />
+        <span
+          className={cn(
+            'flex h-5 w-9 items-center rounded-full p-0.5 transition-colors',
+            on ? 'bg-lime-400' : 'bg-white/30',
+          )}
+        >
+          <span
+            className={cn(
+              'h-4 w-4 rounded-full bg-white shadow transition-transform',
+              on && 'translate-x-4',
+            )}
+          />
         </span>
       </button>
-      {!page.pageLinked && <p className="mt-2 text-[11px] text-white/80">ยังไม่ผูกเพจ: ตั้งค่า Page ID และ token ในหน้าตั้งค่า</p>}
+      {!page.pageLinked && (
+        <p className="mt-2 text-[11px] text-white/80">
+          ยังไม่ผูกเพจ: ตั้งค่า Page ID และ token ในหน้าตั้งค่า
+        </p>
+      )}
       {error && <p className="mt-2 text-[11px] font-medium text-white">{error}</p>}
     </div>
   )

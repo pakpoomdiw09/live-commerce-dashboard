@@ -25,7 +25,10 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
   const visible = rows.filter(
     (r) =>
       (pageFilter === 'all' || r.page_ids.includes(pageFilter)) &&
-      (!q || [r.name, ...r.keywords, ...r.page_ids.map(pageName)].some((s) => s.toLowerCase().includes(q))),
+      (!q ||
+        [r.name, ...r.keywords, ...r.page_ids.map(pageName)].some((s) =>
+          s.toLowerCase().includes(q),
+        )),
   )
 
   async function setActive(rule: RuleRow, next: boolean) {
@@ -49,7 +52,9 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
       <PageBanner className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">ตอบกลับคอมเมนต์</h1>
-          <p className="mt-1 text-sm leading-6 text-white">ตั้งกฎให้ระบบตอบใต้คอมเมนต์ และส่งข้อความเข้าอินบ็อกซ์ของลูกค้าอัตโนมัติ</p>
+          <p className="mt-1 text-sm leading-6 text-white">
+            ตั้งกฎให้ระบบตอบใต้คอมเมนต์ และส่งข้อความเข้าอินบ็อกซ์ของลูกค้าอัตโนมัติ
+          </p>
         </div>
         <Link
           href="/comment-replies/new"
@@ -63,7 +68,10 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <label className="relative min-w-60 flex-1">
           <span className="sr-only">ค้นหากฎ</span>
-          <Icon d={ICONS.search} className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Icon
+            d={ICONS.search}
+            className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400"
+          />
           <input
             type="search"
             value={query}
@@ -110,9 +118,14 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
               {visible.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-14 text-center">
-                    <p className="text-sm text-slate-500">{rows.length ? 'ไม่พบกฎที่ค้นหา' : 'ยังไม่มีกฎตอบกลับคอมเมนต์'}</p>
+                    <p className="text-sm text-slate-500">
+                      {rows.length ? 'ไม่พบกฎที่ค้นหา' : 'ยังไม่มีกฎตอบกลับคอมเมนต์'}
+                    </p>
                     {!rows.length && (
-                      <Link href="/comment-replies/new" className="mt-3 inline-block text-sm font-semibold text-red-600 hover:underline">
+                      <Link
+                        href="/comment-replies/new"
+                        className="mt-3 inline-block text-sm font-semibold text-red-600 hover:underline"
+                      >
                         + สร้างกฎแรก
                       </Link>
                     )}
@@ -120,33 +133,54 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
                 </tr>
               )}
               {visible.map((r) => (
-                <tr key={r.id} className={`align-top transition-colors hover:bg-slate-50/70 ${r.is_active ? '' : 'opacity-60'}`}>
+                <tr
+                  key={r.id}
+                  className={`align-top transition-colors hover:bg-slate-50/70 ${r.is_active ? '' : 'opacity-60'}`}
+                >
                   <td className="max-w-56 px-4 py-4">
                     <p className="font-medium text-slate-900">{r.name}</p>
-                    <p className="mt-0.5 text-xs text-slate-400">ตอบไปแล้ว {r.comments[0]?.count ?? 0} ครั้ง</p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      ตอบไปแล้ว {r.comments[0]?.count ?? 0} ครั้ง
+                    </p>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-1">
                       {r.page_ids.map((id) => (
-                        <span key={id} className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100">
+                        <span
+                          key={id}
+                          className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-100"
+                        >
                           {pageName(id)}
                         </span>
                       ))}
                     </div>
                   </td>
                   <td className="max-w-60 px-4 py-4">
-                    <p className="mb-1 text-[11px] font-medium text-slate-400">{r.match_type === 'exact' ? 'ตรงทั้งประโยค' : 'มีคีย์เวิร์ด'}</p>
+                    <p className="mb-1 text-[11px] font-medium text-slate-400">
+                      {r.match_type === 'exact' ? 'ตรงทั้งประโยค' : 'มีคีย์เวิร์ด'}
+                    </p>
                     <div className="flex flex-wrap gap-1">
                       {r.keywords.slice(0, 4).map((k) => (
-                        <span key={k} className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                        <span
+                          key={k}
+                          className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700"
+                        >
                           {k}
                         </span>
                       ))}
-                      {r.keywords.length > 4 && <span className="px-1 text-xs text-slate-400">+{r.keywords.length - 4}</span>}
+                      {r.keywords.length > 4 && (
+                        <span className="px-1 text-xs text-slate-400">
+                          +{r.keywords.length - 4}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="max-w-64 px-4 py-4">
-                    {r.reply_enabled ? <p className="line-clamp-2 text-slate-700">{r.reply_text}</p> : off}
+                    {r.reply_enabled ? (
+                      <p className="line-clamp-2 text-slate-700">{r.reply_text}</p>
+                    ) : (
+                      off
+                    )}
                   </td>
                   <td className="max-w-64 px-4 py-4">
                     {!r.inbox_enabled ? (
@@ -154,7 +188,11 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
                     ) : r.inbox_type === 'image' && r.inbox_image_url ? (
                       <div className="flex items-center gap-2">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={r.inbox_image_url} alt="" className="h-10 w-10 rounded-lg object-cover ring-1 ring-slate-200" />
+                        <img
+                          src={r.inbox_image_url}
+                          alt=""
+                          className="h-10 w-10 rounded-lg object-cover ring-1 ring-slate-200"
+                        />
                         <span className="text-xs text-slate-500">รูปภาพ</span>
                       </div>
                     ) : (
@@ -162,7 +200,11 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
                     )}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <Switch checked={r.is_active} onChange={(next) => setActive(r, next)} label={`เปิดใช้งานกฎ ${r.name}`} />
+                    <Switch
+                      checked={r.is_active}
+                      onChange={(next) => setActive(r, next)}
+                      label={`เปิดใช้งานกฎ ${r.name}`}
+                    />
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex justify-end gap-1">

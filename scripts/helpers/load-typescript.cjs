@@ -8,14 +8,18 @@ module.exports = function loadTypeScript(file, dependencies = {}, globals = {}) 
   const context = {
     exports: {},
     require(name) {
-      if(name==='@/lib/single-flight')return module.exports('lib/single-flight.ts',{},globals)
+      if (name === '@/lib/single-flight') return module.exports('lib/single-flight.ts', {}, globals)
       if (Object.hasOwn(dependencies, name)) return dependencies[name]
       throw new Error(`Unexpected dependency in ${file}: ${name}`)
     },
     ...globals,
   }
   const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true,
+    },
   }).outputText
   vm.runInNewContext(source, context, { filename })
   return context.exports

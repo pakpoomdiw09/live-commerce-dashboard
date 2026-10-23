@@ -6,7 +6,10 @@ const { PGlite } = require('@electric-sql/pglite')
 test('SQL dashboards aggregate more than 1000 rows, page deterministically, isolate tenants and enforce service-only access', async () => {
   const db = new PGlite()
   try {
-    const commerceFixture = fs.readFileSync('scripts/test-commerce-sql.cjs', 'utf8').split('await db.exec(`')[1].split('`)')[0]
+    const commerceFixture = fs
+      .readFileSync('scripts/test-commerce-sql.cjs', 'utf8')
+      .split('await db.exec(`')[1]
+      .split('`)')[0]
     await db.exec(commerceFixture)
     await db.exec(`alter table tenants add column slip_quota integer default 100,add column slip_used integer default 1,add column slip_quota_credits integer default 0;
       alter table customers add column tenant_id uuid references tenants(id),add column display_name text,add column last_message_at timestamptz,add column bot_enabled boolean default true,add column gender text,add column avatar_url text;
@@ -18,18 +21,52 @@ test('SQL dashboards aggregate more than 1000 rows, page deterministically, isol
     const migration = fs.readFileSync('supabase/dashboard-performance.sql', 'utf8')
     await db.exec(migration)
     await db.exec(migration)
-    const tenant = '11111111-1111-4111-8111-111111111111', foreign = '22222222-2222-4222-8222-222222222222'
-    await db.query("insert into tenants(id,name,plan) values($1,'Own','pro'),($2,'Foreign','pro')", [tenant, foreign])
-    await db.query(`insert into customers(id,tenant_id,display_name,last_message_at,gender,avatar_url)
+    const tenant = '11111111-1111-4111-8111-111111111111',
+      foreign = '22222222-2222-4222-8222-222222222222'
+    await db.query(
+      "insert into tenants(id,name,plan) values($1,'Own','pro'),($2,'Foreign','pro')",
+      [tenant, foreign],
+    )
+    await db.query(
+      `insert into customers(id,tenant_id,display_name,last_message_at,gender,avatar_url)
       select gen_random_uuid(),$1,'Buyer '||n,'2026-10-17T03:00:00Z',case when n%2=0 then 'male' else 'female' end,'https://example.com/avatar/'||n from generate_series(1,1205) n;
-    `, [tenant])
-    await db.query("insert into customers values(gen_random_uuid(),$1,'FOREIGN SECRET','2026-10-17T03:00:00Z',true,'male','https://foreign.test')", [foreign])
-    await db.query("insert into messages(customer_id,created_at,body,sender) select id,'2026-10-17T03:00:00Z',display_name,'customer' from customers")
-    await db.query("insert into messages(customer_id,created_at,body,sender) select id,'2026-10-17T04:00:00Z','Latest reply','admin' from customers")
-    await db.query("insert into slips(tenant_id,customer_id,created_at,status,amount,trans_ref) select tenant_id,id,'2026-10-17T03:00:00Z','valid',0.10,'REF' from customers")
-    await db.query("insert into agent_message_jobs(tenant_id,customer_id,created_at,route,status) select tenant_id,id,'2026-10-17T03:00:00Z','AI','sent' from customers")
-    const overview = async (page = 1, query = '', shop = tenant, from = '2026-10-11T17:00:00Z', to = '2026-10-18T05:00:00Z', previous = '2026-10-04T17:00:00Z') =>
-      (await db.query('select overview_dashboard_stats($1,$2,$3,$4,$5,$6) data', [shop, from, to, previous, page, query])).rows[0].data
+    `,
+      [tenant],
+    )
+    await db.query(
+      "insert into customers values(gen_random_uuid(),$1,'FOREIGN SECRET','2026-10-17T03:00:00Z',true,'male','https://foreign.test')",
+      [foreign],
+    )
+    await db.query(
+      "insert into messages(customer_id,created_at,body,sender) select id,'2026-10-17T03:00:00Z',display_name,'customer' from customers",
+    )
+    await db.query(
+      "insert into messages(customer_id,created_at,body,sender) select id,'2026-10-17T04:00:00Z','Latest reply','admin' from customers",
+    )
+    await db.query(
+      "insert into slips(tenant_id,customer_id,created_at,status,amount,trans_ref) select tenant_id,id,'2026-10-17T03:00:00Z','valid',0.10,'REF' from customers",
+    )
+    await db.query(
+      "insert into agent_message_jobs(tenant_id,customer_id,created_at,route,status) select tenant_id,id,'2026-10-17T03:00:00Z','AI','sent' from customers",
+    )
+    const overview = async (
+      page = 1,
+      query = '',
+      shop = tenant,
+      from = '2026-10-11T17:00:00Z',
+      to = '2026-10-18T05:00:00Z',
+      previous = '2026-10-04T17:00:00Z',
+    ) =>
+      (
+        await db.query('select overview_dashboard_stats($1,$2,$3,$4,$5,$6) data', [
+          shop,
+          from,
+          to,
+          previous,
+          page,
+          query,
+        ])
+      ).rows[0].data
     let data = await overview()
     assert.equal(data.totals.totalSlips, 1205)
     assert.equal(data.totals.verifiedSlipAmount, 120.5)
@@ -41,53 +78,100 @@ test('SQL dashboards aggregate more than 1000 rows, page deterministically, isol
     assert.equal(data.slipMatches, 1205)
     assert.equal(data.slips.length, 10)
     assert.equal(data.chats.length, 10)
-    assert.ok(data.chats.every(c => c.body === 'Latest reply' && c.avatar_url.startsWith('https://example.com/')))
-    assert.equal(data.series.reduce((sum, p) => sum + p.amount, 0), 120.5)
-    assert.equal(data.activity.reduce((sum, p) => sum + p.messages, 0), 1205)
-    assert.equal(data.hours.reduce((sum, p) => sum + p.messages, 0), 1205)
+    assert.ok(
+      data.chats.every(
+        (c) => c.body === 'Latest reply' && c.avatar_url.startsWith('https://example.com/'),
+      ),
+    )
+    assert.equal(
+      data.series.reduce((sum, p) => sum + p.amount, 0),
+      120.5,
+    )
+    assert.equal(
+      data.activity.reduce((sum, p) => sum + p.messages, 0),
+      1205,
+    )
+    assert.equal(
+      data.hours.reduce((sum, p) => sum + p.messages, 0),
+      1205,
+    )
     const page2 = await overview(2)
-    assert.ok(page2.slips.every(row => !data.slips.some(first => first.id === row.id)))
-    assert.ok(page2.chats.every(row => !data.chats.some(first => first.id === row.id)))
+    assert.ok(page2.slips.every((row) => !data.slips.some((first) => first.id === row.id)))
+    assert.ok(page2.chats.every((row) => !data.chats.some((first) => first.id === row.id)))
     assert.equal((await overview(121)).slips.length, 5)
     assert.equal((await overview(122)).slips.length, 0)
     assert.equal((await overview(1, 'FOREIGN SECRET')).chatMatches, 0)
     assert.equal((await overview(1, 'REF')).totals.totalSlips, 1205)
     assert.equal((await overview(1, '%')).slipMatches, 0)
     assert.equal((await overview(1, '', foreign)).totals.totalSlips, 1)
-    await assert.rejects(overview(0), e => e.code === '22023')
-    await assert.rejects(overview(1, '', '33333333-3333-4333-8333-333333333333'), e => e.code === '42501')
-    const midnight = await overview(1, '', tenant, '2026-10-16T17:00:00Z', '2026-10-17T17:00:00Z', null)
+    await assert.rejects(overview(0), (e) => e.code === '22023')
+    await assert.rejects(
+      overview(1, '', '33333333-3333-4333-8333-333333333333'),
+      (e) => e.code === '42501',
+    )
+    const midnight = await overview(
+      1,
+      '',
+      tenant,
+      '2026-10-16T17:00:00Z',
+      '2026-10-17T17:00:00Z',
+      null,
+    )
     assert.equal(midnight.messages, 1205)
     assert.equal(midnight.activity.length, 1)
-    await db.query(`insert into slips(tenant_id,created_at,status,amount,approved_at) values
+    await db.query(
+      `insert into slips(tenant_id,created_at,status,amount,approved_at) values
       ($1,'2026-10-17T03:00:00Z','error',0.20,now()),
       ($1,'2026-10-17T03:00:00Z','pending',999,null),
       ($1,'2026-10-17T03:00:00Z','duplicate',999,now()),
       ($1,'2026-10-10T03:00:00Z','valid',12,null),
-      ($1,'2010-01-01T03:00:00Z','valid',500,null)`, [tenant])
+      ($1,'2010-01-01T03:00:00Z','valid',500,null)`,
+      [tenant],
+    )
     const outcomes = await overview()
     assert.equal(outcomes.totals.verifiedSlipAmount, 120.7)
     assert.equal(outcomes.results.pending, 1)
     assert.equal(outcomes.results.rejected, 1)
     assert.equal(outcomes.previous.verifiedSlipAmount, 12)
-    assert.equal(outcomes.series.reduce((sum, p) => sum + p.previousAmount, 0), 12)
+    assert.equal(
+      outcomes.series.reduce((sum, p) => sum + p.previousAmount, 0),
+      12,
+    )
     const all = await overview(1, '', tenant, null, '2026-10-18T05:00:00Z', null)
     assert.equal(all.totals.verifiedSlipAmount, 632.7)
     assert.equal(all.series.length, 120)
-    assert.ok(all.series.every(point => point.day >= '2016-11-01'))
+    assert.ok(all.series.every((point) => point.day >= '2016-11-01'))
     await db.exec('alter table customers drop column gender,drop column avatar_url')
     const initials = await overview()
     assert.equal(initials.chats[0].avatar_url, null)
-    assert.equal(initials.slips.find(s => s.customer)?.avatar_url, null)
+    assert.equal(initials.slips.find((s) => s.customer)?.avatar_url, null)
     assert.equal(initials.customerGenders.unspecified, 1205)
-    await db.query("insert into products(tenant_id,code,name,price,stock) select $1,'SKU-'||n,'Product '||n,0.10,2 from generate_series(1,1205) n", [tenant])
-    await db.query("insert into commerce_customers(tenant_id,name,phone,address) select $1,'Buyer '||n,n::text,'Address' from generate_series(1,1205) n", [tenant])
-    await db.query("insert into commerce_orders(tenant_id,customer_id,request_key,payload,status,total,shipping,paid_at) select tenant_id,id,gen_random_uuid(),'{}','paid',0.10,'{}',now() from commerce_customers where tenant_id=$1", [tenant])
-    await db.query("insert into commerce_order_items(order_id,tenant_id,product_id,name,qty,price) select o.id,o.tenant_id,p.id,'Best',1,0.10 from commerce_orders o cross join lateral (select id from products where tenant_id=o.tenant_id order by id limit 1) p", [])
-    await db.query("insert into commerce_categories(tenant_id,name) select $1,'Category '||n from generate_series(1,65) n", [tenant])
-    const stats = async shop => (await db.query('select commerce_dashboard_stats($1) data', [shop])).rows[0].data
-    const commercePage = async (page = 1, shop = tenant, q = '') => (await db.query("select commerce_dashboard_page($1,$2,$2,$2,1,1,$3) data", [shop, page, q])).rows[0].data
-    await assert.rejects(stats('33333333-3333-4333-8333-333333333333'), e => e.code === '42501')
+    await db.query(
+      "insert into products(tenant_id,code,name,price,stock) select $1,'SKU-'||n,'Product '||n,0.10,2 from generate_series(1,1205) n",
+      [tenant],
+    )
+    await db.query(
+      "insert into commerce_customers(tenant_id,name,phone,address) select $1,'Buyer '||n,n::text,'Address' from generate_series(1,1205) n",
+      [tenant],
+    )
+    await db.query(
+      "insert into commerce_orders(tenant_id,customer_id,request_key,payload,status,total,shipping,paid_at) select tenant_id,id,gen_random_uuid(),'{}','paid',0.10,'{}',now() from commerce_customers where tenant_id=$1",
+      [tenant],
+    )
+    await db.query(
+      "insert into commerce_order_items(order_id,tenant_id,product_id,name,qty,price) select o.id,o.tenant_id,p.id,'Best',1,0.10 from commerce_orders o cross join lateral (select id from products where tenant_id=o.tenant_id order by id limit 1) p",
+      [],
+    )
+    await db.query(
+      "insert into commerce_categories(tenant_id,name) select $1,'Category '||n from generate_series(1,65) n",
+      [tenant],
+    )
+    const stats = async (shop) =>
+      (await db.query('select commerce_dashboard_stats($1) data', [shop])).rows[0].data
+    const commercePage = async (page = 1, shop = tenant, q = '') =>
+      (await db.query('select commerce_dashboard_page($1,$2,$2,$2,1,1,$3) data', [shop, page, q]))
+        .rows[0].data
+    await assert.rejects(stats('33333333-3333-4333-8333-333333333333'), (e) => e.code === '42501')
     const totals = await stats(tenant)
     assert.equal(totals.products, 1205)
     assert.equal(totals.customers, 1205)
@@ -95,20 +179,21 @@ test('SQL dashboards aggregate more than 1000 rows, page deterministically, isol
     assert.equal(totals.best[0].qty, 1205)
     assert.equal(totals.amounts.length, 14)
     assert.equal(totals.report.monthly[0].total, 120.5)
-    const first = await commercePage(), second = await commercePage(2)
+    const first = await commercePage(),
+      second = await commercePage(2)
     assert.equal(first.products.length, 50)
     assert.equal(first.orders.length, 50)
     assert.equal(first.customers.length, 50)
     assert.equal(first.categoryRows.length, 50)
     assert.equal(first.items.length, 50)
     assert.equal(first.counts.orders, 1205)
-    assert.ok(first.customers.every(c => c.order_count === 1))
-    assert.ok(second.orders.every(o => !first.orders.some(p => p.id === o.id)))
+    assert.ok(first.customers.every((c) => c.order_count === 1))
+    assert.ok(second.orders.every((o) => !first.orders.some((p) => p.id === o.id)))
     assert.equal((await commercePage(25)).orders.length, 5)
     assert.equal((await commercePage(1, tenant, 'SKU-1205')).counts.products, 1)
     assert.equal((await stats(foreign)).revenue, 0)
     assert.equal((await commercePage(1, foreign)).orders.length, 0)
-    await assert.rejects(commercePage(1001), e => e.code === '22023')
+    await assert.rejects(commercePage(1001), (e) => e.code === '22023')
     await db.query("update tenants set plan='free' where id=$1", [tenant])
     assert.equal((await stats(tenant)).report, null)
     data = await overview()
@@ -117,18 +202,41 @@ test('SQL dashboards aggregate more than 1000 rows, page deterministically, isol
     assert.equal(data.messages, 0)
     for (const role of ['anon', 'authenticated']) {
       await db.exec('set role ' + role)
-      await assert.rejects(overview(), e => e.code === '42501')
-      await assert.rejects(stats(tenant), e => e.code === '42501')
-      await assert.rejects(commercePage(), e => e.code === '42501')
+      await assert.rejects(overview(), (e) => e.code === '42501')
+      await assert.rejects(stats(tenant), (e) => e.code === '42501')
+      await assert.rejects(commercePage(), (e) => e.code === '42501')
       await db.exec('reset role')
     }
-    const indexes = (await db.query("select indexname from pg_indexes where schemaname='public'")).rows.map(r => r.indexname)
-    for (const name of ['overview_slips_time', 'overview_messages_latest', 'commerce_orders_status_page', 'commerce_items_tenant_order']) assert.ok(indexes.includes(name))
-    const permission = (await db.query("select has_function_privilege('service_role','commerce_dashboard_stats(uuid)','EXECUTE') allowed")).rows[0]
+    const indexes = (
+      await db.query("select indexname from pg_indexes where schemaname='public'")
+    ).rows.map((r) => r.indexname)
+    for (const name of [
+      'overview_slips_time',
+      'overview_messages_latest',
+      'commerce_orders_status_page',
+      'commerce_items_tenant_order',
+    ])
+      assert.ok(indexes.includes(name))
+    const permission = (
+      await db.query(
+        "select has_function_privilege('service_role','commerce_dashboard_stats(uuid)','EXECUTE') allowed",
+      )
+    ).rows[0]
     assert.equal(permission.allowed, true)
     await db.exec('analyze messages;set enable_seqscan=off')
-    const customer = (await db.query('select id from customers where tenant_id=$1 limit 1', [tenant])).rows[0].id
-    const plan = (await db.query('explain select body from messages where customer_id=$1 and created_at<$2 order by created_at desc,id desc limit 1', [customer, '2026-10-18T05:00:00Z'])).rows.map(row => row['QUERY PLAN']).join('\n')
+    const customer = (
+      await db.query('select id from customers where tenant_id=$1 limit 1', [tenant])
+    ).rows[0].id
+    const plan = (
+      await db.query(
+        'explain select body from messages where customer_id=$1 and created_at<$2 order by created_at desc,id desc limit 1',
+        [customer, '2026-10-18T05:00:00Z'],
+      )
+    ).rows
+      .map((row) => row['QUERY PLAN'])
+      .join('\n')
     assert.match(plan, /overview_messages_latest/)
-  } finally { await db.close() }
+  } finally {
+    await db.close()
+  }
 })

@@ -1,5 +1,10 @@
 import type { MessageTag } from '@/lib/features/agents/chatbot'
-import { createLogRequestId, logSafeEvent, maskErrorCode, type SafeEventType } from '@/lib/safe-logging'
+import {
+  createLogRequestId,
+  logSafeEvent,
+  maskErrorCode,
+  type SafeEventType,
+} from '@/lib/safe-logging'
 
 export const graph = (path: string) =>
   `https://graph.facebook.com/${process.env.FB_GRAPH_VERSION ?? 'v24.0'}/${path}`
@@ -45,7 +50,8 @@ const auth = (token: string | null) => ({ Authorization: `Bearer ${requireToken(
  */
 export type MessagingType = 'RESPONSE' | 'UPDATE' | { tag: MessageTag }
 
-const messagingFields = (t: MessagingType) => (typeof t === 'string' ? { messaging_type: t } : { messaging_type: 'MESSAGE_TAG', tag: t.tag })
+const messagingFields = (t: MessagingType) =>
+  typeof t === 'string' ? { messaging_type: t } : { messaging_type: 'MESSAGE_TAG', tag: t.tag }
 
 /** A refused Send API call, with Meta's error code and subcode. */
 export class SendApiError extends Error {
@@ -66,26 +72,43 @@ export class SendApiError extends Error {
 export const isWindowOrTagError = (e: unknown) =>
   e instanceof SendApiError && (e.code === 10 || e.subcode === 2018001 || e.subcode === 2018278)
 
-export const WINDOW_OR_TAG_ERROR = 'เกินระยะเวลาที่ระบบ Facebook อนุญาต หรือหมวดหมู่ข้อความไม่ตรงกับเนื้อหา'
+export const WINDOW_OR_TAG_ERROR =
+  'เกินระยะเวลาที่ระบบ Facebook อนุญาต หรือหมวดหมู่ข้อความไม่ตรงกับเนื้อหา'
 
 /** Never propagate a fetch/JSON exception carrying a URL, response body or nested cause. */
 async function facebookOperation<T>(eventType: SafeEventType, work: () => Promise<T>): Promise<T> {
-  const requestId = createLogRequestId(), startedAt = Date.now()
+  const requestId = createLogRequestId(),
+    startedAt = Date.now()
   try {
     const result = await work()
     logSafeEvent({ requestId, eventType, status: 'succeeded', durationMs: Date.now() - startedAt })
     return result
   } catch (error) {
     const known = error instanceof SendApiError || error instanceof MissingPageTokenError
-    logSafeEvent({ requestId, eventType, status: 'failed', durationMs: Date.now() - startedAt,
-      errorCode: error instanceof SendApiError ? maskErrorCode(error.code) : error instanceof MissingPageTokenError ? 'AUTH_***' : 'NETWORK_***' })
+    logSafeEvent({
+      requestId,
+      eventType,
+      status: 'failed',
+      durationMs: Date.now() - startedAt,
+      errorCode:
+        error instanceof SendApiError
+          ? maskErrorCode(error.code)
+          : error instanceof MissingPageTokenError
+            ? 'AUTH_***'
+            : 'NETWORK_***',
+    })
     if (known) throw error
     throw new Error('Facebook request could not be completed')
   }
 }
 
 /** Send any message. Without a tag, only works within 24 h of the customer's last message (Meta's standard window). */
-export async function sendMessageWithReceipt(token: string | null, psid: string, message: object, messagingType: MessagingType = 'RESPONSE'): Promise<string> {
+export async function sendMessageWithReceipt(
+  token: string | null,
+  psid: string,
+  message: object,
+  messagingType: MessagingType = 'RESPONSE',
+): Promise<string> {
   return facebookOperation('facebook.send_message', async () => {
     const res = await fetch(graph('me/messages'), {
       method: 'POST',
@@ -99,26 +122,43 @@ export async function sendMessageWithReceipt(token: string | null, psid: string,
       try {
         err = JSON.parse(body)?.error
       } catch {}
-      const num = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= 2_147_483_647 ? v : null)
+      const num = (v: unknown) =>
+        typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= 2_147_483_647 ? v : null
       throw new SendApiError(res.status, num(err?.code), num(err?.error_subcode))
     }
     const receipt = await res.json()
-    if (typeof receipt.message_id !== 'string') throw new Error('Messenger did not return a message receipt')
+    if (typeof receipt.message_id !== 'string')
+      throw new Error('Messenger did not return a message receipt')
     return receipt.message_id
   })
 }
 
-export async function sendMessage(token: string | null, psid: string, message: object, messagingType: MessagingType = 'RESPONSE'): Promise<void> {
+export async function sendMessage(
+  token: string | null,
+  psid: string,
+  message: object,
+  messagingType: MessagingType = 'RESPONSE',
+): Promise<void> {
   await sendMessageWithReceipt(token, psid, message, messagingType)
 }
 
-export const sendText = (token: string | null, psid: string, text: string, messagingType: MessagingType = 'RESPONSE') =>
-  sendMessage(token, psid, { text }, messagingType)
+export const sendText = (
+  token: string | null,
+  psid: string,
+  text: string,
+  messagingType: MessagingType = 'RESPONSE',
+) => sendMessage(token, psid, { text }, messagingType)
 
 /** Quick reply buttons under a message: tapping one sends its title back as the customer's text. */
 export const quickReplies = (titles: string[]) => {
-  const labels = titles.map(title => title.trim()).filter(Boolean)
-  return labels.length ? { quick_replies: labels.slice(0, 13).map((t) => ({ content_type: 'text', title: t.slice(0, 20), payload: t.slice(0, 1000) })) } : {}
+  const labels = titles.map((title) => title.trim()).filter(Boolean)
+  return labels.length
+    ? {
+        quick_replies: labels
+          .slice(0, 13)
+          .map((t) => ({ content_type: 'text', title: t.slice(0, 20), payload: t.slice(0, 1000) })),
+      }
+    : {}
 }
 
 export type PaymentCard = { title: string; subtitle: string; imageUrl?: string | null }
@@ -133,7 +173,13 @@ export const sendPaymentCard = (token: string | null, psid: string, card: Paymen
       type: 'template',
       payload: {
         template_type: 'generic',
-        elements: [{ title: card.title.slice(0, 80), subtitle: card.subtitle.slice(0, 80), ...(card.imageUrl ? { image_url: card.imageUrl } : {}) }],
+        elements: [
+          {
+            title: card.title.slice(0, 80),
+            subtitle: card.subtitle.slice(0, 80),
+            ...(card.imageUrl ? { image_url: card.imageUrl } : {}),
+          },
+        ],
       },
     },
   })
@@ -151,13 +197,19 @@ export async function replyToComment(token: string | null, commentId: string, te
   })
 }
 
-export type OutgoingMessage = { text: string } | { attachment: { type: 'image'; payload: { url: string; is_reusable: boolean } } }
+export type OutgoingMessage =
+  | { text: string }
+  | { attachment: { type: 'image'; payload: { url: string; is_reusable: boolean } } }
 
 /**
  * Private reply: a Messenger message to a comment's author. Meta allows one per comment,
  * within 7 days of the comment; more can follow only after the person answers.
  */
-export async function privateReply(token: string | null, commentId: string, message: OutgoingMessage) {
+export async function privateReply(
+  token: string | null,
+  commentId: string,
+  message: OutgoingMessage,
+) {
   return facebookOperation('facebook.private_reply', async () => {
     const res = await fetch(graph('me/messages'), {
       method: 'POST',
@@ -173,7 +225,10 @@ export async function privateReply(token: string | null, commentId: string, mess
 export async function getName(token: string | null, psid: string): Promise<string | null> {
   if (!token) return null
   try {
-    const res = await fetch(graph(`${psid}?fields=name`), { headers: auth(token), signal: AbortSignal.timeout(10_000) })
+    const res = await fetch(graph(`${psid}?fields=name`), {
+      headers: auth(token),
+      signal: AbortSignal.timeout(10_000),
+    })
     return res.ok ? ((await res.json()).name ?? null) : null
   } catch {
     return null
@@ -181,10 +236,23 @@ export async function getName(token: string | null, psid: string): Promise<strin
 }
 
 /** Best-effort Messenger profile lookup. Never exposes tokens or interrupts delivery. */
-export async function getCustomerProfile(token: string | null, psid: string): Promise<{ display_name?: string; avatar_url?: string }> {
-  const requestId = createLogRequestId(), startedAt = Date.now()
-  const record = (status: 'succeeded' | 'failed' | 'skipped', errorCode?: Parameters<typeof logSafeEvent>[0]['errorCode']) =>
-    logSafeEvent({ requestId, eventType: 'facebook.customer_profile', status, durationMs: Date.now() - startedAt, ...(errorCode ? { errorCode } : {}) })
+export async function getCustomerProfile(
+  token: string | null,
+  psid: string,
+): Promise<{ display_name?: string; avatar_url?: string }> {
+  const requestId = createLogRequestId(),
+    startedAt = Date.now()
+  const record = (
+    status: 'succeeded' | 'failed' | 'skipped',
+    errorCode?: Parameters<typeof logSafeEvent>[0]['errorCode'],
+  ) =>
+    logSafeEvent({
+      requestId,
+      eventType: 'facebook.customer_profile',
+      status,
+      durationMs: Date.now() - startedAt,
+      ...(errorCode ? { errorCode } : {}),
+    })
   if (!token || !/^\d+$/.test(psid)) {
     record('skipped', !token ? 'AUTH_***' : 'INPUT_***')
     return {}
@@ -192,18 +260,24 @@ export async function getCustomerProfile(token: string | null, psid: string): Pr
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(psid)}?fields=first_name,last_name,name,profile_pic`
   try {
     const res = await fetch(url, {
-      headers: auth(token), signal: AbortSignal.timeout(5_000), cache: 'no-store',
+      headers: auth(token),
+      signal: AbortSignal.timeout(5_000),
+      cache: 'no-store',
     })
     const data = await res.json()
     if (!res.ok || !data || data.error) {
       record('failed', maskErrorCode(data?.error?.code))
       return {}
     }
-    const text = (v: unknown) => typeof v === 'string' ? v.trim() : ''
-    const name = text(data.name) || [text(data.first_name), text(data.last_name)].filter(Boolean).join(' ')
+    const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+    const name =
+      text(data.name) || [text(data.first_name), text(data.last_name)].filter(Boolean).join(' ')
     const picture = text(data.profile_pic)
     let avatar: string | undefined
-    try { const url = new URL(picture); if (url.protocol === 'https:') avatar = url.href } catch {}
+    try {
+      const url = new URL(picture)
+      if (url.protocol === 'https:') avatar = url.href
+    } catch {}
     record('succeeded')
     return { ...(name ? { display_name: name } : {}), ...(avatar ? { avatar_url: avatar } : {}) }
   } catch {
@@ -212,11 +286,17 @@ export async function getCustomerProfile(token: string | null, psid: string): Pr
   }
 }
 
-
 /** GET a Graph path. Never throws: status 0 = network error / timeout. Not cached (tokens change). */
-async function graphGet(path: string, token: string): Promise<{ ok: boolean; status: number; json: any }> {
+async function graphGet(
+  path: string,
+  token: string,
+): Promise<{ ok: boolean; status: number; json: any }> {
   try {
-    const res = await fetch(graph(path), { headers: auth(token), signal: AbortSignal.timeout(10_000), cache: 'no-store' })
+    const res = await fetch(graph(path), {
+      headers: auth(token),
+      signal: AbortSignal.timeout(10_000),
+      cache: 'no-store',
+    })
     return { ok: res.ok, status: res.status, json: await res.json().catch(() => null) }
   } catch {
     return { ok: false, status: 0, json: null }
@@ -237,22 +317,37 @@ export async function getPageTokenStatus(token: string, pageId: string): Promise
   const appSecret = (process.env.FB_APP_SECRET ?? '').trim()
   const debugAuthorization = appId && appSecret ? `${appId}|${appSecret}` : token
   const startedAt = Date.now()
-  const result = await graphGet(`debug_token?input_token=${encodeURIComponent(token)}`, debugAuthorization)
-  if (process.env.FB_DEBUG === 'true') logSafeEvent({ requestId: createLogRequestId(), eventType: 'facebook.page_token', status: result.status || 'failed', durationMs: Date.now() - startedAt, ...(result.json?.error ? { errorCode: maskErrorCode(result.json.error.code) } : {}) })
+  const result = await graphGet(
+    `debug_token?input_token=${encodeURIComponent(token)}`,
+    debugAuthorization,
+  )
+  if (process.env.FB_DEBUG === 'true')
+    logSafeEvent({
+      requestId: createLogRequestId(),
+      eventType: 'facebook.page_token',
+      status: result.status || 'failed',
+      durationMs: Date.now() - startedAt,
+      ...(result.json?.error ? { errorCode: maskErrorCode(result.json.error.code) } : {}),
+    })
   if (!result.ok || result.json?.error) return 'unverified'
   const data = result.json?.data
   if (!data || typeof data !== 'object' || typeof data.is_valid !== 'boolean') return 'unverified'
   if (!data.is_valid) return 'invalid'
   if (typeof data.type !== 'string') return 'unverified'
   if (data.type !== 'PAGE') return 'invalid'
-  if (!['string', 'number'].includes(typeof data.profile_id) || !String(data.profile_id).trim()) return 'unverified'
+  if (!['string', 'number'].includes(typeof data.profile_id) || !String(data.profile_id).trim())
+    return 'unverified'
   if (String(data.profile_id) !== pageId) return 'invalid'
   for (const value of [data.expires_at, data.data_access_expires_at]) {
     if (value === undefined) continue
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 'unverified'
     if (value > 0 && value <= Date.now() / 1000) return 'invalid'
   }
-  if (!Array.isArray(data.scopes) || data.scopes.some((scope: unknown) => typeof scope !== 'string')) return 'unverified'
+  if (
+    !Array.isArray(data.scopes) ||
+    data.scopes.some((scope: unknown) => typeof scope !== 'string')
+  )
+    return 'unverified'
   return data.scopes.includes('pages_messaging') ? 'verified' : 'limited'
 }
 
@@ -263,8 +358,7 @@ const graphError = (json: any, status: number) => {
 
 export type PageTokenCheck =
   /** token: the Page token to save (a User token is exchanged for its Page's token) */
-  | { ok: true; pageId: string; token: string; warnings: string[] }
-  | { ok: false; error: string }
+  { ok: true; pageId: string; token: string; warnings: string[] } | { ok: false; error: string }
 
 const fail = (error: string): PageTokenCheck => ({ ok: false, error })
 
@@ -276,41 +370,66 @@ const fail = (error: string): PageTokenCheck => ({ ok: false, error })
  *   - Page token: must belong to `pageId` (when given) and carry pages_messaging
  *   - User token: exchanged for the Page token of `pageId` through /me/accounts
  */
-export async function inspectPageToken(token: string, pageId: string | null): Promise<PageTokenCheck> {
+export async function inspectPageToken(
+  token: string,
+  pageId: string | null,
+): Promise<PageTokenCheck> {
   const r = await graphGet(`debug_token?input_token=${encodeURIComponent(token)}`, token)
-  if (r.status === 0) return fail('ติดต่อ Meta Graph API ไม่ได้ (เครือข่ายหรือ timeout) ลองบันทึกใหม่อีกครั้ง')
+  if (r.status === 0)
+    return fail('ติดต่อ Meta Graph API ไม่ได้ (เครือข่ายหรือ timeout) ลองบันทึกใหม่อีกครั้ง')
   if (!r.ok) return fail(`Meta ไม่ยอมรับ token นี้: ${graphError(r.json, r.status)}`)
   const d = r.json?.data
   if (!d?.is_valid) {
     return fail('token ใช้ไม่ได้แล้ว (หมดอายุ ถูกเพิกถอน หรือเปลี่ยนรหัสผ่าน)')
   }
   if (d.type === 'USER') return exchangeUserToken(token, pageId)
-  if (d.type !== 'PAGE' || !d.profile_id) return fail(`token นี้เป็นชนิด ${d.type ?? 'ไม่ทราบ'} ต้องใช้ Page Access Token`)
+  if (d.type !== 'PAGE' || !d.profile_id)
+    return fail(`token นี้เป็นชนิด ${d.type ?? 'ไม่ทราบ'} ต้องใช้ Page Access Token`)
 
   const tokenPage = String(d.profile_id)
-  if (pageId && tokenPage !== pageId) return fail(`token นี้เป็นของเพจ ${tokenPage} ไม่ใช่เพจ ${pageId} ที่กรอกไว้`)
+  if (pageId && tokenPage !== pageId)
+    return fail(`token นี้เป็นของเพจ ${tokenPage} ไม่ใช่เพจ ${pageId} ที่กรอกไว้`)
   const scopes: string[] = Array.isArray(d.scopes) ? d.scopes : []
   if (!scopes.includes('pages_messaging')) {
-    return fail(`token ของเพจ ${tokenPage} ไม่มีสิทธิ์ pages_messaging (ตอบแชทไม่ได้) สิทธิ์ที่มี: ${scopes.join(', ') || 'ไม่มี'}`)
+    return fail(
+      `token ของเพจ ${tokenPage} ไม่มีสิทธิ์ pages_messaging (ตอบแชทไม่ได้) สิทธิ์ที่มี: ${scopes.join(', ') || 'ไม่มี'}`,
+    )
   }
   const warnings: string[] = []
-  if (!scopes.includes('pages_manage_engagement')) warnings.push('ไม่มีสิทธิ์ pages_manage_engagement: ตอบกลับใต้คอมเมนต์อัตโนมัติไม่ได้')
-  if (!scopes.includes('pages_read_engagement')) warnings.push('ไม่มีสิทธิ์ pages_read_engagement: แสดงชื่อ/รูปเพจไม่ได้ และคอมเมนต์อาจไม่มีชื่อผู้เขียน (ตอบแชทได้ตามปกติ)')
+  if (!scopes.includes('pages_manage_engagement'))
+    warnings.push('ไม่มีสิทธิ์ pages_manage_engagement: ตอบกลับใต้คอมเมนต์อัตโนมัติไม่ได้')
+  if (!scopes.includes('pages_read_engagement'))
+    warnings.push(
+      'ไม่มีสิทธิ์ pages_read_engagement: แสดงชื่อ/รูปเพจไม่ได้ และคอมเมนต์อาจไม่มีชื่อผู้เขียน (ตอบแชทได้ตามปกติ)',
+    )
   if (Number(d.expires_at) > 0) {
-    const at = new Date(Number(d.expires_at) * 1000).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
-    warnings.push(`token นี้หมดอายุ ${at}: ควรใช้ Page token ที่ได้จาก long-lived User token (ไม่มีวันหมดอายุ)`)
+    const at = new Date(Number(d.expires_at) * 1000).toLocaleString('th-TH', {
+      timeZone: 'Asia/Bangkok',
+    })
+    warnings.push(
+      `token นี้หมดอายุ ${at}: ควรใช้ Page token ที่ได้จาก long-lived User token (ไม่มีวันหมดอายุ)`,
+    )
   }
   return { ok: true, pageId: tokenPage, token, warnings }
 }
 
 /** A User token was pasted: take the token of the Page this tenant uses from /me/accounts. */
-async function exchangeUserToken(userToken: string, pageId: string | null): Promise<PageTokenCheck> {
+async function exchangeUserToken(
+  userToken: string,
+  pageId: string | null,
+): Promise<PageTokenCheck> {
   const r = await graphGet('me/accounts?fields=id,name,access_token&limit=100', userToken)
   if (!r.ok) {
-    return fail(`นี่คือ User Access Token และแลกเป็น Page token ไม่ได้ (ต้องมีสิทธิ์ pages_show_list): ${r.status ? graphError(r.json, r.status) : 'ติดต่อ Meta ไม่ได้'}`)
+    return fail(
+      `นี่คือ User Access Token และแลกเป็น Page token ไม่ได้ (ต้องมีสิทธิ์ pages_show_list): ${r.status ? graphError(r.json, r.status) : 'ติดต่อ Meta ไม่ได้'}`,
+    )
   }
   const pages: { id: string; name: string; access_token?: string }[] = r.json?.data ?? []
-  const page = pageId ? pages.find((p) => p.id === pageId) : pages.length === 1 ? pages[0] : undefined
+  const page = pageId
+    ? pages.find((p) => p.id === pageId)
+    : pages.length === 1
+      ? pages[0]
+      : undefined
   if (!page?.access_token) {
     const list = pages.map((p) => `${p.name} (${p.id})`).join(', ') || 'ไม่มี'
     return fail(
@@ -320,7 +439,12 @@ async function exchangeUserToken(userToken: string, pageId: string | null): Prom
     )
   }
   const check = await inspectPageToken(page.access_token, page.id)
-  return check.ok ? { ...check, warnings: [`แปลง User token เป็น Page token ของ ${page.name} ให้แล้ว`, ...check.warnings] } : check
+  return check.ok
+    ? {
+        ...check,
+        warnings: [`แปลง User token เป็น Page token ของ ${page.name} ให้แล้ว`, ...check.warnings],
+      }
+    : check
 }
 
 export type PageProfile = { id: string; name: string; picture: string | null }
@@ -328,16 +452,35 @@ export type PageProfile = { id: string; name: string; picture: string | null }
 /** The picture endpoint can work even when Page metadata permission is unavailable. */
 export async function getPagePicture(pageId: string, token: string | null): Promise<string | null> {
   if (!token || !/^\d+$/.test(pageId)) return null
-  const requestId = createLogRequestId(), startedAt = Date.now()
+  const requestId = createLogRequestId(),
+    startedAt = Date.now()
   try {
-    const response = await fetch(graph(`${pageId}/picture?type=large&redirect=false`), { headers: auth(token), signal: AbortSignal.timeout(10_000), next: { revalidate: 300 } })
+    const response = await fetch(graph(`${pageId}/picture?type=large&redirect=false`), {
+      headers: auth(token),
+      signal: AbortSignal.timeout(10_000),
+      next: { revalidate: 300 },
+    })
     const data = await response.json()
-    if (process.env.FB_DEBUG === 'true') logSafeEvent({ requestId, eventType: 'facebook.page_picture', status: response.status, durationMs: Date.now() - startedAt, ...(data?.error ? { errorCode: maskErrorCode(data.error.code) } : {}) })
+    if (process.env.FB_DEBUG === 'true')
+      logSafeEvent({
+        requestId,
+        eventType: 'facebook.page_picture',
+        status: response.status,
+        durationMs: Date.now() - startedAt,
+        ...(data?.error ? { errorCode: maskErrorCode(data.error.code) } : {}),
+      })
     if (!response.ok || data?.error || typeof data?.data?.url !== 'string') return null
     const url = new URL(data.data.url)
     return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null
   } catch {
-    if (process.env.FB_DEBUG === 'true') logSafeEvent({ requestId, eventType: 'facebook.page_picture', status: 'failed', durationMs: Date.now() - startedAt, errorCode: 'NETWORK_***' })
+    if (process.env.FB_DEBUG === 'true')
+      logSafeEvent({
+        requestId,
+        eventType: 'facebook.page_picture',
+        status: 'failed',
+        durationMs: Date.now() - startedAt,
+        errorCode: 'NETWORK_***',
+      })
     return null
   }
 }
@@ -345,9 +488,17 @@ export async function getPagePicture(pageId: string, token: string | null): Prom
 /** The Page that owns this token (`me` = the Page itself for a Page token). null if missing or rejected. */
 export async function getPageProfile(token: string | null): Promise<PageProfile | null> {
   const debug = process.env.FB_DEBUG === 'true'
-  const requestId = createLogRequestId(), startedAt = Date.now()
+  const requestId = createLogRequestId(),
+    startedAt = Date.now()
   if (!token) {
-    if (debug) logSafeEvent({ requestId, eventType: 'facebook.page_profile', status: 'skipped', durationMs: Date.now() - startedAt, errorCode: 'AUTH_***' })
+    if (debug)
+      logSafeEvent({
+        requestId,
+        eventType: 'facebook.page_profile',
+        status: 'skipped',
+        durationMs: Date.now() - startedAt,
+        errorCode: 'AUTH_***',
+      })
     return null
   }
   try {
@@ -357,16 +508,36 @@ export async function getPageProfile(token: string | null): Promise<PageProfile 
       next: { revalidate: 300 },
     })
     const data = await res.json()
-    if (debug) logSafeEvent({ requestId, eventType: 'facebook.page_profile', status: res.status, durationMs: Date.now() - startedAt, ...(data?.error ? { errorCode: maskErrorCode(data.error.code) } : {}) })
-    if (!res.ok || data?.error || !data?.id || typeof data.name !== 'string' || !data.name.trim()) return null
+    if (debug)
+      logSafeEvent({
+        requestId,
+        eventType: 'facebook.page_profile',
+        status: res.status,
+        durationMs: Date.now() - startedAt,
+        ...(data?.error ? { errorCode: maskErrorCode(data.error.code) } : {}),
+      })
+    if (!res.ok || data?.error || !data?.id || typeof data.name !== 'string' || !data.name.trim())
+      return null
     const url = data.picture?.data?.url
     let picture: string | null = null
     if (typeof url === 'string') {
-      try { const parsed = new URL(url); if (['https:', 'http:'].includes(parsed.protocol)) picture = parsed.toString() } catch { /* invalid image URL: use the Facebook fallback */ }
+      try {
+        const parsed = new URL(url)
+        if (['https:', 'http:'].includes(parsed.protocol)) picture = parsed.toString()
+      } catch {
+        /* invalid image URL: use the Facebook fallback */
+      }
     }
     return { id: String(data.id), name: data.name.trim(), picture }
   } catch {
-    if (debug) logSafeEvent({ requestId, eventType: 'facebook.page_profile', status: 'failed', durationMs: Date.now() - startedAt, errorCode: 'NETWORK_***' })
+    if (debug)
+      logSafeEvent({
+        requestId,
+        eventType: 'facebook.page_profile',
+        status: 'failed',
+        durationMs: Date.now() - startedAt,
+        errorCode: 'NETWORK_***',
+      })
     return null
   }
 }

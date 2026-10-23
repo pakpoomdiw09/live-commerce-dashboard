@@ -7,7 +7,13 @@ import { BrandLoader } from '@/components/ui/BrandLoader'
 import { Button } from '@/components/ui/button'
 
 /** Upload a slip image and check it with SlipOK against the active tenant's account. */
-export function VerifySlipForm({ tenant, onVerified }: { tenant: { id: string; name: string; expectedAmount: number | null } | null; onVerified: (slipId: string) => void }) {
+export function VerifySlipForm({
+  tenant,
+  onVerified,
+}: {
+  tenant: { id: string; name: string; expectedAmount: number | null } | null
+  onVerified: (slipId: string) => void
+}) {
   const [file, setFile] = useState<File | null>(null)
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
@@ -24,7 +30,11 @@ export function VerifySlipForm({ tenant, onVerified }: { tenant: { id: string; n
       if (tenant) fd.append('tenantId', tenant.id)
       if (amount.trim()) fd.append('expectedAmount', amount.trim())
       const res = await fetch('/api/slips/verify', { method: 'POST', body: fd })
-      const body = (await res.json().catch(() => null)) as { id?: string; error?: string; note?: string } | null
+      const body = (await res.json().catch(() => null)) as {
+        id?: string
+        error?: string
+        note?: string
+      } | null
       if (body?.id) return onVerified(body.id) // even a failed check has a row to show
       throw new Error(body?.error ?? body?.note ?? `HTTP ${res.status}`)
     } catch (err) {
@@ -37,15 +47,28 @@ export function VerifySlipForm({ tenant, onVerified }: { tenant: { id: string; n
   return (
     <form onSubmit={submit} className="space-y-4">
       <p className="text-xs text-slate-500">
-        {tenant ? `ตรวจกับบัญชีของ ${tenant.name} ใช้เครดิต 1 ครั้ง` : 'ยังไม่ได้ตั้งค่าร้านค้า: ระบบจะไม่ตรวจบัญชีผู้รับ'}
+        {tenant
+          ? `ตรวจกับบัญชีของ ${tenant.name} ใช้เครดิต 1 ครั้ง`
+          : 'ยังไม่ได้ตั้งค่าร้านค้า: ระบบจะไม่ตรวจบัญชีผู้รับ'}
       </p>
       <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 transition hover:border-emerald-400 hover:bg-emerald-50/30">
         <ImagePlus className="h-8 w-8 text-slate-400" aria-hidden />
-        {file ? <span className="font-medium text-slate-800">{file.name}</span> : 'เลือกรูปสลิป (JPG / PNG / WEBP ไม่เกิน 5 MB)'}
-        <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        {file ? (
+          <span className="font-medium text-slate-800">{file.name}</span>
+        ) : (
+          'เลือกรูปสลิป (JPG / PNG / WEBP ไม่เกิน 5 MB)'
+        )}
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="sr-only"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        />
       </label>
       <label className="block">
-        <span className="mb-1 block text-xs font-medium text-slate-600">ยอดที่ต้องชำระ (ไม่บังคับ)</span>
+        <span className="mb-1 block text-xs font-medium text-slate-600">
+          ยอดที่ต้องชำระ (ไม่บังคับ)
+        </span>
         <input
           type="number"
           min="0.01"

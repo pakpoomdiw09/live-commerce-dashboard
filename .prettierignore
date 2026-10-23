@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.next-dev/
+.tmp/
+.npm-audit-cache/
+.git/
+.vercel/
+out/
+build/
+coverage/
+.env*
+package-lock.json
+next-env.d.ts
+*.tsbuildinfo
+public/
+docs/screenshots/

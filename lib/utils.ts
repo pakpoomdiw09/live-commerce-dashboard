@@ -12,13 +12,20 @@ export const baht = (n: number | null | undefined) =>
 export const bahtShort = (n: number) =>
   '฿' + new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 
-export const sameDay = (a: string | Date, b: string | Date) => new Date(a).toDateString() === new Date(b).toDateString()
-export const when = (iso: string) => new Date(iso).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })
-export const clock = (iso: string) => new Date(iso).toLocaleTimeString('th-TH', { timeStyle: 'short' })
+export const sameDay = (a: string | Date, b: string | Date) =>
+  new Date(a).toDateString() === new Date(b).toDateString()
+export const when = (iso: string) =>
+  new Date(iso).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })
+export const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString('th-TH', { timeStyle: 'short' })
 export const listTime = (iso: string) =>
-  sameDay(iso, new Date()) ? clock(iso) : new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+  sameDay(iso, new Date())
+    ? clock(iso)
+    : new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
 export const dayLabel = (iso: string) =>
-  sameDay(iso, new Date()) ? 'วันนี้' : new Date(iso).toLocaleDateString('th-TH', { dateStyle: 'medium' })
+  sameDay(iso, new Date())
+    ? 'วันนี้'
+    : new Date(iso).toLocaleDateString('th-TH', { dateStyle: 'medium' })
 
 export const customerName = (c: { display_name: string | null; platform_user_id: string }) =>
   c.display_name ?? `ผู้ใช้ ...${c.platform_user_id.slice(-4)}`

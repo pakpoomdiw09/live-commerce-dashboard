@@ -41,8 +41,13 @@ function containsWord(text: string, k: string): boolean {
   return false
 }
 
-export function ruleMatches(rule: Pick<CommentRule, 'match_type' | 'keywords'>, comment: string): boolean {
+export function ruleMatches(
+  rule: Pick<CommentRule, 'match_type' | 'keywords'>,
+  comment: string,
+): boolean {
   const text = norm(comment)
   const keywords = rule.keywords.map(norm).filter(Boolean)
-  return rule.match_type === 'exact' ? keywords.includes(text) : keywords.some((k) => containsWord(text, k))
+  return rule.match_type === 'exact'
+    ? keywords.includes(text)
+    : keywords.some((k) => containsWord(text, k))
 }

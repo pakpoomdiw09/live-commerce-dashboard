@@ -6,16 +6,22 @@ const vm = require('node:vm')
 const ts = require('typescript')
 
 // Isolated credentials and mocked fetch: these tests never read .env or contact Meta.
-const code = ts.transpileModule(readFileSync(path.join(__dirname, '../lib/integrations/facebook/client.ts'), 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText
+const code = ts.transpileModule(
+  readFileSync(path.join(__dirname, '../lib/integrations/facebook/client.ts'), 'utf8'),
+  {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  },
+).outputText
 
 function facebook({ env = {}, status = 200, json = null, networkError = false } = {}) {
   const calls = []
   const exports = {}
   vm.runInNewContext(code, {
     exports,
-    require: name => { assert.equal(name, '@/lib/safe-logging'); return require('./helpers/load-safe-logging.cjs')() },
+    require: (name) => {
+      assert.equal(name, '@/lib/safe-logging')
+      return require('./helpers/load-safe-logging.cjs')()
+    },
     process: { env },
     AbortSignal,
     fetch: async (url, options) => {
@@ -61,7 +67,9 @@ for (const [name, override] of [
 
 test('future expiry remains valid', async () => {
   const future = Math.floor(Date.now() / 1000) + 3600
-  const api = facebook({ json: { data: { ...validData(), expires_at: future, data_access_expires_at: future } } })
+  const api = facebook({
+    json: { data: { ...validData(), expires_at: future, data_access_expires_at: future } },
+  })
   assert.equal(await api.getPageTokenStatus('saved-page-token', 'page-123'), 'verified')
 })
 
@@ -100,7 +108,10 @@ for (const [name, options] of [
 
 for (const idKey of ['FB_APP_ID', 'NEXT_PUBLIC_FB_APP_ID']) {
   test(`${idKey} and app secret authorize debugging without replacing the input token`, async () => {
-    const api = facebook({ env: { [idKey]: 'app-id', FB_APP_SECRET: 'app-secret' }, json: { data: validData() } })
+    const api = facebook({
+      env: { [idKey]: 'app-id', FB_APP_SECRET: 'app-secret' },
+      json: { data: validData() },
+    })
     assert.equal(await api.getPageTokenStatus('saved-page-token', 'page-123'), 'verified')
     assert.equal(api.calls[0].options.headers.Authorization, 'Bearer app-id|app-secret')
     assert.equal(new URL(api.calls[0].url).searchParams.get('input_token'), 'saved-page-token')
@@ -124,17 +135,36 @@ test('empty token is invalid without contacting Meta', async () => {
 
 test('own Page token takes precedence over the shared token', () => {
   const api = facebook({ env: { FB_PAGE_TOKEN: 'shared-token', FB_PAGE_ID: 'page-other' } })
-  assert.equal(api.pageTokenFor({ page_id: 'page-123', page_access_token: ' own-token ' }), 'own-token')
+  assert.equal(
+    api.pageTokenFor({ page_id: 'page-123', page_access_token: ' own-token ' }),
+    'own-token',
+  )
 })
 
 test('shared token requires a matching configured Page ID for tenant sources', () => {
   const source = { page_id: 'page-123', page_access_token: null }
   assert.equal(facebook({ env: { FB_PAGE_TOKEN: 'shared-token' } }).pageTokenFor(source), null)
-  assert.equal(facebook({ env: { FB_PAGE_TOKEN: 'shared-token', FB_PAGE_ID: 'page-other' } }).pageTokenFor(source), null)
-  assert.equal(facebook({ env: { FB_PAGE_TOKEN: 'shared-token', FB_PAGE_ID: 'page-123' } }).pageTokenFor(source), 'shared-token')
+  assert.equal(
+    facebook({ env: { FB_PAGE_TOKEN: 'shared-token', FB_PAGE_ID: 'page-other' } }).pageTokenFor(
+      source,
+    ),
+    null,
+  )
+  assert.equal(
+    facebook({ env: { FB_PAGE_TOKEN: 'shared-token', FB_PAGE_ID: 'page-123' } }).pageTokenFor(
+      source,
+    ),
+    'shared-token',
+  )
 })
 
 test('legacy fallback without a tenant source still uses configured shared token', () => {
-  assert.equal(facebook({ env: { FB_PAGE_TOKEN: 'shared-token' } }).pageTokenFor(null), 'shared-token')
-  assert.equal(facebook({ env: { FB_PAGE_TOKEN: '', PAGE_ACCESS_TOKEN: 'legacy-token' } }).pageTokenFor(null), 'legacy-token')
+  assert.equal(
+    facebook({ env: { FB_PAGE_TOKEN: 'shared-token' } }).pageTokenFor(null),
+    'shared-token',
+  )
+  assert.equal(
+    facebook({ env: { FB_PAGE_TOKEN: '', PAGE_ACCESS_TOKEN: 'legacy-token' } }).pageTokenFor(null),
+    'legacy-token',
+  )
 })

@@ -34,30 +34,49 @@ const input =
   'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-red-400 focus:ring-2 focus:ring-red-500/20 focus:outline-none'
 
 /** pages: the active tenant's Page(s); a new rule belongs to tenantId (RLS refuses any other) */
-export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; pages: PageProfile[]; tenantId: string }) {
+export function RuleEditor({
+  rule,
+  pages,
+  tenantId,
+}: {
+  rule?: CommentRule
+  pages: PageProfile[]
+  tenantId: string
+}) {
   const router = useRouter()
   const db = useMemo(() => supabaseBrowser(), [])
   const [draft, setDraft] = useState<Draft>(() =>
-    rule ? { ...rule, tenant_id: rule.tenant_id ?? tenantId } : { ...EMPTY, tenant_id: tenantId, page_ids: pages.length === 1 ? [pages[0].id] : [] },
+    rule
+      ? { ...rule, tenant_id: rule.tenant_id ?? tenantId }
+      : { ...EMPTY, tenant_id: tenantId, page_ids: pages.length === 1 ? [pages[0].id] : [] },
   )
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sample, setSample] = useState('')
 
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }))
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }))
 
   // pages a saved rule still points at but the token no longer returns: keep them visible so they can be unticked
   const pageOptions = [
     ...pages,
-    ...draft.page_ids.filter((id) => !pages.some((p) => p.id === id)).map((id) => ({ id, name: `เพจ ${id}`, picture: null })),
+    ...draft.page_ids
+      .filter((id) => !pages.some((p) => p.id === id))
+      .map((id) => ({ id, name: `เพจ ${id}`, picture: null })),
   ]
 
   const responseProblems = [
     !draft.reply_enabled && !draft.inbox_enabled && 'เปิดการตอบกลับอย่างน้อย 1 แบบ',
     draft.reply_enabled && !draft.reply_text?.trim() && 'ใส่ข้อความตอบกลับใต้คอมเมนต์',
-    draft.inbox_enabled && draft.inbox_type === 'text' && !draft.inbox_text?.trim() && 'ใส่ข้อความส่งเข้าอินบ็อกซ์',
-    draft.inbox_enabled && draft.inbox_type === 'image' && !draft.inbox_image_url && 'อัปโหลดรูปที่จะส่งเข้าอินบ็อกซ์',
+    draft.inbox_enabled &&
+      draft.inbox_type === 'text' &&
+      !draft.inbox_text?.trim() &&
+      'ใส่ข้อความส่งเข้าอินบ็อกซ์',
+    draft.inbox_enabled &&
+      draft.inbox_type === 'image' &&
+      !draft.inbox_image_url &&
+      'อัปโหลดรูปที่จะส่งเข้าอินบ็อกซ์',
   ].filter((p): p is string => !!p)
   const done = [draft.page_ids.length > 0, draft.keywords.length > 0, responseProblems.length === 0]
   const problems = [
@@ -73,7 +92,9 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
     setUploading(true)
     setError(null)
     const path = `rules/${crypto.randomUUID()}.${file.type.split('/')[1]}`
-    const { error: upErr } = await db.storage.from('comment-media').upload(path, file, { contentType: file.type })
+    const { error: upErr } = await db.storage
+      .from('comment-media')
+      .upload(path, file, { contentType: file.type })
     setUploading(false)
     if (upErr) return setError(`อัปโหลดไม่สำเร็จ: ${upErr.message}`)
     set('inbox_image_url', db.storage.from('comment-media').getPublicUrl(path).data.publicUrl)
@@ -105,14 +126,22 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
       {/* header */}
       <PageBanner className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <Link href="/comment-replies" className="inline-flex items-center gap-1 text-sm text-white underline-offset-4 hover:underline">
+          <Link
+            href="/comment-replies"
+            className="inline-flex items-center gap-1 text-sm text-white underline-offset-4 hover:underline"
+          >
             <Icon d={ICONS.back} className="h-4 w-4" />
             ตอบกลับคอมเมนต์
           </Link>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">{rule ? 'แก้ไขกฎตอบกลับ' : 'สร้างกฎตอบกลับใหม่'}</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">
+            {rule ? 'แก้ไขกฎตอบกลับ' : 'สร้างกฎตอบกลับใหม่'}
+          </h1>
         </div>
         <div className="flex max-w-full flex-wrap gap-2 rounded-2xl bg-white p-2 text-slate-900">
-          <Link href="/comment-replies" className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-white">
+          <Link
+            href="/comment-replies"
+            className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-white"
+          >
             ยกเลิก
           </Link>
           <button
@@ -126,17 +155,31 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
         </div>
       </PageBanner>
 
-      {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-100">{error}</p>}
+      {error && (
+        <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-100">
+          {error}
+        </p>
+      )}
 
       {/* name + active */}
       <div className="flex flex-wrap items-end gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <label className="min-w-64 flex-1">
           <span className="mb-1.5 block text-sm font-medium">ชื่อข้อความตอบกลับคอมเมนต์</span>
-          <input value={draft.name} onChange={(e) => set('name', e.target.value)} maxLength={100} placeholder="เช่น ตอบคนถามราคา" className={input} />
+          <input
+            value={draft.name}
+            onChange={(e) => set('name', e.target.value)}
+            maxLength={100}
+            placeholder="เช่น ตอบคนถามราคา"
+            className={input}
+          />
         </label>
         <div className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-2.5">
           <span className="text-sm text-slate-600">เปิดใช้งานกฎนี้</span>
-          <Switch checked={draft.is_active} onChange={(v) => set('is_active', v)} label="เปิดใช้งานกฎนี้" />
+          <Switch
+            checked={draft.is_active}
+            onChange={(v) => set('is_active', v)}
+            label="เปิดใช้งานกฎนี้"
+          />
         </div>
       </div>
 
@@ -145,8 +188,16 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
         {['เงื่อนไข', 'การเริ่มทำงาน', 'การตอบกลับ'].map((label, i) => (
           <li key={label} className="flex items-center gap-2">
             <StepBadge n={i + 1} done={done[i]} />
-            <span className={`truncate font-medium ${done[i] ? 'text-slate-900' : 'text-slate-500'}`}>{label}</span>
-            {i < 2 && <span className={`hidden h-0.5 flex-1 rounded-full sm:block ${done[i] ? 'bg-emerald-300' : 'bg-slate-200'}`} />}
+            <span
+              className={`truncate font-medium ${done[i] ? 'text-slate-900' : 'text-slate-500'}`}
+            >
+              {label}
+            </span>
+            {i < 2 && (
+              <span
+                className={`hidden h-0.5 flex-1 rounded-full sm:block ${done[i] ? 'bg-emerald-300' : 'bg-slate-200'}`}
+              />
+            )}
           </li>
         ))}
       </ol>
@@ -155,7 +206,9 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
         {/* 1. pages */}
         <StepCard n={1} done={done[0]} title="เงื่อนไข" desc="เลือกเพจที่ต้องการให้กฎนี้ทำงาน">
           {pageOptions.length === 0 ? (
-            <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">ยังไม่ได้เชื่อมเพจ: ตั้งค่า FB_PAGE_ID และ PAGE_ACCESS_TOKEN ใน .env.local</p>
+            <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
+              ยังไม่ได้เชื่อมเพจ: ตั้งค่า FB_PAGE_ID และ PAGE_ACCESS_TOKEN ใน .env.local
+            </p>
           ) : (
             <div className="space-y-2">
               {pageOptions.map((p) => (
@@ -166,14 +219,23 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
                   <input
                     type="checkbox"
                     checked={draft.page_ids.includes(p.id)}
-                    onChange={(e) => set('page_ids', e.target.checked ? [...draft.page_ids, p.id] : draft.page_ids.filter((x) => x !== p.id))}
+                    onChange={(e) =>
+                      set(
+                        'page_ids',
+                        e.target.checked
+                          ? [...draft.page_ids, p.id]
+                          : draft.page_ids.filter((x) => x !== p.id),
+                      )
+                    }
                     className="h-4 w-4 accent-red-500"
                   />
                   {p.picture ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={p.picture} alt="" className="h-9 w-9 rounded-full object-cover" />
                   ) : (
-                    <span className="grid h-9 w-9 place-items-center rounded-full bg-blue-500 text-sm font-semibold text-white">{p.name.charAt(0)}</span>
+                    <span className="grid h-9 w-9 place-items-center rounded-full bg-blue-500 text-sm font-semibold text-white">
+                      {p.name.charAt(0)}
+                    </span>
                   )}
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium">{p.name}</span>
@@ -186,7 +248,12 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
         </StepCard>
 
         {/* 2. trigger */}
-        <StepCard n={2} done={done[1]} title="การเริ่มทำงาน" desc="ตอบเมื่อคอมเมนต์ของลูกค้าตรงกับเงื่อนไข">
+        <StepCard
+          n={2}
+          done={done[1]}
+          title="การเริ่มทำงาน"
+          desc="ตอบเมื่อคอมเมนต์ของลูกค้าตรงกับเงื่อนไข"
+        >
           <div role="radiogroup" aria-label="รูปแบบการตรวจจับ" className="grid grid-cols-2 gap-2">
             {(
               [
@@ -214,7 +281,9 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
           </div>
 
           <div className="mt-4">
-            <span className="mb-1.5 block text-sm font-medium">{draft.match_type === 'exact' ? 'ประโยคที่ลูกค้าพิมพ์' : 'คีย์เวิร์ด'}</span>
+            <span className="mb-1.5 block text-sm font-medium">
+              {draft.match_type === 'exact' ? 'ประโยคที่ลูกค้าพิมพ์' : 'คีย์เวิร์ด'}
+            </span>
             <KeywordInput value={draft.keywords} onChange={(v) => set('keywords', v)} />
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-slate-400">ตัวอย่าง:</span>
@@ -232,18 +301,34 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
           </div>
 
           <div className="mt-5 rounded-xl bg-slate-50 p-3">
-            <span className="mb-1.5 block text-xs font-medium text-slate-500">ลองพิมพ์คอมเมนต์ตัวอย่าง</span>
-            <input value={sample} onChange={(e) => setSample(e.target.value)} placeholder="เช่น สนใจค่ะ ราคาเท่าไหร่" className={input} />
+            <span className="mb-1.5 block text-xs font-medium text-slate-500">
+              ลองพิมพ์คอมเมนต์ตัวอย่าง
+            </span>
+            <input
+              value={sample}
+              onChange={(e) => setSample(e.target.value)}
+              placeholder="เช่น สนใจค่ะ ราคาเท่าไหร่"
+              className={input}
+            />
             {sample.trim() && (
-              <p className={`mt-2 text-xs font-medium ${ruleMatches(draft, sample) ? 'text-emerald-600' : 'text-slate-500'}`}>
-                {ruleMatches(draft, sample) ? '✓ ตรงเงื่อนไข ระบบจะตอบคอมเมนต์นี้' : '✗ ไม่ตรงเงื่อนไข'}
+              <p
+                className={`mt-2 text-xs font-medium ${ruleMatches(draft, sample) ? 'text-emerald-600' : 'text-slate-500'}`}
+              >
+                {ruleMatches(draft, sample)
+                  ? '✓ ตรงเงื่อนไข ระบบจะตอบคอมเมนต์นี้'
+                  : '✗ ไม่ตรงเงื่อนไข'}
               </p>
             )}
           </div>
         </StepCard>
 
         {/* 3. responses */}
-        <StepCard n={3} done={done[2]} title="การตอบกลับ" desc="เลือกว่าจะตอบใต้คอมเมนต์ ส่งเข้าอินบ็อกซ์ หรือทั้งสองแบบ">
+        <StepCard
+          n={3}
+          done={done[2]}
+          title="การตอบกลับ"
+          desc="เลือกว่าจะตอบใต้คอมเมนต์ ส่งเข้าอินบ็อกซ์ หรือทั้งสองแบบ"
+        >
           <div className="space-y-4">
             <ResponseBlock
               title="ข้อความตอบกลับใต้คอมเมนต์"
@@ -259,7 +344,9 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
                 placeholder="เช่น ขอบคุณที่สนใจค่ะ แอดมินส่งรายละเอียดไปทางแชทแล้วนะคะ"
                 className={`${input} resize-none`}
               />
-              <p className="mt-1 text-right text-[11px] text-slate-400">{draft.reply_text?.length ?? 0}/2000</p>
+              <p className="mt-1 text-right text-[11px] text-slate-400">
+                {draft.reply_text?.length ?? 0}/2000
+              </p>
             </ResponseBlock>
 
             <ResponseBlock
@@ -268,7 +355,10 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
               enabled={draft.inbox_enabled}
               onToggle={(v) => set('inbox_enabled', v)}
             >
-              <div role="tablist" className="mb-3 grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-sm">
+              <div
+                role="tablist"
+                className="mb-3 grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-sm"
+              >
                 {(['text', 'image'] as const).map((t) => (
                   <button
                     key={t}
@@ -294,7 +384,11 @@ export function RuleEditor({ rule, pages, tenantId }: { rule?: CommentRule; page
               ) : draft.inbox_image_url ? (
                 <div className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={draft.inbox_image_url} alt="รูปที่จะส่งเข้าอินบ็อกซ์" className="max-h-56 w-full rounded-xl object-contain ring-1 ring-slate-200" />
+                  <img
+                    src={draft.inbox_image_url}
+                    alt="รูปที่จะส่งเข้าอินบ็อกซ์"
+                    className="max-h-56 w-full rounded-xl object-contain ring-1 ring-slate-200"
+                  />
                   <button
                     type="button"
                     onClick={() => set('inbox_image_url', null)}
@@ -340,7 +434,19 @@ function StepBadge({ n, done }: { n: number; done: boolean }) {
   )
 }
 
-function StepCard({ n, done, title, desc, children }: { n: number; done: boolean; title: string; desc: string; children: React.ReactNode }) {
+function StepCard({
+  n,
+  done,
+  title,
+  desc,
+  children,
+}: {
+  n: number
+  done: boolean
+  title: string
+  desc: string
+  children: React.ReactNode
+}) {
   return (
     <section className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
       <header className="flex items-start gap-3 border-b border-slate-100 p-5">
@@ -369,7 +475,9 @@ function ResponseBlock({
   children: React.ReactNode
 }) {
   return (
-    <div className={`rounded-xl border p-4 transition ${enabled ? 'border-slate-200 bg-white' : 'border-dashed border-slate-200 bg-slate-50'}`}>
+    <div
+      className={`rounded-xl border p-4 transition ${enabled ? 'border-slate-200 bg-white' : 'border-dashed border-slate-200 bg-slate-50'}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium">{title}</p>
@@ -383,7 +491,15 @@ function ResponseBlock({
 }
 
 /** Tags on top, input on its own line below. Enter or comma adds, Backspace on an empty field removes the last one. */
-export function KeywordInput({ value, onChange, placeholder = 'ตัวอย่างเช่น "สอบถาม" แล้วกด Enter หรือ ,' }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+export function KeywordInput({
+  value,
+  onChange,
+  placeholder = 'ตัวอย่างเช่น "สอบถาม" แล้วกด Enter หรือ ,',
+}: {
+  value: string[]
+  onChange: (v: string[]) => void
+  placeholder?: string
+}) {
   const [text, setText] = useState('')
   const add = (raw: string) => {
     const fresh = raw
@@ -398,7 +514,10 @@ export function KeywordInput({ value, onChange, placeholder = 'ตัวอย�
       {value.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-b border-slate-100 p-2">
           {value.map((k) => (
-            <span key={k} className="inline-flex items-center gap-1 rounded-full bg-red-50 py-0.5 pr-1 pl-2.5 text-sm text-red-700 ring-1 ring-red-100">
+            <span
+              key={k}
+              className="inline-flex items-center gap-1 rounded-full bg-red-50 py-0.5 pr-1 pl-2.5 text-sm text-red-700 ring-1 ring-red-100"
+            >
               {k}
               <button
                 type="button"
@@ -414,7 +533,9 @@ export function KeywordInput({ value, onChange, placeholder = 'ตัวอย�
       )}
       <input
         value={text}
-        onChange={(e) => (e.target.value.includes(',') ? add(e.target.value) : setText(e.target.value))}
+        onChange={(e) =>
+          e.target.value.includes(',') ? add(e.target.value) : setText(e.target.value)
+        }
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
             e.preventDefault()

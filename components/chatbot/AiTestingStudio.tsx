@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { PlaygroundProductImage } from '@/components/chatbot/PlaygroundProductImage'
-import { AlertCircle, Bot, LoaderCircle, RotateCcw, Send, ShieldCheck, UserRound } from 'lucide-react'
+import {
+  AlertCircle,
+  Bot,
+  LoaderCircle,
+  RotateCcw,
+  Send,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react'
 import type { BotSettings } from '@/lib/features/agents/chatbot'
 
 type Turn = {
@@ -69,11 +77,19 @@ export function AiTestingStudio({
 
     const pending = retry
       ? turns
-      : [...turns, { id: ++sequence.current, role: 'user' as const, text: trimmed, time: new Date().toISOString() }]
+      : [
+          ...turns,
+          {
+            id: ++sequence.current,
+            role: 'user' as const,
+            text: trimmed,
+            time: new Date().toISOString(),
+          },
+        ]
     const messages = pending
-      .filter(turn => turn.role !== 'system')
+      .filter((turn) => turn.role !== 'system')
       .slice(-12)
-      .map(turn => ({ role: turn.role, text: turn.text }))
+      .map((turn) => ({ role: turn.role, text: turn.text }))
     if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', text: trimmed })
 
     lock.current = true
@@ -107,25 +123,29 @@ export function AiTestingStudio({
       const reply = result as Reply
       const now = new Date().toISOString()
       if (reply.text || reply.image_url || reply.imageUrl) {
-        setTurns(current => [...current, {
-          id: ++sequence.current,
-          role: 'model',
-          text: reply.text ?? '',
-          time: now,
-          providerCalled: reply.providerCalled,
-          handover: reply.handover,
-          imageUrl: reply.image_url ?? reply.imageUrl,
-        }])
+        setTurns((current) => [
+          ...current,
+          {
+            id: ++sequence.current,
+            role: 'model',
+            text: reply.text ?? '',
+            time: now,
+            providerCalled: reply.providerCalled,
+            handover: reply.handover,
+            imageUrl: reply.image_url ?? reply.imageUrl,
+          },
+        ])
       } else {
-        const message = reply.route === 'none'
-          ? 'ไม่มีคำตอบจากระบบในรอบนี้'
-          : 'ไม่มีข้อความตอบกลับ'
-        setTurns(current => [...current, {
-          id: ++sequence.current,
-          role: 'system',
-          text: message,
-          time: now,
-        }])
+        const message = reply.route === 'none' ? 'ไม่มีคำตอบจากระบบในรอบนี้' : 'ไม่มีข้อความตอบกลับ'
+        setTurns((current) => [
+          ...current,
+          {
+            id: ++sequence.current,
+            role: 'system',
+            text: message,
+            time: now,
+          },
+        ])
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'ทดสอบไม่สำเร็จ กรุณาลองใหม่')
@@ -150,7 +170,10 @@ export function AiTestingStudio({
   }
 
   function clearChat() {
-    if (!turns.length || window.confirm('ล้างบทสนทนาทดลองนี้หรือไม่? ข้อความจริงของลูกค้าไม่ได้รับผลกระทบ')) {
+    if (
+      !turns.length ||
+      window.confirm('ล้างบทสนทนาทดลองนี้หรือไม่? ข้อความจริงของลูกค้าไม่ได้รับผลกระทบ')
+    ) {
       setTurns([{ id: 0, role: 'system', text: welcomeMessage }])
       setError('')
       setRetryText('')
@@ -168,7 +191,10 @@ export function AiTestingStudio({
           </span>
           <div className="min-w-0">
             <h2 className="font-semibold">ทดลองตอบด้วย AI</h2>
-            <p className={`mt-1 max-w-lg text-xs leading-6 ${'text-slate-500'}`}>พิมพ์คำถามจำลองเพื่อทดลองผู้ช่วย AI ที่ใช้ข้อมูลร้านค้า สินค้า และข้อความที่บันทึกไว้เป็นคลังความรู้ โดยไม่ส่งข้อความหาลูกค้าจริง</p>
+            <p className={`mt-1 max-w-lg text-xs leading-6 ${'text-slate-500'}`}>
+              พิมพ์คำถามจำลองเพื่อทดลองผู้ช่วย AI ที่ใช้ข้อมูลร้านค้า สินค้า
+              และข้อความที่บันทึกไว้เป็นคลังความรู้ โดยไม่ส่งข้อความหาลูกค้าจริง
+            </p>
           </div>
         </div>
         <button
@@ -183,10 +209,16 @@ export function AiTestingStudio({
 
       <p className="mx-4 mt-4 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900 sm:mx-6">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-        <span>ข้อความจะถูกประมวลผลตามสิทธิ์และโควตาของร้าน แต่จะไม่ส่งหาลูกค้าจริงหรือบันทึกลงกล่องข้อความเพจ</span>
+        <span>
+          ข้อความจะถูกประมวลผลตามสิทธิ์และโควตาของร้าน
+          แต่จะไม่ส่งหาลูกค้าจริงหรือบันทึกลงกล่องข้อความเพจ
+        </span>
       </p>
       {!aiAllowed && (
-        <p role="status" className="mx-4 mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900 sm:mx-6">
+        <p
+          role="status"
+          className="mx-4 mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900 sm:mx-6"
+        >
           ฟีเจอร์นี้สำหรับผู้ใช้งานแพ็กเกจเท่านั้น
         </p>
       )}
@@ -208,41 +240,62 @@ export function AiTestingStudio({
               ระบบจะตรวจคำที่ตั้งค่าไว้ก่อน หากไม่พบ AI จะประมวลผลจากข้อมูลสอนและเนื้อหาการสนทนานี้
             </p>
           </div>
-        ) : turns.map(turn => (
-          <article key={turn.id} className={`flex gap-2.5 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}>
-            <span className={`mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
-              turn.role === 'user'
-                ? 'border border-blue-100 bg-blue-50 text-blue-700'
-                : turn.role === 'system'
-                  ? 'border border-blue-100 bg-blue-50 text-blue-700'
-                  : 'border border-blue-100 bg-white text-blue-600'
-            }`}>
-              {turn.role === 'user'
-                ? <UserRound className="h-4 w-4" aria-hidden />
-                : turn.role === 'system'
-                  ? <AlertCircle className="h-4 w-4" aria-hidden />
-                  : <Bot className="h-4 w-4" aria-hidden />}
-            </span>
-            <div className={`min-w-0 max-w-[88%] ${turn.role === 'user' ? 'text-right' : ''}`}>
-              <div className={`mb-1 flex items-center gap-2 text-[11px] ${'text-slate-500'}`}>
-                <span className="font-semibold">
-                  {turn.role === 'user' ? 'คุณ' : turn.role === 'system' ? 'ข้อความแจ้ง' : turn.handover ? 'ส่งต่อผู้ดูแลร้าน' : turn.providerCalled ? 'AI' : 'กฎของร้าน'}
-                </span>
-                {turn.time && <time>{timeLabel(turn.time)}</time>}
+        ) : (
+          turns.map((turn) => (
+            <article
+              key={turn.id}
+              className={`flex gap-2.5 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}
+            >
+              <span
+                className={`mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
+                  turn.role === 'user'
+                    ? 'border border-blue-100 bg-blue-50 text-blue-700'
+                    : turn.role === 'system'
+                      ? 'border border-blue-100 bg-blue-50 text-blue-700'
+                      : 'border border-blue-100 bg-white text-blue-600'
+                }`}
+              >
+                {turn.role === 'user' ? (
+                  <UserRound className="h-4 w-4" aria-hidden />
+                ) : turn.role === 'system' ? (
+                  <AlertCircle className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Bot className="h-4 w-4" aria-hidden />
+                )}
+              </span>
+              <div className={`min-w-0 max-w-[88%] ${turn.role === 'user' ? 'text-right' : ''}`}>
+                <div className={`mb-1 flex items-center gap-2 text-[11px] ${'text-slate-500'}`}>
+                  <span className="font-semibold">
+                    {turn.role === 'user'
+                      ? 'คุณ'
+                      : turn.role === 'system'
+                        ? 'ข้อความแจ้ง'
+                        : turn.handover
+                          ? 'ส่งต่อผู้ดูแลร้าน'
+                          : turn.providerCalled
+                            ? 'AI'
+                            : 'กฎของร้าน'}
+                  </span>
+                  {turn.time && <time>{timeLabel(turn.time)}</time>}
+                </div>
+                <div
+                  className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-left text-sm leading-6 ${
+                    turn.role === 'user'
+                      ? 'rounded-tr-sm bg-blue-600 text-white'
+                      : turn.role === 'system'
+                        ? 'rounded-tl-sm border border-blue-100 bg-blue-50 text-blue-900'
+                        : 'rounded-tl-sm border border-blue-100 bg-blue-50/60 text-slate-800'
+                  }`}
+                >
+                  {turn.text}
+                  {turn.imageUrl && (
+                    <PlaygroundProductImage key={turn.imageUrl} src={turn.imageUrl} />
+                  )}
+                </div>
               </div>
-              <div className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-left text-sm leading-6 ${
-                turn.role === 'user'
-                  ? 'rounded-tr-sm bg-blue-600 text-white'
-                  : turn.role === 'system'
-                    ? 'rounded-tl-sm border border-blue-100 bg-blue-50 text-blue-900'
-                    : 'rounded-tl-sm border border-blue-100 bg-blue-50/60 text-slate-800'
-              }`}>
-                {turn.text}
-                {turn.imageUrl && <PlaygroundProductImage key={turn.imageUrl} src={turn.imageUrl}/>}
-              </div>
-            </div>
-          </article>
-        ))}
+            </article>
+          ))
+        )}
         {busy && (
           <div className="flex items-center gap-2 text-sm text-slate-600">
             <LoaderCircle className="h-4 w-4 animate-spin text-blue-600" aria-hidden />
@@ -255,7 +308,7 @@ export function AiTestingStudio({
         <div className="mb-3">
           <p className={`mb-2 text-xs font-medium ${'text-slate-600'}`}>ลองถามตัวอย่าง</p>
           <div className="flex flex-wrap gap-2">
-            {SAMPLE_MESSAGES.map(message => (
+            {SAMPLE_MESSAGES.map((message) => (
               <button
                 key={message}
                 type="button"
@@ -270,32 +323,48 @@ export function AiTestingStudio({
         </div>
         {aiAllowed && (
           <p className={`mb-3 text-xs ${'text-slate-500'}`}>
-            ผู้ช่วย AI ใช้ข้อมูลร้าน สินค้า และข้อความที่บันทึกไว้ การทดลองใช้โควตา AI ของร้าน และจะส่งต่อแอดมินเมื่อไม่สามารถตอบได้
+            ผู้ช่วย AI ใช้ข้อมูลร้าน สินค้า และข้อความที่บันทึกไว้ การทดลองใช้โควตา AI ของร้าน
+            และจะส่งต่อแอดมินเมื่อไม่สามารถตอบได้
           </p>
         )}
         {error && (
-          <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-900">
+          <div
+            role="alert"
+            className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-sm text-blue-900"
+          >
             <span className="inline-flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
               {error}
             </span>
             {retryText && (
-              <button type="button" onClick={() => void runTrial(retryText, true)} disabled={busy} className="shrink-0 font-semibold underline">
+              <button
+                type="button"
+                onClick={() => void runTrial(retryText, true)}
+                disabled={busy}
+                className="shrink-0 font-semibold underline"
+              >
                 ลองอีกครั้ง
               </button>
             )}
           </div>
         )}
-        <form onSubmit={submit} className="flex items-end gap-2 rounded-2xl border border-blue-200 bg-white p-1.5 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+        <form
+          onSubmit={submit}
+          className="flex items-end gap-2 rounded-2xl border border-blue-200 bg-white p-1.5 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100"
+        >
           <textarea
             aria-label="ข้อความทดลอง"
             value={input}
-            onChange={event => setInput(event.target.value)}
+            onChange={(event) => setInput(event.target.value)}
             onKeyDown={composerKeyDown}
             maxLength={2000}
             rows={1}
             disabled={busy || !aiAllowed}
-            placeholder={aiAllowed ? 'พิมพ์ข้อความที่ต้องการทดลอง...' : 'ฟีเจอร์นี้สำหรับผู้ใช้งานแพ็กเกจเท่านั้น'}
+            placeholder={
+              aiAllowed
+                ? 'พิมพ์ข้อความที่ต้องการทดลอง...'
+                : 'ฟีเจอร์นี้สำหรับผู้ใช้งานแพ็กเกจเท่านั้น'
+            }
             className="max-h-32 min-h-10 min-w-0 flex-1 resize-y border-0 bg-transparent px-2 py-2 text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400 focus:ring-0"
           />
           <button
@@ -304,7 +373,11 @@ export function AiTestingStudio({
             aria-label="ส่งข้อความทดลอง"
             className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
           >
-            {busy ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden /> : <Send className="h-5 w-5" aria-hidden />}
+            {busy ? (
+              <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden />
+            ) : (
+              <Send className="h-5 w-5" aria-hidden />
+            )}
           </button>
         </form>
         <p className="mt-2 flex flex-wrap justify-between gap-2 text-[11px] text-slate-400">

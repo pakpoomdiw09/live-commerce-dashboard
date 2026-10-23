@@ -20,125 +20,188 @@ const inWindowEvent = {
 
 test('standardWindowReason marks signed inbound activity within 24 hours as eligible', () => {
   assert.equal(
-    standardWindowReason({
-      interacted_at: new Date(now - 60_000).toISOString(),
-      kind: 'inbound_message',
-      page_id: pageId,
-      event_id: 'evt-1',
-    }, pageId, now),
+    standardWindowReason(
+      {
+        interacted_at: new Date(now - 60_000).toISOString(),
+        kind: 'inbound_message',
+        page_id: pageId,
+        event_id: 'evt-1',
+      },
+      pageId,
+      now,
+    ),
     'eligible',
   )
 
   assert.equal(
-    standardWindowReason({
-      interacted_at: new Date(now + 60_000).toISOString(),
-      kind: 'inbound_message',
-      page_id: pageId,
-      event_id: 'evt-2',
-    }, pageId, now),
+    standardWindowReason(
+      {
+        interacted_at: new Date(now + 60_000).toISOString(),
+        kind: 'inbound_message',
+        page_id: pageId,
+        event_id: 'evt-2',
+      },
+      pageId,
+      now,
+    ),
     'invalid_interaction',
   )
 
   assert.equal(
-    standardWindowReason({
-      interacted_at: new Date(now - 86_400_000 - 1000).toISOString(),
-      kind: 'inbound_message',
-      page_id: pageId,
-      event_id: 'evt-3',
-    }, pageId, now),
+    standardWindowReason(
+      {
+        interacted_at: new Date(now - 86_400_000 - 1000).toISOString(),
+        kind: 'inbound_message',
+        page_id: pageId,
+        event_id: 'evt-3',
+      },
+      pageId,
+      now,
+    ),
     'outside_window',
   )
 })
 
 test('recipientReason denies broadcasts when policy, page verification or consent are not met', () => {
   assert.equal(
-    recipientReason({
-      evidence: { interacted_at: new Date(now - 60_000).toISOString(), kind: 'inbound_message', page_id: pageId, event_id: 'evt-1' },
-      pageId,
-      optedOut: false,
-      pageVerified: true,
-      policyVerified: true,
-      credits: 2,
-      channel: 'within_24h',
-    }, now),
+    recipientReason(
+      {
+        evidence: {
+          interacted_at: new Date(now - 60_000).toISOString(),
+          kind: 'inbound_message',
+          page_id: pageId,
+          event_id: 'evt-1',
+        },
+        pageId,
+        optedOut: false,
+        pageVerified: true,
+        policyVerified: true,
+        credits: 2,
+        channel: 'within_24h',
+      },
+      now,
+    ),
     'eligible',
   )
 
   assert.equal(
-    recipientReason({
-      evidence: null,
-      pageId,
-      optedOut: false,
-      pageVerified: true,
-      policyVerified: true,
-      credits: 2,
-      channel: 'within_24h',
-    }, now),
+    recipientReason(
+      {
+        evidence: null,
+        pageId,
+        optedOut: false,
+        pageVerified: true,
+        policyVerified: true,
+        credits: 2,
+        channel: 'within_24h',
+      },
+      now,
+    ),
     'missing_interaction',
   )
 
   assert.equal(
-    recipientReason({
-      evidence: { interacted_at: new Date(now - 60_000).toISOString(), kind: 'inbound_message', page_id: pageId, event_id: 'evt-1' },
-      pageId,
-      optedOut: true,
-      pageVerified: true,
-      policyVerified: true,
-      credits: 2,
-      channel: 'within_24h',
-    }, now),
+    recipientReason(
+      {
+        evidence: {
+          interacted_at: new Date(now - 60_000).toISOString(),
+          kind: 'inbound_message',
+          page_id: pageId,
+          event_id: 'evt-1',
+        },
+        pageId,
+        optedOut: true,
+        pageVerified: true,
+        policyVerified: true,
+        credits: 2,
+        channel: 'within_24h',
+      },
+      now,
+    ),
     'opted_out',
   )
 
   assert.equal(
-    recipientReason({
-      evidence: { interacted_at: new Date(now - 60_000).toISOString(), kind: 'inbound_message', page_id: pageId, event_id: 'evt-1' },
-      pageId,
-      optedOut: false,
-      pageVerified: false,
-      policyVerified: true,
-      credits: 2,
-      channel: 'within_24h',
-    }, now),
+    recipientReason(
+      {
+        evidence: {
+          interacted_at: new Date(now - 60_000).toISOString(),
+          kind: 'inbound_message',
+          page_id: pageId,
+          event_id: 'evt-1',
+        },
+        pageId,
+        optedOut: false,
+        pageVerified: false,
+        policyVerified: true,
+        credits: 2,
+        channel: 'within_24h',
+      },
+      now,
+    ),
     'page_unverified',
   )
 
   assert.equal(
-    recipientReason({
-      evidence: { interacted_at: new Date(now - 60_000).toISOString(), kind: 'inbound_message', page_id: pageId, event_id: 'evt-1' },
-      pageId,
-      optedOut: false,
-      pageVerified: true,
-      policyVerified: false,
-      credits: 2,
-      channel: 'within_24h',
-    }, now),
+    recipientReason(
+      {
+        evidence: {
+          interacted_at: new Date(now - 60_000).toISOString(),
+          kind: 'inbound_message',
+          page_id: pageId,
+          event_id: 'evt-1',
+        },
+        pageId,
+        optedOut: false,
+        pageVerified: true,
+        policyVerified: false,
+        credits: 2,
+        channel: 'within_24h',
+      },
+      now,
+    ),
     'policy_unverified',
   )
 
   assert.equal(
-    recipientReason({
-      evidence: { interacted_at: new Date(now - 60_000).toISOString(), kind: 'inbound_message', page_id: pageId, event_id: 'evt-1' },
-      pageId,
-      optedOut: false,
-      pageVerified: true,
-      policyVerified: true,
-      credits: 0,
-      channel: 'within_24h',
-    }, now),
+    recipientReason(
+      {
+        evidence: {
+          interacted_at: new Date(now - 60_000).toISOString(),
+          kind: 'inbound_message',
+          page_id: pageId,
+          event_id: 'evt-1',
+        },
+        pageId,
+        optedOut: false,
+        pageVerified: true,
+        policyVerified: true,
+        credits: 0,
+        channel: 'within_24h',
+      },
+      now,
+    ),
     'credits_exhausted',
   )
 
   assert.equal(
-    recipientReason({
-      evidence: { interacted_at: new Date(now - 60_000).toISOString(), kind: 'inbound_message', page_id: pageId, event_id: 'evt-1' },
-      pageId,
-      optedOut: false,
-      pageVerified: true,
-      policyVerified: true,
-      credits: 1,
-      tag: 'HUMAN_AGENT',
-    }, now),
+    recipientReason(
+      {
+        evidence: {
+          interacted_at: new Date(now - 60_000).toISOString(),
+          kind: 'inbound_message',
+          page_id: pageId,
+          event_id: 'evt-1',
+        },
+        pageId,
+        optedOut: false,
+        pageVerified: true,
+        policyVerified: true,
+        credits: 1,
+        tag: 'HUMAN_AGENT',
+      },
+      now,
+    ),
     'human_agent_forbidden',
   )
 })
@@ -154,7 +217,8 @@ test('broadcastReadiness blocks sends until environment and review checks are sa
   assert.deepEqual(broadcastReadiness(now), {
     ready: false,
     reason: 'sending_disabled',
-    message: 'ร้านนี้ยังไม่ได้เปิดส่งบรอดแคสต์ บันทึกฉบับร่างไว้ก่อนและให้เจ้าของร้านตรวจสอบการตั้งค่าการส่ง',
+    message:
+      'ร้านนี้ยังไม่ได้เปิดส่งบรอดแคสต์ บันทึกฉบับร่างไว้ก่อนและให้เจ้าของร้านตรวจสอบการตั้งค่าการส่ง',
   })
 
   process.env.BROADCAST_STANDARD_SEND_ENABLED = 'true'
@@ -188,22 +252,30 @@ test('inboundBroadcastEvidence only accepts signed inbound messages from the pag
   })
 
   assert.equal(
-    inboundBroadcastEvidence({
-      sender: { id: 'user-42' },
-      recipient: { id: 'other-page' },
-      timestamp: now - 60_000,
-      message: { mid: 'm-2', is_echo: false, text: 'hello' },
-    }, pageId, now),
+    inboundBroadcastEvidence(
+      {
+        sender: { id: 'user-42' },
+        recipient: { id: 'other-page' },
+        timestamp: now - 60_000,
+        message: { mid: 'm-2', is_echo: false, text: 'hello' },
+      },
+      pageId,
+      now,
+    ),
     null,
   )
 
   assert.equal(
-    inboundBroadcastEvidence({
-      sender: { id: pageId },
-      recipient: { id: pageId },
-      timestamp: now - 60_000,
-      message: { mid: 'm-3', is_echo: false, text: 'hello' },
-    }, pageId, now),
+    inboundBroadcastEvidence(
+      {
+        sender: { id: pageId },
+        recipient: { id: pageId },
+        timestamp: now - 60_000,
+        message: { mid: 'm-3', is_echo: false, text: 'hello' },
+      },
+      pageId,
+      now,
+    ),
     null,
   )
 })

@@ -2,7 +2,16 @@
 
 import { neutralSlipText } from '@/lib/ui-labels'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDown, BadgeCheck, Check, Copy, ExternalLink, FileText, ImageOff, MessageSquareShare } from 'lucide-react'
+import {
+  ArrowDown,
+  BadgeCheck,
+  Check,
+  Copy,
+  ExternalLink,
+  FileText,
+  ImageOff,
+  MessageSquareShare,
+} from 'lucide-react'
 import { BankLogo, bankName } from '@/components/banking/BankLogo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,7 +24,13 @@ import { apiError, baht, cn, when } from '@/lib/utils'
  * Everything about one slip: image, SlipOK data (amount, time, banks, TransRef) and the admin actions.
  * `slip` is the live row (Realtime); the detail is re-fetched whenever its state changes.
  */
-export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; canMessage?: boolean }) {
+export function SlipDetailPanel({
+  slip,
+  canMessage = true,
+}: {
+  slip: SlipRow
+  canMessage?: boolean
+}) {
   const [detail, setDetail] = useState<SlipDetail | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const request = useRef<AbortController | null>(null)
@@ -27,12 +42,16 @@ export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; ca
     request.current = controller
     setLoadError(null)
     try {
-      const res = await fetch(`/api/slips/${slip.id}`, { cache: 'no-store', signal: controller.signal })
+      const res = await fetch(`/api/slips/${slip.id}`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      })
       if (!res.ok) throw new Error(await apiError(res))
       const next = ((await res.json()) as { slip: SlipDetail }).slip
       if (!controller.signal.aborted) setDetail(next)
     } catch (e) {
-      if (!controller.signal.aborted) setLoadError(e instanceof Error ? e.message : 'โหลดรายละเอียดสลิปไม่สำเร็จ')
+      if (!controller.signal.aborted)
+        setLoadError(e instanceof Error ? e.message : 'โหลดรายละเอียดสลิปไม่สำเร็จ')
     }
   }, [slip.id])
 
@@ -80,7 +99,11 @@ export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; ca
           </Badge>
         )}
       </div>
-      {slip.note && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">{neutralSlipText(slip.note)}</p>}
+      {slip.note && (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">
+          {neutralSlipText(slip.note)}
+        </p>
+      )}
 
       {loadError && (
         <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
@@ -95,11 +118,15 @@ export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; ca
       <dl className="grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
           <dt className="text-[11px] text-slate-500">ยอดในสลิป</dt>
-          <dd className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">{baht(slip.amount)}</dd>
+          <dd className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">
+            {baht(slip.amount)}
+          </dd>
         </div>
         <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
           <dt className="text-[11px] text-slate-500">ยอดที่คาดหวัง</dt>
-          <dd className="mt-0.5 text-lg font-semibold text-slate-500 tabular-nums">{baht(slip.expected_amount)}</dd>
+          <dd className="mt-0.5 text-lg font-semibold text-slate-500 tabular-nums">
+            {baht(slip.expected_amount)}
+          </dd>
         </div>
       </dl>
 
@@ -120,7 +147,17 @@ export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; ca
       </div>
 
       <dl className="space-y-2 text-xs">
-        <Row label="เวลาโอน">{d ? (d.transferredAt ? <span suppressHydrationWarning>{when(d.transferredAt)}</span> : '-') : <Skeleton className="h-4 w-28" />}</Row>
+        <Row label="เวลาโอน">
+          {d ? (
+            d.transferredAt ? (
+              <span suppressHydrationWarning>{when(d.transferredAt)}</span>
+            ) : (
+              '-'
+            )
+          ) : (
+            <Skeleton className="h-4 w-28" />
+          )}
+        </Row>
         <Row label="ส่งสลิปเมื่อ">
           <span suppressHydrationWarning>{when(slip.created_at)}</span>
         </Row>
@@ -128,7 +165,11 @@ export function SlipDetailPanel({ slip, canMessage = true }: { slip: SlipRow; ca
         {d?.tenantName && <Row label="ร้านค้า">{d.tenantName}</Row>}
       </dl>
 
-      <SlipActions slip={slip} canMessage={canMessage && !!slip.customer_id} onDone={() => void load()} />
+      <SlipActions
+        slip={slip}
+        canMessage={canMessage && !!slip.customer_id}
+        onDone={() => void load()}
+      />
     </div>
   )
 }
@@ -172,7 +213,11 @@ function CopyText({ text }: { text: string }) {
       title="คัดลอก"
     >
       <span className="truncate">{text}</span>
-      {copied ? <Check className="h-3 w-3 shrink-0 text-emerald-600" aria-label="คัดลอกแล้ว" /> : <Copy className="h-3 w-3 shrink-0" aria-hidden />}
+      {copied ? (
+        <Check className="h-3 w-3 shrink-0 text-emerald-600" aria-label="คัดลอกแล้ว" />
+      ) : (
+        <Copy className="h-3 w-3 shrink-0" aria-hidden />
+      )}
     </button>
   )
 }
@@ -180,7 +225,15 @@ function CopyText({ text }: { text: string }) {
 type Action = 'approve' | 'confirm'
 
 /** อนุมัติออเดอร์ / ส่งข้อความยืนยันการโอนเข้าแชท / ออกใบเสร็จรับเงิน */
-function SlipActions({ slip, canMessage, onDone }: { slip: SlipRow; canMessage: boolean; onDone: () => void }) {
+function SlipActions({
+  slip,
+  canMessage,
+  onDone,
+}: {
+  slip: SlipRow
+  canMessage: boolean
+  onDone: () => void
+}) {
   const [busy, setBusy] = useState<Action | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -190,7 +243,12 @@ function SlipActions({ slip, canMessage, onDone }: { slip: SlipRow; canMessage: 
   const confirmable = slip.status === 'valid' || !!slip.approved_at
 
   async function run(action: Action) {
-    if (action === 'approve' && slip.status !== 'valid' && !confirm(`สลิปนี้มีสถานะ "${SLIP_STATUS[slip.status].label}" ยืนยันอนุมัติออเดอร์ด้วยตนเอง?`)) return
+    if (
+      action === 'approve' &&
+      slip.status !== 'valid' &&
+      !confirm(`สลิปนี้มีสถานะ "${SLIP_STATUS[slip.status].label}" ยืนยันอนุมัติออเดอร์ด้วยตนเอง?`)
+    )
+      return
     setBusy(action)
     setMsg(null)
     try {
@@ -199,7 +257,12 @@ function SlipActions({ slip, canMessage, onDone }: { slip: SlipRow; canMessage: 
       const body = (await res.json()) as { alreadySent?: boolean }
       setMsg({
         ok: true,
-        text: action === 'approve' ? 'อนุมัติออเดอร์แล้ว' : body.alreadySent ? 'เคยส่งข้อความยืนยันสลิปนี้แล้ว' : 'ส่งข้อความยืนยันเข้าแชทแล้ว',
+        text:
+          action === 'approve'
+            ? 'อนุมัติออเดอร์แล้ว'
+            : body.alreadySent
+              ? 'เคยส่งข้อความยืนยันสลิปนี้แล้ว'
+              : 'ส่งข้อความยืนยันเข้าแชทแล้ว',
       })
       onDone()
     } catch (e) {
@@ -211,7 +274,12 @@ function SlipActions({ slip, canMessage, onDone }: { slip: SlipRow; canMessage: 
 
   return (
     <div className="space-y-2 border-t border-slate-100 pt-4">
-      <Button className="w-full" loading={busy === 'approve'} disabled={!approvable || !!slip.approved_at || busy !== null} onClick={() => run('approve')}>
+      <Button
+        className="w-full"
+        loading={busy === 'approve'}
+        disabled={!approvable || !!slip.approved_at || busy !== null}
+        onClick={() => run('approve')}
+      >
         {busy !== 'approve' && <BadgeCheck className="h-4 w-4" aria-hidden />}
         {slip.approved_at ? 'อนุมัติออเดอร์แล้ว' : 'อนุมัติออเดอร์'}
       </Button>
@@ -220,7 +288,13 @@ function SlipActions({ slip, canMessage, onDone }: { slip: SlipRow; canMessage: 
         className="w-full"
         loading={busy === 'confirm'}
         disabled={!canMessage || !confirmable || busy !== null}
-        title={!canMessage ? 'สลิปนี้ไม่ได้มาจากแชท' : !confirmable ? 'ยืนยันได้เมื่อสลิปถูกต้องหรืออนุมัติแล้ว' : undefined}
+        title={
+          !canMessage
+            ? 'สลิปนี้ไม่ได้มาจากแชท'
+            : !confirmable
+              ? 'ยืนยันได้เมื่อสลิปถูกต้องหรืออนุมัติแล้ว'
+              : undefined
+        }
         onClick={() => run('confirm')}
       >
         {busy !== 'confirm' && <MessageSquareShare className="h-4 w-4" aria-hidden />}
@@ -233,14 +307,22 @@ function SlipActions({ slip, canMessage, onDone }: { slip: SlipRow; canMessage: 
         aria-disabled={!confirmable}
         className={cn(
           'flex h-9 w-full items-center justify-center gap-2 rounded-lg text-sm font-medium ring-1 ring-slate-200 transition',
-          confirmable ? 'bg-white text-slate-700 hover:bg-slate-50' : 'pointer-events-none bg-slate-50 text-slate-400',
+          confirmable
+            ? 'bg-white text-slate-700 hover:bg-slate-50'
+            : 'pointer-events-none bg-slate-50 text-slate-400',
         )}
       >
         <FileText className="h-4 w-4" aria-hidden />
         ออกใบเสร็จรับเงิน
       </a>
       {msg && (
-        <p role="status" className={cn('rounded-lg px-3 py-2 text-xs', msg.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-700')}>
+        <p
+          role="status"
+          className={cn(
+            'rounded-lg px-3 py-2 text-xs',
+            msg.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-700',
+          )}
+        >
           {msg.text}
         </p>
       )}

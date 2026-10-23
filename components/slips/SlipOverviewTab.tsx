@@ -1,4 +1,36 @@
-import {PaymentProDashboard} from '@/components/slips/PaymentProDashboard'
-import {SlipsWorkspace,type SlipListRow} from '@/components/slips/SlipsWorkspace'
-import type {TenantRow} from '@/lib/types'
-export function SlipOverviewTab({tenant,canManage,initial}:{tenant:TenantRow;canManage:boolean;initial:SlipListRow[]}){return <div className="space-y-5"><PaymentProDashboard tenantId={tenant.id} canManage={canManage} embedded/><details className="rounded-3xl border border-orange-100 bg-white p-5"><summary className="cursor-pointer font-semibold text-orange-800">อัปโหลดตรวจสลิปและประวัติสลิปเดิม</summary><p className="my-3 text-xs text-slate-500">ใช้ระบบตรวจเดิมและเครดิตจริง ไม่ส่งข้อความจากการเปิดหน้านี้</p><SlipsWorkspace key={tenant.id} embedded initial={initial} initialCredits={{quota:tenant.slip_quota+tenant.slip_quota_credits,used:tenant.slip_used}} tenant={{id:tenant.id,name:tenant.name,expectedAmount:tenant.expected_amount}}/></details></div>}
+import { PaymentProDashboard } from '@/components/slips/PaymentProDashboard'
+import { SlipsWorkspace, type SlipListRow } from '@/components/slips/SlipsWorkspace'
+import type { TenantRow } from '@/lib/types'
+export function SlipOverviewTab({
+  tenant,
+  canManage,
+  initial,
+}: {
+  tenant: TenantRow
+  canManage: boolean
+  initial: SlipListRow[]
+}) {
+  return (
+    <div className="space-y-5">
+      <PaymentProDashboard tenantId={tenant.id} canManage={canManage} embedded />
+      <details className="rounded-3xl border border-orange-100 bg-white p-5">
+        <summary className="cursor-pointer font-semibold text-orange-800">
+          อัปโหลดตรวจสลิปและประวัติสลิปเดิม
+        </summary>
+        <p className="my-3 text-xs text-slate-500">
+          ใช้ระบบตรวจเดิมและเครดิตจริง ไม่ส่งข้อความจากการเปิดหน้านี้
+        </p>
+        <SlipsWorkspace
+          key={tenant.id}
+          embedded
+          initial={initial}
+          initialCredits={{
+            quota: tenant.slip_quota + tenant.slip_quota_credits,
+            used: tenant.slip_used,
+          }}
+          tenant={{ id: tenant.id, name: tenant.name, expectedAmount: tenant.expected_amount }}
+        />
+      </details>
+    </div>
+  )
+}

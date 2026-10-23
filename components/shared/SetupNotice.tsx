@@ -1,7 +1,13 @@
 import { InlineError } from '@/components/shared/ErrorState'
 
 /** Page body when there is no tenant yet, or a table from a migration is missing. */
-export function SetupNotice({ kind, message }: { kind: 'no-tenant' | 'migration'; message?: string }) {
+export function SetupNotice({
+  kind,
+  message,
+}: {
+  kind: 'no-tenant' | 'migration'
+  message?: string
+}) {
   return (
     <div className="mx-auto w-full max-w-2xl p-4 sm:p-8">
       {kind === 'no-tenant' ? (

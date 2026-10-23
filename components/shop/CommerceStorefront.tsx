@@ -4,46 +4,450 @@ import { Package, ShoppingCart, X } from 'lucide-react'
 import { parseCheckout } from '@/lib/features/commerce/commerce-core'
 import type { PublicStoreData } from '@/lib/features/commerce/commerce-server'
 import { CommerceDesign } from '@/components/shop/CommerceDesign'
-import { commerceButton as btn, commerceInput as input, commercePrimary as primary } from '@/components/shop/CommerceEditor'
+import {
+  commerceButton as btn,
+  commerceInput as input,
+  commercePrimary as primary,
+} from '@/components/shop/CommerceEditor'
 type CartItem = { product_id: string; variant_id: string | null; qty: number }
 const price = (n: any) => `฿${Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`
 export function CommerceStorefront({ data }: { data: PublicStoreData }) {
-  const [search, setSearch] = useState(''), [category, setCategory] = useState(''), [cart, setCart] = useState<CartItem[]>([]), [choices, setChoices] = useState<Record<string, string>>({}), [selected, setSelected] = useState<any>(null)
-  const [error, setError] = useState(''), [busy, setBusy] = useState(false), [pending, setPending] = useState<any>(null), [result, setResult] = useState<any>(null), [hydrated, setHydrated] = useState(false)
-  const detail = useRef<HTMLDialogElement>(null), checkoutSection = useRef<HTMLElement>(null), lock = useRef(false)
+  const [search, setSearch] = useState(''),
+    [category, setCategory] = useState(''),
+    [cart, setCart] = useState<CartItem[]>([]),
+    [choices, setChoices] = useState<Record<string, string>>({}),
+    [selected, setSelected] = useState<any>(null)
+  const [error, setError] = useState(''),
+    [busy, setBusy] = useState(false),
+    [pending, setPending] = useState<any>(null),
+    [result, setResult] = useState<any>(null),
+    [hydrated, setHydrated] = useState(false)
+  const detail = useRef<HTMLDialogElement>(null),
+    checkoutSection = useRef<HTMLElement>(null),
+    lock = useRef(false)
   const storageKey = `snapbot-order-pending:${data.store.slug}`
-  useEffect(() => { try { const saved = sessionStorage.getItem(storageKey); if (saved) { const value = parseCheckout(JSON.parse(saved)); setPending(value); setCart(value.items); setError('รายการก่อนหน้ายังไม่ทราบผล กดตรวจสอบรายการเดิมก่อนเริ่มสั่งซื้อใหม่') } } catch { /* Browser storage may be unavailable. */ } setHydrated(true) }, [storageKey])
-  const itemPrice = (i: CartItem) => Number((i.variant_id ? data.variants.find((v: any) => v.id === i.variant_id)?.price : data.products.find((p: any) => p.id === i.product_id)?.price) ?? 0)
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(storageKey)
+      if (saved) {
+        const value = parseCheckout(JSON.parse(saved))
+        setPending(value)
+        setCart(value.items)
+        setError('รายการก่อนหน้ายังไม่ทราบผล กดตรวจสอบรายการเดิมก่อนเริ่มสั่งซื้อใหม่')
+      }
+    } catch {
+      /* Browser storage may be unavailable. */
+    }
+    setHydrated(true)
+  }, [storageKey])
+  const itemPrice = (i: CartItem) =>
+    Number(
+      (i.variant_id
+        ? data.variants.find((v: any) => v.id === i.variant_id)?.price
+        : data.products.find((p: any) => p.id === i.product_id)?.price) ?? 0,
+    )
   const add = (p: any) => {
     if (pending || busy) return
-    const hasVariants = data.variants.some((v: any) => v.product_id === p.id), variant_id = choices[p.id] || null
-    if (hasVariants && !variant_id) { setError('กรุณาเลือกสีหรือขนาดก่อนเพิ่มลงตะกร้า'); return }
-    const available = variant_id ? data.variants.find((v: any) => v.id === variant_id)?.stock : p.stock
-    const total = cart.filter(i => i.product_id === p.id).reduce((n, i) => n + i.qty, 0), existing = cart.find(i => i.product_id === p.id && i.variant_id === variant_id)
-    if (total >= p.stock || (existing?.qty ?? 0) >= Math.min(99, available ?? 0)) { setError('สินค้าคงเหลือไม่พอ'); return }
-    if (!existing && cart.length >= 30) { setError('ตะกร้ารองรับได้ไม่เกิน 30 รายการ'); return }
-    setError(''); setCart(rows => existing ? rows.map(i => i === existing ? { ...i, qty: i.qty + 1 } : i) : [...rows, { product_id: p.id, variant_id, qty: 1 }])
+    const hasVariants = data.variants.some((v: any) => v.product_id === p.id),
+      variant_id = choices[p.id] || null
+    if (hasVariants && !variant_id) {
+      setError('กรุณาเลือกสีหรือขนาดก่อนเพิ่มลงตะกร้า')
+      return
+    }
+    const available = variant_id
+      ? data.variants.find((v: any) => v.id === variant_id)?.stock
+      : p.stock
+    const total = cart.filter((i) => i.product_id === p.id).reduce((n, i) => n + i.qty, 0),
+      existing = cart.find((i) => i.product_id === p.id && i.variant_id === variant_id)
+    if (total >= p.stock || (existing?.qty ?? 0) >= Math.min(99, available ?? 0)) {
+      setError('สินค้าคงเหลือไม่พอ')
+      return
+    }
+    if (!existing && cart.length >= 30) {
+      setError('ตะกร้ารองรับได้ไม่เกิน 30 รายการ')
+      return
+    }
+    setError('')
+    setCart((rows) =>
+      existing
+        ? rows.map((i) => (i === existing ? { ...i, qty: i.qty + 1 } : i))
+        : [...rows, { product_id: p.id, variant_id, qty: 1 }],
+    )
   }
   async function submit(payload: any) {
     if (lock.current || !hydrated) return
-    lock.current = true; setBusy(true); setError('')
+    lock.current = true
+    setBusy(true)
+    setError('')
     try {
       // Keep an uncertain checkout in this tab until a retry of the SAME key resolves it.
-      sessionStorage.setItem(storageKey, JSON.stringify(payload)); setPending(payload)
-      const response = await fetch(`/api/storefront/${data.store.slug}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      sessionStorage.setItem(storageKey, JSON.stringify(payload))
+      setPending(payload)
+      const response = await fetch(`/api/storefront/${data.store.slug}/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
       const value = await response.json()
-      if (!response.ok) { if (response.status < 500 && response.status !== 429) { sessionStorage.removeItem(storageKey); setPending(null) } throw Error(value.error ?? 'ยังสั่งซื้อไม่ได้') }
-      sessionStorage.removeItem(storageKey); setPending(null); setCart([]); setResult(value)
-    } catch (e) { setError((e as Error).message || 'ยังไม่ทราบผล กรุณาตรวจสอบรายการเดิมอีกครั้ง') }
-    finally { lock.current = false; setBusy(false) }
+      if (!response.ok) {
+        if (response.status < 500 && response.status !== 429) {
+          sessionStorage.removeItem(storageKey)
+          setPending(null)
+        }
+        throw Error(value.error ?? 'ยังสั่งซื้อไม่ได้')
+      }
+      sessionStorage.removeItem(storageKey)
+      setPending(null)
+      setCart([])
+      setResult(value)
+    } catch (e) {
+      setError((e as Error).message || 'ยังไม่ทราบผล กรุณาตรวจสอบรายการเดิมอีกครั้ง')
+    } finally {
+      lock.current = false
+      setBusy(false)
+    }
   }
-  const card = (p: any) => <article key={p.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><button type="button" className="block w-full text-left" onClick={() => { setSelected(p); detail.current?.showModal() }}>{p.image_url ? <img src={p.image_url} alt={p.name} className="aspect-square w-full object-cover"/> : <div className="grid aspect-square place-items-center bg-orange-50 text-orange-300"><Package className="h-12 w-12"/></div>}<div className="space-y-2 p-4"><h3 className="break-words font-semibold">{p.name}</h3><p className="text-lg font-bold text-orange-700">{price(p.price)} {p.commerce_compare_price && Number(p.commerce_compare_price) > Number(p.price) && <del className="text-xs font-normal text-slate-400">{price(p.commerce_compare_price)}</del>}</p></div></button><div className="space-y-3 px-4 pb-4">{data.variants.some((v: any) => v.product_id === p.id) && <select aria-label={`เลือกตัวเลือก ${p.name}`} className={input} disabled={busy || !!pending} value={choices[p.id] ?? ''} onChange={e => setChoices(v => ({ ...v, [p.id]: e.target.value }))}><option value="">เลือกสี / ขนาด</option>{data.variants.filter((v: any) => v.product_id === p.id).map((v: any) => <option key={v.id} value={v.id} disabled={!v.stock}>{v.label} · {price(v.price)}{!v.stock ? ' · หมด' : ''}</option>)}</select>}<button className={primary + ' w-full'} disabled={!data.checkout || !p.stock || busy || !!pending || !hydrated} onClick={() => add(p)}>{!p.stock ? 'สินค้าหมด' : data.checkout ? 'เพิ่มลงตะกร้า' : 'ติดต่อร้านเพื่อสั่งซื้อ'}</button></div></article>
-  const catalog = <section id="store-products" className="space-y-5"><h2 className="break-words text-xl font-bold">เลือกซื้อสินค้า</h2><div className="grid gap-3 sm:grid-cols-2"><input className={input} aria-label="ค้นหาสินค้า" placeholder="ค้นหาสินค้าที่ต้องการ" value={search} onChange={e => setSearch(e.target.value)}/><select className={input} aria-label="เลือกหมวดหมู่" value={category} onChange={e => setCategory(e.target.value)}><option value="">ทุกหมวดหมู่</option>{data.categories.map((c: any) => <option value={c.id} key={c.id}>{c.name}</option>)}</select></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{data.products.filter((p: any) => p.name.toLowerCase().includes(search.toLowerCase()) && (!category || category === p.commerce_category_id)).map(card)}</div>{!data.products.some((p: any) => p.name.toLowerCase().includes(search.toLowerCase()) && (!category || category === p.commerce_category_id)) && <p className="rounded-2xl bg-white p-10 text-center text-slate-500">{data.products.length ? 'ไม่พบสินค้าที่ตรงกัน ลองเปลี่ยนคำค้นหาหรือหมวดหมู่' : 'ร้านกำลังเตรียมสินค้า พบกันเร็ว ๆ นี้'}</p>}</section>
-  return <main className="min-h-screen bg-slate-50 pb-24 text-slate-900"><header className="border-b border-orange-100 bg-white"><div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 p-4 sm:p-6"><div className="flex min-w-0 items-center gap-3">{data.store.logo && <img src={data.store.logo} alt="โลโก้ร้าน" className="h-12 w-12 rounded-full object-cover"/>}<div><h1 className="break-words text-xl font-bold">{data.store.name}</h1><p className="mt-1 text-sm text-slate-500">{data.store.description}</p></div></div><button className={btn} onClick={() => checkoutSection.current?.scrollIntoView({ behavior: 'smooth' })}><ShoppingCart className="h-4 w-4"/>ตะกร้า {cart.reduce((n, i) => n + i.qty, 0)}</button></div></header><div className="mx-auto max-w-6xl space-y-8 p-4 sm:p-6">{data.store.banner && <img src={data.store.banner} alt={`แบนเนอร์ ${data.store.name}`} className="max-h-96 w-full rounded-3xl object-cover"/>}<CommerceDesign design={data.design} products={catalog}/>
-    {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}{result && <section role="status" className="space-y-3 rounded-2xl border border-green-200 bg-green-50 p-6"><h2 className="font-bold">รับคำสั่งซื้อแล้ว</h2><p>เลขที่ {result.number} · {price(result.total)}</p><p className="text-sm">สถานะรอชำระเงิน กรุณาติดต่อร้านเพื่อรับช่องทางชำระเงิน การสั่งซื้อไม่ได้ยืนยันว่าโอนเงินแล้ว</p><p className="text-sm">{data.store.contact}</p><button className={btn} onClick={() => setResult(null)}>เลือกซื้อสินค้าต่อ</button></section>}
+  const card = (p: any) => (
+    <article
+      key={p.id}
+      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+    >
+      <button
+        type="button"
+        className="block w-full text-left"
+        onClick={() => {
+          setSelected(p)
+          detail.current?.showModal()
+        }}
+      >
+        {p.image_url ? (
+          <img src={p.image_url} alt={p.name} className="aspect-square w-full object-cover" />
+        ) : (
+          <div className="grid aspect-square place-items-center bg-orange-50 text-orange-300">
+            <Package className="h-12 w-12" />
+          </div>
+        )}
+        <div className="space-y-2 p-4">
+          <h3 className="break-words font-semibold">{p.name}</h3>
+          <p className="text-lg font-bold text-orange-700">
+            {price(p.price)}{' '}
+            {p.commerce_compare_price && Number(p.commerce_compare_price) > Number(p.price) && (
+              <del className="text-xs font-normal text-slate-400">
+                {price(p.commerce_compare_price)}
+              </del>
+            )}
+          </p>
+        </div>
+      </button>
+      <div className="space-y-3 px-4 pb-4">
+        {data.variants.some((v: any) => v.product_id === p.id) && (
+          <select
+            aria-label={`เลือกตัวเลือก ${p.name}`}
+            className={input}
+            disabled={busy || !!pending}
+            value={choices[p.id] ?? ''}
+            onChange={(e) => setChoices((v) => ({ ...v, [p.id]: e.target.value }))}
+          >
+            <option value="">เลือกสี / ขนาด</option>
+            {data.variants
+              .filter((v: any) => v.product_id === p.id)
+              .map((v: any) => (
+                <option key={v.id} value={v.id} disabled={!v.stock}>
+                  {v.label} · {price(v.price)}
+                  {!v.stock ? ' · หมด' : ''}
+                </option>
+              ))}
+          </select>
+        )}
+        <button
+          className={primary + ' w-full'}
+          disabled={!data.checkout || !p.stock || busy || !!pending || !hydrated}
+          onClick={() => add(p)}
+        >
+          {!p.stock ? 'สินค้าหมด' : data.checkout ? 'เพิ่มลงตะกร้า' : 'ติดต่อร้านเพื่อสั่งซื้อ'}
+        </button>
+      </div>
+    </article>
+  )
+  const catalog = (
+    <section id="store-products" className="space-y-5">
+      <h2 className="break-words text-xl font-bold">เลือกซื้อสินค้า</h2>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <input
+          className={input}
+          aria-label="ค้นหาสินค้า"
+          placeholder="ค้นหาสินค้าที่ต้องการ"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          className={input}
+          aria-label="เลือกหมวดหมู่"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          <option value="">ทุกหมวดหมู่</option>
+          {data.categories.map((c: any) => (
+            <option value={c.id} key={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {data.products
+          .filter(
+            (p: any) =>
+              p.name.toLowerCase().includes(search.toLowerCase()) &&
+              (!category || category === p.commerce_category_id),
+          )
+          .map(card)}
+      </div>
+      {!data.products.some(
+        (p: any) =>
+          p.name.toLowerCase().includes(search.toLowerCase()) &&
+          (!category || category === p.commerce_category_id),
+      ) && (
+        <p className="rounded-2xl bg-white p-10 text-center text-slate-500">
+          {data.products.length
+            ? 'ไม่พบสินค้าที่ตรงกัน ลองเปลี่ยนคำค้นหาหรือหมวดหมู่'
+            : 'ร้านกำลังเตรียมสินค้า พบกันเร็ว ๆ นี้'}
+        </p>
+      )}
+    </section>
+  )
+  return (
+    <main className="min-h-screen bg-slate-50 pb-24 text-slate-900">
+      <header className="border-b border-orange-100 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 p-4 sm:p-6">
+          <div className="flex min-w-0 items-center gap-3">
+            {data.store.logo && (
+              <img
+                src={data.store.logo}
+                alt="โลโก้ร้าน"
+                className="h-12 w-12 rounded-full object-cover"
+              />
+            )}
+            <div>
+              <h1 className="break-words text-xl font-bold">{data.store.name}</h1>
+              <p className="mt-1 text-sm text-slate-500">{data.store.description}</p>
+            </div>
+          </div>
+          <button
+            className={btn}
+            onClick={() => checkoutSection.current?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            <ShoppingCart className="h-4 w-4" />
+            ตะกร้า {cart.reduce((n, i) => n + i.qty, 0)}
+          </button>
+        </div>
+      </header>
+      <div className="mx-auto max-w-6xl space-y-8 p-4 sm:p-6">
+        {data.store.banner && (
+          <img
+            src={data.store.banner}
+            alt={`แบนเนอร์ ${data.store.name}`}
+            className="max-h-96 w-full rounded-3xl object-cover"
+          />
+        )}
+        <CommerceDesign design={data.design} products={catalog} />
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+          >
+            {error}
+          </p>
+        )}
+        {result && (
+          <section
+            role="status"
+            className="space-y-3 rounded-2xl border border-green-200 bg-green-50 p-6"
+          >
+            <h2 className="font-bold">รับคำสั่งซื้อแล้ว</h2>
+            <p>
+              เลขที่ {result.number} · {price(result.total)}
+            </p>
+            <p className="text-sm">
+              สถานะรอชำระเงิน กรุณาติดต่อร้านเพื่อรับช่องทางชำระเงิน
+              การสั่งซื้อไม่ได้ยืนยันว่าโอนเงินแล้ว
+            </p>
+            <p className="text-sm">{data.store.contact}</p>
+            <button className={btn} onClick={() => setResult(null)}>
+              เลือกซื้อสินค้าต่อ
+            </button>
+          </section>
+        )}
 
-    {!data.design?.blocks.some(b => b.type === 'products') && catalog}
-    <section ref={checkoutSection} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"><h2 className="break-words text-xl font-bold">ตะกร้าและข้อมูลจัดส่ง</h2>{!cart.length ? <p className="text-sm text-slate-500">ตะกร้ายังว่าง เลือกสินค้าที่ชอบก่อนนะคะ</p> : <>{cart.map((i, index) => <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 py-3" key={`${i.product_id}:${i.variant_id}`}><div className="min-w-0 text-sm"><strong>{data.products.find((p: any) => p.id === i.product_id)?.name ?? 'สินค้า'}</strong><p className="text-slate-500">{data.variants.find((v: any) => v.id === i.variant_id)?.label} · {price(itemPrice(i))}</p></div><div className="flex items-center gap-3"><label className="text-xs">จำนวน<input type="number" aria-label={`จำนวนสินค้าที่ ${index + 1}`} disabled={busy || !!pending} min="1" max="99" className={input + ' max-w-20'} value={i.qty} onChange={e => { const qty = Math.max(1, Math.min(99, Number(e.target.value) || 1)); setCart(items => items.map((r, j) => j === index ? { ...r, qty } : r)) }}/></label><button className={btn} disabled={busy || !!pending} onClick={() => setCart(items => items.filter((_, j) => j !== index))} aria-label={`เอาสินค้าที่ ${index + 1} ออกจากตะกร้า`}><X className="h-4 w-4"/></button></div></div>)}<p className="break-words font-semibold">ยอดประมาณการ {price(cart.reduce((n, i) => n + itemPrice(i) * i.qty, 0))}</p><p className="text-xs leading-6 text-slate-500">ระบบตรวจราคาและสต็อกใหม่ก่อนยืนยัน ราคายังไม่รวมค่าจัดส่งเพิ่มเติมหากร้านมีเงื่อนไข กรุณาสอบถามร้านก่อนชำระเงิน ข้อมูลจัดส่งใช้เพื่อดำเนินคำสั่งซื้อนี้</p>{pending ? <div className="space-y-3 rounded-xl bg-orange-50 p-4"><p className="text-sm">รายการนี้ยังไม่ทราบผล เราจะตรวจสอบด้วยรหัสเดิมเพื่อป้องกันออเดอร์ซ้ำ กรุณาอย่าเปิดแท็บใหม่เพื่อสั่งซ้ำ</p><button disabled={busy || !hydrated} className={primary} onClick={() => void submit(pending)}>ตรวจสอบรายการเดิม</button></div> : <form className="grid gap-4 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); const form = new FormData(e.currentTarget); if (confirm('ยืนยันรายการสินค้าและข้อมูลจัดส่งหรือไม่? ยังไม่มีการเรียกเก็บเงินในขั้นตอนนี้')) void submit({ key: crypto.randomUUID(), name: form.get('name'), phone: form.get('phone'), address: form.get('address'), items: cart }) }}><label className="text-sm">ชื่อผู้รับ<input name="name" required maxLength={120} className={input} disabled={busy}/></label><label className="text-sm">เบอร์โทรศัพท์<input name="phone" type="tel" required maxLength={20} className={input} disabled={busy}/></label><label className="text-sm sm:col-span-2">ที่อยู่จัดส่ง<textarea name="address" required rows={3} maxLength={1000} className={input} disabled={busy}/></label><button type="submit" disabled={busy || !data.checkout || !hydrated} className={primary}>{busy ? 'กำลังยืนยัน…' : 'ยืนยันคำสั่งซื้อ'}</button></form>}</>}</section><footer className="border-t border-slate-200 py-6 text-center text-sm leading-7 text-slate-500"><p>{data.store.name}</p><p className="whitespace-pre-wrap break-words">ติดต่อร้าน: {data.store.contact || 'ร้านยังไม่ได้ระบุช่องทางติดต่อ'}</p></footer></div>
-    <dialog ref={detail} aria-labelledby="store-product-title" className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl backdrop:bg-slate-900/40"><h2 id="store-product-title" className="break-words text-xl font-bold">{selected?.name}</h2><p className="my-3 font-semibold text-orange-700">{price(selected?.price ?? 0)}</p><div className="flex gap-3 overflow-x-auto">{(selected?.commerce_images?.length ? selected.commerce_images : selected?.image_url ? [selected.image_url] : []).map((url: string, i: number) => <img key={url + i} src={url} alt={`${selected.name} รูปที่ ${i + 1}`} className="h-52 w-52 shrink-0 rounded-xl object-cover"/>)}</div><p className="my-4 whitespace-pre-wrap break-words text-sm leading-7">{selected?.description}</p><button className={btn} onClick={() => detail.current?.close()}>กลับไปเลือกสินค้า</button></dialog>
-  </main>
+        {!data.design?.blocks.some((b) => b.type === 'products') && catalog}
+        <section
+          ref={checkoutSection}
+          className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
+        >
+          <h2 className="break-words text-xl font-bold">ตะกร้าและข้อมูลจัดส่ง</h2>
+          {!cart.length ? (
+            <p className="text-sm text-slate-500">ตะกร้ายังว่าง เลือกสินค้าที่ชอบก่อนนะคะ</p>
+          ) : (
+            <>
+              {cart.map((i, index) => (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 py-3"
+                  key={`${i.product_id}:${i.variant_id}`}
+                >
+                  <div className="min-w-0 text-sm">
+                    <strong>
+                      {data.products.find((p: any) => p.id === i.product_id)?.name ?? 'สินค้า'}
+                    </strong>
+                    <p className="text-slate-500">
+                      {data.variants.find((v: any) => v.id === i.variant_id)?.label} ·{' '}
+                      {price(itemPrice(i))}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs">
+                      จำนวน
+                      <input
+                        type="number"
+                        aria-label={`จำนวนสินค้าที่ ${index + 1}`}
+                        disabled={busy || !!pending}
+                        min="1"
+                        max="99"
+                        className={input + ' max-w-20'}
+                        value={i.qty}
+                        onChange={(e) => {
+                          const qty = Math.max(1, Math.min(99, Number(e.target.value) || 1))
+                          setCart((items) => items.map((r, j) => (j === index ? { ...r, qty } : r)))
+                        }}
+                      />
+                    </label>
+                    <button
+                      className={btn}
+                      disabled={busy || !!pending}
+                      onClick={() => setCart((items) => items.filter((_, j) => j !== index))}
+                      aria-label={`เอาสินค้าที่ ${index + 1} ออกจากตะกร้า`}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <p className="break-words font-semibold">
+                ยอดประมาณการ {price(cart.reduce((n, i) => n + itemPrice(i) * i.qty, 0))}
+              </p>
+              <p className="text-xs leading-6 text-slate-500">
+                ระบบตรวจราคาและสต็อกใหม่ก่อนยืนยัน ราคายังไม่รวมค่าจัดส่งเพิ่มเติมหากร้านมีเงื่อนไข
+                กรุณาสอบถามร้านก่อนชำระเงิน ข้อมูลจัดส่งใช้เพื่อดำเนินคำสั่งซื้อนี้
+              </p>
+              {pending ? (
+                <div className="space-y-3 rounded-xl bg-orange-50 p-4">
+                  <p className="text-sm">
+                    รายการนี้ยังไม่ทราบผล เราจะตรวจสอบด้วยรหัสเดิมเพื่อป้องกันออเดอร์ซ้ำ
+                    กรุณาอย่าเปิดแท็บใหม่เพื่อสั่งซ้ำ
+                  </p>
+                  <button
+                    disabled={busy || !hydrated}
+                    className={primary}
+                    onClick={() => void submit(pending)}
+                  >
+                    ตรวจสอบรายการเดิม
+                  </button>
+                </div>
+              ) : (
+                <form
+                  className="grid gap-4 sm:grid-cols-2"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const form = new FormData(e.currentTarget)
+                    if (
+                      confirm(
+                        'ยืนยันรายการสินค้าและข้อมูลจัดส่งหรือไม่? ยังไม่มีการเรียกเก็บเงินในขั้นตอนนี้',
+                      )
+                    )
+                      void submit({
+                        key: crypto.randomUUID(),
+                        name: form.get('name'),
+                        phone: form.get('phone'),
+                        address: form.get('address'),
+                        items: cart,
+                      })
+                  }}
+                >
+                  <label className="text-sm">
+                    ชื่อผู้รับ
+                    <input name="name" required maxLength={120} className={input} disabled={busy} />
+                  </label>
+                  <label className="text-sm">
+                    เบอร์โทรศัพท์
+                    <input
+                      name="phone"
+                      type="tel"
+                      required
+                      maxLength={20}
+                      className={input}
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="text-sm sm:col-span-2">
+                    ที่อยู่จัดส่ง
+                    <textarea
+                      name="address"
+                      required
+                      rows={3}
+                      maxLength={1000}
+                      className={input}
+                      disabled={busy}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={busy || !data.checkout || !hydrated}
+                    className={primary}
+                  >
+                    {busy ? 'กำลังยืนยัน…' : 'ยืนยันคำสั่งซื้อ'}
+                  </button>
+                </form>
+              )}
+            </>
+          )}
+        </section>
+        <footer className="border-t border-slate-200 py-6 text-center text-sm leading-7 text-slate-500">
+          <p>{data.store.name}</p>
+          <p className="whitespace-pre-wrap break-words">
+            ติดต่อร้าน: {data.store.contact || 'ร้านยังไม่ได้ระบุช่องทางติดต่อ'}
+          </p>
+        </footer>
+      </div>
+      <dialog
+        ref={detail}
+        aria-labelledby="store-product-title"
+        className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl backdrop:bg-slate-900/40"
+      >
+        <h2 id="store-product-title" className="break-words text-xl font-bold">
+          {selected?.name}
+        </h2>
+        <p className="my-3 font-semibold text-orange-700">{price(selected?.price ?? 0)}</p>
+        <div className="flex gap-3 overflow-x-auto">
+          {(selected?.commerce_images?.length
+            ? selected.commerce_images
+            : selected?.image_url
+              ? [selected.image_url]
+              : []
+          ).map((url: string, i: number) => (
+            <img
+              key={url + i}
+              src={url}
+              alt={`${selected.name} รูปที่ ${i + 1}`}
+              className="h-52 w-52 shrink-0 rounded-xl object-cover"
+            />
+          ))}
+        </div>
+        <p className="my-4 whitespace-pre-wrap break-words text-sm leading-7">
+          {selected?.description}
+        </p>
+        <button className={btn} onClick={() => detail.current?.close()}>
+          กลับไปเลือกสินค้า
+        </button>
+      </dialog>
+    </main>
+  )
 }

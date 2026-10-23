@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { shopV2, SHOP_TABS, type ShopTab } from '@/lib/features/commerce/commerce-core'
-import {redirect} from 'next/navigation'
+import { redirect } from 'next/navigation'
 import { commerceScope, commerceSnapshot } from '@/lib/features/commerce/commerce-server'
 import { CommerceWorkspace } from '@/components/shop/CommerceWorkspace'
 import { requireDashboardUser } from '@/lib/auth'
@@ -16,27 +16,50 @@ export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'ร้านค้า / เซลเพจ' }
 
-export default async function ShopPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
+export default async function ShopPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | undefined }>
+}) {
   await requireDashboardUser()
   const query = await searchParams
   if (shopV2() && query.legacy !== '1') {
-    if(query.tab==='categories')redirect('/shop?tab=products')
+    if (query.tab === 'categories') redirect('/shop?tab=products')
     const tenant = await getActiveTenant()
-    if (!tenant) return <SetupNotice kind="no-tenant"/>
+    if (!tenant) return <SetupNotice kind="no-tenant" />
     try {
       const data = await commerceSnapshot(await commerceScope(tenant.id), query)
-      const tab = query.tab && Object.hasOwn(SHOP_TABS, query.tab) ? query.tab as ShopTab : 'overview'
-      return <CommerceWorkspace key={tenant.id + JSON.stringify(query)} initial={data} tab={tab}/>
-    } catch { return <div className="space-y-4 p-6"><InlineError title="ระบบร้านค้าใหม่ยังไม่พร้อม" message="กรุณาตรวจการติดตั้ง commerce-v2.sql หรือติดต่อผู้ดูแลระบบ"/><Link className="text-orange-700 underline" href="/shop?legacy=1">เปิดระบบร้านค้าเดิม</Link></div> }
+      const tab =
+        query.tab && Object.hasOwn(SHOP_TABS, query.tab) ? (query.tab as ShopTab) : 'overview'
+      return <CommerceWorkspace key={tenant.id + JSON.stringify(query)} initial={data} tab={tab} />
+    } catch {
+      return (
+        <div className="space-y-4 p-6">
+          <InlineError
+            title="ระบบร้านค้าใหม่ยังไม่พร้อม"
+            message="กรุณาตรวจการติดตั้ง commerce-v2.sql หรือติดต่อผู้ดูแลระบบ"
+          />
+          <Link className="text-orange-700 underline" href="/shop?legacy=1">
+            เปิดระบบร้านค้าเดิม
+          </Link>
+        </div>
+      )
+    }
   }
   const [db, tenant] = await Promise.all([supabaseServer(), getActiveTenant()])
   if (!tenant) return <SetupNotice kind="no-tenant" />
 
   const [products, orders] = await Promise.all([
-    db.from('products').select(PRODUCT_COLUMNS).eq('tenant_id', tenant.id).order('created_at', { ascending: false }),
+    db
+      .from('products')
+      .select(PRODUCT_COLUMNS)
+      .eq('tenant_id', tenant.id)
+      .order('created_at', { ascending: false }),
     db
       .from('orders')
-      .select('id, customer_id, product_name, amount, status, paid_at, confirmed_at, created_at, customers(display_name, platform_user_id)')
+      .select(
+        'id, customer_id, product_name, amount, status, paid_at, confirmed_at, created_at, customers(display_name, platform_user_id)',
+      )
       .eq('tenant_id', tenant.id)
       .order('created_at', { ascending: false })
       .limit(200),
@@ -51,8 +74,14 @@ export default async function ShopPage({ searchParams }: { searchParams: Promise
       <ShopClient
         tenantId={tenant.id}
         pageLinked={!!tenant.page_id}
-        products={((products.data ?? []) as ProductRow[]).map((p) => ({ ...p, price: Number(p.price) }))}
-        orders={((orders.data ?? []) as unknown as ShopOrder[]).map((o) => ({ ...o, amount: Number(o.amount) }))}
+        products={((products.data ?? []) as ProductRow[]).map((p) => ({
+          ...p,
+          price: Number(p.price),
+        }))}
+        orders={((orders.data ?? []) as unknown as ShopOrder[]).map((o) => ({
+          ...o,
+          amount: Number(o.amount),
+        }))}
       />
     </>
   )

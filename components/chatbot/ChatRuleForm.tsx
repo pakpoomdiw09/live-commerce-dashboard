@@ -4,7 +4,12 @@ import { useMemo, useState } from 'react'
 import { Image as ImageIcon, MessageSquareText, Plus, X } from 'lucide-react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import { ruleMatches } from '@/lib/features/comments/comment-rules'
-import { CHAT_RULE_COLUMNS, QUICK_REPLY_MAX, QUICK_REPLY_TITLE_MAX, type ChatRule } from '@/lib/features/agents/chatbot'
+import {
+  CHAT_RULE_COLUMNS,
+  QUICK_REPLY_MAX,
+  QUICK_REPLY_TITLE_MAX,
+  type ChatRule,
+} from '@/lib/features/agents/chatbot'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader } from '@/components/ui/card'
@@ -14,7 +19,18 @@ import { ImagePicker } from '@/components/ui/ImagePicker'
 import { KeywordInput } from '@/components/comment-rules/RuleEditor'
 import { MessengerPreview } from '@/components/chatbot/MessengerPreview'
 
-type Draft = Pick<ChatRule, 'name' | 'match_type' | 'keywords' | 'reply_type' | 'reply_text' | 'image_url' | 'quick_replies' | 'priority' | 'is_active'>
+type Draft = Pick<
+  ChatRule,
+  | 'name'
+  | 'match_type'
+  | 'keywords'
+  | 'reply_type'
+  | 'reply_text'
+  | 'image_url'
+  | 'quick_replies'
+  | 'priority'
+  | 'is_active'
+>
 
 const EMPTY: Draft = {
   name: '',
@@ -31,12 +47,24 @@ const EMPTY: Draft = {
 const SUGGESTIONS = ['ราคา', 'ค่าส่ง', 'สั่งซื้อ', 'โปรโมชัน', 'ไซซ์']
 
 /** Create or edit one keyword auto-reply. */
-export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: string; rule: ChatRule | null; onCancel: () => void; onSaved: (r: ChatRule) => void }) {
+export function ChatRuleForm({
+  tenantId,
+  rule,
+  onCancel,
+  onSaved,
+}: {
+  tenantId: string
+  rule: ChatRule | null
+  onCancel: () => void
+  onSaved: (r: ChatRule) => void
+}) {
   const db = useMemo(() => supabaseBrowser(), [])
   // only the editable columns: hit_count etc. must not be written back from a stale copy
   const [draft, setDraft] = useState<Draft>(() =>
     rule
-      ? (Object.fromEntries((Object.keys(EMPTY) as (keyof Draft)[]).map((k) => [k, rule[k]])) as Draft)
+      ? (Object.fromEntries(
+          (Object.keys(EMPTY) as (keyof Draft)[]).map((k) => [k, rule[k]]),
+        ) as Draft)
       : EMPTY,
   )
   const [qr, setQr] = useState('')
@@ -54,7 +82,8 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
 
   function addQuickReply() {
     const t = qr.trim()
-    if (!t || draft.quick_replies.includes(t) || draft.quick_replies.length >= QUICK_REPLY_MAX) return
+    if (!t || draft.quick_replies.includes(t) || draft.quick_replies.length >= QUICK_REPLY_MAX)
+      return
     set('quick_replies', [...draft.quick_replies, t])
     setQr('')
   }
@@ -71,11 +100,17 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
       image_url: draft.reply_type === 'image' ? draft.image_url : null,
       priority: Math.max(-100, Math.min(100, Math.round(Number(draft.priority) || 0))),
     }
-    const q = rule ? db.from('chat_rules').update(row).eq('id', rule.id) : db.from('chat_rules').insert(row)
+    const q = rule
+      ? db.from('chat_rules').update(row).eq('id', rule.id)
+      : db.from('chat_rules').insert(row)
     const { data, error: saveError } = await q.select(CHAT_RULE_COLUMNS).single()
     setSaving(false)
-    if(saveError?.code==='P0422')return setError('จำนวนคำตอบคีย์เวิร์ดเต็มแล้ว: แพ็กเกจทั่วไปเพิ่มได้ 3 รายการ แพ็กเกจชำระเงินที่ยังใช้งานได้เพิ่มได้ 20 รายการ')
-    if (saveError || !data) return setError(`บันทึกไม่สำเร็จ: ${saveError?.message ?? 'ไม่มีข้อมูลตอบกลับ'}`)
+    if (saveError?.code === 'P0422')
+      return setError(
+        'จำนวนคำตอบคีย์เวิร์ดเต็มแล้ว: แพ็กเกจทั่วไปเพิ่มได้ 3 รายการ แพ็กเกจชำระเงินที่ยังใช้งานได้เพิ่มได้ 20 รายการ',
+      )
+    if (saveError || !data)
+      return setError(`บันทึกไม่สำเร็จ: ${saveError?.message ?? 'ไม่มีข้อมูลตอบกลับ'}`)
     onSaved(data as ChatRule)
   }
 
@@ -100,7 +135,13 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
           {error && <Notice tone="error">{error}</Notice>}
           <div className="flex items-end gap-3">
             <Field label="ชื่อคำตอบ" className="flex-1">
-              <input value={draft.name} onChange={(e) => set('name', e.target.value)} maxLength={100} placeholder="เช่น ตอบคนถามราคา" className={inputClass} />
+              <input
+                value={draft.name}
+                onChange={(e) => set('name', e.target.value)}
+                maxLength={100}
+                placeholder="เช่น ตอบคนถามราคา"
+                className={inputClass}
+              />
             </Field>
             <Field label="ลำดับ" hint="สูง = ลองก่อน">
               <input
@@ -126,7 +167,13 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
                 className="cursor-pointer rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50 has-checked:border-orange-300 has-checked:bg-orange-50/60"
               >
                 <span className="flex items-center gap-2 text-sm font-medium">
-                  <input type="radio" name="match_type" checked={draft.match_type === value} onChange={() => set('match_type', value)} className="accent-orange-500" />
+                  <input
+                    type="radio"
+                    name="match_type"
+                    checked={draft.match_type === value}
+                    onChange={() => set('match_type', value)}
+                    className="accent-orange-500"
+                  />
                   {label}
                 </span>
                 <span className="mt-0.5 block text-xs text-slate-500">{hint}</span>
@@ -152,7 +199,11 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
           </div>
 
           <div>
-            <div role="tablist" aria-label="ประเภทคำตอบ" className="mb-3 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-sm">
+            <div
+              role="tablist"
+              aria-label="ประเภทคำตอบ"
+              className="mb-3 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-sm"
+            >
               {(
                 [
                   ['text', 'ข้อความ', MessageSquareText],
@@ -167,7 +218,9 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
                   onClick={() => set('reply_type', t)}
                   className={cn(
                     'flex items-center justify-center gap-1.5 rounded-md py-1.5 font-medium transition',
-                    draft.reply_type === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800',
+                    draft.reply_type === t
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800',
                   )}
                 >
                   <Icon className="h-4 w-4" aria-hidden />
@@ -177,10 +230,17 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
             </div>
             {draft.reply_type === 'image' && (
               <div className="mb-3">
-                <ImagePicker value={draft.image_url} onChange={(url) => set('image_url', url)} folder="chat-rules" onError={setError} />
+                <ImagePicker
+                  value={draft.image_url}
+                  onChange={(url) => set('image_url', url)}
+                  folder="chat-rules"
+                  onError={setError}
+                />
               </div>
             )}
-            <Field label={draft.reply_type === 'image' ? 'ข้อความก่อนรูป (ไม่บังคับ)' : 'ข้อความตอบกลับ'}>
+            <Field
+              label={draft.reply_type === 'image' ? 'ข้อความก่อนรูป (ไม่บังคับ)' : 'ข้อความตอบกลับ'}
+            >
               <textarea
                 rows={4}
                 maxLength={2000}
@@ -194,7 +254,10 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
 
           <div>
             <span className="mb-1.5 block text-sm font-medium text-slate-700">
-              ปุ่มตอบกลับด่วน <span className="font-normal text-slate-400">({draft.quick_replies.length}/{QUICK_REPLY_MAX})</span>
+              ปุ่มตอบกลับด่วน{' '}
+              <span className="font-normal text-slate-400">
+                ({draft.quick_replies.length}/{QUICK_REPLY_MAX})
+              </span>
             </span>
             <div className="flex gap-2">
               <input
@@ -211,7 +274,11 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
                 className={inputClass}
                 aria-label="เพิ่มปุ่มตอบกลับด่วน"
               />
-              <Button variant="secondary" onClick={addQuickReply} disabled={!qr.trim() || draft.quick_replies.length >= QUICK_REPLY_MAX}>
+              <Button
+                variant="secondary"
+                onClick={addQuickReply}
+                disabled={!qr.trim() || draft.quick_replies.length >= QUICK_REPLY_MAX}
+              >
                 <Plus className="h-4 w-4" aria-hidden />
                 เพิ่ม
               </Button>
@@ -219,36 +286,72 @@ export function ChatRuleForm({ tenantId, rule, onCancel, onSaved }: { tenantId: 
             {draft.quick_replies.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {draft.quick_replies.map((q) => (
-                  <span key={q} className="inline-flex items-center gap-1 rounded-full bg-blue-50 py-0.5 pr-1 pl-2.5 text-xs text-blue-700 ring-1 ring-blue-100">
+                  <span
+                    key={q}
+                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 py-0.5 pr-1 pl-2.5 text-xs text-blue-700 ring-1 ring-blue-100"
+                  >
                     {q}
-                    <button type="button" onClick={() => set('quick_replies', draft.quick_replies.filter((x) => x !== q))} aria-label={`ลบปุ่ม ${q}`} className="rounded-full p-0.5 hover:bg-blue-100">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set(
+                          'quick_replies',
+                          draft.quick_replies.filter((x) => x !== q),
+                        )
+                      }
+                      aria-label={`ลบปุ่ม ${q}`}
+                      className="rounded-full p-0.5 hover:bg-blue-100"
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   </span>
                 ))}
               </div>
             )}
-            <p className="mt-1.5 text-xs text-slate-500">ลูกค้ากดปุ่มแล้วระบบจะได้ข้อความบนปุ่ม จึงตั้งคำตอบอื่นให้ตรงกับปุ่มได้ เช่น ปุ่ม “คุยกับแอดมิน”</p>
+            <p className="mt-1.5 text-xs text-slate-500">
+              ลูกค้ากดปุ่มแล้วระบบจะได้ข้อความบนปุ่ม จึงตั้งคำตอบอื่นให้ตรงกับปุ่มได้ เช่น ปุ่ม
+              “คุยกับแอดมิน”
+            </p>
           </div>
 
           <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
             <span className="text-sm text-slate-700">เปิดใช้งานคำตอบนี้</span>
-            <Switch checked={draft.is_active} onChange={(v) => set('is_active', v)} label="เปิดใช้งานคำตอบนี้" />
+            <Switch
+              checked={draft.is_active}
+              onChange={(v) => set('is_active', v)}
+              label="เปิดใช้งานคำตอบนี้"
+            />
           </div>
         </div>
 
         <div className="space-y-4">
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700">ตัวอย่างในแชทเพจ</p>
-            <MessengerPreview text={draft.reply_text} imageUrl={draft.reply_type === 'image' ? draft.image_url : null} quickReplies={draft.quick_replies} />
+            <MessengerPreview
+              text={draft.reply_text}
+              imageUrl={draft.reply_type === 'image' ? draft.image_url : null}
+              quickReplies={draft.quick_replies}
+            />
           </div>
           <div className="rounded-xl bg-slate-50 p-3">
             <Field label="ลองพิมพ์ข้อความลูกค้า">
-              <input value={sample} onChange={(e) => setSample(e.target.value)} placeholder="เช่น ราคาเท่าไหร่คะ" className={inputClass} />
+              <input
+                value={sample}
+                onChange={(e) => setSample(e.target.value)}
+                placeholder="เช่น ราคาเท่าไหร่คะ"
+                className={inputClass}
+              />
             </Field>
             {sample.trim() && (
-              <p className={cn('mt-2 text-xs font-medium', ruleMatches(draft, sample) ? 'text-emerald-600' : 'text-slate-500')}>
-                {ruleMatches(draft, sample) ? '✓ ตรงเงื่อนไข: ระบบจะตอบด้วยคำตอบนี้' : '✗ ไม่ตรงเงื่อนไข'}
+              <p
+                className={cn(
+                  'mt-2 text-xs font-medium',
+                  ruleMatches(draft, sample) ? 'text-emerald-600' : 'text-slate-500',
+                )}
+              >
+                {ruleMatches(draft, sample)
+                  ? '✓ ตรงเงื่อนไข: ระบบจะตอบด้วยคำตอบนี้'
+                  : '✗ ไม่ตรงเงื่อนไข'}
               </p>
             )}
           </div>

@@ -1,7 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
-import { callbackUrl, dialogUrl, isFacebookConnectConfigured, STATE_COOKIE, STATE_COOKIE_PATH } from '@/lib/integrations/facebook/oauth'
+import {
+  callbackUrl,
+  dialogUrl,
+  isFacebookConnectConfigured,
+  STATE_COOKIE,
+  STATE_COOKIE_PATH,
+} from '@/lib/integrations/facebook/oauth'
 
 export const runtime = 'nodejs'
 
@@ -11,7 +17,12 @@ export async function GET(req: NextRequest) {
   const actor = await getActor()
   if (!actor) return NextResponse.redirect(new URL('/login?next=/select-page', origin))
   if (!isFacebookConnectConfigured()) {
-    return NextResponse.redirect(new URL(`/select-page?fb_error=${encodeURIComponent('ยังไม่ได้ตั้ง FB_APP_ID / FB_APP_SECRET')}`, origin))
+    return NextResponse.redirect(
+      new URL(
+        `/select-page?fb_error=${encodeURIComponent('ยังไม่ได้ตั้ง FB_APP_ID / FB_APP_SECRET')}`,
+        origin,
+      ),
+    )
   }
 
   const state = randomBytes(24).toString('hex')

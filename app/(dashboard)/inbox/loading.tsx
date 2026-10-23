@@ -2,7 +2,10 @@ import { LoadingLabel, Skeleton } from '@/components/ui/skeleton'
 
 export default function InboxLoading() {
   return (
-    <div aria-busy className="grid h-full min-h-0 md:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_21rem] 2xl:grid-cols-[20rem_minmax(0,1fr)_24rem]">
+    <div
+      aria-busy
+      className="grid h-full min-h-0 md:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_21rem] 2xl:grid-cols-[20rem_minmax(0,1fr)_24rem]"
+    >
       <LoadingLabel>กำลังโหลดกล่องข้อความ...</LoadingLabel>
       <div className="space-y-3 border-r border-slate-200 bg-white p-4">
         <Skeleton className="h-6 w-32" />

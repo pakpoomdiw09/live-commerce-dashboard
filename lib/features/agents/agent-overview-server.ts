@@ -1,6 +1,12 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { agentCapabilityEntitlements, summarizeAgentJobs, type AgentOverviewRange, type AgentOverviewJob, type AgentOverviewData } from '@/lib/features/agents/agent-overview-core'
+import {
+  agentCapabilityEntitlements,
+  type summarizeAgentJobs,
+  type AgentOverviewRange,
+  type AgentOverviewJob,
+  type AgentOverviewData,
+} from '@/lib/features/agents/agent-overview-core'
 import { hasFeature } from '@/lib/feature-access'
 import { automationStopped } from '@/lib/automation-safety'
 import { aiConfigured } from '@/lib/features/agents/ai-agent'
@@ -8,32 +14,87 @@ import { PLANS, type PlanId } from '@/lib/features/billing/plans'
 import { InboxError } from '@/lib/features/inbox/inbox-server'
 import { agentControlAvailable } from '@/lib/features/agents/agent-control-flags'
 
-export async function loadAgentOverview(db: SupabaseClient, tenantId: string, days: AgentOverviewRange, canManage: boolean): Promise<AgentOverviewData> {
-  const now = new Date(), month = now.toISOString().slice(0, 7) + '-01'
+export async function loadAgentOverview(
+  db: SupabaseClient,
+  tenantId: string,
+  days: AgentOverviewRange,
+  canManage: boolean,
+): Promise<AgentOverviewData> {
+  const now = new Date(),
+    month = now.toISOString().slice(0, 7) + '-01'
   const feature = async (name: string) => {
     const result = await db.rpc('has_tenant_feature', { p_tenant: tenantId, p_feature: name })
-    if (result.error || typeof result.data !== 'boolean') throw new InboxError('ตรวจสอบสิทธิ์แพ็กเกจไม่ได้ กรุณาลองใหม่', 503)
+    if (result.error || typeof result.data !== 'boolean')
+      throw new InboxError('ตรวจสอบสิทธิ์แพ็กเกจไม่ได้ กรุณาลองใหม่', 503)
     return result.data
   }
-  const [tenant, settings, usage, follow, aiAllowed, slipAllowed, followAllowed, customersAllowed, stopped] = await Promise.all([
-    db.from('tenants').select('name,auto_reply_enabled,auto_verify_enabled,page_id,page_token_set,plan,plan_expires_at,slip_quota,slip_quota_credits,slip_used').eq('id', tenantId).maybeSingle(),
-    db.from('agent_control_settings').select('flags,ai_monthly_limit').eq('tenant_id', tenantId).maybeSingle(),
-    db.from('agent_ai_monthly_usage').select('used').eq('tenant_id', tenantId).eq('month', month).maybeSingle(),
+  const [
+    tenant,
+    settings,
+    usage,
+    follow,
+    aiAllowed,
+    slipAllowed,
+    followAllowed,
+    customersAllowed,
+    stopped,
+    stats,
+  ] = await Promise.all([
+    db
+      .from('tenants')
+      .select(
+        'name,auto_reply_enabled,auto_verify_enabled,page_id,page_token_set,plan,plan_expires_at,slip_quota,slip_quota_credits,slip_used',
+      )
+      .eq('id', tenantId)
+      .maybeSingle(),
+    db
+      .from('agent_control_settings')
+      .select('flags,ai_monthly_limit')
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
+    db
+      .from('agent_ai_monthly_usage')
+      .select('used')
+      .eq('tenant_id', tenantId)
+      .eq('month', month)
+      .maybeSingle(),
     db.from('follow_up_policies').select('enabled').eq('tenant_id', tenantId).maybeSingle(),
-    feature('ai_agent'), feature('slip_auto_pilot'), feature('customer_follow_up'), hasFeature(db, tenantId, 'customer_management'), automationStopped(db, tenantId),
+    feature('ai_agent'),
+    feature('slip_auto_pilot'),
+    feature('customer_follow_up'),
+    hasFeature(db, tenantId, 'customer_management'),
+    automationStopped(db, tenantId),
+    db.rpc('agent_overview_stats', { p_tenant: tenantId, p_days: days, p_now: now.toISOString() }),
   ])
-  if (tenant.error || !tenant.data || settings.error || usage.error) throw new InboxError('โหลดสถานะผู้ช่วย AI ไม่สำเร็จ กรุณาลองใหม่', 503)
-  const jobs: AgentOverviewJob[] = []
-  for (let start = 0; ; start += 1000) {
-    const result = await db.from('agent_message_jobs').select('id,customer_id,route,status,created_at,updated_at').eq('tenant_id', tenantId)
-      .lte('created_at', now.toISOString()).order('created_at', { ascending: false }).order('id').range(start, start + 999)
-    if (result.error) throw new InboxError('โหลดสถิติผู้ช่วย AI ไม่สำเร็จ กรุณาลองใหม่', 503)
-    jobs.push(...result.data)
-    if (result.data.length < 1000) break
+  if (tenant.error || !tenant.data || settings.error || usage.error)
+    throw new InboxError('โหลดสถานะผู้ช่วย AI ไม่สำเร็จ กรุณาลองใหม่', 503)
+  if (
+    stats.error ||
+    !stats.data ||
+    !Array.isArray(stats.data.recent) ||
+    stats.data.recent.length > 10 ||
+    !Array.isArray(stats.data.points) ||
+    stats.data.points.length !== days
+  ) {
+    console.error('[overview/agent] aggregate unavailable', {
+      code: stats.error?.code ?? 'INVALID_RESULT',
+    })
+    throw new InboxError('โหลดสถิติผู้ช่วย AI ไม่สำเร็จ กรุณาลองใหม่หรือติดต่อผู้ดูแล', 503)
   }
-  const flags = settings.data?.flags ?? {}, managed = agentControlAvailable() && flags.agent_orchestrator_enabled === true
-  const limit = settings.data?.ai_monthly_limit ?? 0, used = usage.data?.used ?? 0
-  const entitlements = agentCapabilityEntitlements({ ai: aiAllowed, slips: slipAllowed, followup: followAllowed }, limit - used, Number(tenant.data.slip_quota ?? 0) + Number(tenant.data.slip_quota_credits ?? 0) - Number(tenant.data.slip_used ?? 0))
+  const { recent, ...metrics } = stats.data as ReturnType<typeof summarizeAgentJobs> & {
+    recent: AgentOverviewJob[]
+  }
+  const flags = settings.data?.flags ?? {},
+    managed = agentControlAvailable() && flags.agent_orchestrator_enabled === true
+  const limit = settings.data?.ai_monthly_limit ?? 0,
+    used = usage.data?.used ?? 0
+  const entitlements = agentCapabilityEntitlements(
+    { ai: aiAllowed, slips: slipAllowed, followup: followAllowed },
+    limit - used,
+    Number(tenant.data.slip_quota ?? 0) +
+      Number(tenant.data.slip_quota_credits ?? 0) -
+      Number(tenant.data.slip_used ?? 0),
+  )
   const configured = !!tenant.data.page_id && tenant.data.page_token_set === true
   const live = agentControlAvailable()
   const readiness = [
@@ -48,22 +109,55 @@ export async function loadAgentOverview(db: SupabaseClient, tenantId: string, da
     ...(flags.capability_answers === false ? ['ความสามารถตอบคำถามถูกปิดอยู่'] : []),
     ...(flags.capability_intent === false ? ['การวิเคราะห์ข้อความถูกปิดอยู่'] : []),
   ]
-  const recent = jobs.slice(0, 10), names = new Map<string, string | null>(), notices: string[] = []
+  const names = new Map<string, string | null>(),
+    notices: string[] = []
   if (recent.length && customersAllowed) {
-    const result = await db.from('customers').select('id,display_name').eq('tenant_id', tenantId).in('id', [...new Set(recent.map(job => job.customer_id))])
+    const result = await db
+      .from('customers')
+      .select('id,display_name')
+      .eq('tenant_id', tenantId)
+      .in('id', [...new Set(recent.map((job) => job.customer_id))])
     if (result.error) notices.push('ยังโหลดชื่อลูกค้าไม่ได้')
     else for (const row of result.data ?? []) names.set(row.id, row.display_name)
   }
   if (follow.error) notices.push('ระบบติดตามลูกค้ายังไม่พร้อม กรุณาตรวจสอบการตั้งค่า')
-  const plan = tenant.data.plan_expires_at && Date.parse(tenant.data.plan_expires_at) <= now.getTime() ? 'free' : tenant.data.plan
+  const plan =
+    tenant.data.plan_expires_at && Date.parse(tenant.data.plan_expires_at) <= now.getTime()
+      ? 'free'
+      : tenant.data.plan
   return {
-    ...summarizeAgentJobs(jobs, days, now), updatedAt: now.toISOString(), canManage,
-    masterEnabled: tenant.data.auto_reply_enabled, ready: readiness.length === 0, readiness,
+    ...metrics,
+    updatedAt: now.toISOString(),
+    canManage,
+    masterEnabled: tenant.data.auto_reply_enabled,
+    ready: readiness.length === 0,
+    readiness,
     page: { name: configured ? tenant.data.name : null, configured },
-    capabilities: { answers: flags.capability_answers !== false, products: flags.capability_products !== false, handoff: flags.capability_handoff !== false, intent: flags.capability_intent !== false, slips: tenant.data.auto_verify_enabled, followup: !follow.error && follow.data?.enabled === true },
-    available: { answers: managed, products: managed, handoff: managed, intent: managed, slips: slipAllowed, followup: followAllowed && !follow.error && !!follow.data },
+    capabilities: {
+      answers: flags.capability_answers !== false,
+      products: flags.capability_products !== false,
+      handoff: flags.capability_handoff !== false,
+      intent: flags.capability_intent !== false,
+      slips: tenant.data.auto_verify_enabled,
+      followup: !follow.error && follow.data?.enabled === true,
+    },
+    available: {
+      answers: managed,
+      products: managed,
+      handoff: managed,
+      intent: managed,
+      slips: slipAllowed,
+      followup: followAllowed && !follow.error && !!follow.data,
+    },
     entitlements,
-    quota: { plan: PLANS[plan as PlanId]?.name ?? 'ยังไม่มีข้อมูลแพ็กเกจ', used, limit, remaining: Math.max(0, limit - used), month },
-    recent: recent.map(job => ({ ...job, customer: names.get(job.customer_id) ?? null })), notices,
+    quota: {
+      plan: PLANS[plan as PlanId]?.name ?? 'ยังไม่มีข้อมูลแพ็กเกจ',
+      used,
+      limit,
+      remaining: Math.max(0, limit - used),
+      month,
+    },
+    recent: recent.map((job) => ({ ...job, customer: names.get(job.customer_id) ?? null })),
+    notices,
   }
 }

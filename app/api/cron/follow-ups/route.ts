@@ -44,10 +44,7 @@ async function handle(req: NextRequest) {
       )
     }
 
-    const result = await singleFlight(
-      'cron:follow-ups',
-      () => runFollowUps(supabaseAdmin()),
-    )
+    const result = await singleFlight('cron:follow-ups', () => runFollowUps(supabaseAdmin()))
 
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'no-store' },

@@ -4,7 +4,13 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor, isPlatformAdmin } from '@/lib/auth'
 import { processSlip, type Tenant } from '@/lib/features/slips/process'
 import { UUID } from '@/lib/utils'
-import { acquireUploadSlot, readUploadForm, validateUploadImage, UploadError, UPLOAD_FILE_BYTES } from '@/lib/upload-security'
+import {
+  acquireUploadSlot,
+  readUploadForm,
+  validateUploadImage,
+  UploadError,
+  UPLOAD_FILE_BYTES,
+} from '@/lib/upload-security'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60 // the provider call times out at 20 s; leave room for upload and saving
@@ -26,7 +32,13 @@ export async function POST(req: NextRequest) {
     const actor = await getActor(req)
     if (!actor) return bad('unauthorized', 401)
     release = acquireUploadSlot(actor.kind === 'user' ? `user:${actor.id}` : 'internal')
-    const form = await readUploadForm(req, { file: UPLOAD_FILE_BYTES, qr: 4096, customerId: 128, tenantId: 128, expectedAmount: 32 })
+    const form = await readUploadForm(req, {
+      file: UPLOAD_FILE_BYTES,
+      qr: 4096,
+      customerId: 128,
+      tenantId: 128,
+      expectedAmount: 32,
+    })
     const entry = form.get('file')
     const file = entry instanceof File ? entry : undefined
     const qr = String(form.get('qr') ?? '').trim() || undefined
@@ -47,16 +59,26 @@ export async function POST(req: NextRequest) {
     if (tenantId && !(await canAccessTenant(actor, tenantId))) return bad('tenant not found', 404)
 
     const db = supabaseAdmin()
-    if (!tenantId || !(await hasSlipAccess(db, tenantId))) return featureLockedResponse('slip_auto_pilot')
+    if (!tenantId || !(await hasSlipAccess(db, tenantId)))
+      return featureLockedResponse('slip_auto_pilot')
     if (file) await validateUploadImage(file)
     if (customerId) {
       // the slip may only be linked to a customer of the same tenant
-      const { data: c } = await db.from('customers').select('tenant_id').eq('id', customerId).maybeSingle()
-      if (!c || (tenantId ? c.tenant_id !== tenantId : !isPlatformAdmin(actor))) return bad('customer not found', 404)
+      const { data: c } = await db
+        .from('customers')
+        .select('tenant_id')
+        .eq('id', customerId)
+        .maybeSingle()
+      if (!c || (tenantId ? c.tenant_id !== tenantId : !isPlatformAdmin(actor)))
+        return bad('customer not found', 404)
     }
     let tenant: Tenant | null = null
     if (tenantId) {
-      const { data, error } = await db.from('tenants').select('id, account_number, bank_code').eq('id', tenantId).maybeSingle()
+      const { data, error } = await db
+        .from('tenants')
+        .select('id, account_number, bank_code')
+        .eq('id', tenantId)
+        .maybeSingle()
       if (error) {
         return NextResponse.json({ error: 'tenant lookup failed' }, { status: 500 })
       }
@@ -67,18 +89,45 @@ export async function POST(req: NextRequest) {
     // Shared verification prefers server-side order totals; never use legacy shop defaults.
     let r
     try {
-      r = await processSlip(db, { file, qr, customerId, expectedAmount, tenant,
-        adminBypass: actor.kind === 'user' && isPlatformAdmin(actor) })
+      r = await processSlip(db, {
+        file,
+        qr,
+        customerId,
+        expectedAmount,
+        tenant,
+        adminBypass: actor.kind === 'user' && isPlatformAdmin(actor),
+      })
     } catch (error) {
       if (error instanceof FeatureLockedError) return featureLockedResponse(error.feature)
-      return bad(error instanceof Error ? error.message : 'อ่านข้อมูลตรวจสลิปไม่ได้ กรุณาลองอีกครั้ง', 503)
+      return bad(
+        error instanceof Error ? error.message : 'อ่านข้อมูลตรวจสลิปไม่ได้ กรุณาลองอีกครั้ง',
+        503,
+      )
     }
     if (r.failure) return NextResponse.json({ error: r.failure }, { status: 500 })
     if (r.crashed) return NextResponse.json({ id: r.id, status: 'error' }, { status: 500 })
-    return NextResponse.json({ id: r.id, status: r.status, amount: r.amount, transRef: r.transRef, note: r.note })
+    return NextResponse.json({
+      id: r.id,
+      status: r.status,
+      amount: r.amount,
+      transRef: r.transRef,
+      note: r.note,
+    })
   } catch (error) {
-    if (error instanceof UploadError) return NextResponse.json({ error: error.message }, { status: error.status, headers: { 'Cache-Control': 'no-store', ...(error.status === 429 ? { 'Retry-After': '5' } : {}) } })
+    if (error instanceof UploadError)
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: error.status,
+          headers: {
+            'Cache-Control': 'no-store',
+            ...(error.status === 429 ? { 'Retry-After': '5' } : {}),
+          },
+        },
+      )
     if (error instanceof FeatureLockedError) return featureLockedResponse(error.feature)
     return bad('ระบบตรวจสลิปไม่พร้อม กรุณาลองใหม่อีกครั้ง', 503)
-  } finally { release?.() }
+  } finally {
+    release?.()
+  }
 }

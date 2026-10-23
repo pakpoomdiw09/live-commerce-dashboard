@@ -16,6 +16,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const draft = await readBroadcast(supabaseAdmin(), id)
     const scope = await broadcastScope(actor, draft.tenant_id, true)
     const input = await req.json().catch(() => ({}))
-    return NextResponse.json(await sendBroadcast(scope, draft, input), { headers: { 'Cache-Control': 'private, no-store' } })
-  } catch (error) { return inboxError(error) }
+    return NextResponse.json(await sendBroadcast(scope, draft, input), {
+      headers: { 'Cache-Control': 'private, no-store' },
+    })
+  } catch (error) {
+    return inboxError(error)
+  }
 }

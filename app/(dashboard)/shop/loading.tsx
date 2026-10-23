@@ -1,1 +1,13 @@
-export default function LoadingShop() { return <div role="status" aria-label="กำลังโหลดร้านค้า" className="space-y-5 p-6"><div className="h-36 animate-pulse rounded-3xl bg-orange-100"/><div className="grid gap-4 sm:grid-cols-3">{[1, 2, 3].map(i => <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100"/>)}</div><p className="text-sm text-slate-500">กำลังโหลดข้อมูลร้านค้า…</p></div> }
+export default function LoadingShop() {
+  return (
+    <div role="status" aria-label="กำลังโหลดร้านค้า" className="space-y-5 p-6">
+      <div className="h-36 animate-pulse rounded-3xl bg-orange-100" />
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
+        ))}
+      </div>
+      <p className="text-sm text-slate-500">กำลังโหลดข้อมูลร้านค้า…</p>
+    </div>
+  )
+}

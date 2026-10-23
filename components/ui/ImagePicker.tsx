@@ -32,15 +32,23 @@ export function ImagePicker({
       const r = await uploadPublicImage(db, file, folder)
       if ('error' in r) onError(r.error)
       else onChange(r.url)
-    } catch { onError('อัปโหลดไม่สำเร็จ กรุณาลองใหม่') }
-    finally { setUploading(false); onUploadingChange?.(false) }
+    } catch {
+      onError('อัปโหลดไม่สำเร็จ กรุณาลองใหม่')
+    } finally {
+      setUploading(false)
+      onUploadingChange?.(false)
+    }
   }
 
   if (value) {
     return (
       <div className="relative">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={value} alt="" className="max-h-56 w-full rounded-xl bg-slate-50 object-contain ring-1 ring-slate-200" />
+        <img
+          src={value}
+          alt=""
+          className="max-h-56 w-full rounded-xl bg-slate-50 object-contain ring-1 ring-slate-200"
+        />
         <button
           type="button"
           onClick={() => onChange(null)}
@@ -54,7 +62,11 @@ export function ImagePicker({
   }
   return (
     <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 transition hover:border-orange-300 hover:bg-orange-50/40">
-      {uploading ? <Loader2 className="h-7 w-7 animate-spin text-orange-500" aria-hidden /> : <ImagePlus className="h-7 w-7 text-slate-400" aria-hidden />}
+      {uploading ? (
+        <Loader2 className="h-7 w-7 animate-spin text-orange-500" aria-hidden />
+      ) : (
+        <ImagePlus className="h-7 w-7 text-slate-400" aria-hidden />
+      )}
       {uploading ? 'กำลังอัปโหลด...' : label}
       <span className="text-xs text-slate-400">JPG, PNG, GIF ไม่เกิน 8 MB</span>
       <input

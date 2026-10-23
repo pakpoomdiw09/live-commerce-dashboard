@@ -29,7 +29,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const db = supabaseAdmin()
   const { data: message, error } = await db
     .from('messages')
-    .select('id, customer_id, attachments, customers(tenant_id, tenants(id, account_number, bank_code))')
+    .select(
+      'id, customer_id, attachments, customers(tenant_id, tenants(id, account_number, bank_code))',
+    )
     .eq('id', id)
     .maybeSingle()
   if (error) return bad(error.message, 500)
@@ -37,13 +39,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     tenant_id: string | null
     tenants: { id: string; account_number: string; bank_code: string } | null
   } | null
-  if (!message || !(await canAccessTenant(actor, customer?.tenant_id ?? null))) return bad('message not found', 404)
-  if (!customer?.tenant_id || !(await hasSlipAccess(db, customer.tenant_id))) return featureLockedResponse('slip_auto_pilot')
+  if (!message || !(await canAccessTenant(actor, customer?.tenant_id ?? null)))
+    return bad('message not found', 404)
+  if (!customer?.tenant_id || !(await hasSlipAccess(db, customer.tenant_id)))
+    return featureLockedResponse('slip_auto_pilot')
 
   const urls = slipCandidates(message.attachments as Attachment[])
   if (urls.length === 0) return bad('ข้อความนี้ไม่มีรูปสลิป')
 
-  const { data: existing } = await db.from('slips').select('id, status, created_at').eq('message_id', id)
+  const { data: existing } = await db
+    .from('slips')
+    .select('id, status, created_at')
+    .eq('message_id', id)
   if (existing?.some((s) => s.status === 'valid')) return bad('สลิปนี้ตรวจผ่านแล้ว', 409)
   const pending = (existing ?? []).filter((s) => s.status === 'pending')
   const stale = pending.filter((s) => Date.now() - Date.parse(s.created_at) > STALE_PENDING_MS)
@@ -53,7 +60,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { error: staleError } = await db
       .from('slips')
       .update({ status: 'error', note: STALE_NOTE, verified_at: new Date().toISOString() })
-      .in('id', stale.map((s) => s.id))
+      .in(
+        'id',
+        stale.map((s) => s.id),
+      )
       .eq('status', 'pending')
     if (staleError) return bad(`ปิดรายการที่ค้างไม่สำเร็จ: ${staleError.message}`, 500)
   }
@@ -72,15 +82,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let r
     try {
       r = await processSlip(db, {
-      file,
-      customerId: message.customer_id,
-      messageId: message.id,
-      tenant,
-      adminBypass: actor.kind === 'user' && actor.isPlatformAdmin,
-    })
+        file,
+        customerId: message.customer_id,
+        messageId: message.id,
+        tenant,
+        adminBypass: actor.kind === 'user' && actor.isPlatformAdmin,
+      })
     } catch (error) {
       if (error instanceof FeatureLockedError) return featureLockedResponse(error.feature)
-      results.push({ status: 'error', note: error instanceof Error ? error.message : 'อ่านข้อมูลตรวจสลิปไม่ได้ กรุณาลองอีกครั้ง' })
+      results.push({
+        status: 'error',
+        note: error instanceof Error ? error.message : 'อ่านข้อมูลตรวจสลิปไม่ได้ กรุณาลองอีกครั้ง',
+      })
       continue
     }
     results.push({ id: r.id, status: r.status, note: r.note, failure: r.failure })

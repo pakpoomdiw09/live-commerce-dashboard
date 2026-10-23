@@ -17,9 +17,19 @@ export default async function BillingPage() {
   try {
     billing = await getBilling(supabaseAdmin(), tenant.id, viewer.isPlatformAdmin)
   } catch (e) {
-    return <SetupNotice kind="migration" message={`${e instanceof Error ? e.message : e} (รัน supabase/billing-slip-topups.sql แล้วรัน admin-feature-bypass.sql อีกครั้ง)`} />
+    return (
+      <SetupNotice
+        kind="migration"
+        message={`${e instanceof Error ? e.message : e} (รัน supabase/billing-slip-topups.sql แล้วรัน admin-feature-bypass.sql อีกครั้ง)`}
+      />
+    )
   }
-  const requests = await db.from('billing_requests').select(`${BILLING_REQUEST_COLUMNS}, proof_path, verification_status, verification_error`).eq('tenant_id', tenant.id).order('created_at', { ascending: false }).limit(20)
+  const requests = await db
+    .from('billing_requests')
+    .select(`${BILLING_REQUEST_COLUMNS}, proof_path, verification_status, verification_error`)
+    .eq('tenant_id', tenant.id)
+    .order('created_at', { ascending: false })
+    .limit(20)
   if (requests.error) return <SetupNotice kind="migration" message={requests.error.message} />
 
   return (

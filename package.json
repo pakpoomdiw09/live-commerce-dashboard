@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "clean:preview": "node scripts/clean-cache.cjs --dry-run",
+    "clean:cache": "node scripts/clean-cache.cjs --apply",
+    "format": "prettier --write \"{app,components,hooks,lib,scripts,tests}/**/*.{ts,tsx,js,cjs,mjs}\" \"*.{ts,js,cjs,mjs,json}\"",
+    "format:check": "prettier --check \"{app,components,hooks,lib,scripts,tests}/**/*.{ts,tsx,js,cjs,mjs}\" \"*.{ts,js,cjs,mjs,json}\"",
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint app components lib middleware.ts",
     "start": "next start",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "test:performance": "node --test --test-concurrency=2 scripts/test-payment-api.cjs scripts/test-payment-checkout.cjs scripts/test-payment-pro.cjs scripts/test-payment-validation.cjs scripts/test-premium-overview.cjs scripts/test-dashboard-performance.cjs scripts/test-dashboard-read-models.cjs scripts/test-agent-overview.cjs scripts/test-dashboard-recovery.cjs scripts/test-platform-dashboard-api.cjs scripts/test-dashboard-page-scope.cjs"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -36,6 +41,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.27",
     "postcss": "^8",
+    "prettier": "3.9.10",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"

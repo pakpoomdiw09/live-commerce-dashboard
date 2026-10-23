@@ -11,12 +11,23 @@ const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnPr
 export type TenantInput = Partial<
   Pick<
     TenantRow,
-    'name' | 'account_name' | 'account_number' | 'bank_code' | 'page_id' | 'expected_amount' | 'auto_reply_enabled' | 'auto_verify_enabled' | 'slip_quota'
+    | 'name'
+    | 'account_name'
+    | 'account_number'
+    | 'bank_code'
+    | 'page_id'
+    | 'expected_amount'
+    | 'auto_reply_enabled'
+    | 'auto_verify_enabled'
+    | 'slip_quota'
   > & { page_access_token: string | null }
 >
 
 /** Tenant settings by who may change them. Anything not listed here needs the tenant's owner. */
-export const STAFF_TENANT_FIELDS: (keyof TenantInput)[] = ['auto_reply_enabled', 'auto_verify_enabled']
+export const STAFF_TENANT_FIELDS: (keyof TenantInput)[] = [
+  'auto_reply_enabled',
+  'auto_verify_enabled',
+]
 export const ADMIN_TENANT_FIELDS: (keyof TenantInput)[] = ['slip_quota']
 
 /**
@@ -64,7 +75,8 @@ export function parseTenantInput(body: unknown, partial: boolean): Result<Tenant
   if (has(b, 'expected_amount')) {
     const v = str(b.expected_amount)
     const n = Number(v)
-    if (v && !(Number.isFinite(n) && n > 0 && n < 10_000_000)) return fail('ยอดที่คาดหวังต้องเป็นตัวเลขมากกว่า 0')
+    if (v && !(Number.isFinite(n) && n > 0 && n < 10_000_000))
+      return fail('ยอดที่คาดหวังต้องเป็นตัวเลขมากกว่า 0')
     out.expected_amount = v ? Math.round(n * 100) / 100 : null
   }
   for (const k of ['auto_reply_enabled', 'auto_verify_enabled'] as const) {
@@ -74,13 +86,21 @@ export function parseTenantInput(body: unknown, partial: boolean): Result<Tenant
   }
   if (has(b, 'slip_quota')) {
     const n = Number(b.slip_quota)
-    if (!Number.isInteger(n) || n < 0 || n > 1_000_000) return fail('โควตาเครดิตต้องเป็นจำนวนเต็ม 0-1,000,000')
+    if (!Number.isInteger(n) || n < 0 || n > 1_000_000)
+      return fail('โควตาเครดิตต้องเป็นจำนวนเต็ม 0-1,000,000')
     out.slip_quota = n
   }
   return { ok: true, value: out }
 }
 
-export type CustomerInput = { display_name?: string | null; phone?: string | null; address?: string | null; tags?: string[]; notes?: string | null; order_status?: OrderStatus }
+export type CustomerInput = {
+  display_name?: string | null
+  phone?: string | null
+  address?: string | null
+  tags?: string[]
+  notes?: string | null
+  order_status?: OrderStatus
+}
 
 /** CRM fields an admin may edit. Only the keys present are validated and written. */
 export function parseCustomerInput(body: unknown): Result<CustomerInput> {
@@ -110,11 +130,13 @@ export function parseCustomerInput(body: unknown): Result<CustomerInput> {
   if (has(b, 'tags')) {
     if (!Array.isArray(b.tags)) return fail('tags must be an array')
     const tags = [...new Set(b.tags.map(str).filter(Boolean))]
-    if (tags.length > 10 || tags.some((t) => t.length > 30)) return fail('แท็กได้สูงสุด 10 รายการ ไม่เกิน 30 ตัวอักษร')
+    if (tags.length > 10 || tags.some((t) => t.length > 30))
+      return fail('แท็กได้สูงสุด 10 รายการ ไม่เกิน 30 ตัวอักษร')
     out.tags = tags
   }
   if (has(b, 'order_status')) {
-    if (!ORDER_STATUSES.includes(b.order_status as OrderStatus)) return fail('สถานะออเดอร์ไม่ถูกต้อง')
+    if (!ORDER_STATUSES.includes(b.order_status as OrderStatus))
+      return fail('สถานะออเดอร์ไม่ถูกต้อง')
     out.order_status = b.order_status as OrderStatus
   }
   if (Object.keys(out).length === 0) return fail('nothing to update')

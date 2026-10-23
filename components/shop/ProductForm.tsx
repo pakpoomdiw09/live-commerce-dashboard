@@ -11,12 +11,30 @@ import { Field, Notice, inputClass } from '@/components/ui/field'
 import { Switch } from '@/components/ui/Switch'
 import { ImagePicker } from '@/components/ui/ImagePicker'
 
-type Draft = { code: string; name: string; price: string; stock: string; description: string; image_url: string | null; is_active: boolean }
+type Draft = {
+  code: string
+  name: string
+  price: string
+  stock: string
+  description: string
+  image_url: string | null
+  is_active: boolean
+}
 
 /** Same rule as cfCode() in lib/features/commerce/orders.ts: what a customer can type after "CF". */
 const CODE = /^[\p{L}\p{N}_-]{1,20}$/u
 
-export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantId: string; product: ProductRow | null; takenCodes: string[]; onDone: () => void }) {
+export function ProductForm({
+  tenantId,
+  product,
+  takenCodes,
+  onDone,
+}: {
+  tenantId: string
+  product: ProductRow | null
+  takenCodes: string[]
+  onDone: () => void
+}) {
   const db = useMemo(() => supabaseBrowser(), [])
   const [d, setD] = useState<Draft>(() => ({
     code: product?.code ?? '',
@@ -39,7 +57,8 @@ export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantI
     takenCodes.includes(code.toLowerCase()) && `รหัส ${code} ถูกใช้แล้ว`,
     !d.name.trim() && 'ใส่ชื่อสินค้า',
     !(price > 0 && price < 10_000_000) && 'ราคาต้องมากกว่า 0',
-    !(Number.isInteger(stock) && stock >= 0 && stock <= 1_000_000) && 'สต็อกต้องเป็นจำนวนเต็มตั้งแต่ 0',
+    !(Number.isInteger(stock) && stock >= 0 && stock <= 1_000_000) &&
+      'สต็อกต้องเป็นจำนวนเต็มตั้งแต่ 0',
   ].filter((p): p is string => !!p)
 
   async function save() {
@@ -56,10 +75,16 @@ export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantI
       image_url: d.image_url,
       is_active: d.is_active,
     }
-    const { error: saveError } = product ? await db.from('products').update(row).eq('id', product.id) : await db.from('products').insert(row)
+    const { error: saveError } = product
+      ? await db.from('products').update(row).eq('id', product.id)
+      : await db.from('products').insert(row)
     setSaving(false)
     if (saveError) {
-      return setError(saveError.code === '23505' ? `รหัส ${code} ถูกใช้แล้ว` : `บันทึกไม่สำเร็จ: ${saveError.message}`)
+      return setError(
+        saveError.code === '23505'
+          ? `รหัส ${code} ถูกใช้แล้ว`
+          : `บันทึกไม่สำเร็จ: ${saveError.message}`,
+      )
     }
     onDone()
   }
@@ -69,7 +94,12 @@ export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantI
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <button type="button" onClick={onDone} aria-label="กลับ" className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
+            <button
+              type="button"
+              onClick={onDone}
+              aria-label="กลับ"
+              className="rounded-md p-1 text-slate-500 hover:bg-slate-100"
+            >
               <ArrowLeft className="h-4 w-4" />
             </button>
             {product ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'}
@@ -91,15 +121,34 @@ export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantI
           {error && <Notice tone="error">{error}</Notice>}
           <div className="grid gap-4 sm:grid-cols-[140px_1fr]">
             <Field label="รหัส CF" hint={code ? `ลูกค้าพิมพ์ “CF ${code}”` : 'เช่น A12'}>
-              <input value={d.code} onChange={(e) => set('code', e.target.value)} maxLength={20} className={cn(inputClass, 'font-mono')} />
+              <input
+                value={d.code}
+                onChange={(e) => set('code', e.target.value)}
+                maxLength={20}
+                className={cn(inputClass, 'font-mono')}
+              />
             </Field>
             <Field label="ชื่อสินค้า">
-              <input value={d.name} onChange={(e) => set('name', e.target.value)} maxLength={120} placeholder="เช่น เสื้อยืด Oversize สีดำ" className={inputClass} />
+              <input
+                value={d.name}
+                onChange={(e) => set('name', e.target.value)}
+                maxLength={120}
+                placeholder="เช่น เสื้อยืด Oversize สีดำ"
+                className={inputClass}
+              />
             </Field>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="ราคา (บาท)" hint={price > 0 ? baht(price) : undefined}>
-              <input type="number" inputMode="decimal" min={0} step="0.01" value={d.price} onChange={(e) => set('price', e.target.value)} className={inputClass} />
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={d.price}
+                onChange={(e) => set('price', e.target.value)}
+                className={inputClass}
+              />
             </Field>
             <Field label="สต็อก" hint="ลดลงอัตโนมัติเมื่อมีออเดอร์ คืนเมื่อยกเลิก">
               <div className="flex">
@@ -111,7 +160,14 @@ export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantI
                 >
                   <Minus className="h-4 w-4" />
                 </button>
-                <input type="number" inputMode="numeric" min={0} value={d.stock} onChange={(e) => set('stock', e.target.value)} className={cn(inputClass, 'rounded-none text-center')} />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={d.stock}
+                  onChange={(e) => set('stock', e.target.value)}
+                  className={cn(inputClass, 'rounded-none text-center')}
+                />
                 <button
                   type="button"
                   onClick={() => set('stock', String((Number(d.stock) || 0) + 1))}
@@ -140,7 +196,12 @@ export function ProductForm({ tenantId, product, takenCodes, onDone }: { tenantI
         </div>
         <div>
           <span className="mb-1.5 block text-sm font-medium text-slate-700">รูปสินค้า</span>
-          <ImagePicker value={d.image_url} onChange={(url) => set('image_url', url)} folder="products" onError={setError} />
+          <ImagePicker
+            value={d.image_url}
+            onChange={(url) => set('image_url', url)}
+            folder="products"
+            onError={setError}
+          />
         </div>
       </div>
     </Card>

@@ -11,8 +11,14 @@ import { PrintButton } from '@/app/receipts/[id]/PrintButton'
 export const metadata = { title: 'ใบเสร็จรับเงิน' }
 
 /** Deterministic receipt number: the same slip always prints the same number. */
-const receiptNo = (id: string, iso: string) => `RC-${new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }).replaceAll('-', '')}-${id.slice(0, 8).toUpperCase()}`
-const thaiDate = (iso: string) => new Date(iso).toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Bangkok' })
+const receiptNo = (id: string, iso: string) =>
+  `RC-${new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }).replaceAll('-', '')}-${id.slice(0, 8).toUpperCase()}`
+const thaiDate = (iso: string) =>
+  new Date(iso).toLocaleString('th-TH', {
+    dateStyle: 'long',
+    timeStyle: 'short',
+    timeZone: 'Asia/Bangkok',
+  })
 
 export default async function ReceiptPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -22,7 +28,11 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   if (!actor) redirect(`/login?next=/receipts/${id}`)
 
   const db = supabaseAdmin()
-  const { data: scope, error } = await db.from('slips').select('tenant_id').eq('id', id).maybeSingle()
+  const { data: scope, error } = await db
+    .from('slips')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
   if (error || !scope || !(await canAccessTenant(actor, scope.tenant_id))) notFound()
   if (!(await hasFeature(db, scope.tenant_id, 'customer_management'))) return <FeatureLocked />
   const slip = await loadSlipDetail(db, id, scope.tenant_id)
@@ -38,9 +48,19 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
 
   const [{ data: tenant }, { data: customer }] = await Promise.all([
     slip.tenant_id
-      ? db.from('tenants').select('name, account_name, account_number, bank_code').eq('id', slip.tenant_id).maybeSingle()
+      ? db
+          .from('tenants')
+          .select('name, account_name, account_number, bank_code')
+          .eq('id', slip.tenant_id)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
-    slip.customer_id ? db.from('customers').select('display_name, phone, address').eq('id', slip.customer_id).maybeSingle() : Promise.resolve({ data: null }),
+    slip.customer_id
+      ? db
+          .from('customers')
+          .select('display_name, phone, address')
+          .eq('id', slip.customer_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ])
   const issuedAt = slip.approved_at ?? slip.verified_at ?? slip.created_at
   const paidAt = slip.transferredAt ?? slip.created_at
@@ -59,7 +79,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           </div>
           <div className="text-right text-sm">
             <p className="font-semibold">{tenant?.name ?? slip.tenantName ?? 'ร้านค้า'}</p>
-            <p className="mt-1 font-mono text-xs text-slate-500">เลขที่ {receiptNo(slip.id, issuedAt)}</p>
+            <p className="mt-1 font-mono text-xs text-slate-500">
+              เลขที่ {receiptNo(slip.id, issuedAt)}
+            </p>
             <p className="text-xs text-slate-500">ออกเมื่อ {thaiDate(issuedAt)}</p>
           </div>
         </header>
@@ -69,7 +91,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             <h2 className="text-xs font-medium text-slate-500">ได้รับเงินจาก</h2>
             <p className="mt-1 font-medium">{customer?.display_name ?? slip.sender.name ?? '-'}</p>
             {customer?.phone && <p className="text-slate-600">โทร {customer.phone}</p>}
-            {customer?.address && <p className="whitespace-pre-wrap text-slate-600">{customer.address}</p>}
+            {customer?.address && (
+              <p className="whitespace-pre-wrap text-slate-600">{customer.address}</p>
+            )}
           </div>
           <div>
             <h2 className="text-xs font-medium text-slate-500">ชำระเข้าบัญชี</h2>
@@ -93,7 +117,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               <td className="py-3">
                 ชำระค่าสินค้า / บริการ
                 <p className="text-xs text-slate-500">โอนเมื่อ {thaiDate(paidAt)}</p>
-                {slip.trans_ref && <p className="font-mono text-xs text-slate-500">อ้างอิง {slip.trans_ref}</p>}
+                {slip.trans_ref && (
+                  <p className="font-mono text-xs text-slate-500">อ้างอิง {slip.trans_ref}</p>
+                )}
               </td>
               <td className="py-3 text-right tabular-nums">{baht(slip.amount)}</td>
             </tr>
@@ -101,7 +127,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           <tfoot>
             <tr>
               <td className="pt-4 text-right font-semibold">รวมทั้งสิ้น</td>
-              <td className="pt-4 text-right text-lg font-semibold tabular-nums">{baht(slip.amount)}</td>
+              <td className="pt-4 text-right text-lg font-semibold tabular-nums">
+                {baht(slip.amount)}
+              </td>
             </tr>
           </tfoot>
         </table>

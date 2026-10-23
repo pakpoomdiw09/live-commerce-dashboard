@@ -20,11 +20,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!parsed.ok) return bad(parsed.error)
 
   const db = supabaseAdmin()
-  const { data: current } = await db.from('customers').select('tenant_id').eq('id', id).maybeSingle()
-  if (!current || !(await canAccessTenant(actor, current.tenant_id))) return bad('customer not found', 404)
-  if (!(await hasFeature(db, current.tenant_id, 'customer_management'))) return featureLockedResponse('customer_management')
+  const { data: current } = await db
+    .from('customers')
+    .select('tenant_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!current || !(await canAccessTenant(actor, current.tenant_id)))
+    return bad('customer not found', 404)
+  if (!(await hasFeature(db, current.tenant_id, 'customer_management')))
+    return featureLockedResponse('customer_management')
 
-  const { data, error } = await db.from('customers').update(parsed.value).eq('id', id).select(CUSTOMER_COLUMNS).maybeSingle()
+  const { data, error } = await db
+    .from('customers')
+    .update(parsed.value)
+    .eq('id', id)
+    .select(CUSTOMER_COLUMNS)
+    .maybeSingle()
   if (error) return bad(`บันทึกไม่สำเร็จ: ${error.message}`, 500)
   if (!data) return bad('customer not found', 404)
   return NextResponse.json({ customer: data })

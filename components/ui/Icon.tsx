@@ -15,13 +15,34 @@ export const ICONS = {
 export function Icon({ d, className = 'h-5 w-5' }: { d: string; className?: string }) {
   return (
     // width/height attributes keep the icon small even if the stylesheet fails to load
-    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+    <svg
+      width={20}
+      height={20}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
       <path d={d} />
     </svg>
   )
 }
 
-export function IconButton({ label, d, onClick, className = '' }: { label: string; d: string; onClick: () => void; className?: string }) {
+export function IconButton({
+  label,
+  d,
+  onClick,
+  className = '',
+}: {
+  label: string
+  d: string
+  onClick: () => void
+  className?: string
+}) {
   return (
     <button
       type="button"

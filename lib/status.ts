@@ -36,7 +36,13 @@ export function chatBadge(order: OrderStatus, latestSlip?: SlipStatus | null) {
 export const STALE_PENDING_MS = 3 * 60_000
 
 /** Slip statuses an admin may still approve by hand (e.g. a bank delay made it 'fake'). */
-export const APPROVABLE: SlipStatus[] = ['valid', 'amount_mismatch', 'wrong_receiver', 'fake', 'error']
+export const APPROVABLE: SlipStatus[] = [
+  'valid',
+  'amount_mismatch',
+  'wrong_receiver',
+  'fake',
+  'error',
+]
 
 /** CF orders (orders table), as opposed to the per-customer order_status above. */
 export const CF_ORDER_STATUS: Record<CfOrderStatus, { label: string; tone: Tone }> = {

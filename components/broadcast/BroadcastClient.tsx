@@ -3,7 +3,20 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Clock, Coins, History, Lock, Megaphone, Send, Tag as TagIcon, Trash2, Users, UserCheck, Wallet } from 'lucide-react'
+import {
+  AlertTriangle,
+  Clock,
+  Coins,
+  History,
+  Lock,
+  Megaphone,
+  Send,
+  Tag as TagIcon,
+  Trash2,
+  Users,
+  UserCheck,
+  Wallet,
+} from 'lucide-react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import {
   BROADCAST_SEGMENTS,
@@ -15,7 +28,13 @@ import {
   type BroadcastWindow,
   type MessageTag,
 } from '@/lib/features/agents/chatbot'
-import { creditsLeft, OUT_OF_CREDITS, PLANS, UPGRADE_FOR_TAGS, type Billing } from '@/lib/features/billing/plans'
+import {
+  creditsLeft,
+  OUT_OF_CREDITS,
+  PLANS,
+  UPGRADE_FOR_TAGS,
+  type Billing,
+} from '@/lib/features/billing/plans'
 import type { Tone } from '@/lib/status'
 import { apiError, cn, when } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -48,7 +67,17 @@ const WINDOW_ICON = { within_24h: Clock, outside_24h: History } as const
 
 type Audience = { total: number; reachable: number } | null
 
-export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags, customerCount, reachableCount, billing, broadcasts }: Props) {
+export function BroadcastClient({
+  tenantId,
+  pageName,
+  canSend,
+  pageLinked,
+  tags,
+  customerCount,
+  reachableCount,
+  billing,
+  broadcasts,
+}: Props) {
   const router = useRouter()
   const db = useMemo(() => supabaseBrowser(), [])
   const [name, setName] = useState('')
@@ -72,8 +101,16 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
     setAudience(null)
     const ctrl = new AbortController()
     const timer = setTimeout(async () => {
-      const q = new URLSearchParams({ tenantId, segment, tags: picked.join(','), window: sendWindow, tag: sendWindow === 'outside_24h' ? messageTag : '' })
-      const res = await fetch(`/api/broadcasts/audience?${q}`, { signal: ctrl.signal }).catch(() => null)
+      const q = new URLSearchParams({
+        tenantId,
+        segment,
+        tags: picked.join(','),
+        window: sendWindow,
+        tag: sendWindow === 'outside_24h' ? messageTag : '',
+      })
+      const res = await fetch(`/api/broadcasts/audience?${q}`, { signal: ctrl.signal }).catch(
+        () => null,
+      )
       if (res?.ok) setAudience(await res.json())
     }, 300)
     return () => {
@@ -90,8 +127,17 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
       for (let round = 0; round < 200; round++) {
         const res = await fetch(`/api/broadcasts/${id}/send`, { method: 'POST' })
         if (!res.ok) throw new Error(await apiError(res))
-        const r = (await res.json()) as { done: boolean; sent: number; failed: number; skipped: number; remaining: number; lastError: string | null }
-        setProgress(`ส่งแล้ว ${r.sent.toLocaleString('th-TH')} · เหลือ ${r.remaining.toLocaleString('th-TH')}`)
+        const r = (await res.json()) as {
+          done: boolean
+          sent: number
+          failed: number
+          skipped: number
+          remaining: number
+          lastError: string | null
+        }
+        setProgress(
+          `ส่งแล้ว ${r.sent.toLocaleString('th-TH')} · เหลือ ${r.remaining.toLocaleString('th-TH')}`,
+        )
         if (r.done) {
           setNotice({
             tone: r.lastError ? 'error' : 'success',
@@ -112,11 +158,25 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
   }
 
   async function create(sendNow: boolean) {
-    if (!name.trim() || !message.trim()) return setNotice({ tone: 'error', text: 'ใส่ชื่อรายการส่งและข้อความ' })
+    if (!name.trim() || !message.trim())
+      return setNotice({ tone: 'error', text: 'ใส่ชื่อรายการส่งและข้อความ' })
     if (locked) return setNotice({ tone: 'error', text: UPGRADE_FOR_TAGS })
-    if (needsTag) return setNotice({ tone: 'error', text: 'ส่งหาลูกค้าที่ไม่ได้ทักเกิน 24 ชม. ต้องเลือกหมวดหมู่ข้อความก่อน' })
-    const via = sendWindow === 'outside_24h' && messageTag ? ` หมวดหมู่ “${MESSAGE_TAGS[messageTag].label}”` : ''
-    if (sendNow && !confirm(`ส่งข้อความถึงลูกค้า ${audience?.reachable ?? 0} คน${via} ตอนนี้? ส่งแล้วยกเลิกไม่ได้`)) return
+    if (needsTag)
+      return setNotice({
+        tone: 'error',
+        text: 'ส่งหาลูกค้าที่ไม่ได้ทักเกิน 24 ชม. ต้องเลือกหมวดหมู่ข้อความก่อน',
+      })
+    const via =
+      sendWindow === 'outside_24h' && messageTag
+        ? ` หมวดหมู่ “${MESSAGE_TAGS[messageTag].label}”`
+        : ''
+    if (
+      sendNow &&
+      !confirm(
+        `ส่งข้อความถึงลูกค้า ${audience?.reachable ?? 0} คน${via} ตอนนี้? ส่งแล้วยกเลิกไม่ได้`,
+      )
+    )
+      return
     setBusy('new')
     setNotice(null)
     const { data, error } = await db
@@ -134,7 +194,10 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
       .single()
     if (error || !data) {
       setBusy(null)
-      return setNotice({ tone: 'error', text: `บันทึกไม่สำเร็จ: ${error?.message ?? 'ไม่มีข้อมูลตอบกลับ'}` })
+      return setNotice({
+        tone: 'error',
+        text: `บันทึกไม่สำเร็จ: ${error?.message ?? 'ไม่มีข้อมูลตอบกลับ'}`,
+      })
     }
     setName('')
     setMessage('')
@@ -157,10 +220,17 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
 
   return (
     <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
-      <PageHeader title="ส่งข้อความหาลูกค้าทั้งหมด" description="ส่งข้อความถึงลูกค้าหลายคนพร้อมกัน เลือกกลุ่มลูกค้าและป้ายกำกับได้" />
+      <PageHeader
+        title="ส่งข้อความหาลูกค้าทั้งหมด"
+        description="ส่งข้อความถึงลูกค้าหลายคนพร้อมกัน เลือกกลุ่มลูกค้าและป้ายกำกับได้"
+      />
 
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
-      {!pageLinked && <Notice tone="error">ร้านนี้ยังไม่ได้เชื่อมเพจ จึงยังส่งข้อความไม่ได้ (ตั้งค่า &gt; ตั้งค่าเพจ)</Notice>}
+      {!pageLinked && (
+        <Notice tone="error">
+          ร้านนี้ยังไม่ได้เชื่อมเพจ จึงยังส่งข้อความไม่ได้ (ตั้งค่า &gt; ตั้งค่าเพจ)
+        </Notice>
+      )}
 
       <div className="flex gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
         <Clock className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" aria-hidden />
@@ -168,19 +238,36 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
           <p className="font-semibold">กฎ 24 ชั่วโมงของระบบ Facebook</p>
           <p className="mt-0.5 text-sky-800">
             เพจส่งข้อความหาลูกค้าได้เฉพาะภายใน 24 ชม. หลังข้อความล่าสุดของลูกค้า ตอนนี้ส่งถึงได้{' '}
-            <b>{reachableCount.toLocaleString('th-TH')}</b> จาก {customerCount.toLocaleString('th-TH')} คน
-            {outside > 0 && <> · อีก {outside.toLocaleString('th-TH')} คนไม่ได้ทักเกิน 24 ชม. ต้องเลือกหมวดหมู่ข้อความให้ตรงกับเนื้อหา</>} (ห้ามใช้หมวดหมู่เหล่านี้ส่งโปรโมชันหรือโฆษณา)
+            <b>{reachableCount.toLocaleString('th-TH')}</b> จาก{' '}
+            {customerCount.toLocaleString('th-TH')} คน
+            {outside > 0 && (
+              <>
+                {' '}
+                · อีก {outside.toLocaleString('th-TH')} คนไม่ได้ทักเกิน 24 ชม.
+                ต้องเลือกหมวดหมู่ข้อความให้ตรงกับเนื้อหา
+              </>
+            )}{' '}
+            (ห้ามใช้หมวดหมู่เหล่านี้ส่งโปรโมชันหรือโฆษณา)
           </p>
         </div>
       </div>
 
       <div className="grid items-start gap-6 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <CardHeader title="เขียนข้อความถึงลูกค้า" description="เลือกกลุ่มลูกค้า เขียนข้อความ แล้วส่งทันทีหรือบันทึกเป็นฉบับร่าง" />
+          <CardHeader
+            title="เขียนข้อความถึงลูกค้า"
+            description="เลือกกลุ่มลูกค้า เขียนข้อความ แล้วส่งทันทีหรือบันทึกเป็นฉบับร่าง"
+          />
           <div className="space-y-5 p-5">
             <div>
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">ช่วงเวลาที่ลูกค้าทักล่าสุด</span>
-              <div role="radiogroup" aria-label="ช่วงเวลาที่ลูกค้าทักล่าสุด" className="grid gap-1 rounded-2xl bg-slate-100 p-1 sm:grid-cols-2">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                ช่วงเวลาที่ลูกค้าทักล่าสุด
+              </span>
+              <div
+                role="radiogroup"
+                aria-label="ช่วงเวลาที่ลูกค้าทักล่าสุด"
+                className="grid gap-1 rounded-2xl bg-slate-100 p-1 sm:grid-cols-2"
+              >
                 {(Object.keys(BROADCAST_WINDOWS) as BroadcastWindow[]).map((w) => {
                   const Icon = WINDOW_ICON[w]
                   const off = w === 'outside_24h' && !tagsAllowed
@@ -192,8 +279,21 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
                         off ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-white/60',
                       )}
                     >
-                      <input type="radio" name="window" checked={sendWindow === w} disabled={off} onChange={() => setSendWindow(w)} className="sr-only" />
-                      <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', sendWindow === w ? 'text-orange-600' : 'text-slate-400')} aria-hidden />
+                      <input
+                        type="radio"
+                        name="window"
+                        checked={sendWindow === w}
+                        disabled={off}
+                        onChange={() => setSendWindow(w)}
+                        className="sr-only"
+                      />
+                      <Icon
+                        className={cn(
+                          'mt-0.5 h-4 w-4 shrink-0',
+                          sendWindow === w ? 'text-orange-600' : 'text-slate-400',
+                        )}
+                        aria-hidden
+                      />
                       <span>
                         <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
                           {BROADCAST_WINDOWS[w].label}
@@ -204,7 +304,9 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
                             </span>
                           )}
                         </span>
-                        <span className="block text-xs text-slate-500">{BROADCAST_WINDOWS[w].hint}</span>
+                        <span className="block text-xs text-slate-500">
+                          {BROADCAST_WINDOWS[w].hint}
+                        </span>
                       </span>
                     </label>
                   )
@@ -222,8 +324,16 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
 
             {sendWindow === 'outside_24h' && tagsAllowed && (
               <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
-                <Field label="หมวดหมู่ข้อความ (จำเป็นต้องเลือก)" hint="Meta กำหนดให้การส่งหาลูกค้าที่ไม่ได้ทักเกิน 24 ชม. ต้องเลือกหมวดหมู่ให้ตรงกับเนื้อหาเท่านั้น">
-                  <select required value={messageTag} onChange={(e) => setMessageTag(e.target.value as MessageTag | '')} className={inputClass}>
+                <Field
+                  label="หมวดหมู่ข้อความ (จำเป็นต้องเลือก)"
+                  hint="Meta กำหนดให้การส่งหาลูกค้าที่ไม่ได้ทักเกิน 24 ชม. ต้องเลือกหมวดหมู่ให้ตรงกับเนื้อหาเท่านั้น"
+                >
+                  <select
+                    required
+                    value={messageTag}
+                    onChange={(e) => setMessageTag(e.target.value as MessageTag | '')}
+                    className={inputClass}
+                  >
                     <option value="">เลือกหมวดหมู่ข้อความ...</option>
                     {MESSAGE_TAG_VALUES.map((t) => (
                       <option key={t} value={t}>
@@ -241,7 +351,8 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
                 </ul>
                 <p className="flex items-start gap-1.5 text-xs text-amber-800">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                  ห้ามใช้หมวดหมู่เหล่านี้ส่งข้อความโปรโมชันหรือโฆษณา หากเนื้อหาไม่ตรง เพจอาจถูก Facebook จำกัดการส่งข้อความได้
+                  ห้ามใช้หมวดหมู่เหล่านี้ส่งข้อความโปรโมชันหรือโฆษณา หากเนื้อหาไม่ตรง เพจอาจถูก
+                  Facebook จำกัดการส่งข้อความได้
                 </p>
               </div>
             )}
@@ -256,11 +367,27 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
                       key={s}
                       className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 p-3 transition hover:bg-slate-50 has-checked:border-orange-300 has-checked:bg-orange-50/60"
                     >
-                      <input type="radio" name="segment" checked={segment === s} onChange={() => setSegment(s)} className="sr-only" />
-                      <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', segment === s ? 'text-orange-600' : 'text-slate-400')} aria-hidden />
+                      <input
+                        type="radio"
+                        name="segment"
+                        checked={segment === s}
+                        onChange={() => setSegment(s)}
+                        className="sr-only"
+                      />
+                      <Icon
+                        className={cn(
+                          'mt-0.5 h-4 w-4 shrink-0',
+                          segment === s ? 'text-orange-600' : 'text-slate-400',
+                        )}
+                        aria-hidden
+                      />
                       <span>
-                        <span className="block text-sm font-medium text-slate-900">{BROADCAST_SEGMENTS[s].label}</span>
-                        <span className="block text-xs text-slate-500">{BROADCAST_SEGMENTS[s].hint}</span>
+                        <span className="block text-sm font-medium text-slate-900">
+                          {BROADCAST_SEGMENTS[s].label}
+                        </span>
+                        <span className="block text-xs text-slate-500">
+                          {BROADCAST_SEGMENTS[s].hint}
+                        </span>
                       </span>
                     </label>
                   )
@@ -271,10 +398,15 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
             <div>
               <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
                 <TagIcon className="h-4 w-4 text-slate-400" aria-hidden />
-                แท็กลูกค้า <span className="font-normal text-slate-400">(ไม่เลือก = ทุกแท็ก, เลือกหลายแท็ก = มีแท็กใดแท็กหนึ่ง)</span>
+                แท็กลูกค้า{' '}
+                <span className="font-normal text-slate-400">
+                  (ไม่เลือก = ทุกแท็ก, เลือกหลายแท็ก = มีแท็กใดแท็กหนึ่ง)
+                </span>
               </span>
               {tags.length === 0 ? (
-                <p className="text-xs text-slate-500">ยังไม่มีแท็ก: เพิ่มแท็กให้ลูกค้าได้ที่หน้ารวมแชทหรือรายชื่อลูกค้า</p>
+                <p className="text-xs text-slate-500">
+                  ยังไม่มีแท็ก: เพิ่มแท็กให้ลูกค้าได้ที่หน้ารวมแชทหรือรายชื่อลูกค้า
+                </p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {tags.map((t) => {
@@ -284,13 +416,18 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
                         key={t.name}
                         type="button"
                         aria-pressed={on}
-                        onClick={() => setPicked((p) => (on ? p.filter((x) => x !== t.name) : [...p, t.name]))}
+                        onClick={() =>
+                          setPicked((p) => (on ? p.filter((x) => x !== t.name) : [...p, t.name]))
+                        }
                         className={cn(
                           'rounded-full px-3 py-1 text-xs font-medium ring-1 transition',
-                          on ? 'bg-orange-500 text-white ring-orange-500' : 'bg-white text-slate-600 ring-slate-200 hover:ring-orange-300',
+                          on
+                            ? 'bg-orange-500 text-white ring-orange-500'
+                            : 'bg-white text-slate-600 ring-slate-200 hover:ring-orange-300',
                         )}
                       >
-                        {t.name} <span className={on ? 'text-white/80' : 'text-slate-400'}>{t.count}</span>
+                        {t.name}{' '}
+                        <span className={on ? 'text-white/80' : 'text-slate-400'}>{t.count}</span>
                       </button>
                     )
                   })}
@@ -303,24 +440,41 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
               {audience ? (
                 <>
                   <span>
-                    ตรงเงื่อนไข <b className="tabular-nums">{audience.total.toLocaleString('th-TH')}</b> คน
+                    ตรงเงื่อนไข{' '}
+                    <b className="tabular-nums">{audience.total.toLocaleString('th-TH')}</b> คน
                   </span>
                   <span className="text-emerald-700">
-                    ส่งได้ <b className="tabular-nums">{audience.reachable.toLocaleString('th-TH')}</b>
+                    ส่งได้{' '}
+                    <b className="tabular-nums">{audience.reachable.toLocaleString('th-TH')}</b>
                   </span>
                   {audience.total > audience.reachable && (
                     <span className="flex items-center gap-1 text-amber-700">
                       <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
                       ข้าม {(audience.total - audience.reachable).toLocaleString('th-TH')} (
-                      {sendWindow === 'within_24h' ? 'เกิน 24 ชม.' : messageTag === 'HUMAN_AGENT' ? 'ไม่อยู่ในช่วง 1-7 วัน' : 'ยังอยู่ใน 24 ชม. หรือไม่เคยทัก'})
+                      {sendWindow === 'within_24h'
+                        ? 'เกิน 24 ชม.'
+                        : messageTag === 'HUMAN_AGENT'
+                          ? 'ไม่อยู่ในช่วง 1-7 วัน'
+                          : 'ยังอยู่ใน 24 ชม. หรือไม่เคยทัก'}
+                      )
                     </span>
                   )}
                 </>
               ) : null}
-              <span className={cn('ml-auto flex items-center gap-1', audience && audience.reachable > credits ? 'text-amber-700' : 'text-slate-500')}>
+              <span
+                className={cn(
+                  'ml-auto flex items-center gap-1',
+                  audience && audience.reachable > credits ? 'text-amber-700' : 'text-slate-500',
+                )}
+              >
                 <Coins className="h-3.5 w-3.5" aria-hidden />
-                เครดิตคงเหลือ <b className="tabular-nums">{billing.featureBypass ? 'ไม่จำกัด (ผู้ดูแล)' : credits.toLocaleString('th-TH')}</b>
-                {audience && audience.reachable > credits && <> · ส่งได้แค่ {credits.toLocaleString('th-TH')} คนแรก</>}
+                เครดิตคงเหลือ{' '}
+                <b className="tabular-nums">
+                  {billing.featureBypass ? 'ไม่จำกัด (ผู้ดูแล)' : credits.toLocaleString('th-TH')}
+                </b>
+                {audience && audience.reachable > credits && (
+                  <> · ส่งได้แค่ {credits.toLocaleString('th-TH')} คนแรก</>
+                )}
                 <Link href="/billing" className="ml-1 font-medium text-orange-600 hover:underline">
                   {credits ? 'เติมเครดิต' : 'อัปเกรด / เติมเครดิต'}
                 </Link>
@@ -333,7 +487,13 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
             </div>
 
             <Field label="ชื่อรายการส่งข้อความ" hint="แสดงเฉพาะในระบบหลังบ้าน">
-              <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} placeholder="เช่น แจ้งของเข้าใหม่ ต.ค." className={inputClass} />
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={100}
+                placeholder="เช่น แจ้งของเข้าใหม่ ต.ค."
+                className={inputClass}
+              />
             </Field>
             <Field label="ข้อความ" hint={`${message.length}/2000`}>
               <textarea
@@ -347,17 +507,41 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
             </Field>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {credits === 0 && <span className="mr-auto text-xs text-rose-600">{OUT_OF_CREDITS}</span>}
-              {!canSend && <span className="mr-auto text-xs text-slate-500">เฉพาะเจ้าของร้านเท่านั้นที่กดส่งได้ ทีมงานบันทึกฉบับร่างได้</span>}
-              <Button variant="secondary" onClick={() => create(false)} disabled={!!busy || needsTag}>
+              {credits === 0 && (
+                <span className="mr-auto text-xs text-rose-600">{OUT_OF_CREDITS}</span>
+              )}
+              {!canSend && (
+                <span className="mr-auto text-xs text-slate-500">
+                  เฉพาะเจ้าของร้านเท่านั้นที่กดส่งได้ ทีมงานบันทึกฉบับร่างได้
+                </span>
+              )}
+              <Button
+                variant="secondary"
+                onClick={() => create(false)}
+                disabled={!!busy || needsTag}
+              >
                 บันทึกร่าง
               </Button>
-              <Button onClick={() => create(true)} loading={busy === 'new'} disabled={!!busy || !canSend || !pageLinked || needsTag || locked || !credits || !audience?.reachable}>
+              <Button
+                onClick={() => create(true)}
+                loading={busy === 'new'}
+                disabled={
+                  !!busy ||
+                  !canSend ||
+                  !pageLinked ||
+                  needsTag ||
+                  locked ||
+                  !credits ||
+                  !audience?.reachable
+                }
+              >
                 <Send className="h-4 w-4" aria-hidden />
                 ส่งเลย
               </Button>
             </div>
-            {progress && <p className="text-right text-xs text-slate-500 tabular-nums">{progress}</p>}
+            {progress && (
+              <p className="text-right text-xs text-slate-500 tabular-nums">{progress}</p>
+            )}
           </div>
         </Card>
 
@@ -382,7 +566,8 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
           <ul className="divide-y divide-slate-100">
             {broadcasts.map((b) => {
               const done = b.sent + b.failed
-              const pct = b.total - b.skipped > 0 ? Math.round((done / (b.total - b.skipped)) * 100) : 0
+              const pct =
+                b.total - b.skipped > 0 ? Math.round((done / (b.total - b.skipped)) * 100) : 0
               return (
                 <li key={b.id} className="flex flex-wrap items-center gap-4 px-5 py-3.5">
                   <div className="min-w-0 flex-1">
@@ -394,21 +579,33 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
                       {BROADCAST_SEGMENTS[b.audience_segment].label}
                       {b.audience_tags.length > 0 && ` · แท็ก ${b.audience_tags.join(', ')}`}
                       {` · ${BROADCAST_WINDOWS[b.audience_window].label}`}
-                      {b.message_tag && ` · ${MESSAGE_TAGS[b.message_tag]?.label ?? 'หมวดหมู่ข้อความ'}`} · {b.message}
+                      {b.message_tag &&
+                        ` · ${MESSAGE_TAGS[b.message_tag]?.label ?? 'หมวดหมู่ข้อความ'}`}{' '}
+                      · {b.message}
                     </p>
-                    {b.last_error && <p className="mt-0.5 truncate text-xs text-rose-600">{b.last_error}</p>}
+                    {b.last_error && (
+                      <p className="mt-0.5 truncate text-xs text-rose-600">{b.last_error}</p>
+                    )}
                   </div>
                   {b.status !== 'draft' && (
                     <div className="w-48 text-xs text-slate-500">
                       <div className="flex justify-between tabular-nums">
                         <span>
                           ส่ง {b.sent.toLocaleString('th-TH')}
-                          {b.failed > 0 && <span className="text-rose-600"> · พลาด {b.failed}</span>}
+                          {b.failed > 0 && (
+                            <span className="text-rose-600"> · พลาด {b.failed}</span>
+                          )}
                         </span>
                         <span>ข้าม {b.skipped.toLocaleString('th-TH')}</span>
                       </div>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden>
-                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                      <div
+                        className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"
+                        aria-hidden
+                      >
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${pct}%` }}
+                        />
                       </div>
                     </div>
                   )}
@@ -417,13 +614,29 @@ export function BroadcastClient({ tenantId, pageName, canSend, pageLinked, tags,
                   </time>
                   <div className="flex gap-1">
                     {b.status !== 'sent' && canSend && (
-                      <Button size="sm" variant="secondary" onClick={() => (b.status !== 'draft' || confirm(`ส่ง "${b.name}" ตอนนี้? ส่งแล้วยกเลิกไม่ได้`)) && sendLoop(b.id)} loading={busy === b.id} disabled={!!busy || !pageLinked}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          (b.status !== 'draft' ||
+                            confirm(`ส่ง "${b.name}" ตอนนี้? ส่งแล้วยกเลิกไม่ได้`)) &&
+                          sendLoop(b.id)
+                        }
+                        loading={busy === b.id}
+                        disabled={!!busy || !pageLinked}
+                      >
                         <Send className="h-3.5 w-3.5" aria-hidden />
                         {b.status === 'draft' ? 'ส่ง' : 'ส่งต่อ'}
                       </Button>
                     )}
                     {b.status === 'draft' && (
-                      <Button size="icon" variant="ghost" onClick={() => remove(b)} aria-label={`ลบ ${b.name}`} className="hover:text-rose-600">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => remove(b)}
+                        aria-label={`ลบ ${b.name}`}
+                        className="hover:text-rose-600"
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     )}

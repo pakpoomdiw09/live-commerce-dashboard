@@ -1,8 +1,13 @@
 /** Row shapes shared by server and client code. Keep in sync with supabase/*.sql. */
 
-export type {LegacySlipState as SlipStatus, LegacyCustomerOrderState as OrderStatus} from '@/lib/domain-state'
-import type {LegacySlipState as SlipStatus, LegacyCustomerOrderState as OrderStatus} from '@/lib/domain-state'
-
+export type {
+  LegacySlipState as SlipStatus,
+  LegacyCustomerOrderState as OrderStatus,
+} from '@/lib/domain-state'
+import type {
+  LegacySlipState as SlipStatus,
+  LegacyCustomerOrderState as OrderStatus,
+} from '@/lib/domain-state'
 
 export type Sender = 'customer' | 'bot' | 'agent'
 
@@ -33,7 +38,8 @@ export const TENANT_COLUMNS =
 export type TenantRole = 'admin' | 'owner' | 'staff'
 
 /** Page link and token verification, independent of profile images and the bot switch. */
-export type PageConnectionStatus = 'missing-page' | 'missing-token' | 'verified' | 'limited' | 'invalid' | 'unverified'
+export type PageConnectionStatus =
+  'missing-page' | 'missing-token' | 'verified' | 'limited' | 'invalid' | 'unverified'
 
 export type CustomerRow = {
   id: string
@@ -63,9 +69,11 @@ export const CUSTOMER_COLUMNS_WITHOUT_AVATAR =
 export function isMissingDatabaseColumn(error: unknown, column: string): boolean {
   if (!error || typeof error !== 'object') return false
   const issue = error as { code?: unknown; message?: unknown }
-  return ['42703', 'PGRST204'].includes(String(issue.code ?? ''))
-    && typeof issue.message === 'string'
-    && issue.message.includes(column)
+  return (
+    ['42703', 'PGRST204'].includes(String(issue.code ?? '')) &&
+    typeof issue.message === 'string' &&
+    issue.message.includes(column)
+  )
 }
 
 export function isMissingCustomerAvatarColumn(error: unknown): boolean {
@@ -143,4 +151,5 @@ export type ProductRow = {
   created_at: string
 }
 
-export const PRODUCT_COLUMNS = 'id, tenant_id, code, name, price, stock, is_active, description, image_url, created_at'
+export const PRODUCT_COLUMNS =
+  'id, tenant_id, code, name, price, stock, is_active, description, image_url, created_at'

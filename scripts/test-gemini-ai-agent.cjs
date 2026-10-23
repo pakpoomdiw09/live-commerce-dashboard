@@ -40,7 +40,14 @@ class ApiError extends Error {
 // No .env reading, external requests, database writes, or live SDK imports occur.
 function fixture({
   env = { GEMINI_API_KEY: FAKE_KEY },
-  messages = [{ customer_id: context.customerId, sender: 'customer', body: 'สินค้าราคาเท่าไร', created_at: 1 }],
+  messages = [
+    {
+      customer_id: context.customerId,
+      sender: 'customer',
+      body: 'สินค้าราคาเท่าไร',
+      created_at: 1,
+    },
+  ],
   products = [],
   response = { text: ' สวัสดีค่ะ ', candidates: [{ finishReason: 'STOP' }] },
   sdkError = null,
@@ -85,14 +92,25 @@ function fixture({
       const query = { table, filters: [] }
       queries.push(query)
       return {
-        select(columns) { query.columns = columns; return this },
-        eq(column, value) { query.filters.push([column, value]); return this },
-        order(column, options) { query.order = { column, options }; return this },
+        select(columns) {
+          query.columns = columns
+          return this
+        },
+        eq(column, value) {
+          query.filters.push([column, value])
+          return this
+        },
+        order(column, options) {
+          query.order = { column, options }
+          return this
+        },
         async limit(count) {
           query.limit = count
           if (dbError) throw dbError
           const rows = table === 'messages' ? messages : products
-          const filtered = rows.filter((row) => query.filters.every(([column, value]) => row[column] === value))
+          const filtered = rows.filter((row) =>
+            query.filters.every(([column, value]) => row[column] === value),
+          )
           if (table === 'messages') filtered.sort((a, b) => b.created_at - a.created_at)
           return { data: filtered.slice(0, count), error: null }
         },
@@ -114,12 +132,17 @@ function fixture({
   }
 
   const log = (...args) => logs.push(args)
-  const modules = { '@/lib/features/agents/ai-errors': aiErrors, '@/lib/feature-access': { hasFeature: async () => billing.plan === 'pro' }, 'server-only': {}, '@google/genai': { GoogleGenAI, ApiError } }
+  const modules = {
+    '@/lib/features/agents/ai-errors': aiErrors,
+    '@/lib/feature-access': { hasFeature: async () => billing.plan === 'pro' },
+    'server-only': {},
+    '@google/genai': { GoogleGenAI, ApiError },
+  }
   const agent = {}
   vm.runInNewContext(agentCode, {
     exports: agent,
     process: { env },
-    setTimeout: fn => setImmediate(fn), // skip the retry back-off delay in tests
+    setTimeout: (fn) => setImmediate(fn), // skip the retry back-off delay in tests
     console: { warn: log, error: log, log },
     require(name) {
       assert.ok(Object.hasOwn(modules, name), `Unexpected agent module: ${name}`)
@@ -137,10 +160,13 @@ function fixture({
     '@/lib/integrations/facebook/client': { quickReplies: () => ({}) },
     '@/lib/features/slips/notify': {
       deliverOnce: async (...args) => deliveries.push(args),
-      deliverRichOnce: async () => { throw new Error('Unexpected keyword-rule delivery') },
+      deliverRichOnce: async () => {
+        throw new Error('Unexpected keyword-rule delivery')
+      },
     },
     '@/lib/features/agents/chatbot': {
-      BOT_SETTINGS_COLUMNS: 'tenant_id,reply_mode,ai_instructions,fallback_text,handover_keywords,handover_text',
+      BOT_SETTINGS_COLUMNS:
+        'tenant_id,reply_mode,ai_instructions,fallback_text,handover_keywords,handover_text',
       CHAT_RULE_COLUMNS: '',
       matchChatRule: () => null,
       ruleOrder: () => 0,
@@ -148,7 +174,11 @@ function fixture({
     },
   }
   const actions = {}
-  vm.runInNewContext(transpile('lib/features/agents/chatbot-actions.ts'), { exports: actions, console: { warn: log, error: log, log }, require: name => chatbotModules[name] })
+  vm.runInNewContext(transpile('lib/features/agents/chatbot-actions.ts'), {
+    exports: actions,
+    console: { warn: log, error: log, log },
+    require: (name) => chatbotModules[name],
+  })
   chatbotModules['@/lib/features/agents/chatbot-actions'] = actions
   const chatbot = {}
   vm.runInNewContext(chatbotCode, {
@@ -167,7 +197,11 @@ function fixture({
 const plain = (value) => JSON.parse(JSON.stringify(value))
 
 test('missing or whitespace Gemini key does not activate AI or query services', async () => {
-  for (const env of [{}, { GEMINI_API_KEY: '  ' }, { ANTHROPIC_API_KEY: 'old-key', ANTHROPIC_AUTH_TOKEN: 'old-token' }]) {
+  for (const env of [
+    {},
+    { GEMINI_API_KEY: '  ' },
+    { ANTHROPIC_API_KEY: 'old-key', ANTHROPIC_AUTH_TOKEN: 'old-token' },
+  ]) {
     const api = fixture({ env })
     assert.equal(api.aiConfigured(), false)
     assert.equal(await api.aiReply(api.db, context), null)
@@ -181,9 +215,31 @@ test('Gemini receives tenant catalog, shop facts, customer history and the fixed
   const api = fixture({
     env: { GEMINI_API_KEY: ` ${FAKE_KEY} `, ANTHROPIC_MODEL: 'unused-model' },
     products: [
-      { tenant_id: context.tenantId, is_active: true, code: 'A12', name: 'เสื้อ', price: '199', stock: 3, description: 'ผ้าฝ้าย' },
-      { tenant_id: 'other-tenant', is_active: true, code: 'PRIVATE', name: 'OTHER SHOP SECRET', price: 1, stock: 1 },
-      { tenant_id: context.tenantId, is_active: false, code: 'HIDDEN', name: 'DISABLED PRODUCT', price: 2, stock: 1 },
+      {
+        tenant_id: context.tenantId,
+        is_active: true,
+        code: 'A12',
+        name: 'เสื้อ',
+        price: '199',
+        stock: 3,
+        description: 'ผ้าฝ้าย',
+      },
+      {
+        tenant_id: 'other-tenant',
+        is_active: true,
+        code: 'PRIVATE',
+        name: 'OTHER SHOP SECRET',
+        price: 1,
+        stock: 1,
+      },
+      {
+        tenant_id: context.tenantId,
+        is_active: false,
+        code: 'HIDDEN',
+        name: 'DISABLED PRODUCT',
+        price: 2,
+        stock: 1,
+      },
     ],
   })
   assert.equal(api.aiConfigured(), true)
@@ -201,11 +257,20 @@ test('Gemini receives tenant catalog, shop facts, customer history and the fixed
   assert.match(request.config.systemInstruction, /ส่งฟรีเมื่อซื้อครบ 500 บาท/)
   assert.match(request.config.systemInstruction, /A12 \| เสื้อ \| 199 \| 3 \| ผ้าฝ้าย/)
   assert.doesNotMatch(request.config.systemInstruction, /OTHER SHOP SECRET|DISABLED PRODUCT/)
-  assert.deepEqual(plain(request.contents), [{ role: 'user', parts: [{ text: 'สินค้าราคาเท่าไร' }] }])
+  assert.deepEqual(plain(request.contents), [
+    { role: 'user', parts: [{ text: 'สินค้าราคาเท่าไร' }] },
+  ])
   const productQuery = api.queries.find((query) => query.table === 'products')
-  assert.deepEqual(productQuery.filters, [['tenant_id', context.tenantId], ['is_active', true]])
+  assert.deepEqual(productQuery.filters, [
+    ['tenant_id', context.tenantId],
+    ['is_active', true],
+  ])
   const historyQuery = api.queries.find((query) => query.table === 'messages')
-  assert.ok(historyQuery.filters.some(([column, value]) => column === 'customer_id' && value === context.customerId))
+  assert.ok(
+    historyQuery.filters.some(
+      ([column, value]) => column === 'customer_id' && value === context.customerId,
+    ),
+  )
   assert.equal(historyQuery.order.column, 'created_at')
   assert.equal(historyQuery.order.options.ascending, false)
   assert.equal(historyQuery.limit, 12)
@@ -221,30 +286,63 @@ test('history uses chronological user/model turns and keeps attachment-only cust
     ['customer', null, [{ type: 'image' }]],
     ['customer', ' ', []],
     ['admin', 'trailing reply', []],
-  ].map(([sender, body, attachments], index) => ({ customer_id: context.customerId, sender, body, attachments, created_at: index }))
+  ].map(([sender, body, attachments], index) => ({
+    customer_id: context.customerId,
+    sender,
+    body,
+    attachments,
+    created_at: index,
+  }))
   const api = fixture({ messages: rows })
   await api.aiReply(api.db, context)
   const contents = plain(api.requests[0].contents)
   assert.equal(contents.length, 3)
   assert.deepEqual(contents[0], { role: 'user', parts: [{ text: 'สวัสดี\nขอรายละเอียด' }] })
-  assert.deepEqual(contents[1], { role: 'model', parts: [{ text: 'สินค้ามีพร้อมส่ง\nราคา 199 บาท' }] })
+  assert.deepEqual(contents[1], {
+    role: 'model',
+    parts: [{ text: 'สินค้ามีพร้อมส่ง\nราคา 199 บาท' }],
+  })
   assert.equal(contents[2].role, 'user')
   assert.match(contents[2].parts[0].text, /^\[.+\]$/)
   assert.doesNotMatch(JSON.stringify(contents), /leading reply|trailing reply/)
 })
 
 test('Playground uses supplied conversation and tenant catalog without reading customer messages', async () => {
-  const api = fixture({ products: [{ tenant_id: context.tenantId, is_active: true, code: 'TEST', name: 'Draft product', price: 100, stock: 2 }] })
-  const turns = [{ role: 'user', text: 'hello' }, { role: 'model', text: 'welcome' }, { role: 'user', text: 'price?' }]
+  const api = fixture({
+    products: [
+      {
+        tenant_id: context.tenantId,
+        is_active: true,
+        code: 'TEST',
+        name: 'Draft product',
+        price: 100,
+        stock: 2,
+      },
+    ],
+  })
+  const turns = [
+    { role: 'user', text: 'hello' },
+    { role: 'model', text: 'welcome' },
+    { role: 'user', text: 'price?' },
+  ]
   await api.aiReply(api.db, { ...context, instructions: 'unsaved instructions' }, turns)
-  assert.equal(api.queries.some(q => q.table === 'messages'), false)
-  assert.deepEqual(plain(api.requests[0].contents), turns.map(t => ({ role: t.role, parts: [{ text: t.text }] })))
+  assert.equal(
+    api.queries.some((q) => q.table === 'messages'),
+    false,
+  )
+  assert.deepEqual(
+    plain(api.requests[0].contents),
+    turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+  )
   assert.ok(api.requests[0].config.systemInstruction.includes('unsaved instructions'))
   assert.ok(api.requests[0].config.systemInstruction.includes('Draft product'))
 })
 
 test('an empty or model-only history cannot produce a reply', async () => {
-  for (const messages of [[], [{ customer_id: context.customerId, sender: 'admin', body: 'reply', created_at: 1 }]]) {
+  for (const messages of [
+    [],
+    [{ customer_id: context.customerId, sender: 'admin', body: 'reply', created_at: 1 }],
+  ]) {
     const api = fixture({ messages })
     assert.equal(await api.aiReply(api.db, context), null)
     assert.equal(api.requests.length, 0)
@@ -252,9 +350,13 @@ test('an empty or model-only history cannot produce a reply', async () => {
 })
 
 test('output is trimmed, Messenger-length bounded, and hands off instead of sending marker text', async () => {
-  const long = fixture({ response: { text: ` ${'ก'.repeat(2300)} `, candidates: [{ finishReason: 'MAX_TOKENS' }] } })
+  const long = fixture({
+    response: { text: ` ${'ก'.repeat(2300)} `, candidates: [{ finishReason: 'MAX_TOKENS' }] },
+  })
   assert.equal((await long.aiReply(long.db, context)).length, 2000)
-  const handover = fixture({ response: { text: 'โปรดติดต่อแอดมิน [HANDOVER]', candidates: [{ finishReason: 'STOP' }] } })
+  const handover = fixture({
+    response: { text: 'โปรดติดต่อแอดมิน [HANDOVER]', candidates: [{ finishReason: 'STOP' }] },
+  })
   assert.equal(await handover.aiReply(handover.db, context), handover.HANDOVER_TOKEN)
   for (const text of [undefined, '', '   ']) {
     const api = fixture({ response: { text, candidates: [{ finishReason: 'STOP' }] } })
@@ -265,8 +367,16 @@ test('output is trimmed, Messenger-length bounded, and hands off instead of send
 test('Gemini prompt blocks or unsafe/failed candidate finishes fall back even with text', async () => {
   const responses = [
     { text: 'blocked text', promptFeedback: { blockReason: 'SAFETY' } },
-    ...['SAFETY', 'RECITATION', 'OTHER', 'PROHIBITED_CONTENT', 'SPII', 'MALFORMED_FUNCTION_CALL'].map((finishReason) => ({
-      text: 'do not send this', candidates: [{ finishReason }],
+    ...[
+      'SAFETY',
+      'RECITATION',
+      'OTHER',
+      'PROHIBITED_CONTENT',
+      'SPII',
+      'MALFORMED_FUNCTION_CALL',
+    ].map((finishReason) => ({
+      text: 'do not send this',
+      candidates: [{ finishReason }],
     })),
   ]
   for (const response of responses) {
@@ -318,11 +428,16 @@ test('automatic chat delivers a Gemini answer once and retains the existing fall
 })
 
 test('Failed AI chooses an array fallback and uses the default after all messages are deleted', async () => {
-  const api = fixture({ sdkError: new ApiError({ status: 429, message: 'quota' }),
-    settings: { fallback_messages: ['first fallback', 'second fallback'] } })
+  const api = fixture({
+    sdkError: new ApiError({ status: 429, message: 'quota' }),
+    settings: { fallback_messages: ['first fallback', 'second fallback'] },
+  })
   await api.answerChat(api.db, incoming)
   assert.ok(['first fallback', 'second fallback'].includes(api.deliveries[0][3]))
-  const empty = fixture({ sdkError: new ApiError({ status: 429, message: 'quota' }), settings: { fallback_messages: [] } })
+  const empty = fixture({
+    sdkError: new ApiError({ status: 429, message: 'quota' }),
+    settings: { fallback_messages: [] },
+  })
   await empty.answerChat(empty.db, incoming)
   assert.equal(empty.deliveries[0][3], fallbacks.DEFAULT_FALLBACK_MESSAGE)
 })
@@ -351,8 +466,16 @@ test('Playground reports missing key, rate limits, invalid key, retired model, t
   const cases = [
     [{ env: {} }, 'MISSING_API_KEY', 503],
     [{ sdkError: new ApiError({ status: 429, message: 'quota exceeded' }) }, 'RATE_LIMIT', 429],
-    [{ sdkError: new ApiError({ status: 403, message: 'permission denied' }) }, 'INVALID_API_KEY', 503],
-    [{ sdkError: new ApiError({ status: 404, message: 'model unavailable' }) }, 'MODEL_NOT_FOUND', 503],
+    [
+      { sdkError: new ApiError({ status: 403, message: 'permission denied' }) },
+      'INVALID_API_KEY',
+      503,
+    ],
+    [
+      { sdkError: new ApiError({ status: 404, message: 'model unavailable' }) },
+      'MODEL_NOT_FOUND',
+      503,
+    ],
     [{ sdkError: new Error('request timed out') }, 'TIMEOUT', 504],
     [{ response: { promptFeedback: { blockReason: 'SAFETY' } } }, 'SAFETY_BLOCK', 422],
     [{ response: { candidates: [{ finishReason: 'SAFETY' }] } }, 'GENERATION_BLOCKED', 422],
@@ -360,7 +483,10 @@ test('Playground reports missing key, rate limits, invalid key, retired model, t
   ]
   for (const [options, code, status] of cases) {
     const api = fixture(options)
-    await assert.rejects(api.aiReply(api.db, context, [{ role: 'user', text: 'test' }], true), error => error.code === code && error.status === status)
+    await assert.rejects(
+      api.aiReply(api.db, context, [{ role: 'user', text: 'test' }], true),
+      (error) => error.code === code && error.status === status,
+    )
   }
 })
 
@@ -372,8 +498,13 @@ test('Configured Gemini model is used without incompatible thinking options', as
 })
 
 test('GEMINI_MODEL handles unset, empty, whitespace, quotes and models/ prefix', async () => {
-  for (const [value, expected] of [[undefined, 'gemini-2.5-flash'], ['', 'gemini-2.5-flash'], ['   ', 'gemini-2.5-flash'],
-    [' models/gemini-2.5-pro ', 'gemini-2.5-pro'], ['"gemini-2.5-pro"', 'gemini-2.5-pro']]) {
+  for (const [value, expected] of [
+    [undefined, 'gemini-2.5-flash'],
+    ['', 'gemini-2.5-flash'],
+    ['   ', 'gemini-2.5-flash'],
+    [' models/gemini-2.5-pro ', 'gemini-2.5-pro'],
+    ['"gemini-2.5-pro"', 'gemini-2.5-pro'],
+  ]) {
     const api = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: value } })
     await api.aiReply(api.db, context)
     assert.equal(api.requests[0].model, expected)
@@ -381,24 +512,61 @@ test('GEMINI_MODEL handles unset, empty, whitespace, quotes and models/ prefix',
 })
 
 test('Unknown configured model retries default once; rate limit never switches model', async () => {
-  const api = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'retired-model' },
-    sdkError: request => request.model === 'retired-model' ? new ApiError({ status: 404, message: 'not found' }) : null })
-  assert.equal(await api.aiReply(api.db, context, [{ role: 'user', text: 'hello' }], true), 'สวัสดีค่ะ')
-  assert.deepEqual(api.requests.map(r => r.model), ['retired-model', 'gemini-2.5-flash'])
-  const failed = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'retired-model' }, sdkError: new ApiError({ status: 404, message: 'not found' }) })
-  await assert.rejects(failed.aiReply(failed.db, context, [{ role: 'user', text: 'hello' }], true), error => error.code === 'MODEL_NOT_FOUND')
+  const api = fixture({
+    env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'retired-model' },
+    sdkError: (request) =>
+      request.model === 'retired-model'
+        ? new ApiError({ status: 404, message: 'not found' })
+        : null,
+  })
+  assert.equal(
+    await api.aiReply(api.db, context, [{ role: 'user', text: 'hello' }], true),
+    'สวัสดีค่ะ',
+  )
+  assert.deepEqual(
+    api.requests.map((r) => r.model),
+    ['retired-model', 'gemini-2.5-flash'],
+  )
+  const failed = fixture({
+    env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'retired-model' },
+    sdkError: new ApiError({ status: 404, message: 'not found' }),
+  })
+  await assert.rejects(
+    failed.aiReply(failed.db, context, [{ role: 'user', text: 'hello' }], true),
+    (error) => error.code === 'MODEL_NOT_FOUND',
+  )
   assert.equal(failed.requests.length, 2)
-  const limited = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'custom-model' }, sdkError: new ApiError({ status: 429, message: 'quota' }) })
-  await assert.rejects(limited.aiReply(limited.db, context, [{ role: 'user', text: 'hello' }], true), error => error.code === 'RATE_LIMIT')
+  const limited = fixture({
+    env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'custom-model' },
+    sdkError: new ApiError({ status: 429, message: 'quota' }),
+  })
+  await assert.rejects(
+    limited.aiReply(limited.db, context, [{ role: 'user', text: 'hello' }], true),
+    (error) => error.code === 'RATE_LIMIT',
+  )
   assert.equal(limited.requests.length, 1)
 })
 
 test('Overloaded Gemini (503) retries once on the default model, then reports MODEL_OVERLOADED', async () => {
-  const recovered = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'custom-model' },
-    sdkError: request => request.model === 'custom-model' ? new ApiError({ status: 503, message: 'overloaded' }) : null })
-  assert.equal(await recovered.aiReply(recovered.db, context, [{ role: 'user', text: 'hello' }], true), 'สวัสดีค่ะ')
-  assert.deepEqual(recovered.requests.map(r => r.model), ['custom-model', 'gemini-2.5-flash'])
+  const recovered = fixture({
+    env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'custom-model' },
+    sdkError: (request) =>
+      request.model === 'custom-model'
+        ? new ApiError({ status: 503, message: 'overloaded' })
+        : null,
+  })
+  assert.equal(
+    await recovered.aiReply(recovered.db, context, [{ role: 'user', text: 'hello' }], true),
+    'สวัสดีค่ะ',
+  )
+  assert.deepEqual(
+    recovered.requests.map((r) => r.model),
+    ['custom-model', 'gemini-2.5-flash'],
+  )
   const failed = fixture({ sdkError: new ApiError({ status: 503, message: 'overloaded' }) })
-  await assert.rejects(failed.aiReply(failed.db, context, [{ role: 'user', text: 'hello' }], true), error => error.code === 'MODEL_OVERLOADED' && error.status === 503)
+  await assert.rejects(
+    failed.aiReply(failed.db, context, [{ role: 'user', text: 'hello' }], true),
+    (error) => error.code === 'MODEL_OVERLOADED' && error.status === 503,
+  )
   assert.equal(failed.requests.length, 2)
 })

@@ -33,11 +33,17 @@ export async function POST(req: NextRequest) {
   if ('error' in token) return bad(token.error)
 
   const db = supabaseAdmin()
-  const { data, error } = await db.from('tenants').insert(parsed.value).select(TENANT_COLUMNS).single()
+  const { data, error } = await db
+    .from('tenants')
+    .insert(parsed.value)
+    .select(TENANT_COLUMNS)
+    .single()
   if (error?.code === '23505') return bad('Facebook Page นี้ผูกกับร้านอื่นอยู่แล้ว', 409)
   if (error) return bad(`บันทึกไม่สำเร็จ: ${error.message}`, 500)
   if (actor.kind === 'user') {
-    const { error: memberError } = await db.from('tenant_members').insert({ tenant_id: data.id, user_id: actor.id, role: 'owner' })
+    const { error: memberError } = await db
+      .from('tenant_members')
+      .insert({ tenant_id: data.id, user_id: actor.id, role: 'owner' })
     if (memberError) console.error('[tenants] could not add the creator as owner', memberError)
   }
   return NextResponse.json({ tenant: data, warnings: token.warnings }, { status: 201 })

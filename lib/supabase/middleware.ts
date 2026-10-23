@@ -4,7 +4,15 @@ import { getSupabaseEnv } from '@/lib/supabase/env'
 import { safeAuthNext } from '@/lib/oauth'
 
 // หน้าที่เข้าได้โดยไม่ต้องล็อกอิน
-const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/auth', '/p', '/s']
+const PUBLIC_PATHS = [
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/auth',
+  '/p',
+  '/s',
+]
 const isPublic = (p: string) => PUBLIC_PATHS.some((x) => p === x || p.startsWith(x + '/'))
 
 export async function updateSession(request: NextRequest) {

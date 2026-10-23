@@ -1,7 +1,7 @@
 'use client'
 
-import {useEffect, useState} from 'react'
-import {messengerWindow} from '@/lib/features/inbox/inbox-v2'
+import { useEffect, useState } from 'react'
+import { messengerWindow } from '@/lib/features/inbox/inbox-v2'
 
 export function useMessengerWindow(timestamp: string | null | undefined, serverNow?: string) {
   const [now, setNow] = useState(Date.now)

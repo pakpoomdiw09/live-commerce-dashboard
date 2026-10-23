@@ -14,16 +14,26 @@ const getProduct = cache(async (id: string) => {
   if (!UUID.test(id)) return null
   const { data } = await supabaseAdmin()
     .from('products')
-    .select('id, code, name, price, stock, description, image_url, is_active, tenants!inner(name, page_id, is_active)')
+    .select(
+      'id, code, name, price, stock, description, image_url, is_active, tenants!inner(name, page_id, is_active)',
+    )
     .eq('id', id)
     .eq('is_active', true)
     .eq('tenants.is_active', true)
     .maybeSingle()
   if (!data) return null
-  return { ...data, price: Number(data.price), tenant: data.tenants as unknown as { name: string; page_id: string | null } | null }
+  return {
+    ...data,
+    price: Number(data.price),
+    tenant: data.tenants as unknown as { name: string; page_id: string | null } | null,
+  }
 })
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<Metadata> {
   const p = await getProduct((await params).id)
   if (!p) return { title: 'ไม่พบสินค้า' }
   const description = `${baht(p.price)}${p.description ? ` · ${p.description.slice(0, 140)}` : ''}`
@@ -52,18 +62,32 @@ export default async function SalePage({ params }: { params: Promise<{ id: strin
               <Package className="h-16 w-16" aria-hidden />
             </span>
           )}
-          {soldOut && <span className="absolute top-3 right-3 rounded-full bg-slate-900/85 px-3 py-1 text-sm font-semibold text-white">สินค้าหมด</span>}
+          {soldOut && (
+            <span className="absolute top-3 right-3 rounded-full bg-slate-900/85 px-3 py-1 text-sm font-semibold text-white">
+              สินค้าหมด
+            </span>
+          )}
         </div>
 
         <div className="space-y-5 p-6">
           <div>
-            {p.tenant?.name && <p className="text-xs font-medium tracking-wide text-orange-600 uppercase">{p.tenant.name}</p>}
+            {p.tenant?.name && (
+              <p className="text-xs font-medium tracking-wide text-orange-600 uppercase">
+                {p.tenant.name}
+              </p>
+            )}
             <h1 className="mt-1 text-xl font-bold text-slate-900">{p.name}</h1>
             <p className="mt-2 text-2xl font-bold text-orange-600 tabular-nums">{baht(p.price)}</p>
-            {!soldOut && p.stock <= 5 && <p className="mt-1 text-sm font-medium text-rose-600">เหลือเพียง {p.stock} ชิ้น</p>}
+            {!soldOut && p.stock <= 5 && (
+              <p className="mt-1 text-sm font-medium text-rose-600">เหลือเพียง {p.stock} ชิ้น</p>
+            )}
           </div>
 
-          {p.description && <p className="text-sm leading-relaxed whitespace-pre-line text-slate-600">{p.description}</p>}
+          {p.description && (
+            <p className="text-sm leading-relaxed whitespace-pre-line text-slate-600">
+              {p.description}
+            </p>
+          )}
 
           {!soldOut && (
             <div className="rounded-2xl bg-slate-50 p-4">

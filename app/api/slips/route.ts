@@ -12,12 +12,24 @@ export async function GET(req: NextRequest) {
     const actor = await getActor(req)
     if (!actor || actor.kind !== 'user') throw new InboxError('กรุณาเข้าสู่ระบบ', 401)
     const tenantId = req.nextUrl.searchParams.get('tenantId') ?? (await getActiveTenant())?.id ?? ''
-    if (!UUID.test(tenantId) || !await canAccessTenant(actor, tenantId)) throw new InboxError('ไม่พบร้านค้าหรือไม่มีสิทธิ์', 404)
+    if (!UUID.test(tenantId) || !(await canAccessTenant(actor, tenantId)))
+      throw new InboxError('ไม่พบร้านค้าหรือไม่มีสิทธิ์', 404)
     const limit = Number(req.nextUrl.searchParams.get('limit') ?? '200')
-    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new InboxError('จำนวนรายการต้องอยู่ระหว่าง 1 ถึง 200', 400)
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200)
+      throw new InboxError('จำนวนรายการต้องอยู่ระหว่าง 1 ถึง 200', 400)
     const db = await supabaseServer()
-    const { data, error } = await db.from('slips').select(`${SLIP_COLUMNS}, customers(display_name)`).or(tenantFilter(tenantId)).order('created_at', { ascending: false }).limit(limit)
+    const { data, error } = await db
+      .from('slips')
+      .select(`${SLIP_COLUMNS}, customers(display_name)`)
+      .or(tenantFilter(tenantId))
+      .order('created_at', { ascending: false })
+      .limit(limit)
     if (error) throw new InboxError('โหลดประวัติสลิปไม่ได้ กรุณาลองใหม่', 503, 'SLIPS_UNAVAILABLE')
-    return NextResponse.json({ slips: data ?? [] }, { headers: { 'Cache-Control': 'private, no-store' } })
-  } catch (error) { return inboxError(error) }
+    return NextResponse.json(
+      { slips: data ?? [] },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    )
+  } catch (error) {
+    return inboxError(error)
+  }
 }

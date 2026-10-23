@@ -1,7 +1,11 @@
 // ใช้ได้ทั้งฝั่ง server, browser และ middleware (ห้ามใส่ 'server-only' ในไฟล์นี้)
 
 // ล้างช่องว่าง และเครื่องหมายคำพูดที่เผลอใส่ใน .env (เช่น KEY="abc" หรือมีเว้นวรรคท้ายบรรทัด)
-const clean = (v: string | undefined) => (v ?? '').trim().replace(/^(['"])(.*)\1$/, '$2').trim()
+const clean = (v: string | undefined) =>
+  (v ?? '')
+    .trim()
+    .replace(/^(['"])(.*)\1$/, '$2')
+    .trim()
 
 export type SupabaseEnv = { url: string; anonKey: string }
 

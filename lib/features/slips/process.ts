@@ -4,7 +4,11 @@ import { verifyWithSlipOK, type SlipVerdict } from '@/lib/features/slips/slipok'
 import { requireFeature } from '@/lib/feature-access'
 import { pendingOrders } from '@/lib/features/commerce/orders'
 import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
-export { accountMatches, bankMatches, receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
+export {
+  accountMatches,
+  bankMatches,
+  receiverMatchesAny,
+} from '@/lib/features/slips/receiver-matching'
 
 export const SLIP_MAX_BYTES = 5 * 1024 * 1024
 export const SLIP_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -48,21 +52,47 @@ export type ProcessedSlip = {
  */
 export async function processSlip(
   db: SupabaseClient,
-  { file, qr, customerId = null, messageId = null, expectedAmount, tenant = null, orderIds = [] }: Input,
+  {
+    file,
+    qr,
+    customerId = null,
+    messageId = null,
+    expectedAmount,
+    tenant = null,
+    orderIds = [],
+  }: Input,
 ): Promise<ProcessedSlip> {
   if (!tenant) throw new Error('FEATURE_LOCKED: tenant required')
   await requireFeature(db, tenant.id, 'slip_auto_pilot')
   if (process.env.PAYMENT_PRO_ENABLED === 'true') {
     const { processPaymentPro } = await import('@/lib/features/payments/payment-pro')
-    const result = await processPaymentPro(db, { file, qr, customerId, messageId, expectedAmount, tenant, orderIds })
+    const result = await processPaymentPro(db, {
+      file,
+      qr,
+      customerId,
+      messageId,
+      expectedAmount,
+      tenant,
+      orderIds,
+    })
     if (result) return result
   }
   let accounts: { bank_code: string; account_number: string; is_active: boolean }[] = []
   if (tenant) {
-    const { data, error } = await db.from('bank_accounts').select('bank_code,account_number,is_active').eq('tenant_id',tenant.id).eq('is_active',true)
+    const { data, error } = await db
+      .from('bank_accounts')
+      .select('bank_code,account_number,is_active')
+      .eq('tenant_id', tenant.id)
+      .eq('is_active', true)
     if (error) throw new Error('อ่านบัญชีรับเงินไม่ได้ กรุณาตรวจสอบการติดตั้ง bank-accounts.sql')
-    accounts=data??[]
-    if (!accounts.length) return { status:'error',amount:null,transRef:null,note:'กรุณาเพิ่มหรือเปิดใช้งานบัญชีรับเงินของร้านก่อนตรวจสลิป' }
+    accounts = data ?? []
+    if (!accounts.length)
+      return {
+        status: 'error',
+        amount: null,
+        transRef: null,
+        note: 'กรุณาเพิ่มหรือเปิดใช้งานบัญชีรับเงินของร้านก่อนตรวจสลิป',
+      }
   }
   // The database's outstanding order total always wins over manual/client amounts.
   if (customerId && tenant) {
@@ -100,7 +130,13 @@ export async function processSlip(
       const { error: removeError } = await db.storage.from('slips').remove([imagePath])
       if (removeError) console.error('could not remove orphan slip image', imagePath, removeError)
     }
-    return { status: 'error', amount: null, transRef: null, note: null, failure: 'db insert failed' }
+    return {
+      status: 'error',
+      amount: null,
+      transRef: null,
+      note: null,
+      failure: 'db insert failed',
+    }
   }
 
   // 3-4) From here on the row must not stay 'pending', whatever fails.
@@ -108,10 +144,15 @@ export async function processSlip(
   try {
     // every SlipOK call costs the tenant one credit, taken atomically before the call
     if (tenant) {
-      const { data: hasCredit, error: creditError } = await db.rpc('consume_slip_credit', { p_tenant: tenant.id })
+      const { data: hasCredit, error: creditError } = await db.rpc('consume_slip_credit', {
+        p_tenant: tenant.id,
+      })
       if (creditError) throw new Error(`credit check failed: ${creditError.message}`)
       if (!hasCredit) {
-        await db.from('slips').update({ status: 'error', note: NO_CREDIT_NOTE, verified_at: new Date().toISOString() }).eq('id', slip.id)
+        await db
+          .from('slips')
+          .update({ status: 'error', note: NO_CREDIT_NOTE, verified_at: new Date().toISOString() })
+          .eq('id', slip.id)
         return { id: slip.id, status: 'error', amount: null, transRef: null, note: NO_CREDIT_NOTE }
       }
       charged = true
@@ -124,7 +165,12 @@ export async function processSlip(
       console.debug('[slip] verification metadata', {
         verdict: r.verdict,
         activeAccountCount: accounts.length,
-        receiverMatches: receiverMatchesAny(accounts,r.receiverBank,r.receiverAccount,r.receiverProxy),
+        receiverMatches: receiverMatchesAny(
+          accounts,
+          r.receiverBank,
+          r.receiverAccount,
+          r.receiverProxy,
+        ),
       })
     }
     let verdict = r.verdict
@@ -137,17 +183,30 @@ export async function processSlip(
       note = null
     }
     // SlipOK may stop at 1014 before comparing amounts, so then a missing amount can't pass
-    if (verdict === 'valid' && expectedAmount && (r.amount === undefined || !Number.isFinite(r.amount))) {
+    if (
+      verdict === 'valid' &&
+      expectedAmount &&
+      (r.amount === undefined || !Number.isFinite(r.amount))
+    ) {
       verdict = 'amount_mismatch'
       note = `อ่านยอดในสลิปไม่ได้ ตรวจกับ ${expectedAmount} ไม่ได้`
     }
     // second check, in case a different provider doesn't compare amounts
-    if (verdict === 'valid' && expectedAmount && r.amount !== undefined && Math.abs(r.amount - expectedAmount) > 0.005) {
+    if (
+      verdict === 'valid' &&
+      expectedAmount &&
+      r.amount !== undefined &&
+      Math.abs(r.amount - expectedAmount) > 0.005
+    ) {
       verdict = 'amount_mismatch'
       note = `ยอดในสลิป ${r.amount} ไม่ตรงกับ ${expectedAmount}`
     }
     // SlipOK's receiver check knows one account per branch; each tenant has its own
-    if (verdict === 'valid' && tenant && !receiverMatchesAny(accounts,r.receiverBank,r.receiverAccount,r.receiverProxy)) {
+    if (
+      verdict === 'valid' &&
+      tenant &&
+      !receiverMatchesAny(accounts, r.receiverBank, r.receiverAccount, r.receiverProxy)
+    ) {
       verdict = 'wrong_receiver'
       note = 'บัญชีผู้รับในสลิปไม่ตรงกับบัญชีรับเงินที่เปิดใช้งานของร้าน'
     }
@@ -157,7 +216,10 @@ export async function processSlip(
       verdict = 'error'
       note = 'ไม่มีเลขอ้างอิงธุรกรรมจากผู้ให้บริการ กรุณาให้แอดมินตรวจสอบ'
     }
-    if (verdict === 'valid' && (typeof r.amount !== 'number' || !Number.isFinite(r.amount) || r.amount <= 0)) {
+    if (
+      verdict === 'valid' &&
+      (typeof r.amount !== 'number' || !Number.isFinite(r.amount) || r.amount <= 0)
+    ) {
       verdict = 'error'
       note = 'ยอดเงินจากผู้ให้บริการไม่ถูกต้อง กรุณาให้แอดมินตรวจสอบ'
     }
@@ -182,7 +244,9 @@ export async function processSlip(
     if (saveError?.code === '23505') {
       // The index has no tenant_id, so this also catches a slip already accepted by another tenant
       verdict = 'duplicate'
-      note = (await usedByOtherTenant(db, r.transRef, tenant?.id)) ? 'สลิปนี้ถูกใช้กับร้านค้าอื่นแล้ว' : 'สลิปนี้เคยถูกใช้แล้ว'
+      note = (await usedByOtherTenant(db, r.transRef, tenant?.id))
+        ? 'สลิปนี้ถูกใช้กับร้านค้าอื่นแล้ว'
+        : 'สลิปนี้เคยถูกใช้แล้ว'
       ;({ error: saveError } = await save())
     }
     if (saveError) throw new Error(`db update failed: ${saveError.message}`)
@@ -190,12 +254,21 @@ export async function processSlip(
     if (customerId) await syncOrderStatus(db, customerId, tenant.id, verdict)
     if (verdict === 'valid' && orderIds.length) await markOrdersPaid(db, orderIds, slip.id)
 
-    return { id: slip.id, status: verdict, amount: r.amount ?? null, transRef: r.transRef ?? null, note }
+    return {
+      id: slip.id,
+      status: verdict,
+      amount: r.amount ?? null,
+      transRef: r.transRef ?? null,
+      note,
+    }
   } catch (e) {
     console.error('slip verify failed', e)
     const note = 'ตรวจสลิปไม่สำเร็จ ลองส่งใหม่อีกครั้ง'
     // minimal update, so it still works if the full one was what failed
-    await db.from('slips').update({ status: 'error', note, verified_at: new Date().toISOString() }).eq('id', slip.id)
+    await db
+      .from('slips')
+      .update({ status: 'error', note, verified_at: new Date().toISOString() })
+      .eq('id', slip.id)
     return { id: slip.id, status: 'error', amount: null, transRef: null, note, crashed: true }
   }
 }
@@ -203,13 +276,23 @@ export async function processSlip(
 /** Give one credit back. Best effort: logged, never thrown, so the verdict is still saved. */
 async function refundCredit(db: SupabaseClient, tenantId: string) {
   const { error } = await db.rpc('refund_slip_credit', { p_tenant: tenantId })
-  if (error) console.error('credit refund failed (did you run supabase/platform.sql?)', tenantId, error)
+  if (error)
+    console.error('credit refund failed (did you run supabase/platform.sql?)', tenantId, error)
 }
 
 /** Whether the accepted ('valid') slip with this trans_ref belongs to a different tenant. */
-async function usedByOtherTenant(db: SupabaseClient, transRef: string | undefined, tenantId: string | undefined) {
+async function usedByOtherTenant(
+  db: SupabaseClient,
+  transRef: string | undefined,
+  tenantId: string | undefined,
+) {
   if (!transRef) return false
-  const { data } = await db.from('slips').select('tenant_id').eq('trans_ref', transRef).eq('status', 'valid').maybeSingle()
+  const { data } = await db
+    .from('slips')
+    .select('tenant_id')
+    .eq('trans_ref', transRef)
+    .eq('status', 'valid')
+    .maybeSingle()
   return !!data && data.tenant_id !== (tenantId ?? null)
 }
 
@@ -217,7 +300,12 @@ async function usedByOtherTenant(db: SupabaseClient, transRef: string | undefine
  * Move the customer's order along: a valid slip means paid, anything else needs an admin.
  * Best effort: the slip verdict is already saved, so a failure here is only logged.
  */
-async function syncOrderStatus(db: SupabaseClient, customerId: string, tenantId: string, verdict: SlipVerdict) {
+async function syncOrderStatus(
+  db: SupabaseClient,
+  customerId: string,
+  tenantId: string,
+  verdict: SlipVerdict,
+) {
   const { error } = await db
     .from('customers')
     .update({ order_status: verdict === 'valid' ? 'paid' : 'pending_review' })

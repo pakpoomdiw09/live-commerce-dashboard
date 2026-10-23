@@ -12,8 +12,10 @@ export async function POST(req: NextRequest) {
   if (!actor) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   const input = await req.json().catch(() => null)
   const tenantId = String(input?.tenantId ?? '')
-  if (!UUID.test(tenantId)) return NextResponse.json({ error: 'tenantId must be a uuid' }, { status: 400 })
-  if (!(await canAccessTenant(actor, tenantId))) return NextResponse.json({ error: 'tenant not found' }, { status: 404 })
+  if (!UUID.test(tenantId))
+    return NextResponse.json({ error: 'tenantId must be a uuid' }, { status: 400 })
+  if (!(await canAccessTenant(actor, tenantId)))
+    return NextResponse.json({ error: 'tenant not found' }, { status: 404 })
 
   // Discard prefetched Page data before the picker navigates and refreshes.
   revalidatePath('/', 'layout')

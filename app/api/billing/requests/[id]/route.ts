@@ -23,24 +23,42 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!['approve', 'reject', 'cancel'].includes(action)) return bad('unknown action')
 
   const db = supabaseAdmin()
-  const { data: r } = await db.from('billing_requests').select('tenant_id, status').eq('id', id).maybeSingle()
+  const { data: r } = await db
+    .from('billing_requests')
+    .select('tenant_id, status')
+    .eq('id', id)
+    .maybeSingle()
   if (!r || !(await canAccessTenant(actor, r.tenant_id))) return bad('request not found', 404)
   if (r.status !== 'pending') return bad('คำขอนี้ถูกดำเนินการไปแล้ว', 409)
   const adminId = actor.kind === 'user' ? actor.id : null
 
   if (action === 'approve') {
     if (!isPlatformAdmin(actor)) return bad('เฉพาะผู้ดูแลแพลตฟอร์มเท่านั้นที่อนุมัติได้', 403)
-    const { data: refused, error } = await db.rpc('approve_billing_request', { p_request: id, p_admin: adminId })
-    if (error) return bad(error.code === '23505' ? 'สลิปนี้เคยใช้ชำระเงินแล้ว กรุณาตรวจสอบคำสั่งซื้อ' : error.message, error.code === '23505' ? 409 : 500)
+    const { data: refused, error } = await db.rpc('approve_billing_request', {
+      p_request: id,
+      p_admin: adminId,
+    })
+    if (error)
+      return bad(
+        error.code === '23505' ? 'สลิปนี้เคยใช้ชำระเงินแล้ว กรุณาตรวจสอบคำสั่งซื้อ' : error.message,
+        error.code === '23505' ? 409 : 500,
+      )
     if (refused) return bad(String(refused), 409)
     return NextResponse.json({ ok: true })
   }
 
-  if (action === 'reject' && !isPlatformAdmin(actor)) return bad('เฉพาะผู้ดูแลแพลตฟอร์มเท่านั้นที่ปฏิเสธได้', 403)
-  if (action === 'cancel' && !(await canAccessTenant(actor, r.tenant_id, 'owner'))) return bad('เฉพาะเจ้าของร้านเท่านั้นที่ยกเลิกได้', 403)
+  if (action === 'reject' && !isPlatformAdmin(actor))
+    return bad('เฉพาะผู้ดูแลแพลตฟอร์มเท่านั้นที่ปฏิเสธได้', 403)
+  if (action === 'cancel' && !(await canAccessTenant(actor, r.tenant_id, 'owner')))
+    return bad('เฉพาะเจ้าของร้านเท่านั้นที่ยกเลิกได้', 403)
   const { data: decided, error } = await db
     .from('billing_requests')
-    .update({ status: action === 'reject' ? 'rejected' : 'cancelled', note, decided_by: adminId, decided_at: new Date().toISOString() })
+    .update({
+      status: action === 'reject' ? 'rejected' : 'cancelled',
+      note,
+      decided_by: adminId,
+      decided_at: new Date().toISOString(),
+    })
     .eq('id', id)
     .eq('status', 'pending')
     .select('id')

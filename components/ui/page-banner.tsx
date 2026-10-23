@@ -1,7 +1,12 @@
 import type { HTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
-export function PageBanner({ as: Container = 'header', compact = false, className, ...props }: HTMLAttributes<HTMLElement> & { as?: 'header' | 'div'; compact?: boolean }) {
+export function PageBanner({
+  as: Container = 'header',
+  compact = false,
+  className,
+  ...props
+}: HTMLAttributes<HTMLElement> & { as?: 'header' | 'div'; compact?: boolean }) {
   return (
     <Container
       {...props}

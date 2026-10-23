@@ -1,4 +1,3 @@
-
 export type SlipVerdict = Exclude<import('@/lib/domain-state').LegacySlipState, 'pending'>
 
 export type SlipResult = {
@@ -41,7 +40,12 @@ type Input = { file?: File; qr?: string; expectedAmount?: number; log?: boolean 
  * For another provider (e.g. EasySlip) write a function with the same signature and map
  * its errors onto the same SlipVerdict values.
  */
-export async function verifyWithSlipOK({ file, qr, expectedAmount, log = true }: Input): Promise<SlipResult> {
+export async function verifyWithSlipOK({
+  file,
+  qr,
+  expectedAmount,
+  log = true,
+}: Input): Promise<SlipResult> {
   const headers: Record<string, string> = { 'x-authorization': process.env.SLIPOK_API_KEY! }
   let body: BodyInit
 
@@ -60,17 +64,31 @@ export async function verifyWithSlipOK({ file, qr, expectedAmount, log = true }:
 
   let json: any
   try {
-    const res = await fetch(`https://api.slipok.com/api/line/apikey/${process.env.SLIPOK_BRANCH_ID}`, {
-      method: 'POST',
-      headers,
-      body,
-      signal: AbortSignal.timeout(20_000),
-    })
+    const res = await fetch(
+      `https://api.slipok.com/api/line/apikey/${process.env.SLIPOK_BRANCH_ID}`,
+      {
+        method: 'POST',
+        headers,
+        body,
+        signal: AbortSignal.timeout(20_000),
+      },
+    )
     json = await res.json()
-    if (!res.ok) return { verdict: 'error', note: 'ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่ภายหลัง', raw: json, providerFault: true }
+    if (!res.ok)
+      return {
+        verdict: 'error',
+        note: 'ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่ภายหลัง',
+        raw: json,
+        providerFault: true,
+      }
   } catch (e) {
     // timeout, network error, or a non-JSON answer (gateway error page)
-    return { verdict: 'error', note: 'ตรวจสอบสลิปผ่านระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง', raw: String(e), providerFault: true }
+    return {
+      verdict: 'error',
+      note: 'ตรวจสอบสลิปผ่านระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+      raw: String(e),
+      providerFault: true,
+    }
   }
 
   const slipData = (data: any) => {
@@ -85,26 +103,52 @@ export async function verifyWithSlipOK({ file, qr, expectedAmount, log = true }:
   }
 
   if (json?.success && json?.data?.success) {
-    return { verdict: 'valid', ...slipData(json.data), receiverVerifiedByProvider: log && json.success === true && json.data.success === true, raw: json }
+    return {
+      verdict: 'valid',
+      ...slipData(json.data),
+      receiverVerifiedByProvider: log && json.success === true && json.data.success === true,
+      raw: json,
+    }
   }
 
   // Error codes: https://slipok.com/api-documentation/error-status-code/
-  const base = { raw: json, note: typeof json?.message === 'string' ? json.message.replace(/slip\s*ok/gi, 'ระบบตรวจสอบสลิปอัตโนมัติ') : undefined }
+  const base = {
+    raw: json,
+    note:
+      typeof json?.message === 'string'
+        ? json.message.replace(/slip\s*ok/gi, 'ระบบตรวจสอบสลิปอัตโนมัติ')
+        : undefined,
+  }
   const slip = json?.data // 1012 also returns the original slip's data
   const code = Number(json?.code)
   switch (code) {
     case 1014:
       // the slip itself is genuine; only SlipOK's single-account receiver check failed
-      if (slip?.receiver) return { ...base, verdict: 'wrong_receiver', ...slipData(slip), branchReceiverMismatch: true }
+      if (slip?.receiver)
+        return {
+          ...base,
+          verdict: 'wrong_receiver',
+          ...slipData(slip),
+          branchReceiverMismatch: true,
+        }
       return { ...base, verdict: 'wrong_receiver' }
     case 1012:
-      return { ...base, verdict: 'duplicate', amount: slip?.amount != null ? Number(slip.amount) : undefined, transRef: slip?.transRef }
+      return {
+        ...base,
+        verdict: 'duplicate',
+        amount: slip?.amount != null ? Number(slip.amount) : undefined,
+        transRef: slip?.transRef,
+      }
     case 1013:
       return { ...base, verdict: 'amount_mismatch' }
     case 1011:
       return { ...base, verdict: 'fake' } // QR expired or no such transfer
     default:
       // 1005-1008: ask for a clearer image; provider faults (and unknown answers): retry later
-      return { ...base, verdict: 'error', providerFault: !Number.isFinite(code) || PROVIDER_FAULT_CODES.has(code) }
+      return {
+        ...base,
+        verdict: 'error',
+        providerFault: !Number.isFinite(code) || PROVIDER_FAULT_CODES.has(code),
+      }
   }
 }

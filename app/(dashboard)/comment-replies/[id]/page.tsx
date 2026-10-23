@@ -12,7 +12,12 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
   if (!tenant) notFound()
   // RLS hides rules of other tenants; the tenant_id filter keeps a platform admin inside the active shop
   const [{ data: rule }, pages] = await Promise.all([
-    db.from('comment_rules').select(RULE_COLUMNS).eq('id', id).eq('tenant_id', tenant.id).maybeSingle(),
+    db
+      .from('comment_rules')
+      .select(RULE_COLUMNS)
+      .eq('id', id)
+      .eq('tenant_id', tenant.id)
+      .maybeSingle(),
     tenantPages(tenant),
   ])
   if (!rule) notFound()

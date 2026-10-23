@@ -16,11 +16,21 @@ const SUGGESTED_TAGS = ['VIP', 'ลูกค้าใหม่', 'ลูกค�
 const input =
   'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 focus:outline-none'
 
-export function CustomerPanel({ customer, slips, onSaved }: { customer: CustomerRow; slips: SlipRow[]; onSaved: (c: CustomerRow) => void }) {
+export function CustomerPanel({
+  customer,
+  slips,
+  onSaved,
+}: {
+  customer: CustomerRow
+  slips: SlipRow[]
+  onSaved: (c: CustomerRow) => void
+}) {
   const [editing, setEditing] = useState(false)
   useEffect(() => setEditing(false), [customer.id])
 
-  const paid = slips.filter((s) => s.status === 'valid').reduce((sum, s) => sum + Number(s.amount ?? 0), 0)
+  const paid = slips
+    .filter((s) => s.status === 'valid')
+    .reduce((sum, s) => sum + Number(s.amount ?? 0), 0)
   const order = ORDER_STATUS[customer.order_status] ?? ORDER_STATUS.new
 
   return (
@@ -29,17 +39,26 @@ export function CustomerPanel({ customer, slips, onSaved }: { customer: Customer
         <Avatar c={customer} className="h-12 w-12 text-lg" />
         <div className="min-w-0 flex-1">
           <h3 className="truncate font-semibold text-slate-900">{customerName(customer)}</h3>
-          <p className="text-[11px] text-slate-500">รหัสลูกค้า ...{customer.platform_user_id.slice(-6)}</p>
+          <p className="text-[11px] text-slate-500">
+            รหัสลูกค้า ...{customer.platform_user_id.slice(-6)}
+          </p>
         </div>
         {!editing && (
-          <Button variant="ghost" size="icon" onClick={() => setEditing(true)} aria-label="แก้ไขข้อมูลลูกค้า">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setEditing(true)}
+            aria-label="แก้ไขข้อมูลลูกค้า"
+          >
             <Pencil className="h-4 w-4" />
           </Button>
         )}
       </div>
 
       {editing ? (
-        <CustomerForm customer={customer} onCancel={() => setEditing(false)} 
+        <CustomerForm
+          customer={customer}
+          onCancel={() => setEditing(false)}
           onSaved={(c) => {
             onSaved(c)
             setEditing(false)
@@ -87,28 +106,53 @@ export function CustomerPanel({ customer, slips, onSaved }: { customer: Customer
         </>
       )}
 
-      <details className="mt-4 rounded-xl bg-slate-50 p-3"><summary className="cursor-pointer text-xs font-medium text-slate-600">การตอบอัตโนมัติในแชทนี้</summary><div className="mt-3">
-        <BotToggle customerId={customer.id} enabled={customer.bot_enabled} />
-        <p className="mt-1.5 text-[11px] text-slate-500">ปิดเมื่อแอดมินต้องการคุยกับลูกค้าเอง ระบบอัตโนมัติจะไม่ตอบแชทนี้</p>
-      </div></details>
+      <details className="mt-4 rounded-xl bg-slate-50 p-3">
+        <summary className="cursor-pointer text-xs font-medium text-slate-600">
+          การตอบอัตโนมัติในแชทนี้
+        </summary>
+        <div className="mt-3">
+          <BotToggle customerId={customer.id} enabled={customer.bot_enabled} />
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            ปิดเมื่อแอดมินต้องการคุยกับลูกค้าเอง ระบบอัตโนมัติจะไม่ตอบแชทนี้
+          </p>
+        </div>
+      </details>
     </section>
   )
 }
 
-function Info({ icon: Icon, label, children }: { icon: typeof Phone; label: string; children: React.ReactNode }) {
+function Info({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: typeof Phone
+  label: string
+  children: React.ReactNode
+}) {
   return (
     <div className="flex gap-2.5">
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
       <div className="min-w-0">
         <dt className="text-[11px] text-slate-500">{label}</dt>
-        <dd className="break-words whitespace-pre-wrap text-slate-800">{children || <span className="text-slate-400">ยังไม่ได้ระบุ</span>}</dd>
+        <dd className="break-words whitespace-pre-wrap text-slate-800">
+          {children || <span className="text-slate-400">ยังไม่ได้ระบุ</span>}
+        </dd>
       </div>
     </div>
   )
 }
 
-function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; onCancel: () => void; onSaved: (c: CustomerRow) => void }) {
-  const [displayName,setDisplayName]=useState(customer.display_name??'')
+function CustomerForm({
+  customer,
+  onCancel,
+  onSaved,
+}: {
+  customer: CustomerRow
+  onCancel: () => void
+  onSaved: (c: CustomerRow) => void
+}) {
+  const [displayName, setDisplayName] = useState(customer.display_name ?? '')
   const [phone, setPhone] = useState(customer.phone ?? '')
   const [address, setAddress] = useState(customer.address ?? '')
   const [notes, setNotes] = useState(customer.notes ?? '')
@@ -132,7 +176,14 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
       const res = await fetch(`/api/customers/${customer.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name:displayName, phone, address, notes, tags, order_status: orderStatus }),
+        body: JSON.stringify({
+          display_name: displayName,
+          phone,
+          address,
+          notes,
+          tags,
+          order_status: orderStatus,
+        }),
       })
       if (!res.ok) throw new Error(await apiError(res))
       onSaved(((await res.json()) as { customer: CustomerRow }).customer)
@@ -145,18 +196,42 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
 
   return (
     <form onSubmit={save} className="mt-4 space-y-3">
-      <label className="block"><span className="mb-1 block text-xs font-medium text-slate-600">ชื่อลูกค้า</span><input className={input} value={displayName} onChange={e=>setDisplayName(e.target.value)} maxLength={120}/></label>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-slate-600">ชื่อลูกค้า</span>
+        <input
+          className={input}
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          maxLength={120}
+        />
+      </label>
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-slate-600">เบอร์โทรศัพท์</span>
-        <input className={input} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="08x-xxx-xxxx" />
+        <input
+          className={input}
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          inputMode="tel"
+          placeholder="08x-xxx-xxxx"
+        />
       </label>
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-slate-600">ที่อยู่จัดส่ง</span>
-        <textarea className={input} rows={3} value={address} onChange={(e) => setAddress(e.target.value)} maxLength={500} />
+        <textarea
+          className={input}
+          rows={3}
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          maxLength={500}
+        />
       </label>
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-slate-600">สถานะออเดอร์</span>
-        <select className={input} value={orderStatus} onChange={(e) => setOrderStatus(e.target.value as OrderStatus)}>
+        <select
+          className={input}
+          value={orderStatus}
+          onChange={(e) => setOrderStatus(e.target.value as OrderStatus)}
+        >
           {ORDER_STATUSES.map((s) => (
             <option key={s} value={s}>
               {ORDER_STATUS[s].label}
@@ -188,7 +263,12 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
         />
         <div className="mt-2 flex flex-wrap gap-1">
           {SUGGESTED_TAGS.filter((t) => !tags.includes(t)).map((t) => (
-            <button key={t} type="button" onClick={() => addTag(t)} className="rounded-md border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-500 hover:border-orange-400 hover:text-orange-700">
+            <button
+              key={t}
+              type="button"
+              onClick={() => addTag(t)}
+              className="rounded-md border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-500 hover:border-orange-400 hover:text-orange-700"
+            >
               + {t}
             </button>
           ))}
@@ -196,7 +276,13 @@ function CustomerForm({ customer, onCancel, onSaved }: { customer: CustomerRow; 
       </div>
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-slate-600">บันทึกภายใน</span>
-        <textarea className={input} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} />
+        <textarea
+          className={input}
+          rows={2}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={1000}
+        />
       </label>
       {error && (
         <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">

@@ -3,8 +3,14 @@ import { readFile } from 'node:fs/promises'
 
 // Install this isolated test dependency without changing application dependencies:
 // npm install --prefix .tmp/facebook-sql-validation --no-package-lock --no-save @electric-sql/pglite
-const { PGlite } = await import(process.argv[2] || '../.tmp/facebook-sql-validation/node_modules/@electric-sql/pglite/dist/index.js')
-const migration = await readFile(new URL('../supabase/facebook-tenants.sql', import.meta.url), 'utf8')
+const { PGlite } = await import(
+  process.argv[2] ||
+    '../.tmp/facebook-sql-validation/node_modules/@electric-sql/pglite/dist/index.js'
+)
+const migration = await readFile(
+  new URL('../supabase/facebook-tenants.sql', import.meta.url),
+  'utf8',
+)
 const db = new PGlite()
 
 const ownerId = '11111111-1111-4111-8111-111111111111'
@@ -29,10 +35,11 @@ async function asRole(role, userId, operation) {
   }
 }
 
-const sync = (userId, pages) => db.query(
-  'select public.sync_facebook_tenants($1::uuid, $2::jsonb) as saved',
-  [userId, JSON.stringify(pages)],
-)
+const sync = (userId, pages) =>
+  db.query('select public.sync_facebook_tenants($1::uuid, $2::jsonb) as saved', [
+    userId,
+    JSON.stringify(pages),
+  ])
 const expectDenied = (operation) => assert.rejects(operation, (error) => error.code === '42501')
 
 try {
@@ -113,10 +120,15 @@ try {
   `)
 
   // This is the deployed failure: bypassing RLS does not grant auth.users table access.
-  await asRole('service_role', null, () => expectDenied(() => db.query('select id from auth.users')))
+  await asRole('service_role', null, () =>
+    expectDenied(() => db.query('select id from auth.users')),
+  )
   await db.exec(migration)
   await db.exec(migration)
-  const multiAdminMigration = await readFile(new URL('../supabase/facebook-multi-admin.sql', import.meta.url), 'utf8')
+  const multiAdminMigration = await readFile(
+    new URL('../supabase/facebook-multi-admin.sql', import.meta.url),
+    'utf8',
+  )
   await db.exec(multiAdminMigration)
   await db.exec(multiAdminMigration)
 
@@ -144,26 +156,40 @@ try {
     assert.equal((await sync(ownerId, [])).rows[0].saved, 0)
     assert.equal((await sync(ownerId, [page()])).rows[0].saved, 1)
   })
-  const original = (await db.query('select * from public.tenants where page_id = $1', [pageId])).rows[0]
+  const original = (await db.query('select * from public.tenants where page_id = $1', [pageId]))
+    .rows[0]
   assert.equal(original.bank_code, null)
   assert.equal(original.account_number, null)
   assert.equal(original.page_token_set, true)
   assert.equal(original.slip_quota, 0)
   assert.equal(original.auto_reply_enabled, false)
   assert.equal(original.auto_verify_enabled, false)
-  assert.deepEqual((await db.query(
-    'select user_id, role from public.tenant_members where tenant_id = $1', [original.id],
-  )).rows, [{ user_id: ownerId, role: 'owner' }])
+  assert.deepEqual(
+    (
+      await db.query('select user_id, role from public.tenant_members where tenant_id = $1', [
+        original.id,
+      ])
+    ).rows,
+    [{ user_id: ownerId, role: 'owner' }],
+  )
 
-  await db.query(`
+  await db.query(
+    `
     update public.tenants set name = 'Configured shop', bank_code = 'KBANK', account_number = '1234567890',
       account_name = 'Test account', slip_quota = 900, slip_used = 3,
       auto_reply_enabled = true, auto_verify_enabled = true where id = $1
-  `, [original.id])
+  `,
+    [original.id],
+  )
   await asRole('service_role', null, async () => {
-    assert.equal((await sync(ownerId, [page(pageId, 'Updated page name', 'test-only-refreshed-token')])).rows[0].saved, 1)
+    assert.equal(
+      (await sync(ownerId, [page(pageId, 'Updated page name', 'test-only-refreshed-token')]))
+        .rows[0].saved,
+      1,
+    )
   })
-  const refreshed = (await db.query('select * from public.tenants where page_id = $1', [pageId])).rows[0]
+  const refreshed = (await db.query('select * from public.tenants where page_id = $1', [pageId]))
+    .rows[0]
   assert.equal(refreshed.id, original.id)
   assert.equal(refreshed.page_name, 'Updated page name')
   assert.equal(refreshed.page_access_token, 'test-only-refreshed-token')
@@ -175,16 +201,35 @@ try {
   assert.equal(refreshed.slip_used, 3)
   assert.equal(refreshed.auto_reply_enabled, true)
   assert.equal(refreshed.auto_verify_enabled, true)
-  assert.equal((await db.query('select count(*)::int as count from public.tenant_members')).rows[0].count, 1)
+  assert.equal(
+    (await db.query('select count(*)::int as count from public.tenant_members')).rows[0].count,
+    1,
+  )
 
   // A malformed Page must roll back every new Page in the same sync.
-  await asRole('service_role', null, () => assert.rejects(
-    () => sync(otherId, [page('100100100100'), { page_id: '300300300300', page_name: 'Missing token' }]),
-    /Invalid Page/i,
-  ))
-  assert.equal((await db.query('select count(*)::int as count from public.tenants')).rows[0].count, 1)
-  assert.equal((await db.query('select count(*)::int as count from public.tenant_members')).rows[0].count, 1)
-  assert.equal((await db.query('select page_access_token from public.tenants where id = $1', [original.id])).rows[0].page_access_token, refreshed.page_access_token)
+  await asRole('service_role', null, () =>
+    assert.rejects(
+      () =>
+        sync(otherId, [
+          page('100100100100'),
+          { page_id: '300300300300', page_name: 'Missing token' },
+        ]),
+      /Invalid Page/i,
+    ),
+  )
+  assert.equal(
+    (await db.query('select count(*)::int as count from public.tenants')).rows[0].count,
+    1,
+  )
+  assert.equal(
+    (await db.query('select count(*)::int as count from public.tenant_members')).rows[0].count,
+    1,
+  )
+  assert.equal(
+    (await db.query('select page_access_token from public.tenants where id = $1', [original.id]))
+      .rows[0].page_access_token,
+    refreshed.page_access_token,
+  )
 
   await asRole('authenticated', otherId, async () => {
     assert.deepEqual((await db.query('select id, page_name from public.tenants')).rows, [])
@@ -192,35 +237,82 @@ try {
   })
   await asRole('anon', null, () => expectDenied(() => sync(ownerId, [])))
   await asRole('authenticated', ownerId, async () => {
-    assert.deepEqual((await db.query('select id, page_name, page_token_set from public.tenants')).rows, [
-      { id: original.id, page_name: 'Updated page name', page_token_set: true },
-    ])
+    assert.deepEqual(
+      (await db.query('select id, page_name, page_token_set from public.tenants')).rows,
+      [{ id: original.id, page_name: 'Updated page name', page_token_set: true }],
+    )
     await expectDenied(() => db.query('select page_access_token from public.tenants'))
-    await expectDenied(() => db.query("update public.tenants set page_name = 'Unauthorized write' where id = $1", [original.id]))
-    await expectDenied(() => db.query("insert into public.tenant_members(tenant_id, user_id, role) values ($1, $2, 'owner')", [original.id, otherId]))
+    await expectDenied(() =>
+      db.query("update public.tenants set page_name = 'Unauthorized write' where id = $1", [
+        original.id,
+      ]),
+    )
+    await expectDenied(() =>
+      db.query(
+        "insert into public.tenant_members(tenant_id, user_id, role) values ($1, $2, 'owner')",
+        [original.id, otherId],
+      ),
+    )
   })
 
-  await db.query("insert into public.tenant_members(tenant_id, user_id, role) values ($1, $2, 'staff')", [original.id, otherId])
+  await db.query(
+    "insert into public.tenant_members(tenant_id, user_id, role) values ($1, $2, 'staff')",
+    [original.id, otherId],
+  )
   await asRole('service_role', null, async () => {
     assert.equal((await sync(otherId, [page()])).rows[0].saved, 1)
     assert.equal((await sync(otherId, [page()])).rows[0].saved, 1)
   })
-  assert.equal((await db.query('select role from public.tenant_members where tenant_id = $1 and user_id = $2', [original.id, otherId])).rows[0].role, 'owner')
-  assert.equal((await db.query('select count(*)::int n from public.tenant_members where tenant_id=$1', [original.id])).rows[0].n, 2)
+  assert.equal(
+    (
+      await db.query(
+        'select role from public.tenant_members where tenant_id = $1 and user_id = $2',
+        [original.id, otherId],
+      )
+    ).rows[0].role,
+    'owner',
+  )
+  assert.equal(
+    (
+      await db.query('select count(*)::int n from public.tenant_members where tenant_id=$1', [
+        original.id,
+      ])
+    ).rows[0].n,
+    2,
+  )
   assert.equal((await db.query('select count(*)::int n from public.tenants')).rows[0].n, 1)
   await db.query('update public.tenants set is_active=false where id=$1', [original.id])
-  await asRole('service_role', null, async () => assert.equal((await sync(adminId, [page()])).rows[0].saved, 0))
-  assert.equal((await db.query('select count(*)::int n from public.tenant_members where user_id=$1', [adminId])).rows[0].n, 0)
+  await asRole('service_role', null, async () =>
+    assert.equal((await sync(adminId, [page()])).rows[0].saved, 0),
+  )
+  assert.equal(
+    (
+      await db.query('select count(*)::int n from public.tenant_members where user_id=$1', [
+        adminId,
+      ])
+    ).rows[0].n,
+    0,
+  )
   await db.query('update public.tenants set is_active=true where id=$1', [original.id])
 
   await asRole('service_role', null, async () => {
-    assert.equal((await sync(adminId, [page(pageId, 'Admin refreshed page', 'test-only-admin-token')])).rows[0].saved, 1)
+    assert.equal(
+      (await sync(adminId, [page(pageId, 'Admin refreshed page', 'test-only-admin-token')])).rows[0]
+        .saved,
+      1,
+    )
     await assert.rejects(() => sync('44444444-4444-4444-8444-444444444444', []), /Invalid user/i)
-    await assert.rejects(() => sync(ownerId, [{ page_id: '300300300300', page_name: 'Missing token' }]), /Invalid Page/i)
+    await assert.rejects(
+      () => sync(ownerId, [{ page_id: '300300300300', page_name: 'Missing token' }]),
+      /Invalid Page/i,
+    )
     await assert.rejects(() => sync(ownerId, null), /Invalid Pages array/i)
     await assert.rejects(() => sync(ownerId, {}), /Invalid Pages array/i)
   })
-  assert.equal((await db.query('select count(*)::int as count from public.tenants')).rows[0].count, 1)
+  assert.equal(
+    (await db.query('select count(*)::int as count from public.tenants')).rows[0].count,
+    1,
+  )
 
   // A preexisting page_id column without uniqueness must receive a usable unique index.
   await db.exec('alter table public.tenants drop constraint tenants_page_id_key')
@@ -229,12 +321,20 @@ try {
   await asRole('service_role', null, async () => {
     assert.equal((await sync(ownerId, [page(pageId, 'Index repair verified')])).rows[0].saved, 1)
   })
-  assert.equal((await db.query('select count(*)::int as count from public.tenants')).rows[0].count, 1)
+  assert.equal(
+    (await db.query('select count(*)::int as count from public.tenants')).rows[0].count,
+    1,
+  )
 
-  const checks = await readFile(new URL('../supabase/facebook-tenants-check.sql', import.meta.url), 'utf8')
+  const checks = await readFile(
+    new URL('../supabase/facebook-tenants-check.sql', import.meta.url),
+    'utf8',
+  )
   assert.equal((await db.exec(checks)).length, 7)
 
-  console.log('Facebook tenant SQL checks passed: migration rerun, unique index repair, narrow auth access, RPC grants, upsert preservation, atomic rollback, ownership, RLS/token restrictions, and all diagnostic SQL statements.')
+  console.log(
+    'Facebook tenant SQL checks passed: migration rerun, unique index repair, narrow auth access, RPC grants, upsert preservation, atomic rollback, ownership, RLS/token restrictions, and all diagnostic SQL statements.',
+  )
 } finally {
   await db.close()
 }

@@ -21,7 +21,8 @@ vm.runInNewContext(compile('lib/features/payments/payment-validation.ts'), {
   Uint8Array,
   require(name) {
     if (name === 'server-only') return {}
-    if (name === '@/lib/image-signature') return require('./helpers/load-typescript.cjs')('lib/image-signature.ts')
+    if (name === '@/lib/image-signature')
+      return require('./helpers/load-typescript.cjs')('lib/image-signature.ts')
     if (name === '@/lib/features/banking/banks') return banks
     throw new Error(`Unexpected validation dependency: ${name}`)
   },
@@ -39,7 +40,9 @@ const session = {
 
 function slip({ amount = 390, data = {}, raw = {}, ...fields } = {}) {
   return {
-    verdict: 'valid', amount, transRef: 'transfer-unique-1',
+    verdict: 'valid',
+    amount,
+    transRef: 'transfer-unique-1',
     raw: {
       success: true,
       ...raw,
@@ -58,33 +61,132 @@ function slip({ amount = 390, data = {}, raw = {}, ...fields } = {}) {
   }
 }
 
-const check = (result, details = session, clock = now) => api.validatePaymentSlip(result, details, clock)
+const check = (result, details = session, clock = now) =>
+  api.validatePaymentSlip(result, details, clock)
 
 test('provider-verified payments skip local receiver labels but require exact amount and real verification', () => {
-  const details={...session,price_baht:9,receiver_bank_code:''}
-  const verified=slip({amount:9,receiverVerifiedByProvider:true,data:{receivingBank:'unknown',receiver:null}})
-  assert.equal(api.validatePaymentSlip(verified,details,now,false,'provider').ok,true)
-  assert.equal(api.validatePaymentSlip({...verified,receiverVerifiedByProvider:false},details,now,false,'provider').ok,false)
-  assert.equal(api.validatePaymentSlip({...verified,verdict:'wrong_receiver'},details,now,false,'provider').ok,false)
-  for(const amount of [8,10]) assert.equal(api.validatePaymentSlip(slip({amount,receiverVerifiedByProvider:true}),details,now,false,'provider').ok,false)
-  assert.equal(api.validatePaymentSlip(slip({amount:9,receiverVerifiedByProvider:true,raw:{success:false}}),details,now,false,'provider').ok,false)
+  const details = { ...session, price_baht: 9, receiver_bank_code: '' }
+  const verified = slip({
+    amount: 9,
+    receiverVerifiedByProvider: true,
+    data: { receivingBank: 'unknown', receiver: null },
+  })
+  assert.equal(api.validatePaymentSlip(verified, details, now, false, 'provider').ok, true)
+  assert.equal(
+    api.validatePaymentSlip(
+      { ...verified, receiverVerifiedByProvider: false },
+      details,
+      now,
+      false,
+      'provider',
+    ).ok,
+    false,
+  )
+  assert.equal(
+    api.validatePaymentSlip(
+      { ...verified, verdict: 'wrong_receiver' },
+      details,
+      now,
+      false,
+      'provider',
+    ).ok,
+    false,
+  )
+  for (const amount of [8, 10])
+    assert.equal(
+      api.validatePaymentSlip(
+        slip({ amount, receiverVerifiedByProvider: true }),
+        details,
+        now,
+        false,
+        'provider',
+      ).ok,
+      false,
+    )
+  assert.equal(
+    api.validatePaymentSlip(
+      slip({ amount: 9, receiverVerifiedByProvider: true, raw: { success: false } }),
+      details,
+      now,
+      false,
+      'provider',
+    ).ok,
+    false,
+  )
 })
 
 test('KTB aliases and exact registered PromptPay identify the platform receiver', () => {
-  const details = { ...session, price_baht: 9, receiver_bank_code: '006', receiver_account_no: '9260337828', receiver_promptpay_id: '0932576114' }
-  for (const bank of ['KTB','006',6,'ktb']) {
-    assert.equal(check(slip({amount:9,data:{receivingBank:bank,receiver:{account:{value:'9260337828'}}}}),details).ok,true)
+  const details = {
+    ...session,
+    price_baht: 9,
+    receiver_bank_code: '006',
+    receiver_account_no: '9260337828',
+    receiver_promptpay_id: '0932576114',
   }
-  for (const bank of ['PROMPTPAY','พร้อมเพย์','004',null]) {
-    assert.equal(check(slip({amount:9,data:{receivingBank:bank,receiver:{proxy:{value:'+66 93-257-6114'}}}}),details).ok,true)
-    assert.equal(check(slip({amount:9,data:{receivingBank:bank,receiver:{proxy:{value:'0932576115'}}}}),details).ok,false)
-    assert.equal(check(slip({amount:9,data:{receivingBank:bank,receiver:{proxy:{value:'093xxx6114'}}}}),details).ok,false)
-    assert.equal(check(slip({amount:9,data:{receivingBank:bank,receiver:{account:{value:'9260337828'}}}}),details).ok,false)
+  for (const bank of ['KTB', '006', 6, 'ktb']) {
+    assert.equal(
+      check(
+        slip({
+          amount: 9,
+          data: { receivingBank: bank, receiver: { account: { value: '9260337828' } } },
+        }),
+        details,
+      ).ok,
+      true,
+    )
+  }
+  for (const bank of ['PROMPTPAY', 'พร้อมเพย์', '004', null]) {
+    assert.equal(
+      check(
+        slip({
+          amount: 9,
+          data: { receivingBank: bank, receiver: { proxy: { value: '+66 93-257-6114' } } },
+        }),
+        details,
+      ).ok,
+      true,
+    )
+    assert.equal(
+      check(
+        slip({
+          amount: 9,
+          data: { receivingBank: bank, receiver: { proxy: { value: '0932576115' } } },
+        }),
+        details,
+      ).ok,
+      false,
+    )
+    assert.equal(
+      check(
+        slip({
+          amount: 9,
+          data: { receivingBank: bank, receiver: { proxy: { value: '093xxx6114' } } },
+        }),
+        details,
+      ).ok,
+      false,
+    )
+    assert.equal(
+      check(
+        slip({
+          amount: 9,
+          data: { receivingBank: bank, receiver: { account: { value: '9260337828' } } },
+        }),
+        details,
+      ).ok,
+      false,
+    )
   }
 })
 
 test('KTB platform receiver accepts bank account and PromptPay in either SlipOK receiver field', () => {
-  const details = { ...session, price_baht: 9, receiver_bank_code: '006', receiver_account_no: '9260337828', receiver_promptpay_id: '0932576114' }
+  const details = {
+    ...session,
+    price_baht: 9,
+    receiver_bank_code: '006',
+    receiver_account_no: '9260337828',
+    receiver_promptpay_id: '0932576114',
+  }
   for (const receiver of [
     { account: { value: '9260337828' } },
     { account: { value: '926-0-33782-8' } },
@@ -94,21 +196,76 @@ test('KTB platform receiver accepts bank account and PromptPay in either SlipOK 
     { proxy: { value: '+66932576114' } },
     { proxy: { value: '093-xxx-6114' } },
     { proxy: { value: '9260337828' } },
-  ]) assert.equal(check(slip({amount:9,data:{receivingBank:'006',receiver}}),details).ok,true)
-  assert.equal(check(slip({amount:9,data:{receivingBank:'004',receiver:{account:{value:'9260337828'}}}}),details).ok,false)
-  assert.equal(check(slip({amount:9,data:{receivingBank:'006',receiver:{account:{value:'1863478037'}}}}),details).ok,false)
-  for (const name of ['ภาคภูมิ','PAKPHUM','Srichomphu']) {
-    assert.equal(check(slip({amount:9,data:{receivingBank:'006',receiver:{name,displayName:name}}}),details).ok,false)
+  ])
+    assert.equal(
+      check(slip({ amount: 9, data: { receivingBank: '006', receiver } }), details).ok,
+      true,
+    )
+  assert.equal(
+    check(
+      slip({
+        amount: 9,
+        data: { receivingBank: '004', receiver: { account: { value: '9260337828' } } },
+      }),
+      details,
+    ).ok,
+    false,
+  )
+  assert.equal(
+    check(
+      slip({
+        amount: 9,
+        data: { receivingBank: '006', receiver: { account: { value: '1863478037' } } },
+      }),
+      details,
+    ).ok,
+    false,
+  )
+  for (const name of ['ภาคภูมิ', 'PAKPHUM', 'Srichomphu']) {
+    assert.equal(
+      check(
+        slip({ amount: 9, data: { receivingBank: '006', receiver: { name, displayName: name } } }),
+        details,
+      ).ok,
+      false,
+    )
   }
-  assert.equal(check(slip({amount:9,verdict:'wrong_receiver',branchReceiverMismatch:true,data:{receivingBank:'006',receiver:{account:{value:'9260337828'}}}}),details).ok,false)
+  assert.equal(
+    check(
+      slip({
+        amount: 9,
+        verdict: 'wrong_receiver',
+        branchReceiverMismatch: true,
+        data: { receivingBank: '006', receiver: { account: { value: '9260337828' } } },
+      }),
+      details,
+    ).ok,
+    false,
+  )
 })
 
 test('automatic billing accepts overpayment but rejects underpayment and inconsistent raw amounts', () => {
-  for (const amount of [390,390.01,500]) assert.equal(api.validatePaymentSlip(slip({amount}),session,now,true).ok,true)
-  for (const amount of [389.99,0,NaN,390.001]) assert.equal(api.validatePaymentSlip(slip({amount}),session,now,true).ok,false)
-  assert.equal(api.validatePaymentSlip(slip({amount:500,data:{amount:390}}),session,now,true).ok,false)
-  assert.equal(api.validatePaymentSlip(slip({verdict:'duplicate'}),session,now,true).ok,false)
-  assert.equal(api.validatePaymentSlip(slip({data:{receiver:{account:{value:'xxxxxx9999'}}}}),session,now,true).ok,false)
+  for (const amount of [390, 390.01, 500])
+    assert.equal(api.validatePaymentSlip(slip({ amount }), session, now, true).ok, true)
+  for (const amount of [389.99, 0, NaN, 390.001])
+    assert.equal(api.validatePaymentSlip(slip({ amount }), session, now, true).ok, false)
+  assert.equal(
+    api.validatePaymentSlip(slip({ amount: 500, data: { amount: 390 } }), session, now, true).ok,
+    false,
+  )
+  assert.equal(
+    api.validatePaymentSlip(slip({ verdict: 'duplicate' }), session, now, true).ok,
+    false,
+  )
+  assert.equal(
+    api.validatePaymentSlip(
+      slip({ data: { receiver: { account: { value: 'xxxxxx9999' } } } }),
+      session,
+      now,
+      true,
+    ).ok,
+    false,
+  )
 })
 const reject = (result, details = session, clock = now, status = 422) => {
   const validation = check(result, details, clock)
@@ -151,7 +308,8 @@ test('successful verdict without authoritative provider success or valid transac
     slip({ transRef: 'x'.repeat(201), data: { transRef: 'x'.repeat(201) } }),
     slip({ transRef: 'ref\nsecret', data: { transRef: 'ref\nsecret' } }),
     slip({ data: { transRef: 'different-ref' } }),
-  ]) reject(result)
+  ])
+    reject(result)
 })
 
 test('receiving bank is mandatory and resolves a configured alias or numeric bank code', () => {
@@ -163,8 +321,19 @@ test('receiving bank is mandatory and resolves a configured alias or numeric ban
 })
 
 test('masked receiving account needs at least four matching visible digits in correct positions', () => {
-  for (const printed of ['1234567890', 'xxxxxx7890', '123xxx7890', 'xxx-x-xx7890', '12*****890', '1234x']) {
-    assert.equal(check(slip({ data: { receiver: { account: { value: printed } } } })).ok, true, printed)
+  for (const printed of [
+    '1234567890',
+    'xxxxxx7890',
+    '123xxx7890',
+    'xxx-x-xx7890',
+    '12*****890',
+    '1234x',
+  ]) {
+    assert.equal(
+      check(slip({ data: { receiver: { account: { value: printed } } } })).ok,
+      true,
+      printed,
+    )
   }
   for (const printed of ['xxxxxxx890', 'xxxxxx7891', '1234567899', 'xxxxxx7890garbage', '', null]) {
     reject(slip({ data: { receiver: { account: { value: printed } } } }))
@@ -173,17 +342,44 @@ test('masked receiving account needs at least four matching visible digits in co
 })
 
 test('PromptPay supports country prefixes and masked digits but still requires receiving bank', () => {
-  for (const proxy of ['0812345678', '66812345678', '+66 81-234-5678', '0066812345678', 'xxx2345678']) {
-    const result = slip({ data: { receiver: { account: { value: 'unmatched' }, proxy: { value: proxy } } } })
+  for (const proxy of [
+    '0812345678',
+    '66812345678',
+    '+66 81-234-5678',
+    '0066812345678',
+    'xxx2345678',
+  ]) {
+    const result = slip({
+      data: { receiver: { account: { value: 'unmatched' }, proxy: { value: proxy } } },
+    })
     assert.equal(check(result).ok, true, proxy)
   }
   for (const proxy of ['0812345679', 'xxxxxxx678', 'garbage0812345678', '081234567']) {
     reject(slip({ data: { receiver: { proxy: { value: proxy } } } }))
   }
-  assert.equal(check(slip({ data: { receivingBank: '006', receiver: { proxy: { value: session.receiver_promptpay_id } } } })).ok, true)
+  assert.equal(
+    check(
+      slip({
+        data: {
+          receivingBank: '006',
+          receiver: { proxy: { value: session.receiver_promptpay_id } },
+        },
+      }),
+    ).ok,
+    true,
+  )
   for (const id of ['1234567890123', '123456789012345']) {
-    assert.equal(check(slip({ data: { receiver: { proxy: { value: id } } } }), { ...session, receiver_promptpay_id: id }).ok, true)
-    reject(slip({ data: { receiver: { proxy: { value: id.slice(0, -1) + '9' } } } }), { ...session, receiver_promptpay_id: id })
+    assert.equal(
+      check(slip({ data: { receiver: { proxy: { value: id } } } }), {
+        ...session,
+        receiver_promptpay_id: id,
+      }).ok,
+      true,
+    )
+    reject(slip({ data: { receiver: { proxy: { value: id.slice(0, -1) + '9' } } } }), {
+      ...session,
+      receiver_promptpay_id: id,
+    })
   }
 })
 
@@ -224,7 +420,8 @@ test('malformed or impossible calendar dates and times cannot pass Date.parse ro
     { transTime: '12:05:60' },
     { transTime: '12:05' },
     { transTime: undefined },
-  ]) reject(slip({ data }))
+  ])
+    reject(slip({ data }))
 })
 
 test('invalid price, bank or payment window in a server snapshot fails closed', () => {
@@ -236,15 +433,23 @@ test('invalid price, bank or payment window in a server snapshot fails closed', 
     { created_at: 'invalid' },
     { expires_at: 'invalid' },
     { expires_at: session.created_at },
-  ]) reject(slip(), { ...session, ...changes }, now, 500)
+  ])
+    reject(slip(), { ...session, ...changes }, now, 500)
 })
 
 test('images must have matching JPEG, PNG or WebP signatures; empty and oversized files are rejected', async () => {
   const jpeg = [0xff, 0xd8, 0xff, 0xe0]
   const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
   const webp = [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]
-  for (const [bytes, type] of [[jpeg, 'image/jpeg'], [png, 'image/png'], [webp, 'image/webp']]) {
-    assert.equal(await api.isPaymentImage(new File([new Uint8Array(bytes)], 'slip', { type })), true)
+  for (const [bytes, type] of [
+    [jpeg, 'image/jpeg'],
+    [png, 'image/png'],
+    [webp, 'image/webp'],
+  ]) {
+    assert.equal(
+      await api.isPaymentImage(new File([new Uint8Array(bytes)], 'slip', { type })),
+      true,
+    )
   }
   for (const file of [
     new File([], 'empty', { type: 'image/jpeg' }),
@@ -253,6 +458,7 @@ test('images must have matching JPEG, PNG or WebP signatures; empty and oversize
     new File(['<svg/>'], 'image.svg', { type: 'image/svg+xml' }),
     new File([new Uint8Array([0xff, 0xd8])], 'truncated.jpg', { type: 'image/jpeg' }),
     new File([new Uint8Array(api.PAYMENT_MAX_BYTES + 1)], 'large.jpg', { type: 'image/jpeg' }),
-  ]) assert.equal(await api.isPaymentImage(file), false)
+  ])
+    assert.equal(await api.isPaymentImage(file), false)
   assert.equal(api.PAYMENT_MAX_BYTES, 5 * 1024 * 1024)
 })

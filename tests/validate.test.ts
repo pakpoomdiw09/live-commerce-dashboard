@@ -4,18 +4,21 @@ import assert from 'node:assert/strict'
 import { parseCustomerInput, parseTenantInput } from '../lib/validation.ts'
 
 test('parseTenantInput accepts valid tenant settings', () => {
-  const result = parseTenantInput({
-    name: '  ร้านส้มโอ  ',
-    bank_code: 'kbank',
-    account_number: '123-456-7890',
-    account_name: '  มนัส มนัส  ',
-    page_id: '123456789',
-    expected_amount: '250.50',
-    auto_reply_enabled: true,
-    auto_verify_enabled: false,
-    slip_quota: 50,
-    page_access_token: 'abcdEFGH1234567890abcdefg',
-  }, false)
+  const result = parseTenantInput(
+    {
+      name: '  ร้านส้มโอ  ',
+      bank_code: 'kbank',
+      account_number: '123-456-7890',
+      account_name: '  มนัส มนัส  ',
+      page_id: '123456789',
+      expected_amount: '250.50',
+      auto_reply_enabled: true,
+      auto_verify_enabled: false,
+      slip_quota: 50,
+      page_access_token: 'abcdEFGH1234567890abcdefg',
+    },
+    false,
+  )
 
   assert.equal(result.ok, true)
   if (!result.ok) return
@@ -40,23 +43,35 @@ test('parseTenantInput rejects invalid data before saving', () => {
     error: 'ชื่อร้านต้องมี 1-120 ตัวอักษร',
   })
 
-  assert.deepEqual(parseTenantInput({ name: 'Valid', bank_code: 'KTB', account_number: '12' }, false), {
-    ok: false,
-    error: 'เลขบัญชี / พร้อมเพย์ต้องเป็นตัวเลข 10-15 หลัก',
-  })
+  assert.deepEqual(
+    parseTenantInput({ name: 'Valid', bank_code: 'KTB', account_number: '12' }, false),
+    {
+      ok: false,
+      error: 'เลขบัญชี / พร้อมเพย์ต้องเป็นตัวเลข 10-15 หลัก',
+    },
+  )
 
-  assert.deepEqual(parseTenantInput({ name: 'Valid', bank_code: 'KTB', account_number: '1234567890', page_access_token: 'bad!' }, false), {
-    ok: false,
-    error: 'Page Access Token ไม่ถูกต้อง',
-  })
+  assert.deepEqual(
+    parseTenantInput(
+      { name: 'Valid', bank_code: 'KTB', account_number: '1234567890', page_access_token: 'bad!' },
+      false,
+    ),
+    {
+      ok: false,
+      error: 'Page Access Token ไม่ถูกต้อง',
+    },
+  )
 })
 
 test('parseTenantInput supports partial updates without requiring every field', () => {
-  const result = parseTenantInput({
-    auto_reply_enabled: true,
-    page_access_token: '',
-    account_name: '  ทอง  ',
-  }, true)
+  const result = parseTenantInput(
+    {
+      auto_reply_enabled: true,
+      page_access_token: '',
+      account_name: '  ทอง  ',
+    },
+    true,
+  )
 
   assert.equal(result.ok, true)
   if (!result.ok) return

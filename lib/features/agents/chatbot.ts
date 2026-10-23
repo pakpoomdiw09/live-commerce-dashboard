@@ -47,8 +47,14 @@ export const defaultBotSettings = (tenantId: string): BotSettings => ({
   handover_messages: ['รับทราบค่ะ แอดมินจะเข้ามาตอบโดยเร็วที่สุดนะคะ 🙏'],
   followup_enabled: false,
   followup_steps: [
-    { delay_minutes: 15, text: 'คุณ {ชื่อลูกค้า} ยังไม่ได้ส่งสลิปสำหรับยอด {ยอดเงิน} บาทนะคะ โอนแล้วส่งสลิปในแชทนี้ได้เลยค่ะ' },
-    { delay_minutes: 60, text: 'แจ้งเตือนอีกครั้งค่ะ ออเดอร์ยอด {ยอดเงิน} บาท ยังรอการชำระเงิน หากต้องการยกเลิกแจ้งแอดมินได้เลยนะคะ' },
+    {
+      delay_minutes: 15,
+      text: 'คุณ {ชื่อลูกค้า} ยังไม่ได้ส่งสลิปสำหรับยอด {ยอดเงิน} บาทนะคะ โอนแล้วส่งสลิปในแชทนี้ได้เลยค่ะ',
+    },
+    {
+      delay_minutes: 60,
+      text: 'แจ้งเตือนอีกครั้งค่ะ ออเดอร์ยอด {ยอดเงิน} บาท ยังรอการชำระเงิน หากต้องการยกเลิกแจ้งแอดมินได้เลยนะคะ',
+    },
   ],
   updated_at: new Date(0).toISOString(),
 })
@@ -77,13 +83,16 @@ export const QUICK_REPLY_MAX = 13
 export const QUICK_REPLY_TITLE_MAX = 20
 
 /** Highest priority first, then oldest: the order the webhook tries rules in. */
-export const ruleOrder = (a: ChatRule, b: ChatRule) => b.priority - a.priority || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+export const ruleOrder = (a: ChatRule, b: ChatRule) =>
+  b.priority - a.priority || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
 
 /** The first active rule that answers this message, or null. `rules` must already be in ruleOrder. */
-export const matchChatRule = (rules: ChatRule[], text: string) => rules.find((r) => r.is_active && ruleMatches(r, text)) ?? null
+export const matchChatRule = (rules: ChatRule[], text: string) =>
+  rules.find((r) => r.is_active && ruleMatches(r, text)) ?? null
 
 /** The customer asked for a person: any handover keyword appears in the message. */
-export const wantsHuman = (keywords: string[], text: string) => ruleMatches({ match_type: 'keyword', keywords }, text)
+export const wantsHuman = (keywords: string[], text: string) =>
+  ruleMatches({ match_type: 'keyword', keywords }, text)
 
 /** Follow-up delays offered in the dashboard. Meta's standard window closes 24 h after the customer's last message. */
 export const FOLLOW_UP_DELAYS = [
@@ -98,9 +107,13 @@ export const FOLLOW_UP_DELAYS = [
 
 /** Fill {name} and {total} in a follow-up message. */
 export function renderFollowUp(text: string, v: { name: string; total: number }) {
-  const total = v.total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const total = v.total.toLocaleString('th-TH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
   return text.replace(/\{(name|ชื่อลูกค้า|total|ยอดเงิน)\}/g, (_, key: string) =>
-    key === 'name' || key === 'ชื่อลูกค้า' ? v.name : total)
+    key === 'name' || key === 'ชื่อลูกค้า' ? v.name : total,
+  )
 }
 
 export const FOLLOW_UP_REASON: Record<string, string> = {
@@ -129,18 +142,37 @@ export const BROADCAST_SEGMENTS: Record<BroadcastSegment, { label: string; hint:
 export type BroadcastWindow = 'within_24h' | 'outside_24h'
 
 export const BROADCAST_WINDOWS: Record<BroadcastWindow, { label: string; hint: string }> = {
-  within_24h: { label: 'ภายใน 24 ชม.', hint: 'ลูกค้าที่ทักมาภายใน 24 ชม. ส่งข้อความได้ทุกประเภท รวมถึงโปรโมชัน' },
-  outside_24h: { label: 'เกิน 24 ชม.', hint: 'ต้องเลือกหมวดหมู่ข้อความ และห้ามเป็นข้อความโฆษณา/โปรโมชัน' },
+  within_24h: {
+    label: 'ภายใน 24 ชม.',
+    hint: 'ลูกค้าที่ทักมาภายใน 24 ชม. ส่งข้อความได้ทุกประเภท รวมถึงโปรโมชัน',
+  },
+  outside_24h: {
+    label: 'เกิน 24 ชม.',
+    hint: 'ต้องเลือกหมวดหมู่ข้อความ และห้ามเป็นข้อความโฆษณา/โปรโมชัน',
+  },
 }
 
 /** Meta's message tags: the only way to message a person after the 24-hour window. */
-export type MessageTag = 'POST_PURCHASE_UPDATE' | 'CONFIRMED_EVENT_UPDATE' | 'ACCOUNT_UPDATE' | 'HUMAN_AGENT'
+export type MessageTag =
+  'POST_PURCHASE_UPDATE' | 'CONFIRMED_EVENT_UPDATE' | 'ACCOUNT_UPDATE' | 'HUMAN_AGENT'
 
 export const MESSAGE_TAGS: Record<MessageTag, { label: string; hint: string }> = {
-  POST_PURCHASE_UPDATE: { label: 'แจ้งสถานะคำสั่งซื้อ / เลขพัสดุ / ใบเสร็จ', hint: 'แจ้งความคืบหน้าของคำสั่งซื้อที่ลูกค้าซื้อแล้ว เช่น เลขพัสดุหรือใบเสร็จ' },
-  CONFIRMED_EVENT_UPDATE: { label: 'แจ้งเตือนนัดหมาย / ไลฟ์สดที่ลงทะเบียนไว้', hint: 'แจ้งเตือนเฉพาะนัดหมายหรือไลฟ์สดที่ลูกค้าลงทะเบียนไว้แล้ว' },
-  ACCOUNT_UPDATE: { label: 'แจ้งเปลี่ยนแปลงข้อมูลบัญชี / เครดิตสมาชิก', hint: 'แจ้งข้อมูลบัญชีหรือเครดิตสมาชิกของลูกค้าที่เปลี่ยนแปลง' },
-  HUMAN_AGENT: { label: 'แอดมินตอบกลับลูกค้า (ส่งได้ภายใน 7 วันหลังทักล่าสุด)', hint: 'แอดมินตอบกลับลูกค้าได้ภายใน 7 วันหลังลูกค้าทักครั้งล่าสุด' },
+  POST_PURCHASE_UPDATE: {
+    label: 'แจ้งสถานะคำสั่งซื้อ / เลขพัสดุ / ใบเสร็จ',
+    hint: 'แจ้งความคืบหน้าของคำสั่งซื้อที่ลูกค้าซื้อแล้ว เช่น เลขพัสดุหรือใบเสร็จ',
+  },
+  CONFIRMED_EVENT_UPDATE: {
+    label: 'แจ้งเตือนนัดหมาย / ไลฟ์สดที่ลงทะเบียนไว้',
+    hint: 'แจ้งเตือนเฉพาะนัดหมายหรือไลฟ์สดที่ลูกค้าลงทะเบียนไว้แล้ว',
+  },
+  ACCOUNT_UPDATE: {
+    label: 'แจ้งเปลี่ยนแปลงข้อมูลบัญชี / เครดิตสมาชิก',
+    hint: 'แจ้งข้อมูลบัญชีหรือเครดิตสมาชิกของลูกค้าที่เปลี่ยนแปลง',
+  },
+  HUMAN_AGENT: {
+    label: 'แอดมินตอบกลับลูกค้า (ส่งได้ภายใน 7 วันหลังทักล่าสุด)',
+    hint: 'แอดมินตอบกลับลูกค้าได้ภายใน 7 วันหลังลูกค้าทักครั้งล่าสุด',
+  },
 }
 
 export const MESSAGE_TAG_VALUES = Object.keys(MESSAGE_TAGS) as MessageTag[]

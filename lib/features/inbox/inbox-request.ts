@@ -7,9 +7,16 @@ export class LatestInboxRequest {
     const generation = this.generation
     const controller = new AbortController()
     this.controller = controller
-    return {signal: controller.signal, current: () => generation === this.generation && !controller.signal.aborted}
+    return {
+      signal: controller.signal,
+      current: () => generation === this.generation && !controller.signal.aborted,
+    }
   }
-  cancel() { this.generation++; this.controller?.abort(); this.controller = null }
+  cancel() {
+    this.generation++
+    this.controller?.abort()
+    this.controller = null
+  }
 }
 /** Identical INSERT/UPDATE replay is ignored; legitimate status changes still pass. */
 export class InboxEventDeduplicator {

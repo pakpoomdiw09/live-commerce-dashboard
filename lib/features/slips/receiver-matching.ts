@@ -9,7 +9,10 @@ import { findBank } from '@/lib/features/banking/banks'
  */
 export function accountMatches(full: string | null, onSlip: string | undefined): boolean {
   const a = (full ?? '').replace(/\D/g, '')
-  const b = (onSlip ?? '').replace(/\*/g, 'x').replace(/[^0-9x]/gi, '').toLowerCase()
+  const b = (onSlip ?? '')
+    .replace(/\*/g, 'x')
+    .replace(/[^0-9x]/gi, '')
+    .toLowerCase()
   if (!a || !b) return false
   const visible = b.replace(/x/g, '').length
   if (visible < 3) return false
@@ -31,24 +34,32 @@ export function accountMatches(full: string | null, onSlip: string | undefined):
  * PROMPTPAY tenants are paid via a proxy, so the receiving bank can be anything: skip the check.
  * An unknown or missing bank on either side counts as a mismatch.
  */
-export function bankMatches(tenantBank: string | null | undefined, onSlip: string | undefined): boolean {
+export function bankMatches(
+  tenantBank: string | null | undefined,
+  onSlip: string | undefined,
+): boolean {
   const t = (tenantBank ?? '').trim().toUpperCase()
   if (t === 'PROMPTPAY') return true
   const s = (onSlip ?? '').trim()
   if (!t || !s) return false
-  const bank=findBank(t)
+  const bank = findBank(t)
   // Being listed by BOT does not establish support by the slip provider.
-  if(bank?.support==='manual')return false
+  if (bank?.support === 'manual') return false
   if (t === s) return true
-  return bank?.slipCode===s
+  return bank?.slipCode === s
 }
 
-export function receiverMatchesAny(accounts: {bank_code:string;account_number:string;is_active:boolean}[] | null | undefined, receiverBank?: string, receiverAccount?: string, receiverProxy?: string) {
-  return (accounts ?? []).some(account => {
-    if (!account.is_active || !bankMatches(account.bank_code,receiverBank)) return false
-    let receiver=account.bank_code==='PROMPTPAY' ? receiverProxy : receiverAccount
-    if (account.bank_code==='PROMPTPAY' && receiver) receiver=receiver.replace(/[\s-]/g,'').replace(/^(?:\+?66|0066)(?=[\dxX*]{9}$)/,'0')
-    return accountMatches(account.account_number,receiver)
+export function receiverMatchesAny(
+  accounts: { bank_code: string; account_number: string; is_active: boolean }[] | null | undefined,
+  receiverBank?: string,
+  receiverAccount?: string,
+  receiverProxy?: string,
+) {
+  return (accounts ?? []).some((account) => {
+    if (!account.is_active || !bankMatches(account.bank_code, receiverBank)) return false
+    let receiver = account.bank_code === 'PROMPTPAY' ? receiverProxy : receiverAccount
+    if (account.bank_code === 'PROMPTPAY' && receiver)
+      receiver = receiver.replace(/[\s-]/g, '').replace(/^(?:\+?66|0066)(?=[\dxX*]{9}$)/, '0')
+    return accountMatches(account.account_number, receiver)
   })
 }
-

@@ -3,7 +3,19 @@ import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /** KPI tile: label, one big number, a short footnote. Same look as the overview tiles. */
-export function StatTile({ icon: Icon, label, value, foot, href }: { icon: LucideIcon; label: string; value: string; foot: string; href?: string }) {
+export function StatTile({
+  icon: Icon,
+  label,
+  value,
+  foot,
+  href,
+}: {
+  icon: LucideIcon
+  label: string
+  value: string
+  foot: string
+  href?: string
+}) {
   const body = (
     <>
       <div className="flex items-center justify-between">
@@ -12,7 +24,9 @@ export function StatTile({ icon: Icon, label, value, foot, href }: { icon: Lucid
           <Icon className="h-4 w-4" aria-hidden />
         </span>
       </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{value}</p>
+      <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">
+        {value}
+      </p>
       <p className="mt-1 text-xs text-slate-500">{foot}</p>
     </>
   )
