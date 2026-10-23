@@ -10,6 +10,7 @@ module.exports = function loadTypeScript(file, dependencies = {}, globals = {}) 
     require(name) {
       if (name === '@/lib/single-flight') return module.exports('lib/single-flight.ts', {}, globals)
       if (Object.hasOwn(dependencies, name)) return dependencies[name]
+      if (name === '@/lib/features/inbox/inbox-diagnostics') return { logInboxError() {} }
       if (name === '@/lib/features/overview/overview-diagnostics') return { logOverviewError() {} }
       // Legacy entitlement tests exercise enforcement with the temporary mode OFF.
       // Full Access tests explicitly inject the actual flag value instead.

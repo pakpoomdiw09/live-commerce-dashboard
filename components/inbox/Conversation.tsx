@@ -18,7 +18,11 @@ import { useInboxExpiry } from '@/hooks/inbox/useInboxExpiry'
 import { ReplyBox } from '@/components/inbox/ReplyBox'
 import { SlipStatusCard } from '@/components/inbox/SlipStatusCard'
 import { ConversationActions } from '@/components/inbox/ConversationActions'
-import type { InboxState, ConversationState } from '@/lib/features/inbox/inbox-types'
+import type {
+  InboxState,
+  ConversationState,
+  ConversationUpdate,
+} from '@/lib/features/inbox/inbox-types'
 
 const SENDER = { customer: 'ลูกค้า', bot: 'ระบบอัตโนมัติ', agent: 'แอดมิน' } as const
 const BUBBLE = {
@@ -47,6 +51,7 @@ export function Conversation({
   inbox,
   conversationState,
   onStateChange,
+  onConversationSaved,
   onLoadOlder,
   hasOlder,
   olderLoading,
@@ -67,6 +72,7 @@ export function Conversation({
   inbox: InboxState | null
   conversationState: ConversationState | undefined
   onStateChange: () => Promise<void>
+  onConversationSaved?: (saved: ConversationUpdate) => void
   onLoadOlder: () => void
   hasOlder: boolean
   olderLoading: boolean
@@ -151,6 +157,7 @@ export function Conversation({
         state={conversationState}
         inbox={inbox}
         onChange={onStateChange}
+        onSaved={onConversationSaved}
         autoReplyEnabled={tenant?.autoReply !== false}
         windowAllowed={policyWindow.allowed}
         toolbar={

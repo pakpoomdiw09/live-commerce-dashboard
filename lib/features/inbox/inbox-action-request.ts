@@ -1,3 +1,24 @@
+import type { ConversationUpdate } from './inbox-types'
+
+export function isConversationUpdate(
+  value: unknown,
+  customerId: string,
+): value is ConversationUpdate {
+  const row = value as ConversationUpdate | null
+  return (
+    !!row &&
+    row.id === customerId &&
+    typeof row.tenant_id === 'string' &&
+    (row.assigned_user_id === null || typeof row.assigned_user_id === 'string') &&
+    typeof row.bot_enabled === 'boolean' &&
+    ['open', 'closed'].includes(row.conversation_status) &&
+    Number.isInteger(row.conversation_version) &&
+    row.conversation_version >= 0 &&
+    Number.isFinite(row.inbound_seq) &&
+    row.inbound_seq >= 0
+  )
+}
+
 /** Bound the mutation and its refresh separately; never automatically replay an uncertain write. */
 export async function inboxActionRequest(url: string, body: unknown, timeoutMs = 20000) {
   const controller = new AbortController()

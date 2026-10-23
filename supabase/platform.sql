@@ -1,6 +1,7 @@
 -- Multi-tenant platform: tenant settings, CRM fields, slip workflow, credit quota.
 -- Run in the Supabase SQL editor after schema.sql, tenants.sql and comment-rules.sql.
 -- Then run orders.sql and security.sql.
+-- Run schema_patch.sql and backfill_patch.sql separately after this file.
 -- Safe to re-run: every change is guarded with "if not exists".
 
 -- ── tenants: bank account, Facebook Page and automation settings ──
@@ -63,17 +64,3 @@ alter table tenants add column if not exists page_access_token text;
 -- what the dashboard may see instead: whether a token is saved
 alter table tenants add column if not exists page_token_set boolean
   generated always as (page_access_token is not null) stored;
-
--- ── comments and comment rules belong to a tenant ──
-alter table comments add column if not exists tenant_id uuid references tenants(id) on delete set null;
-create index if not exists comments_tenant on comments (tenant_id, created_at desc);
-alter table comment_rules add column if not exists tenant_id uuid references tenants(id) on delete cascade;
-create index if not exists comment_rules_tenant on comment_rules (tenant_id);
-
--- backfill: Meta post ids are "<page id>_<post id>"; rules belong to the tenant of a Page they target
-update comments c set tenant_id = t.id
-  from tenants t
-  where c.tenant_id is null and t.page_id is not null and c.post_id like t.page_id || '\_%';
-update comment_rules r set tenant_id = t.id
-  from tenants t
-  where r.tenant_id is null and t.page_id = any (r.page_ids);

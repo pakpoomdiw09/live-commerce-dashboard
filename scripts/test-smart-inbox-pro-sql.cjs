@@ -15,6 +15,7 @@ test('Pro workflow: idempotent actions, racing admins, close reasons, reopen, te
     const sql = fs.readFileSync('supabase/smart-inbox-pro.sql', 'utf8')
     await db.exec(sql)
     await db.exec(sql)
+    await db.exec(fs.readFileSync('supabase/inbox-actions.sql', 'utf8'))
     await db.exec('set role service_role')
     const one = async (sql, args = []) => (await db.query(sql, args)).rows[0]
     const owner = (await one('insert into auth.users default values returning id')).id,

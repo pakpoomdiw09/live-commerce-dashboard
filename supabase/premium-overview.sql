@@ -50,7 +50,10 @@ begin
  end if;
  if customers_allowed then
   with scoped as(
-   select c.id,c.display_name name,c.avatar_url,c.last_message_at,c.unread_count,
+   -- Legacy installations may store unread_count; Smart Inbox derives it per user.
+   -- Do not require a column that the current fresh-install schema never creates.
+   select c.id,c.display_name name,c.avatar_url,c.last_message_at,
+    coalesce((to_jsonb(c)->>'unread_count')::integer,0) unread_count,
     case when c.assigned_user_id is not null then 'แอดมินรับแชท' when c.bot_enabled then 'บอท' else 'รอแอดมิน' end owner,m.body
    from public.customers c left join lateral(select body from public.messages where customer_id=c.id order by created_at desc,id desc limit 1)m on true
    where c.tenant_id=p_tenant and (p_from is null or c.last_message_at>=p_from) and c.last_message_at<p_to

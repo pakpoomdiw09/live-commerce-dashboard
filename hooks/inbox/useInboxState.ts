@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import type { InboxState } from '@/lib/features/inbox/inbox-types'
+import type { InboxState, ConversationUpdate } from '@/lib/features/inbox/inbox-types'
 import { apiError } from '@/lib/utils'
 import { LatestInboxRequest } from '@/lib/features/inbox/inbox-request'
 import { inboxChannelName } from '@/lib/features/inbox/inbox-realtime'
@@ -11,6 +11,8 @@ export function useInboxState(tenantId: string | undefined, customerIds: readonl
     [error, setError] = useState<string | null>(null)
   const idsKey = [...new Set(customerIds)].sort().join(',')
   const generation = useRef(0)
+  const tenantScope = useRef(tenantId)
+  tenantScope.current = tenantId
   const gate = useRef(new LatestInboxRequest())
   const refresh = useCallback(async () => {
     if (!tenantId) return
@@ -231,5 +233,21 @@ export function useInboxState(tenantId: string | undefined, customerIds: readonl
       scheduleRefresh.current()
     }
   }, [idsKey])
-  return { data, error, refresh }
+  const applyConversation = useCallback((saved: ConversationUpdate) => {
+    if (saved.tenant_id !== tenantScope.current) return
+    ++generation.current
+    gate.current.cancel()
+    setData((current) => {
+      if (!current || saved.tenant_id !== tenantScope.current) return current
+      const previous = current.conversations.find((row) => row.id === saved.id)
+      if (previous && previous.conversation_version > saved.conversation_version) return current
+      return {
+        ...current,
+        conversations: previous
+          ? current.conversations.map((row) => (row.id === saved.id ? { ...row, ...saved } : row))
+          : [...current.conversations, { ...saved, unread_count: 0 }],
+      }
+    })
+  }, [])
+  return { data, error, refresh, applyConversation }
 }

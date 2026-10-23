@@ -14,6 +14,7 @@ function load(file, deps, env = {}) {
     require: (n) => {
       if (n === '@/lib/feature-flags') return load('lib/feature-flags.ts', {}, env)
       if (n in deps) return deps[n]
+      if (n === '@/lib/features/inbox/inbox-diagnostics') return { logInboxError() {} }
       throw Error('Unexpected dependency ' + n)
     },
   }
@@ -80,6 +81,18 @@ test('foreign tenants and locked packages cannot load customer details', async (
     await assert.rejects(f.guard.inboxCustomer({}, id), (e) => [403, 404].includes(e.status))
     assert.deepEqual(f.columns, ['tenant_id'])
   }
+})
+
+test('claim authorization reads only action metadata and keeps missing schema errors actionable', async () => {
+  const f = guardFixture()
+  await f.guard.inboxCustomer({}, id, { actionOnly: true })
+  assert.equal(f.columns.length, 1)
+  assert.ok(f.columns[0].includes('conversation_version'))
+  assert.ok(!f.columns[0].includes('PRIVATE_CUSTOMER_DETAILS'))
+  const result = f.guard.inboxError({ code: '42703', message: 'private SQL details' })
+  assert.equal(result.status, 503)
+  assert.equal(result.body.code, 'INBOX_SCHEMA_UNAVAILABLE')
+  assert.ok(!result.body.error.includes('private SQL details'))
 })
 test('private attachment API denies foreign tenants before creating signed URLs', async () => {
   let signed = 0

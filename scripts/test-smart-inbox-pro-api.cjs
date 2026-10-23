@@ -10,6 +10,7 @@ function load(file, deps, env = {}) {
     console,
     require: (name) => {
       if (name in deps) return deps[name]
+      if (name === '@/lib/features/inbox/inbox-diagnostics') return { logInboxError() {} }
       throw Error(name)
     },
   }
@@ -36,8 +37,18 @@ const errors = {
     if (error) throw error
   },
 }
-function fixture({ denied = 0, pro = true } = {}) {
+function fixture({ denied = 0, pro = true, atomic = false, readError = false } = {}) {
   const writes = []
+  const reads = []
+  const snapshot = {
+    id: customer,
+    tenant_id: 'server-shop',
+    assigned_user_id: 'server-user',
+    bot_enabled: false,
+    conversation_status: 'open',
+    conversation_version: 8,
+    inbound_seq: 1,
+  }
   const guard = async () => {
     if (denied) throw new InboxError('denied', denied)
     return {
@@ -45,9 +56,37 @@ function fixture({ denied = 0, pro = true } = {}) {
       actor: { id: 'server-user' },
       customer: { id: customer },
       db: {
+        from(table) {
+          reads.push(table)
+          assert.equal(table, 'customers')
+          const query = {
+            select() {
+              return this
+            },
+            eq(column, value) {
+              assert.equal(value, column === 'tenant_id' ? 'server-shop' : customer)
+              return this
+            },
+            maybeSingle: async () => ({
+              data: readError
+                ? null
+                : {
+                    id: customer,
+                    tenant_id: 'server-shop',
+                    assigned_user_id: 'server-user',
+                    bot_enabled: false,
+                    conversation_status: 'open',
+                    conversation_version: 8,
+                    inbound_seq: 1,
+                  },
+              error: readError ? { code: '57014', message: 'Read timed out' } : null,
+            }),
+          }
+          return query
+        },
         rpc: async (name, args) => {
           writes.push({ name, args })
-          return { data: { ok: true }, error: null }
+          return { data: { ok: true, ...(atomic ? { customer: snapshot } : {}) }, error: null }
         },
       },
     }
@@ -68,8 +107,26 @@ function fixture({ denied = 0, pro = true } = {}) {
     nextUrl: new URL('https://snapbot.test/api/inbox/conversations/' + customer),
     json: async () => body,
   })
-  return { route, writes, request, context: { params: Promise.resolve({ id: customer }) } }
+  return { route, writes, reads, request, context: { params: Promise.resolve({ id: customer }) } }
 }
+
+test('atomic legacy snapshot skips refresh reads; failed Pro read-back never replays a committed claim', async () => {
+  const legacy = fixture({ pro: false, atomic: true })
+  const saved = await legacy.route.PATCH(
+    legacy.request({ action: 'claim', version: 7 }),
+    legacy.context,
+  )
+  assert.equal(saved.body.customer.assigned_user_id, 'server-user')
+  assert.equal(legacy.reads.length, 0)
+  const pro = fixture({ readError: true })
+  const result = await pro.route.PATCH(
+    pro.request({ action: 'claim', version: 7, requestId: key }),
+    pro.context,
+  )
+  assert.equal(result.body.ok, true)
+  assert.equal(result.body.refreshRequired, true)
+  assert.equal(pro.writes.length, 1)
+})
 test('unauthorized and cross-tenant mutations stop before RPC even with valid idempotency key', async () => {
   for (const denied of [401, 403, 404]) {
     const f = fixture({ denied })
@@ -104,7 +161,10 @@ test('Pro mutation enforces same origin, reason, version/key validation and serv
   ])
     assert.equal((await f.route.PATCH(f.request(bad), f.context)).status, 400)
   assert.equal(f.writes.length, 0)
-  assert.equal((await f.route.PATCH(f.request(body), f.context)).status, 200)
+  const saved = await f.route.PATCH(f.request(body), f.context)
+  assert.equal(saved.status, 200)
+  assert.equal(saved.body.customer.tenant_id, 'server-shop')
+  assert.equal(saved.body.customer.assigned_user_id, 'server-user')
   assert.equal(f.writes[0].name, 'manage_inbox_pro')
   assert.equal(f.writes[0].args.p_actor, 'server-user')
   assert.equal(f.writes[0].args.p_customer, customer)

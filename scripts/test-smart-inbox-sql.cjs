@@ -25,6 +25,9 @@ const { PGlite } = require(process.argv[2] || '@electric-sql/pglite')
     const sql = fs.readFileSync('supabase/smart-inbox.sql', 'utf8')
     await db.exec(sql)
     await db.exec(sql)
+    const repair = fs.readFileSync('supabase/inbox-actions.sql', 'utf8')
+    await db.exec(repair)
+    await db.exec(repair)
     await db.exec('set role service_role')
     const one = async (sql, params = []) => (await db.query(sql, params)).rows[0]
     const owner = (await one('insert into auth.users default values returning id')).id,
@@ -48,7 +51,10 @@ const { PGlite } = require(process.argv[2] || '@electric-sql/pglite')
       ])
     const version = async () =>
       (await one('select conversation_version n from customers where id=$1', [c])).n
-    await call(owner, 'claim', 0)
+    const claimed = (await call(owner, 'claim', 0)).rows[0].manage_inbox_conversation
+    assert.equal(claimed.customer.assigned_user_id, owner)
+    assert.equal(claimed.customer.conversation_version, 1)
+    assert.equal(claimed.customer.tenant_id, shop)
     assert.equal(
       (await one('select bot_enabled from customers where id=$1', [c])).bot_enabled,
       false,

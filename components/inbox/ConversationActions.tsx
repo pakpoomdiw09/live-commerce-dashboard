@@ -2,9 +2,17 @@
 
 import { useRef, useState, type ReactNode } from 'react'
 import { Bot, LoaderCircle, UserRoundCheck } from 'lucide-react'
-import type { ConversationState, InboxState } from '@/lib/features/inbox/inbox-types'
+import type {
+  ConversationState,
+  ConversationUpdate,
+  InboxState,
+} from '@/lib/features/inbox/inbox-types'
 import { cn } from '@/lib/utils'
-import { inboxActionRequest, refreshInboxAction } from '@/lib/features/inbox/inbox-action-request'
+import {
+  inboxActionRequest,
+  refreshInboxAction,
+  isConversationUpdate,
+} from '@/lib/features/inbox/inbox-action-request'
 
 type Action = 'claim' | 'pause' | 'bot'
 type PendingAction = {
@@ -16,6 +24,7 @@ export function ConversationActions({
   state,
   inbox,
   onChange,
+  onSaved,
   children,
   toolbar,
   autoReplyEnabled = true,
@@ -26,6 +35,7 @@ export function ConversationActions({
   state: ConversationState | undefined
   inbox: InboxState | null
   onChange: () => Promise<void>
+  onSaved?: (saved: ConversationUpdate) => void
   autoReplyEnabled?: boolean
   windowAllowed?: boolean
 }) {
@@ -100,6 +110,7 @@ export function ConversationActions({
       }
       pending.current = null
       saved = true
+      if (data.customer && isConversationUpdate(data.customer, state.id)) onSaved?.(data.customer)
       setNotice(
         action === 'bot' ? 'เปิด AI ตอบอัตโนมัติแล้ว' : 'ปิด AI และเปลี่ยนเป็นแอดมินดูแลแล้ว',
       )
@@ -166,7 +177,13 @@ export function ConversationActions({
               ) : (
                 <Bot aria-hidden className="h-3.5 w-3.5 shrink-0" />
               )}
-              {!state ? 'กำลังโหลดสถานะ AI…' : active ? 'AI ตอบอัตโนมัติเปิดอยู่' : 'AI ปิดอยู่'}
+              {!state
+                ? 'กำลังโหลดสถานะ AI…'
+                : pausedByViewer
+                  ? 'แอดมินกำลังดูแล'
+                  : active
+                    ? 'AI ตอบอัตโนมัติเปิดอยู่'
+                    : 'AI ปิดอยู่'}
             </span>
             <div
               role="group"

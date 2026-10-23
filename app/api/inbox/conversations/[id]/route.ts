@@ -3,6 +3,7 @@ import { inboxCustomer, inboxError, InboxError, checkRpc } from '@/lib/features/
 import { hasFeature } from '@/lib/feature-access'
 import { aiConfigured } from '@/lib/features/agents/ai-agent'
 import { UUID } from '@/lib/utils'
+import { logInboxError } from '@/lib/features/inbox/inbox-diagnostics'
 type Context = { params: Promise<{ id: string }> }
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -50,9 +51,16 @@ export async function GET(req: NextRequest, { params }: Context) {
 export async function PATCH(req: NextRequest, { params }: Context) {
   const started = Date.now()
   let stage = 'authorization'
+  let action: string | undefined
+  let tenant: string | undefined
+  let customerId: string | undefined
   console.log('[inbox/action] started')
   try {
-    const { db, actor, customer, tenantId } = await inboxCustomer(req, (await params).id)
+    const { db, actor, customer, tenantId } = await inboxCustomer(req, (await params).id, {
+      actionOnly: true,
+    })
+    tenant = tenantId
+    customerId = customer.id
     stage = 'validation'
     const pro = process.env.SMART_INBOX_PRO_ENABLED === 'true'
     if (pro) {
@@ -62,6 +70,7 @@ export async function PATCH(req: NextRequest, { params }: Context) {
         throw new InboxError('ไม่อนุญาตคำขอจากเว็บไซต์อื่น', 403)
     }
     const input = await req.json().catch(() => null)
+    action = typeof input?.action === 'string' ? input.action : undefined
     if (
       !input ||
       !(
@@ -117,7 +126,7 @@ export async function PATCH(req: NextRequest, { params }: Context) {
       action: input.action,
       elapsedMs: Date.now() - started,
     })
-    const { error, data } = pro
+    const result = pro
       ? await db.rpc('manage_inbox_pro', {
           p_customer: customer.id,
           p_actor: actor.id,
@@ -134,20 +143,76 @@ export async function PATCH(req: NextRequest, { params }: Context) {
           p_version: input.version,
           p_assignee: input.assigneeId ?? null,
         })
-    checkRpc(error)
+    if (result.error)
+      logInboxError(stage, result.error, {
+        tenantId,
+        customerId: customer.id,
+        action,
+        status: result.status,
+        elapsedMs: Date.now() - started,
+      })
+    checkRpc(result.error)
+    const data = result.data
+    if (data?.ok !== true)
+      throw new InboxError(
+        'ยังยืนยันผลการบันทึกไม่ได้ กรุณาโหลดสถานะแชทอีกครั้ง',
+        503,
+        'INBOX_ACTION_UNCONFIRMED',
+      )
+    // This read is scoped by the server-authorized tenant, never a tenant from the body.
+    // A refresh failure after a committed write must not report that the write failed.
+    stage = 'read_saved_customer'
+    const committed = data.customer
+    // The repaired legacy RPC returns its state within the mutation transaction.
+    // Pro receipts may be replayed, so read the current record for Pro actions.
+    let savedCustomer =
+      !pro &&
+      committed?.id === customer.id &&
+      committed?.tenant_id === tenantId &&
+      typeof committed.bot_enabled === 'boolean' &&
+      ['open', 'closed'].includes(committed.conversation_status) &&
+      Number.isInteger(committed.conversation_version) &&
+      Number.isFinite(committed.inbound_seq) &&
+      (committed.assigned_user_id === null || typeof committed.assigned_user_id === 'string')
+        ? committed
+        : null
+    if (!savedCustomer)
+      try {
+        const saved = await db
+          .from('customers')
+          .select(
+            'id,tenant_id,assigned_user_id,bot_enabled,conversation_status,conversation_version,inbound_seq',
+          )
+          .eq('id', customer.id)
+          .eq('tenant_id', tenantId)
+          .maybeSingle()
+        if (saved.error || !saved.data)
+          logInboxError(stage, saved.error ?? new Error('SAVED_CUSTOMER_NOT_FOUND'), {
+            tenantId,
+            customerId: customer.id,
+            status: saved.status,
+          })
+        else savedCustomer = saved.data
+      } catch (error) {
+        logInboxError(stage, error, { tenantId, customerId: customer.id })
+      }
     console.log('[inbox/action] completed', {
-      rpc: stage,
+      rpc: pro ? 'manage_inbox_pro' : 'manage_inbox_conversation',
       action: input.action,
       elapsedMs: Date.now() - started,
     })
-    return NextResponse.json(pro ? data : { ok: true }, {
-      headers: { 'Cache-Control': 'no-store' },
-    })
+    return NextResponse.json(
+      { ...data, ok: true, customer: savedCustomer, refreshRequired: !savedCustomer },
+      {
+        headers: { 'Cache-Control': 'no-store' },
+      },
+    )
   } catch (error) {
-    console.error('[inbox/action] failed', {
-      stage,
+    logInboxError(stage, error, {
+      tenantId: tenant,
+      customerId,
+      action,
       elapsedMs: Date.now() - started,
-      code: (error as { code?: string })?.code ?? 'UNKNOWN',
     })
     return inboxError(error)
   }

@@ -10,6 +10,7 @@ import {
   type CustomerRow,
 } from '@/lib/types'
 import { UUID } from '@/lib/utils'
+import { logInboxError } from '@/lib/features/inbox/inbox-diagnostics'
 
 export class InboxError extends Error {
   constructor(
@@ -21,9 +22,16 @@ export class InboxError extends Error {
   }
 }
 export function inboxError(error: unknown) {
+  if (!(error instanceof InboxError)) {
+    logInboxError('request', error)
+    try {
+      checkRpc(error as { code?: string })
+    } catch (mapped) {
+      if (mapped instanceof InboxError) error = mapped
+    }
+  }
   if (error instanceof InboxError)
     return NextResponse.json({ error: error.message, code: error.code }, { status: error.status })
-  console.error('[inbox] request failed', { code: (error as { code?: string })?.code ?? 'unknown' })
   return NextResponse.json(
     { error: 'ไม่สามารถดำเนินการได้ กรุณาลองอีกครั้ง', code: 'INBOX_ERROR' },
     { status: 503 },
@@ -39,18 +47,37 @@ export async function inboxTenant(req: NextRequest, tenantId: string) {
     throw new InboxError('ฟีเจอร์นี้สำหรับสมาชิกที่อัปเกรดแพ็กเกจ', 403, 'FEATURE_LOCKED')
   return { db, actor, tenantId }
 }
-export async function inboxCustomer(req: NextRequest, id: string) {
+export async function inboxCustomer(
+  req: NextRequest,
+  id: string,
+  options: { actionOnly?: boolean } = {},
+) {
   const actor = await getActor(req)
   if (!actor || actor.kind !== 'user') throw new InboxError('กรุณาเข้าสู่ระบบ', 401)
   if (!UUID.test(id)) throw new InboxError('รหัสลูกค้าไม่ถูกต้อง')
   const db = supabaseAdmin({ timeoutMs: 10000 })
-  const scope = await db.from('customers').select('tenant_id').eq('id', id).maybeSingle()
+  const scopeQuery = db.from('customers')
+  const scope = options.actionOnly
+    ? await scopeQuery
+        .select(
+          'id,tenant_id,assigned_user_id,bot_enabled,conversation_status,conversation_version,inbound_seq',
+        )
+        .eq('id', id)
+        .maybeSingle()
+    : await scopeQuery.select('tenant_id').eq('id', id).maybeSingle()
   if (scope.error) throw scope.error
   if (!scope.data?.tenant_id || !(await canAccessTenant(actor, scope.data.tenant_id)))
     throw new InboxError('ไม่พบลูกค้า', 404)
   if (!(await hasFeature(db, scope.data.tenant_id, 'customer_management')))
     throw new InboxError('ฟีเจอร์นี้สำหรับสมาชิกที่อัปเกรดแพ็กเกจ', 403, 'FEATURE_LOCKED')
-  let result = await db.from('customers').select(CUSTOMER_COLUMNS).eq('id', id).maybeSingle()
+  if (options.actionOnly)
+    return { db, actor, customer: scope.data as CustomerRow, tenantId: scope.data.tenant_id }
+  let result = await db
+    .from('customers')
+    .select(CUSTOMER_COLUMNS)
+    .eq('id', id)
+    .eq('tenant_id', scope.data.tenant_id)
+    .maybeSingle()
   if (isMissingCustomerAvatarColumn(result.error))
     result = await db
       .from('customers')
@@ -69,7 +96,7 @@ export function checkRpc(error: { code?: string } | null) {
   if (!error) return
   if (error.code === '57014')
     throw new InboxError('ฐานข้อมูลตอบช้า กรุณาตรวจสถานะแชทก่อนลองใหม่', 503, 'DATABASE_TIMEOUT')
-  if (['PGRST202', '42883'].includes(error.code ?? ''))
+  if (['PGRST202', 'PGRST204', '42883', '42703', '42P01'].includes(error.code ?? ''))
     throw new InboxError(
       'ระบบจัดการแชทยังไม่พร้อม กรุณาติดต่อผู้ดูแล',
       503,

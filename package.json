@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "db:migrate:safe": "node scripts/run-safe-db-migration.cjs",
+    "db:migrate:sql": "node scripts/run-safe-db-migration.cjs --write-sql",
+    "test:db-migration": "node --test --test-concurrency=1 scripts/test-safe-db-migration.cjs scripts/test-platform-migration.cjs",
     "clean:preview": "node scripts/clean-cache.cjs --dry-run",
     "clean:cache": "node scripts/clean-cache.cjs --apply",
     "format": "prettier --write \"{app,components,hooks,lib,scripts,tests}/**/*.{ts,tsx,js,cjs,mjs}\" \"*.{ts,js,cjs,mjs,json}\"",
@@ -40,6 +43,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.27",
+    "pg": "^8.23.1",
     "postcss": "^8",
     "prettier": "3.9.10",
     "tailwindcss": "^4",

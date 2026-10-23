@@ -23,4 +23,7 @@ export type InboxState = {
   proEnabled?: boolean
   canManageTeam?: boolean
 }
+export type ConversationUpdate = Omit<ConversationState, 'unread_count' | 'inbox_stage'> & {
+  tenant_id: string
+}
 export type InboxMedia = { id: string; name: string; kind: 'image' | 'file' }

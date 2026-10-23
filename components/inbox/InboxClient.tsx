@@ -787,6 +787,7 @@ export function InboxClient({
           inbox={inbox.data}
           conversationState={currentState}
           onStateChange={inbox.refresh}
+          onConversationSaved={inbox.applyConversation}
           onLoadOlder={() => void loadOlder()}
           hasOlder={!olderEnd && messages.length > 0}
           olderLoading={olderLoading}

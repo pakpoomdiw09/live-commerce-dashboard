@@ -9,6 +9,16 @@ test('Claim releases its loading lock after a stalled refresh and preserves an u
   for (const saved of [false, true]) {
     const setters = [[], [], []],
       bodies = []
+    const confirmed = []
+    const snapshot = {
+      id: 'customer',
+      tenant_id: 'shop',
+      assigned_user_id: 'actor',
+      bot_enabled: false,
+      conversation_status: 'open',
+      conversation_version: 5,
+      inbound_seq: 2,
+    }
     let index = 0
     const helpers = api(() => {
       throw Error('unused transport')
@@ -30,9 +40,10 @@ test('Claim releases its loading lock after a stalled refresh and preserves an u
         inboxActionRequest: async (_url, body) => {
           bodies.push(body)
           if (!saved) throw Error('ambiguous timeout')
-          return { response: { ok: true }, data: { ok: true } }
+          return { response: { ok: true }, data: { ok: true, customer: snapshot } }
         },
         refreshInboxAction: (refresh) => helpers.refreshInboxAction(refresh, 5),
+        isConversationUpdate: helpers.isConversationUpdate,
       },
     }
     vm.runInNewContext(
@@ -64,6 +75,7 @@ test('Claim releases its loading lock after a stalled refresh and preserves an u
       inbox: { viewerId: 'actor', proEnabled: true, aiAllowed: true, autoReplyEnabled: true },
       windowAllowed: true,
       onChange: () => new Promise(() => {}),
+      onSaved: (row) => confirmed.push(row),
     })
     function find(node) {
       if (!node || typeof node !== 'object') return null
@@ -79,6 +91,8 @@ test('Claim releases its loading lock after a stalled refresh and preserves an u
     button.props.onClick()
     await new Promise((resolve) => setTimeout(resolve, 25))
     assert.deepEqual(setters[0], [true, false])
+    assert.equal(confirmed.length, saved ? 1 : 0)
+    if (saved) assert.equal(confirmed[0].assigned_user_id, 'actor')
     if (!saved) {
       assert.equal(setters[1].at(-1), 'ambiguous timeout')
       button.props.onClick()
