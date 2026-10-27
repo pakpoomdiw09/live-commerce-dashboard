@@ -14,9 +14,8 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json()
-    const { db, actor, tenantId } = await visionTenant(req, String(body.tenantId ?? ''), true)
-    if (typeof body?.enabled !== 'boolean')
-      throw new InboxError('ตั้งค่าไม่ถูกต้อง')
+    const { db, actor, tenantId } = await visionTenant(req, String(body?.tenantId ?? ''), true)
+    if (typeof body?.enabled !== 'boolean') throw new InboxError('ตั้งค่าไม่ถูกต้อง')
     const saved = await db.rpc('save_vision_settings', {
       p_tenant: tenantId,
       p_actor: actor.id,

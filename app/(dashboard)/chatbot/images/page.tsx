@@ -38,6 +38,7 @@ export default async function Page() {
       canManage={roleAtLeast(viewer.role, 'owner')}
     >
       <ImageRulesClient
+        embedded
         tenantId={tenant.id}
         tenantName={tenant.name}
         initialRules={(data ?? []) as ImageResponseRule[]}

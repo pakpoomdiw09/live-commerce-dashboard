@@ -41,7 +41,12 @@ export function normalizeVisionOverview(value: unknown): Overview {
     typeof v.settings.enabled === 'boolean' &&
     ['rules', 'catalog'].includes(v.settings.mode) &&
     typeof v.settings.confidence_threshold === 'number'
-      ? { ...v.settings, mode: 'rules' as const, handoff_enabled: true, confidence_threshold: VISION_CONFIDENCE_THRESHOLD }
+      ? {
+          ...v.settings,
+          mode: 'rules' as const,
+          handoff_enabled: true,
+          confidence_threshold: VISION_CONFIDENCE_THRESHOLD,
+        }
       : null
   return {
     ...v,
@@ -229,14 +234,27 @@ export function VisionCenter({
           <div id="vision-enabled-label">
             <p className="text-sm font-semibold">ระบบตอบรูปภาพ</p>
             <p role="status" className="mt-1 text-xs text-white/85">
-              {busy && !testing ? 'กำลังบันทึก…' : !settings ? 'กำลังโหลด…' : settings.enabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+              {busy && !testing
+                ? 'กำลังดำเนินการ…'
+                : !settings
+                  ? 'กำลังโหลด…'
+                  : settings.enabled
+                    ? 'เปิดใช้งาน'
+                    : 'ปิดใช้งาน'}
             </p>
           </div>
-          <button type="button" role="switch" aria-checked={settings?.enabled ?? false}
-            aria-labelledby="vision-enabled-label" disabled={!canManage || busy || !settings}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings?.enabled ?? false}
+            aria-labelledby="vision-enabled-label"
+            disabled={!canManage || busy || !settings}
             onClick={() => void save(!settings?.enabled)}
-            className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white disabled:opacity-50 ${settings?.enabled ? 'bg-emerald-500' : 'bg-black/25'}`}>
-            <span className={`h-6 w-6 rounded-full bg-white shadow transition-transform ${settings?.enabled ? 'translate-x-5.5' : 'translate-x-0.5'}`} />
+            className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white disabled:opacity-50 ${settings?.enabled ? 'bg-emerald-500' : 'bg-black/25'}`}
+          >
+            <span
+              className={`h-6 w-6 rounded-full bg-white shadow transition-transform ${settings?.enabled ? 'translate-x-5.5' : 'translate-x-0.5'}`}
+            />
           </button>
         </div>
       </PageBanner>
@@ -250,7 +268,7 @@ export function VisionCenter({
           {notice}
         </p>
       )}
-      <div className="-mx-4 md:-mx-8">{children}</div>
+      <div className="min-w-0">{children}</div>
       {!data ? (
         <div role={error ? 'alert' : 'status'} aria-busy={!error} className="min-w-0 space-y-6">
           {error && (
@@ -275,12 +293,15 @@ export function VisionCenter({
             </div>
           )}
           <p className="sr-only">กำลังโหลดข้อมูล Vision จากฐานข้อมูล…</p>
-            <div aria-hidden="true" className={`${box} ml-auto min-h-48 w-full max-w-sm animate-pulse`}>
-              <div className="h-5 w-1/3 rounded bg-slate-200" />
-              <div className="mt-4 h-3 w-5/6 rounded bg-slate-100" />
-              <div className="mt-3 h-3 w-2/3 rounded bg-slate-100" />
-              <div className="mt-6 h-16 rounded-xl bg-slate-100" />
-            </div>
+          <div
+            aria-hidden="true"
+            className={`${box} ml-auto min-h-48 w-full max-w-sm animate-pulse`}
+          >
+            <div className="h-5 w-1/3 rounded bg-slate-200" />
+            <div className="mt-4 h-3 w-5/6 rounded bg-slate-100" />
+            <div className="mt-3 h-3 w-2/3 rounded bg-slate-100" />
+            <div className="mt-6 h-16 rounded-xl bg-slate-100" />
+          </div>
           <div aria-hidden="true" className={`${box} min-h-72 animate-pulse`}>
             <div className="h-5 w-1/3 rounded bg-slate-200" />
             <div className="mt-5 space-y-4">
@@ -292,92 +313,93 @@ export function VisionCenter({
         </div>
       ) : (
         <>
-            <section aria-label="โหมดทดลองวิเคราะห์ภาพ" className={`${box} w-full max-w-sm border-orange-100 sm:ml-auto`}>
-              <div className="flex items-center gap-2">
-                <FlaskConical className="h-4 w-4 text-orange-500" aria-hidden />
-                <h3 className="font-semibold text-slate-900">โหมดทดลอง</h3>
-                <span className="ml-auto rounded-md bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
-                  Sandbox
-                </span>
-              </div>
-              <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                JPG / PNG / WebP ไม่เกิน 5 MB · ใช้โควตา 1 ภาพต่อการวิเคราะห์ใหม่
-                ไม่ส่งข้อความหาลูกค้า
-              </p>
-              <label className="mt-3 block rounded-xl border border-dashed border-orange-200 bg-orange-50/40 p-3">
-                <span className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-700">
-                  <Upload className="h-3.5 w-3.5" aria-hidden /> เลือกรูปภาพทดสอบ
-                </span>
-                <input
-                  aria-label="รูปภาพสำหรับทดลอง AI Vision"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  disabled={busy}
-                  onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
-                  className="block w-full min-w-0 text-xs text-slate-500 file:mr-2 file:cursor-pointer file:rounded-lg file:border-0 file:bg-white file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-orange-700 disabled:opacity-50"
+          <section
+            aria-label="โหมดทดลองวิเคราะห์ภาพ"
+            className={`${box} w-full max-w-sm border-orange-100 sm:ml-auto`}
+          >
+            <div className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-orange-500" aria-hidden />
+              <h3 className="font-semibold text-slate-900">โหมดทดลอง</h3>
+              <span className="ml-auto rounded-md bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                Sandbox
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              JPG / PNG / WebP ไม่เกิน 5 MB · ใช้โควตา 1 ภาพต่อการวิเคราะห์ใหม่
+              ไม่ส่งข้อความหาลูกค้า
+            </p>
+            <label className="mt-3 block rounded-xl border border-dashed border-orange-200 bg-orange-50/40 p-3">
+              <span className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                <Upload className="h-3.5 w-3.5" aria-hidden /> เลือกรูปภาพทดสอบ
+              </span>
+              <input
+                aria-label="รูปภาพสำหรับทดลอง AI Vision"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={busy}
+                onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
+                className="block w-full min-w-0 text-xs text-slate-500 file:mr-2 file:cursor-pointer file:rounded-lg file:border-0 file:bg-white file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-orange-700 disabled:opacity-50"
+              />
+            </label>
+            {imagePreview && (
+              <div className="mt-3 flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 p-2">
+                <Image
+                  src={imagePreview}
+                  alt="ภาพที่เลือกสำหรับทดลอง AI Vision"
+                  width={64}
+                  height={64}
+                  unoptimized
+                  className="h-16 w-16 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
                 />
-              </label>
-              {imagePreview && (
-                <div className="mt-3 flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 p-2">
-                  <Image
-                    src={imagePreview}
-                    alt="ภาพที่เลือกสำหรับทดลอง AI Vision"
-                    width={64}
-                    height={64}
-                    unoptimized
-                    className="h-16 w-16 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
-                  />
-                  <p className="min-w-0 break-all text-xs text-slate-600">{file?.name}</p>
-                </div>
-              )}
-              <button
-                type="button"
-                className={`${button} mt-3 flex w-full items-center justify-center gap-2`}
-                disabled={!file || busy || (!temporaryFullAccess && data.usage.remaining <= 0)}
-                onClick={() => void test()}
+                <p className="min-w-0 break-all text-xs text-slate-600">{file?.name}</p>
+              </div>
+            )}
+            <button
+              type="button"
+              className={`${button} mt-3 flex w-full items-center justify-center gap-2`}
+              disabled={!file || busy || (!temporaryFullAccess && data.usage.remaining <= 0)}
+              onClick={() => void test()}
+            >
+              {testing && <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />}
+              {testing ? 'กำลังวิเคราะห์…' : 'วิเคราะห์ภาพ'}
+            </button>
+            {testError && (
+              <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-2.5 text-xs text-rose-700">
+                {testError}
+              </p>
+            )}
+            {preview && (
+              <div
+                role="status"
+                className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-xl bg-orange-50 p-3 text-xs leading-relaxed break-words"
               >
-                {testing && <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />}
-                {testing ? 'กำลังวิเคราะห์…' : 'วิเคราะห์ภาพ'}
-              </button>
-              {testError && (
-                <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-2.5 text-xs text-rose-700">
-                  {testError}
-                </p>
-              )}
-              {preview && (
-                <div
-                  role="status"
-                  className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-xl bg-orange-50 p-3 text-xs leading-relaxed break-words"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-1 font-medium text-orange-900">
-                    <span>{statusLabel[preview.status] ?? preview.status}</span>
-                    {preview.result && <span>{Math.round(preview.result.confidence * 100)}%</span>}
-                  </div>
-                  {preview.result && (
-                    <p>
-                      <span className="font-medium">{preview.result.category}</span> ·{' '}
-                      {preview.result.description}
-                    </p>
-                  )}
-                  {preview.decision && (
-                    <p>
-                    {preview.decision.responseText ?? 'ไม่พบคำตอบอัตโนมัติ'}
-                    </p>
-                  )}
-                  {preview.decision?.mediaUrl && (
-                    <a
-                      className="inline-block text-orange-700 underline"
-                      href={preview.decision.mediaUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      ดูรูปภาพแนบจากกฎ
-                    </a>
-                  )}
-                  {preview.reason && <p className="text-[11px] text-slate-500">{preview.reason}</p>}
+                <div className="flex flex-wrap items-center justify-between gap-1 font-medium text-orange-900">
+                  <span>{statusLabel[preview.status] ?? preview.status}</span>
+                  {preview.result && <span>{Math.round(preview.result.confidence * 100)}%</span>}
                 </div>
-              )}
-            </section>
+                {preview.result && (
+                  <p>
+                    <span className="font-medium">{preview.result.category}</span> ·{' '}
+                    {preview.result.description}
+                  </p>
+                )}
+                {preview.decision && (
+                  <p>{preview.decision.responseText ?? 'ไม่พบคำตอบอัตโนมัติ'}</p>
+                )}
+                {preview.decision?.mediaUrl && (
+                  <a
+                    className="inline-block text-orange-700 underline"
+                    href={preview.decision.mediaUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    ดูรูปภาพแนบจากกฎ
+                  </a>
+                )}
+                {preview.reason && <p className="text-[11px] text-slate-500">{preview.reason}</p>}
+              </div>
+            )}
+          </section>
           <section className={box}>
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold">ประวัติรูปภาพ · 30 งานล่าสุด</h2>

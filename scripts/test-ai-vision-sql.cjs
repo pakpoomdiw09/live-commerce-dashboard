@@ -314,6 +314,141 @@ const { PGlite } = require(process.argv[2] || '@electric-sql/pglite')
       false,
     )
     checks++
+    const masterMigration = fs.readFileSync('supabase/vision-master-switch.sql', 'utf8')
+    await db.exec(masterMigration)
+    await db.exec(masterMigration)
+    await db.exec('set role service_role')
+    const master = await setup('pro', 'messenger')
+    await db.query('update tenants set auto_reply_enabled=false where id=$1', [master.tenant])
+    const masterJob = await claim(master.job)
+    assert.ok(masterJob, 'the image Master Switch is independent of text chatbot replies')
+    assert.equal(await start(masterJob), true)
+    await setDecision(masterJob, 'RULE_REPLY')
+    assert.equal(await dispatch(masterJob), true)
+    checks++
+    await db.query("select save_vision_settings($1,$2,true,'catalog',0.99,false)", [
+      master.tenant,
+      owner,
+    ])
+    const fixed = await one('select * from vision_settings where tenant_id=$1', [master.tenant])
+    assert.equal(fixed.mode, 'rules')
+    assert.equal(Number(fixed.confidence_threshold), 0.8)
+    assert.equal(fixed.handoff_enabled, true)
+    assert.equal(
+      (await one('select auto_reply_enabled from tenants where id=$1', [master.tenant]))
+        .auto_reply_enabled,
+      false,
+    )
+    checks++
+    const switchedOff = await setup('pro', 'messenger')
+    const offJob = await claim(switchedOff.job)
+    await db.query("select save_vision_settings($1,$2,false,'rules',0.8,true)", [
+      switchedOff.tenant,
+      owner,
+    ])
+    assert.equal(await start(offJob), false)
+    await setDecision(offJob, 'RULE_REPLY')
+    assert.equal(await dispatch(offJob), false)
+    assert.equal(
+      (await one("select handover_vision_job($1,$2,'NO_RULE') ok", [offJob.id, offJob.claim_token]))
+        .ok,
+      false,
+    )
+    checks++
+    const failedImage = await setup('pro', 'messenger')
+    const failedJob = await claim(failedImage.job)
+    await db.query(
+      "update customers set last_message_at=now()-interval '25 hours',outbound_lock=gen_random_uuid(),outbound_lock_until=now()+interval '1 minute' where id=$1",
+      [failedImage.customer],
+    )
+    const beforeHandoff = await one('select outbound_lock from customers where id=$1', [
+      failedImage.customer,
+    ])
+    assert.equal(
+      (
+        await one("select handover_vision_job($1,$2,'AI_PROVIDER_OR_PROCESSING_FAILED') ok", [
+          failedJob.id,
+          failedJob.claim_token,
+        ])
+      ).ok,
+      true,
+    )
+    const afterHandoff = await one('select * from customers where id=$1', [failedImage.customer])
+    assert.equal(afterHandoff.bot_enabled, false)
+    assert.equal(
+      afterHandoff.outbound_lock,
+      beforeHandoff.outbound_lock,
+      'handover never releases an in-flight send lease',
+    )
+    assert.equal((await state(failedJob.id)).status, 'requires_review')
+    assert.equal(
+      (
+        await one("select handover_vision_job($1,$2,'NO_RULE') ok", [
+          failedJob.id,
+          failedJob.claim_token,
+        ])
+      ).ok,
+      false,
+      'stale claims are rejected',
+    )
+    checks++
+    const assigned = await setup('pro', 'messenger')
+    const assignedJob = await claim(assigned.job)
+    await db.query('update customers set assigned_user_id=$1,bot_enabled=false where id=$2', [
+      owner,
+      assigned.customer,
+    ])
+    assert.equal(
+      (
+        await one("select handover_vision_job($1,$2,'NO_RULE') ok", [
+          assignedJob.id,
+          assignedJob.claim_token,
+        ])
+      ).ok,
+      true,
+    )
+    assert.equal(
+      (await one('select assigned_user_id from customers where id=$1', [assigned.customer]))
+        .assigned_user_id,
+      owner,
+    )
+    checks++
+    const sandbox = await setup()
+    const sandboxJob = await claim(sandbox.job)
+    assert.equal(
+      (
+        await one("select handover_vision_job($1,$2,'NO_RULE') ok", [
+          sandboxJob.id,
+          sandboxJob.claim_token,
+        ])
+      ).ok,
+      false,
+    )
+    const mismatch = await setup('pro', 'messenger')
+    const mismatchJob = await claim(mismatch.job)
+    await db.query('update vision_jobs set customer_id=$1 where id=$2', [
+      assigned.customer,
+      mismatch.job,
+    ])
+    assert.equal(
+      (
+        await one("select handover_vision_job($1,$2,'NO_RULE') ok", [
+          mismatchJob.id,
+          mismatchJob.claim_token,
+        ])
+      ).ok,
+      false,
+    )
+    checks++
+    await db.exec('set role authenticated')
+    await assert.rejects(
+      db.query("select handover_vision_job($1,$2,'NO_RULE')", [
+        masterJob.id,
+        masterJob.claim_token,
+      ]),
+      /permission denied/,
+    )
+    checks++
     console.log(
       `PASS: ${checks} PostgreSQL Vision scenarios: real entitlement migration, reruns, Free/Starter/Pro, expiry, quota, duplicate claims, refunds, recovery, safe retry, handoff, slip credits, tenant isolation, RLS and service-only RPCs`,
     )

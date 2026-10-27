@@ -64,11 +64,13 @@ export function ImageRulesClient({
   tenantName,
   initialRules,
   canManage,
+  embedded = false,
 }: {
   tenantId: string
   tenantName: string
   initialRules: ImageResponseRule[]
   canManage: boolean
+  embedded?: boolean
 }) {
   const db = useMemo(() => supabaseBrowser(), [])
   const router = useRouter()
@@ -204,7 +206,7 @@ export function ImageRulesClient({
     }
   }
   return (
-    <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
+    <div className={`mx-0 w-full min-w-0 max-w-none space-y-6 ${embedded ? '' : 'p-4 md:p-8'}`}>
       <PageHeader
         variant="section"
         title="ผู้ช่วยตอบรูปภาพ"

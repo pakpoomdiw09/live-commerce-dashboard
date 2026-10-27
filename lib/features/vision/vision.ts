@@ -3,10 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasFeature } from '@/lib/feature-access'
 import { analyzeVision } from '@/lib/features/vision/vision-provider'
 import { validateVisionFile, downloadVisionImage } from '@/lib/features/vision/vision-image'
-import {
-  decideVisionAction,
-  type VisionJob,
-} from '@/lib/features/vision/vision-types'
+import { decideVisionAction, type VisionJob } from '@/lib/features/vision/vision-types'
 import { IMAGE_RULE_COLUMNS, type ImageResponseRule } from '@/lib/features/vision/image-rules'
 import { deliverRichOnce } from '@/lib/features/slips/notify'
 import { pageTokenFor } from '@/lib/integrations/facebook/client'
@@ -74,7 +71,7 @@ export async function enqueueVision(
   return saved.data.id as string
 }
 
-/** Called only after Meta signature verification. A disabled center leaves the legacy slip flow intact. */
+/** Called only after Meta signature verification. Explicitly disabled stores suppress image fallbacks. */
 export async function queueMessengerVision(
   db: SupabaseClient,
   tenantId: string,
@@ -89,7 +86,9 @@ export async function queueMessengerVision(
     .select('enabled')
     .eq('tenant_id', tenantId)
     .maybeSingle()
-  if (settings.error || !settings.data?.enabled) return false
+  if (settings.error) throw settings.error
+  if (settings.data?.enabled === false) return 'disabled' as const
+  if (!settings.data?.enabled) return false
   // Once the center opts in, never route an unclassified image to the slip verifier as a fallback.
   for (const [index, url] of urls.entries())
     try {
@@ -142,13 +141,13 @@ async function handoverVisionJob(db: SupabaseClient, job: VisionJob, reason: str
 
 /** One claim = at most one AI request and one dispatch attempt. Uncertain work always needs review. */
 export async function runVisionJob(db: SupabaseClient, jobId?: string) {
-  if (!process.env.GEMINI_API_KEY?.trim()) throw new Error('VISION_PROVIDER_NOT_CONFIGURED')
   const claimed = await db.rpc('claim_vision_job', { p_job: jobId ?? null })
   if (claimed.error) throw claimed.error
   const job = (claimed.data as VisionJob[] | null)?.[0]
   if (!job) return null
   let phase = 'analysis'
   try {
+    if (!process.env.GEMINI_API_KEY?.trim()) throw new Error('VISION_PROVIDER_NOT_CONFIGURED')
     if (process.env.AGENT_CONTROL_KILL_SWITCH === 'true') throw new Error('AI_EMERGENCY_STOP')
     if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
       await (await import('@/lib/automation-safety')).assertAutomationRunning(db, job.tenant_id)
@@ -185,10 +184,7 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       .order('id')
       .limit(1000)
     if (rules.error) throw rules.error
-    const decision = decideVisionAction(
-      result,
-      (rules.data ?? []) as ImageResponseRule[],
-    )
+    const decision = decideVisionAction(result, (rules.data ?? []) as ImageResponseRule[])
     await saveJob(db, job, { result, decision })
     if (job.source === 'test') {
       await saveJob(db, job, {
@@ -200,7 +196,8 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       return job.id // Tests analyze real files, but never call SlipOK or send customer messages.
     }
     if (decision.action === 'HUMAN_HANDOFF') {
-      if (!(await handoverVisionJob(db, job, decision.reason))) throw new Error('VISION_HANDOFF_BLOCKED')
+      if (!(await handoverVisionJob(db, job, decision.reason)))
+        throw new Error('VISION_HANDOFF_BLOCKED')
       return job.id
     }
     // The store's Master Switch is rechecked by the DB before sending.
@@ -222,31 +219,29 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       psid: customer.data.platform_user_id,
       token: pageTokenFor(tenant.data),
     }
-    {
-      if (!recipient.token) throw new Error('PAGE_TOKEN_UNAVAILABLE')
-      const messages: object[] = []
-      if (decision.responseText) messages.push({ text: decision.responseText })
-      if (decision.mediaUrl)
-        messages.push({
-          attachment: { type: 'image', payload: { url: decision.mediaUrl, is_reusable: true } },
-        })
-      if (!messages.length) throw new Error('EMPTY_VISION_REPLY')
-      await deliverRichOnce(
-        db,
-        recipient,
-        `vision:${job.id}`,
-        decision.responseText ?? '[รูปภาพ]',
-        messages,
-        'RESPONSE',
-        decision.mediaUrl ? [{ type: 'image', payload: { url: decision.mediaUrl } }] : [],
-      )
-      await saveJob(db, job, {
-        status: 'completed',
-        reason: decision.reason,
-        claim_token: null,
-        claim_until: null,
+    if (!recipient.token) throw new Error('PAGE_TOKEN_UNAVAILABLE')
+    const messages: object[] = []
+    if (decision.responseText) messages.push({ text: decision.responseText })
+    if (decision.mediaUrl)
+      messages.push({
+        attachment: { type: 'image', payload: { url: decision.mediaUrl, is_reusable: true } },
       })
-    }
+    if (!messages.length) throw new Error('EMPTY_VISION_REPLY')
+    await deliverRichOnce(
+      db,
+      recipient,
+      `vision:${job.id}`,
+      decision.responseText ?? '[รูปภาพ]',
+      messages,
+      'RESPONSE',
+      decision.mediaUrl ? [{ type: 'image', payload: { url: decision.mediaUrl } }] : [],
+    )
+    await saveJob(db, job, {
+      status: 'completed',
+      reason: decision.reason,
+      claim_token: null,
+      claim_until: null,
+    })
     return job.id
   } catch (error) {
     const reason =

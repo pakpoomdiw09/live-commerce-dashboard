@@ -14,6 +14,7 @@ import { aiConfigured } from '@/lib/features/agents/ai-agent'
 import { PLANS, type PlanId } from '@/lib/features/billing/plans'
 import { InboxError } from '@/lib/features/inbox/inbox-server'
 import { agentControlAvailable } from '@/lib/features/agents/agent-control-flags'
+import { tenantAiQuota } from '@/lib/features/agents/tenant-ai-quota-types'
 
 export async function loadAgentOverview(
   db: SupabaseClient,
@@ -34,7 +35,6 @@ export async function loadAgentOverview(
   const [
     tenant,
     settings,
-    usage,
     follow,
     aiAllowed,
     slipAllowed,
@@ -46,7 +46,7 @@ export async function loadAgentOverview(
     db
       .from('tenants')
       .select(
-        'name,auto_reply_enabled,auto_verify_enabled,page_id,page_token_set,plan,plan_expires_at,slip_quota,slip_quota_credits,slip_used',
+        'name,auto_reply_enabled,auto_verify_enabled,page_id,page_token_set,plan,plan_expires_at,slip_quota,slip_quota_credits,slip_used,ai_quota_limit,ai_quota_used',
       )
       .eq('id', tenantId)
       .maybeSingle(),
@@ -54,12 +54,6 @@ export async function loadAgentOverview(
       .from('agent_control_settings')
       .select('flags,ai_monthly_limit')
       .eq('tenant_id', tenantId)
-      .maybeSingle(),
-    db
-      .from('agent_ai_monthly_usage')
-      .select('used')
-      .eq('tenant_id', tenantId)
-      .eq('month', month)
       .maybeSingle(),
     db.from('follow_up_policies').select('enabled').eq('tenant_id', tenantId).maybeSingle(),
     feature('ai_agent'),
@@ -69,7 +63,7 @@ export async function loadAgentOverview(
     automationStopped(db, tenantId),
     db.rpc('agent_overview_stats', { p_tenant: tenantId, p_days: days, p_now: now.toISOString() }),
   ])
-  if (tenant.error || !tenant.data || settings.error || usage.error)
+  if (tenant.error || !tenant.data || settings.error)
     throw new InboxError('โหลดสถานะผู้ช่วย AI ไม่สำเร็จ กรุณาลองใหม่', 503)
   if (
     stats.error ||
@@ -89,8 +83,7 @@ export async function loadAgentOverview(
   }
   const flags = settings.data?.flags ?? {},
     managed = agentControlAvailable() && flags.agent_orchestrator_enabled === true
-  const limit = settings.data?.ai_monthly_limit ?? 0,
-    used = usage.data?.used ?? 0
+  const { limit, used } = tenantAiQuota(tenant.data)
   const entitlements = agentCapabilityEntitlements(
     { ai: aiAllowed, slips: slipAllowed, followup: followAllowed },
     limit - used,

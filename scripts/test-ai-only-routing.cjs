@@ -18,11 +18,15 @@ function fixture({
   keyword = false,
   unmatched = false,
   image = false,
+  tenantQuota = 1000,
+  dispatchQuota = true,
+  duplicateQuota = false,
 } = {}) {
   let calls = 0,
     handoffs = 0
   const sent = [],
-    writes = []
+    writes = [],
+    quotaCalls = []
   const config = {
     flags: { agent_orchestrator_enabled: true },
     capabilities: {},
@@ -30,6 +34,11 @@ function fixture({
   }
   const deps = {
     'server-only': {},
+    '@/lib/features/agents/tenant-ai-quota': load(
+      'lib/features/agents/tenant-ai-quota.ts',
+      { 'server-only': {} },
+      { console },
+    ),
     '@/lib/features/agents/agent-control-flags': {
       agentControlConfig: async () => config,
       agentControlAvailable: () => true,
@@ -39,6 +48,7 @@ function fixture({
     '@/lib/features/agents/ai-agent': {
       HANDOVER_TOKEN: '[HANDOVER]',
       aiReply: async (_db, ctx) => {
+        assert.equal(ctx.aiQuotaReservation, 'reservation')
         calls++
         if (failure) throw Error('Provider unavailable')
         if (image)
@@ -86,10 +96,28 @@ function fixture({
     },
   }
   const db = {
-    rpc: async (name) => ({
-      data: name === 'claim_agent_message' ? [{ id: 'job', claim_token: 'claim' }] : true,
-      error: null,
-    }),
+    rpc: async (name) => {
+      quotaCalls.push(name)
+      if (name === 'reserve_tenant_ai_reply')
+        return {
+          data: duplicateQuota
+            ? { status: 'duplicate' }
+            : tenantQuota > 0
+              ? { status: 'reserved', id: 'reservation' }
+              : { status: 'quota_exceeded' },
+        }
+      if (name === 'authorize_tenant_ai_reply')
+        return { data: dispatchQuota ? 'authorized' : 'quota_exceeded' }
+      if (name === 'settle_tenant_ai_reply') return { data: 'released' }
+      if (name === 'handover_tenant_ai_quota') {
+        handoffs++
+        return { data: true }
+      }
+      return {
+        data: name === 'claim_agent_message' ? [{ id: 'job', claim_token: 'claim' }] : true,
+        error: null,
+      }
+    },
     from(table) {
       if (table === 'chat_rules') {
         const q = {
@@ -137,11 +165,36 @@ function fixture({
     run: () => api.answerChat(db, incoming),
     sent,
     writes,
+    quotaCalls,
     calls: () => calls,
     handoffs: () => handoffs,
   }
 }
 for (const orchestrated of [false, true]) {
+  test(`tenant quota exhaustion stops ${orchestrated ? 'orchestrated' : 'legacy'} AI before generation and hands off`, async () => {
+    const f = fixture({ orchestrated, tenantQuota: 0 })
+    await f.run()
+    assert.equal(f.calls(), 0)
+    assert.equal(f.sent.length, 0)
+    assert.equal(f.handoffs(), 1)
+    if (orchestrated)
+      assert.ok(f.writes.some((row) => row.reason === 'quota_exceeded' && row.route === 'ADMIN'))
+  })
+  test(`tenant quota is rechecked before ${orchestrated ? 'orchestrated' : 'legacy'} delivery and the reservation settles`, async () => {
+    const f = fixture({ orchestrated, dispatchQuota: false })
+    await f.run()
+    assert.equal(f.calls(), 1)
+    assert.equal(f.sent.length, 0)
+    assert.equal(f.handoffs(), 1)
+    assert.equal(f.quotaCalls.filter((name) => name === 'settle_tenant_ai_reply').length, 1)
+  })
+  test(`duplicate quota reservation cannot regenerate ${orchestrated ? 'orchestrated' : 'legacy'} reply`, async () => {
+    const f = fixture({ orchestrated, duplicateQuota: true })
+    await f.run()
+    assert.equal(f.calls(), 0)
+    assert.equal(f.sent.length, 0)
+    assert.equal(f.handoffs(), 0)
+  })
   test(`product images reach ${orchestrated ? 'orchestrated' : 'legacy'} delivery`, async () => {
     const f = fixture({ orchestrated, image: true })
     await f.run()
@@ -152,6 +205,7 @@ for (const orchestrated of [false, true]) {
     await k.run()
     assert.deepEqual(k.sent, ['Keyword answer'])
     assert.equal(k.calls(), 0)
+    assert.equal(k.quotaCalls.includes('reserve_tenant_ai_reply'), false)
     const f = fixture({ orchestrated })
     await f.run()
     assert.deepEqual(f.sent, ['Grounded answer'])
@@ -174,11 +228,11 @@ for (const orchestrated of [false, true]) {
     }
   })
 }
-test('orchestrator without quota transfers to staff before provider work', async () => {
-  const f = fixture({ orchestrated: true, quota: 0 })
+test('orchestrator uses tenant quota even when the old monthly generation ceiling is zero', async () => {
+  const f = fixture({ orchestrated: true, quota: 0, tenantQuota: 1000 })
   await f.run()
-  assert.equal(f.calls(), 0)
-  assert.equal(f.handoffs(), 1)
+  assert.equal(f.calls(), 1)
+  assert.equal(f.handoffs(), 0)
 })
 
 test('keyword mode without a matching rule never calls AI or sends a fallback', async () => {

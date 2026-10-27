@@ -290,7 +290,9 @@ async function onMessage(
   // With Auto-Pilot off the images stay in the chat and an admin can verify them from the dashboard.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
-  const visionQueued = await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
+  const visionRoute = await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
+  const visionQueued = visionRoute === true
+  const imageAssistantDisabled = visionRoute === 'disabled'
   if (visionQueued) {
     const expected = images.map((_, index) => `${message.id}:${index}`)
     const queued = await db
@@ -306,6 +308,7 @@ async function onMessage(
   }
   const imageChat =
     !visionQueued &&
+    !imageAssistantDisabled &&
     autoReply &&
     images.length > 0 &&
     (await loadBotSettings(db, tenant.id))?.reply_mode === 'ai'
@@ -318,9 +321,10 @@ async function onMessage(
       sticker: !!m.sticker_id,
       autoReply,
       dedicatedVision: visionQueued,
+      imageAssistantDisabled,
       chatVision: imageChat,
     })
-  if (tenant.auto_verify_enabled && !visionQueued && !imageChat) {
+  if (tenant.auto_verify_enabled && !visionQueued && !imageAssistantDisabled && !imageChat) {
     for (const url of images) {
       await onSlipImage(
         url,

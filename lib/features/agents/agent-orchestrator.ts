@@ -23,6 +23,11 @@ import { aiReply, HANDOVER_TOKEN, type AiProductResult } from '@/lib/features/ag
 import { hasFeature } from '@/lib/feature-access'
 
 import { deliverOnce } from '@/lib/features/slips/notify'
+import {
+  reserveAiReplyQuota,
+  authorizeAiReplyQuota,
+  settleAiReplyQuota,
+} from '@/lib/features/agents/tenant-ai-quota'
 
 export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): Promise<boolean> {
   const config = await agentControlConfig(db, m.tenant.id)
@@ -47,6 +52,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       .maybeSingle()
     if (result.error || !result.data) throw new Error('AGENT_CLAIM_CHANGED')
   }
+  let quotaId: string | undefined
   try {
     const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
     const rules =
@@ -80,7 +86,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       config.capabilities?.answers !== false &&
       config.capabilities?.intent !== false &&
       (await hasFeature(db, m.tenant.id, 'ai_agent'))
-    let route: string = rule ? 'KEYWORD' : aiEntitled && config.monthlyLimit > 0 ? 'AI' : 'ADMIN'
+    let route: string = rule ? 'KEYWORD' : aiEntitled ? 'AI' : 'ADMIN'
     const product = { current: null as AiProductResult | null }
     let text: string | null = null,
       reason: string | null = route === 'ADMIN' ? 'AI_NOT_AVAILABLE' : null
@@ -92,10 +98,21 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       route = 'ADMIN'
       reason = inputRisk(m.text) ?? 'CUSTOMER_REQUESTED_HUMAN'
     } else if (route === 'AI') {
+      const quota = await reserveAiReplyQuota(db, m)
+      if (!quota.id) {
+        await save({
+          route: quota.status === 'quota_exceeded' ? 'ADMIN' : 'AI',
+          status: 'review',
+          reason: quota.status,
+        })
+        return true
+      }
+      quotaId = quota.id
       try {
         text = await aiReply(
           db,
           {
+            aiQuotaReservation: quota.id,
             tenantId: m.tenant.id,
             shopName: m.tenant.name,
             customerName: m.customer.display_name,
@@ -166,6 +183,17 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       await save({ status: 'review', reason: reason ?? 'WAITING_ADMIN' })
       return true
     }
+    if (route === 'AI' && quotaId) {
+      const permission = await authorizeAiReplyQuota(db, m, quotaId)
+      if (permission !== 'authorized') {
+        await save({
+          route: permission === 'quota_exceeded' ? 'ADMIN' : 'AI',
+          status: 'review',
+          reason: permission,
+        })
+        return true
+      }
+    }
     let sent: boolean | undefined = false
     if (route === 'KEYWORD' && rule) {
       sent = await sendRule(db, m.recipient, once, rule)
@@ -190,6 +218,8 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       code: (error as { code?: string })?.code ?? 'PROCESSING_OR_DELIVERY_FAILED',
     })
     await save({ status: 'review', reason: 'PROCESSING_OR_DELIVERY_FAILED' })
+  } finally {
+    if (quotaId) await settleAiReplyQuota(db, quotaId)
   }
   return true
 }

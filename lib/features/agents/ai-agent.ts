@@ -80,6 +80,7 @@ function gemini(apiKey: string) {
 }
 
 export type AiContext = {
+  aiQuotaReservation?: string
   onProductResult?: (result: AiProductResult) => void
   imageUrls?: readonly string[]
   agentJob?: { id: string; claim: string }

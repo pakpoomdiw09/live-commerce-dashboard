@@ -73,47 +73,36 @@ test('one deterministic highest-priority active rule; ties sort by ID without mu
   assert.equal(rules.selectImageRule(list, 'product'), null)
   assert.ok(rules.imageRuleError({ ...rule('a', -1) }))
 })
-test('product, general, slip, unknown and low-confidence use distinct safe actions', () => {
-  assert.equal(
-    types.decideVisionAction(result('GENERAL'), settings, [rule('a', 1)], [], false).action,
-    'RULE_REPLY',
-  )
+test('product, general and slip images reply from their matching configured rules', () => {
+  for (const [category, trigger] of [
+    ['PRODUCT', 'product'],
+    ['GENERAL', 'general'],
+    ['PAYMENT_SLIP', 'slip'],
+  ]) {
+    const reply = types.decideVisionAction(result(category), [rule('a', 1, trigger)])
+    assert.equal(reply.action, 'RULE_REPLY')
+    assert.equal(reply.responseText, 'Configured reply')
+  }
   for (const image of [result('UNKNOWN'), result('PRODUCT', 0.79)])
-    assert.equal(types.decideVisionAction(image, settings, [], [], true).action, 'HUMAN_HANDOFF')
-  assert.equal(
-    types.decideVisionAction(result('PAYMENT_SLIP'), settings, [], [], false).action,
-    'VERIFY_SLIP',
-  )
+    assert.equal(types.decideVisionAction(image, []).action, 'HUMAN_HANDOFF')
 })
-test('catalog matches only real tenant IDs and reads prices and stock from DB, never model text', () => {
-  const s = { ...settings, mode: 'catalog' },
-    catalog = [{ id: 'real', code: 'A1', name: 'Actual Product', price: 49, stock: 0 }]
-  assert.equal(
-    types.decideVisionAction(result('PRODUCT', 0.99, 'real'), s, [], catalog, false).reason,
-    'PRO_REQUIRED',
-  )
-  assert.equal(
-    types.decideVisionAction(result('PRODUCT', 0.99, 'forged'), s, [], catalog, true).reason,
-    'NO_CATALOG_MATCH',
-  )
-  const reply = types.decideVisionAction(result('PRODUCT', 0.99, 'real'), s, [], catalog, true)
-  assert.equal(reply.action, 'PRODUCT_SEARCH')
-  assert.match(reply.responseText, /49\.00/)
-  assert.match(reply.responseText, /สินค้าหมด/)
+test('no matching rule hands off, including slips and catalog model IDs', () => {
+  for (const category of ['PRODUCT', 'GENERAL', 'PAYMENT_SLIP']) {
+    const reply = types.decideVisionAction(result(category, 0.99, 'forged'), [])
+    assert.equal(reply.action, 'HUMAN_HANDOFF')
+    assert.equal(reply.reason, 'NO_RULE')
+  }
 })
 
-test('Vision uses the fixed 80 percent confidence floor with legacy saved settings', () => {
-  for (const confidence_threshold of [0.5, 0.99]) {
-    const legacy = { ...settings, confidence_threshold }
-    assert.equal(
-      types.decideVisionAction(result('GENERAL', 0.8), legacy, [rule('a', 1)], [], false).action,
-      'RULE_REPLY',
-    )
-    assert.equal(
-      types.decideVisionAction(result('GENERAL', 0.79), legacy, [rule('a', 1)], [], false).reason,
-      'LOW_CONFIDENCE',
-    )
-  }
+test('Vision uses the fixed 80 percent confidence floor', () => {
+  assert.equal(
+    types.decideVisionAction(result('GENERAL', 0.8), [rule('a', 1)]).action,
+    'RULE_REPLY',
+  )
+  assert.equal(
+    types.decideVisionAction(result('GENERAL', 0.79), [rule('a', 1)]).reason,
+    'LOW_CONFIDENCE',
+  )
 })
 test('untrusted provider output rejects invalid categories, confidence and non-JSON', () => {
   for (const value of [
@@ -205,7 +194,8 @@ function fixture({
   sendError = false,
   blocked = false,
   enabled = true,
-  productSearch = true,
+  legacyEnabled = false,
+  trigger = 'general',
   confidence = 0.95,
 } = {}) {
   const job = {
@@ -227,7 +217,7 @@ function fixture({
     slips = 0,
     handoffs = 0
   const tableRows = {
-    vision_settings: { ...settings },
+    vision_settings: { ...settings, enabled, handoff_enabled: false, mode: 'catalog' },
     tenants: {
       id: tenant,
       plan: 'pro',
@@ -236,25 +226,25 @@ function fixture({
       page_id: 'page',
       page_access_token: 'private',
     },
-    vision_plan_limits: { product_search: productSearch },
     products: [{ id: 'real', code: 'A1', name: 'Actual', price: 1, stock: 2 }],
-    image_response_rules: [rule('rule', 1)],
+    image_response_rules: [rule('rule', 1, trigger)],
     customers: { id: 'customer', platform_user_id: 'psid' },
   }
   const db = {
     rpc: async (name, args) => {
       trace.push(name)
       if (name === 'claim_vision_job') {
-        if (!available) return { data: [] }
+        if (!available || (source === 'messenger' && !enabled)) return { data: [] }
         available = false
         job.status = 'processing'
         return { data: [{ ...job }] }
       }
       if (name === 'start_vision_analysis') return { data: !blocked }
       if (name === 'begin_vision_dispatch') return { data: true }
-      if (name === 'start_inbox_handover') {
+      if (name === 'handover_vision_job') {
         handoffs++
-        return { data: 'lease' }
+        Object.assign(job, { status: 'requires_review', reason: args.p_reason, claim_token: null })
+        return { data: true }
       }
       return { data: true }
     },
@@ -334,7 +324,7 @@ function fixture({
     process: {
       env: {
         GEMINI_API_KEY: 'test-only',
-        AI_VISION_AUTOMATION_ENABLED: enabled ? 'true' : 'false',
+        AI_VISION_AUTOMATION_ENABLED: legacyEnabled ? 'true' : 'false',
       },
     },
   })
@@ -356,11 +346,11 @@ test('real-image playground never verifies slips or messages customers', async (
   assert.equal(f.counts().slips, 0)
   assert.equal(f.job.reason, 'PREVIEW_ONLY')
 })
-test('slip detection delegates to existing verifier; AI result alone cannot mark order paid', async () => {
-  const f = fixture({ category: 'PAYMENT_SLIP' })
+test('slip rule replies without verifying or marking an order paid', async () => {
+  const f = fixture({ category: 'PAYMENT_SLIP', trigger: 'slip' })
   await f.api.runVisionJob(f.db, id)
-  assert.equal(f.counts().slips, 1)
-  assert.equal(f.job.reason, 'SLIP_VALID')
+  assert.equal(f.counts().slips, 0)
+  assert.equal(f.job.reason, 'MATCHED_RULE')
   assert.equal(f.counts().sends, 1)
 })
 test('product image in rule mode uses only the product rule, otherwise safely hands off', async () => {
@@ -387,6 +377,7 @@ test('AI failure and uncertain Messenger failure are durable review jobs, never 
     assert.equal(f.counts().ai, 1)
     assert.equal(f.job.status, 'requires_review')
     assert.ok(f.counts().sends <= 1)
+    assert.equal(f.counts().handoffs, 1)
   }
 })
 test('handoff or expiry immediately before provider start blocks AI and refunds only unstarted quota', async () => {
@@ -396,11 +387,20 @@ test('handoff or expiry immediately before provider start blocks AI and refunds 
   assert.equal(f.counts().sends, 0)
   assert.ok(f.trace.includes('refund_unstarted_vision'))
 })
-test('automation off prevents worker from claiming work or accessing provider', async () => {
+test('store Master Switch controls execution independently of the legacy rollout flag', async () => {
   const f = fixture({ enabled: false })
-  assert.equal((await f.api.runVisionQueue(f.db)).enabled, false)
-  assert.equal(f.trace.length, 0)
+  assert.equal((await f.api.runVisionQueue(f.db)).processed, 0)
   assert.equal(f.counts().ai, 0)
+  assert.equal(f.counts().sends, 0)
+  const on = fixture({ enabled: true, legacyEnabled: false })
+  assert.equal((await on.api.runVisionQueue(on.db)).processed, 1)
+  assert.equal(on.counts().sends, 1)
+  assert.equal(
+    await f.api.queueMessengerVision(f.db, tenant, 'customer', 'message', [
+      'https://scontent.fbcdn.net/photo.png',
+    ]),
+    'disabled',
+  )
 })
 class InboxError extends Error {
   constructor(message, status = 400, code = 'INBOX_ERROR') {
@@ -475,7 +475,7 @@ test('all public Vision routes reject direct unauthorized calls before storage o
     assert.equal(response.body.code, 'FEATURE_LOCKED')
   }
 })
-test('settings API fixes confidence at 0.8 while retaining the existing reply and handoff modes', async () => {
+test('Master Switch API locks rule replies, 0.8 confidence and automatic handover', async () => {
   let saved
   const api = load('app/api/chatbot/vision/route.ts', {
     'next/server': next,
@@ -506,8 +506,11 @@ test('settings API fixes confidence at 0.8 while retaining the existing reply an
   })
   assert.equal(response.status, 200)
   assert.equal(saved.p_confidence, 0.8)
-  assert.equal(saved.p_mode, 'catalog')
-  assert.equal(saved.p_handoff, false)
+  assert.equal(saved.p_mode, 'rules')
+  assert.equal(saved.p_handoff, true)
+  const toggleOnly = await api.PATCH({ json: async () => ({ tenantId: tenant, enabled: false }) })
+  assert.equal(toggleOnly.status, 200)
+  assert.equal(saved.p_enabled, false)
 })
 
 test('cron requires configured bearer secret before worker access', async () => {

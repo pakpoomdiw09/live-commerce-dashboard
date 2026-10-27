@@ -5,19 +5,17 @@
 The existing Next.js App Router, Supabase session/membership checks, database feature entitlements,
 Gemini SDK, product catalog, SlipOK pipeline, Inbox handoff/leases and message credits are reused.
 
-- `/chatbot/images`: actual server-backed usage, settings, owner rule CRUD/toggles/priority,
-  real-image playground, latest 30 jobs, private image history, safe retry and `/billing` link.
-- Categories: PRODUCT, PAYMENT_SLIP, GENERAL, UNKNOWN. Confidence below configured threshold
-  (minimum 0.8) goes to review/handoff. Exactly one active rule wins by descending priority,
-  then ascending ID. Product rules remain available to Starter; catalog matching requires Pro's
-  actual `ai_agent` entitlement **and** the database product-search flag.
-- Gemini receives image bytes and this shop's active catalog (up to 100 entries). Product ID
-  must resolve against that catalog. Reply price, name and stock come exclusively from DB rows.
-  Model descriptions never become customer replies or payment confirmations.
-- Slip classification calls the existing `processSlip` only for live Messenger jobs. Its
-  package/credit, receiving-account, duplicate transfer and outstanding-order checks remain.
-  `notifySlipResult` derives payment wording from the real verifier verdict. Slip rules are
-  retained in the editor but never override a verifier verdict or confirm payment independently.
+- `/chatbot/images`: orange banner with one immediately saved Master Switch, owner rule
+  CRUD/toggles/priority, three rule-category statistics, compact image playground and latest
+  30 jobs. Vision quota cards and secondary settings have been removed.
+- Categories: PRODUCT, PAYMENT_SLIP, GENERAL, UNKNOWN. Confidence below the fixed 0.8 floor,
+  unknown categories and unmatched rules hand off. One active rule wins by priority then ID.
+  All three supported categories, including slips, reply only from the shop's configured rule.
+  Gemini receives the image without catalog lookup. Model descriptions never become customer
+  replies or payment confirmations. Vision classification does not verify a payment.
+- Unmatched and failed live jobs use `handover_vision_job` to atomically pause the customer's
+  bot, add an Inbox event and retain the job for review. Existing assignments, closed chats
+  and in-flight delivery leases are preserved. Test jobs never hand off a real customer.
 - Private uploads check MIME, magic bytes and 5 MB size. Playground body reading is bounded
   even without Content-Length. Remote downloads accept HTTPS Meta CDN hosts fbcdn.net/fbsbx.com
   only, reject redirects and enforce streaming limits. No client-provided remote URL is fetched.
@@ -59,15 +57,18 @@ up from the real tenant plan/expiry; no fake payment path or client-controlled p
 | Route | Purpose | Access |
 | --- | --- | --- |
 | GET `/api/chatbot/vision?tenantId=...` | Usage/settings/latest jobs | Session + tenant + image feature |
-| PATCH `/api/chatbot/vision` | Save mode/confidence/opt-in/handoff | Owner + DB feature; tenantId in JSON |
+| PATCH `/api/chatbot/vision` | Save Master Switch; fixed rules/0.8/automatic handover | Owner + DB feature; tenantId and enabled in JSON |
 | POST `/api/chatbot/vision/test?tenantId=...` | Multipart file + UUID requestId, real classification preview | Session + tenant + feature + Vision quota |
 | GET `/api/chatbot/vision/jobs/[id]/image?tenantId=...` | 60-second signed private image redirect | Session + tenant + feature |
 | POST `/api/chatbot/vision/jobs/[id]/retry?tenantId=...` | Requeue only never-started work | Owner + DB feature + safe state |
 | POST `/api/cron/vision` | Process one durable queued job | CRON_SECRET or INTERNAL_API_SECRET bearer |
 
-The signed Facebook webhook queues images only when **both** the server automation flag and
-the shop's Vision switch are enabled. When opted in, image + caption is handled by Vision only
-to avoid duplicate text-bot replies. A disabled center preserves the legacy SlipOK image flow.
+The signed Facebook webhook queues images when the shop's Vision Master Switch is enabled.
+`vision-master-switch.sql` makes Vision independent of the text chatbot's store toggle while
+preserving entitlement, quota, customer ownership and delivery guards. The legacy server flag
+`AI_VISION_AUTOMATION_ENABLED` is no longer used. Image + caption is handled by Vision only
+to avoid duplicate replies. An explicitly disabled center suppresses legacy image fallbacks;
+shops without a saved Vision setting retain their previous image flow.
 Failed image ingestion is audited and the original incoming image remains in Inbox; it does
 not fall back to verifying an unclassified photo as a payment slip. A human can inspect it there.
 
@@ -88,7 +89,18 @@ Modified:
 - `app/api/webhook/facebook/route.ts`
 - `.env.example` (safe off-by-default automation flag; `.env.local` was not changed)
 
-## TESTED
+## Latest validation
+
+Apply `supabase/vision-master-switch.sql` after `ai-vision.sql` and any optional Full Access
+migration before deploying this code. The patch is rerunnable and preserves the installed
+quota/Full Access function behavior. Existing jobs are not replayed.
+
+The updated unit/API/worker/UI/webhook suites cover immediate save, failed-save handling,
+matched slip/general/product rules, automatic Inbox handover, disabled image fallbacks and
+duplicate dispatch prevention. The PostgreSQL suite also covers switch independence,
+handover outside messaging windows, claim fencing, assignments and service-only access.
+
+## Initial implementation validation
 
 - Unit/API/adapter/worker tests use mocked external providers; no real customer messages,
   payment verification or Gemini requests are sent during tests.

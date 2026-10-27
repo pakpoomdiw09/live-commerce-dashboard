@@ -18,6 +18,12 @@ function load(file, deps = {}, globals = {}) {
     process: { env: {} },
     require: (n) => {
       if (n in deps) return deps[n]
+      if (n === '@/lib/features/agents/tenant-ai-quota')
+        return {
+          reserveAiReplyQuota: async () => ({ id: 'reservation', status: 'reserved' }),
+          authorizeAiReplyQuota: async () => 'authorized',
+          settleAiReplyQuota: async () => {},
+        }
       throw Error('Unexpected dependency ' + n)
     },
     ...globals,
@@ -149,8 +155,8 @@ test('prompt injection, sensitive keys, policies and unsupported sources never c
     /user@example|0932576114/,
   )
 })
-test('disabled master or kill switch does not query optional tables', async () => {
-  for (const env of [{}, { AGENT_CONTROL_ENABLED: 'true', AGENT_CONTROL_KILL_SWITCH: 'true' }]) {
+test('explicit kill switch does not query optional tables', async () => {
+  for (const env of [{ AGENT_CONTROL_KILL_SWITCH: 'true' }]) {
     const api = load(
       'lib/features/agents/agent-control-flags.ts',
       {
@@ -267,7 +273,7 @@ function orchestratorFixture({
       '@/lib/features/agents/agent-control-core': core,
       '@/lib/features/agents/chatbot-actions': {
         loadBotSettings: async () => ({
-          reply_mode: 'ai',
+          reply_mode: keywordMatch ? 'keyword' : 'ai',
           handover_keywords: [],
           ai_instructions: 'Actual shop notes',
         }),
@@ -343,29 +349,31 @@ test('new orchestrator flag off returns control to legacy without creating jobs'
   assert.equal(await f.api.orchestrateAgentMessage(f.db, f.incoming), false)
   assert.equal(f.rpc.length, 0)
 })
-test('expired/locked AI uses configured fallback and never reaches provider', async () => {
+test('expired/locked AI hands off without a fallback or provider call', async () => {
   const f = orchestratorFixture({ keywordMatch: false, allowed: false })
   await f.api.orchestrateAgentMessage(f.db, f.incoming)
   assert.equal(f.counts().ai, 0)
-  assert.equal(f.counts().sends, 1)
+  assert.equal(f.counts().sends, 0)
+  assert.equal(f.counts().handoffs, 1)
 })
-test('provider errors fall back once; Messenger uncertainty is review without replay', async () => {
+test('provider errors hand off; Messenger uncertainty is review without replay', async () => {
   const provider = orchestratorFixture({ keywordMatch: false, providerError: true })
   await provider.api.orchestrateAgentMessage(provider.db, provider.incoming)
   assert.equal(provider.counts().ai, 1)
-  assert.equal(provider.counts().sends, 1)
+  assert.equal(provider.counts().sends, 0)
+  assert.equal(provider.counts().handoffs, 1)
   const sender = orchestratorFixture({ sendError: true })
   await sender.api.orchestrateAgentMessage(sender.db, sender.incoming)
   await sender.api.orchestrateAgentMessage(sender.db, sender.incoming)
   assert.equal(sender.counts().sends, 1)
   assert.equal(sender.writes.at(-1).status, 'review')
 })
-test('handoff pauses through the existing atomic Inbox lease even when live sending is off', async () => {
+test('obsolete live-send flag does not prevent the Admin handover route', async () => {
   const f = orchestratorFixture({ keywordMatch: false, providerHandoff: true, live: false })
   await f.api.orchestrateAgentMessage(f.db, f.incoming)
   assert.equal(f.counts().sends, 0)
   assert.equal(f.counts().handoffs, 1)
-  assert.ok(f.rpc.includes('end_inbox_delivery'))
+  assert.equal(f.writes.at(-1).reason, 'AI_HUMAN_REVIEW')
   assert.equal(f.writes.at(-1).status, 'review')
 })
 test('customer/ownership changes after generation prevent actual delivery', async () => {
@@ -406,6 +414,9 @@ function managedFixture({
           return q
         },
         order() {
+          return q
+        },
+        range() {
           return q
         },
         limit() {

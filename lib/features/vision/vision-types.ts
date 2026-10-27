@@ -74,7 +74,12 @@ export function decideVisionAction(
   if (result.confidence < VISION_CONFIDENCE_THRESHOLD)
     return { action: 'HUMAN_HANDOFF', reason: 'LOW_CONFIDENCE' }
   if (result.category === 'UNKNOWN') return { action: 'HUMAN_HANDOFF', reason: 'UNKNOWN_IMAGE' }
-  const trigger = result.category === 'PRODUCT' ? 'product' : result.category === 'PAYMENT_SLIP' ? 'slip' : 'general'
+  const trigger =
+    result.category === 'PRODUCT'
+      ? 'product'
+      : result.category === 'PAYMENT_SLIP'
+        ? 'slip'
+        : 'general'
   const rule = selectImageRule(rules, trigger)
   return rule
     ? {

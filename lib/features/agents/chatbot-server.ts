@@ -13,6 +13,11 @@ import {
 import { hasFeature } from '@/lib/feature-access'
 import { inputRisk } from '@/lib/features/agents/agent-control-core'
 import {
+  reserveAiReplyQuota,
+  authorizeAiReplyQuota,
+  settleAiReplyQuota,
+} from '@/lib/features/agents/tenant-ai-quota'
+import {
   loadBotSettings,
   handover,
   sendRule,
@@ -64,31 +69,39 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
     !(await hasFeature(db, m.tenant.id, 'ai_agent'))
   )
     return handover(db, m, settings, once)
-  const product = { current: null as AiProductResult | null }
-  let reply: string | null = null
+  const quota = await reserveAiReplyQuota(db, m)
+  if (!quota.id) return
   try {
-    reply = await aiReply(db, {
-      shopName: m.tenant.name,
-      instructions: settings.ai_instructions,
-      customerName: m.customer.display_name,
-      customerId: m.customer.id,
-      tenantId: m.tenant.id,
-      imageUrls: m.imageUrls,
-      onProductResult: (value) => {
-        product.current = value
-      },
-    })
-  } catch {
-    /* Provider failure transfers to staff; never send a generic fallback. */
+    const product = { current: null as AiProductResult | null }
+    let reply: string | null = null
+    try {
+      reply = await aiReply(db, {
+        aiQuotaReservation: quota.id,
+        shopName: m.tenant.name,
+        instructions: settings.ai_instructions,
+        customerName: m.customer.display_name,
+        customerId: m.customer.id,
+        tenantId: m.tenant.id,
+        imageUrls: m.imageUrls,
+        onProductResult: (value) => {
+          product.current = value
+        },
+      })
+    } catch {
+      /* Provider failure transfers to staff; never send a generic fallback. */
+    }
+    if (!reply || reply === HANDOVER_TOKEN) return await handover(db, m, settings, once)
+    if ((await authorizeAiReplyQuota(db, m, quota.id)) !== 'authorized') return
+    await (product.current?.image_url
+      ? (await import('@/lib/features/agents/product-reply')).deliverProductReply(
+          db,
+          m.recipient,
+          once,
+          reply,
+          product.current.image_url,
+        )
+      : deliverOnce(db, m.recipient, once, reply))
+  } finally {
+    await settleAiReplyQuota(db, quota.id)
   }
-  if (!reply || reply === HANDOVER_TOKEN) return handover(db, m, settings, once)
-  await (product.current?.image_url
-    ? (await import('@/lib/features/agents/product-reply')).deliverProductReply(
-        db,
-        m.recipient,
-        once,
-        reply,
-        product.current.image_url,
-      )
-    : deliverOnce(db, m.recipient, once, reply))
 }

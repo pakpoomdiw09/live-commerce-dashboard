@@ -18,6 +18,7 @@ import { agentControlConfig } from '@/lib/features/agents/agent-control-flags'
 import { AgentControlCenter } from '@/components/chatbot/AgentControlCenter'
 import { InlineError } from '@/components/shared/ErrorState'
 import { isMissingDatabaseColumn } from '@/lib/types'
+import { tenantAiQuota, type TenantAiQuota } from '@/lib/features/agents/tenant-ai-quota-types'
 
 export const metadata = { title: 'ผู้ช่วยตอบบทสนทนา' }
 
@@ -29,6 +30,18 @@ export default async function ConversationsPage() {
   const db = supabaseAdmin()
 
   const warnings: string[] = []
+  let aiQuota: TenantAiQuota | null = null
+  try {
+    const quota = await db
+      .from('tenants')
+      .select('ai_quota_limit,ai_quota_used')
+      .eq('id', tenant.id)
+      .single()
+    if (quota.error) throw quota.error
+    aiQuota = tenantAiQuota(quota.data)
+  } catch {
+    warnings.push('โหลดโควตา AI ไม่สำเร็จ กรุณาตรวจสอบ supabase/tenant-ai-quota.sql')
+  }
   let aiAllowed = false
   try {
     aiAllowed = await hasFeature(db, tenant.id, 'ai_agent')
@@ -123,6 +136,7 @@ export default async function ConversationsPage() {
         <InlineError key={`${index}:${warning}`} title={warning} />
       ))}
       <ConversationsClient
+        aiQuota={aiQuota}
         hidePlayground={controlled}
         aiAllowed={aiAllowed}
         tenantId={tenant.id}

@@ -183,7 +183,7 @@ export async function prepareAgentGeneration(
   // Reserve once, only after all local data preparation. No client-controlled credit/plan/key.
   const invocation = await db.rpc('start_agent_ai_call', {
     p_tenant: ctx.tenantId,
-    p_key: crypto.randomUUID(),
+    p_key: ctx.aiQuotaReservation ?? crypto.randomUUID(),
     p_customer: ctx.customerId || null,
     p_job: ctx.agentJob?.id ?? null,
     p_claim: ctx.agentJob?.claim ?? null,

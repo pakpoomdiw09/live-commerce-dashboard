@@ -46,6 +46,7 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/Switch'
 import { ChatRuleForm } from '@/components/chatbot/ChatRuleForm'
 import { AiTestingStudio } from '@/components/chatbot/AiTestingStudio'
+import type { TenantAiQuota } from '@/lib/features/agents/tenant-ai-quota-types'
 
 export type HandedOver = {
   id: string
@@ -56,6 +57,7 @@ export type HandedOver = {
 }
 
 type Props = {
+  aiQuota?: TenantAiQuota | null
   hidePlayground?: boolean
   aiAllowed: boolean
   tenantId: string
@@ -90,6 +92,7 @@ export function ConversationsClient({
   initialRules,
   handedOver,
   hidePlayground = false,
+  aiQuota,
 }: Props) {
   const router = useRouter()
   const db = useMemo(() => supabaseBrowser(), [])
@@ -102,6 +105,12 @@ export function ConversationsClient({
     !aiAllowed && draftSettings.reply_mode === 'ai'
       ? { ...draftSettings, reply_mode: 'keyword' as const }
       : draftSettings
+  const quotaPercent =
+    aiQuota && aiQuota.limit > 0
+      ? Math.min(100, Math.round((aiQuota.used / aiQuota.limit) * 100))
+      : aiQuota?.used
+        ? 100
+        : 0
   const [rules, setRules] = useState(initialRules)
   const [editing, setEditing] = useState<ChatRule | 'new' | null>(null)
   const [saving, setSaving] = useState(false)
@@ -197,6 +206,57 @@ export function ConversationsClient({
         }
       />
 
+      {aiQuota && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-orange-100 p-4 sm:p-5">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-slate-700">โควตาข้อความ AI</p>
+              <span
+                className={
+                  aiQuota.remaining > 0
+                    ? 'rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-600'
+                    : 'rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600'
+                }
+              >
+                {aiQuota.remaining > 0 ? 'กำลังใช้งาน' : 'โควตาหมด'}
+              </span>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-semibold tabular-nums text-slate-900">
+                {aiQuota.remaining.toLocaleString('th-TH')}
+              </span>
+              <span className="text-xs text-slate-500">
+                คงเหลือจาก {aiQuota.limit.toLocaleString('th-TH')} โควตา
+              </span>
+            </div>
+            <div
+              className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"
+              role="progressbar"
+              aria-label="การใช้โควตา AI"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={quotaPercent}
+            >
+              <div
+                className="h-full rounded-full bg-orange-500 transition-[width] duration-300"
+                style={{ width: `${quotaPercent}%` }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between gap-3 text-xs text-slate-500">
+              <span>ใช้ไปแล้ว {aiQuota.used.toLocaleString('th-TH')} ครั้ง</span>
+              <span>{quotaPercent}%</span>
+            </div>
+            {aiQuota.remaining === 0 && (
+              <p className="mt-2 text-sm text-amber-700">
+                โควตาเต็มแล้ว แชทที่ต้องใช้ AI จะส่งเข้า Inbox ของแอดมิน
+              </p>
+            )}
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => router.refresh()}>
+            อัปเดตโควตา
+          </Button>
+        </Card>
+      )}
       {!tenantBotOn && (
         <Notice tone="error">
           บอทตอบอัตโนมัติของร้านปิดอยู่ ข้อความจะไม่ถูกตอบจนกว่าจะเปิดสวิตช์บอทที่แถบเมนูหรือหน้า{' '}

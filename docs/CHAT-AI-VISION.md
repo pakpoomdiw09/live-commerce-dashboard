@@ -5,7 +5,8 @@ through Incoming.imageUrls to AiContext in both legacy and orchestrated AI paths
 Image-only messages receive a product-question prompt. Keyword mode remains
 independent; human takeover, tenant settings, paid quota and message-window checks
 still apply. The explicitly enabled dedicated Vision Center takes precedence to
-avoid duplicate replies. Otherwise AI-mode image chats bypass legacy slip-only
+avoid duplicate replies. A saved, disabled Vision Master Switch suppresses image
+fallbacks; otherwise shops without Vision settings retain AI-mode image chats, which bypass legacy slip-only
 processing; images cannot confirm payment.
 
 The existing managed context builder loads this tenant's active product names,

@@ -1213,6 +1213,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
     const deferred = [],
       imageKeys = [],
       profileWrites = []
+    let autoVerify = false
     const db = {
       rpc: f.db.rpc,
       from(table) {
@@ -1226,7 +1227,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
                 page_id: pageId,
                 name: 'Shop',
                 auto_reply_enabled: true,
-                auto_verify_enabled: false,
+                auto_verify_enabled: autoVerify,
                 page_access_token: 'fake-test-token',
               },
               error: null,
@@ -1341,6 +1342,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
       },
       '@/lib/features/vision/vision': {
         queueMessengerVision: async (_db, _tenant, _customer, messageId, urls) => {
+          if (urls.includes('https://example.test/disabled.png')) return 'disabled'
           if (urls.includes('https://example.test/product.png')) return false
           for (const [index] of urls.entries()) {
             counts.images++
@@ -1454,6 +1456,25 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
     await deliverBoth(productImage)
     assert.equal(counts.ai, 2)
     assert.equal((await f.one('select count(*)::int n from messages')).n, 3)
+    autoVerify = true
+    const disabledImage = payload('disabled-image')
+    disabledImage.entry[0].messaging[0].message = {
+      mid: 'disabled-image',
+      attachments: [{ type: 'image', payload: { url: 'https://example.test/disabled.png' } }],
+    }
+    await deliverBoth(disabledImage)
+    assert.equal(
+      counts.ai,
+      2,
+      'an explicitly disabled Vision center cannot fall back to image chat',
+    )
+    assert.equal(counts.images, 1)
+    assert.equal(
+      (await f.one("select count(*)::int n from facebook_webhook_events where status='completed'"))
+        .n,
+      5,
+      'disabled images persist without calling the legacy slip verifier',
+    )
   } finally {
     await f.pg.close()
   }

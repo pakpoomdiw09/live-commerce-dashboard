@@ -23,6 +23,14 @@ function load(file, deps = {}, env = {}) {
       process: { env },
       require: (name) => {
         if (name in deps) return deps[name]
+        if (name === '@/lib/features/agents/tenant-ai-quota-types')
+          return load('lib/features/agents/tenant-ai-quota-types.ts')
+        if (name === '@/lib/features/agents/tenant-ai-quota')
+          return {
+            reserveAiReplyQuota: async () => ({ id: 'reservation', status: 'reserved' }),
+            authorizeAiReplyQuota: async () => 'authorized',
+            settleAiReplyQuota: async () => {},
+          }
         if (name === '@/lib/full-access') return { temporaryFullAccess: false }
         throw Error('Unexpected dependency ' + name)
       },
@@ -159,6 +167,8 @@ test('overview reader uses one bounded aggregate RPC and never exposes names wit
                   page_id: 'page',
                   page_token_set: true,
                   plan: 'pro',
+                  ai_quota_limit: 1000,
+                  ai_quota_used: 123,
                 }
               : table === 'agent_control_settings'
                 ? { flags: { agent_orchestrator_enabled: true }, ai_monthly_limit: 20 }
@@ -190,7 +200,9 @@ test('overview reader uses one bounded aggregate RPC and never exposes names wit
   const result = await api.loadAgentOverview(db, 'own-tenant', 7, true)
   assert.equal(result.repliesToday, 1001)
   assert.equal(result.customersTotal, 1)
-  assert.equal(result.quota.remaining, 17)
+  assert.equal(result.quota.remaining, 877)
+  assert.equal(result.quota.used, 123)
+  assert.equal(result.quota.limit, 1000)
   assert.equal(result.ready, true)
   assert.equal(result.recent.length, 10)
   assert.ok(result.recent.every((row) => row.customer === null))
