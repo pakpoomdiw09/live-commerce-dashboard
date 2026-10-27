@@ -11,7 +11,13 @@ const compile = (file) =>
 const storeRules = {}
 vm.runInNewContext(compile('lib/features/store-rules/store-rule-items.ts'), { exports: storeRules })
 const plans = {}
-vm.runInNewContext(compile('lib/features/billing/plans.ts'), { exports: plans })
+vm.runInNewContext(compile('lib/features/billing/plans.ts'), {
+  exports: plans,
+  require(name) {
+    assert.equal(name, '@/lib/full-access')
+    return { temporaryFullAccess: false }
+  },
+})
 const fallbacks = {}
 vm.runInNewContext(compile('lib/features/agents/fallback-messages.ts'), { exports: fallbacks })
 test('malformed store rules cannot reach the simulator provider', async () => {
@@ -227,7 +233,7 @@ test('Handover arrays are used for keywords and AI handover, with default when e
   model.body.settings.handover_messages = ['AI handover']
   assert.equal((await model.send()).body.text, 'AI handover')
 })
-test('Keyword mode loads tenant rules and does not send a generic fallback', async () => {
+test('Keyword mode checks rules first and previews AI when no rule matches', async () => {
   const f = fixture()
   f.body.settings.reply_mode = 'keyword'
   f.body.messages[0].text = 'price'
@@ -235,16 +241,19 @@ test('Keyword mode loads tenant rules and does not send a generic fallback', asy
   assert.equal(f.queries[0].filters[0][1], tenantId)
   assert.equal(f.calls.length, 0)
   f.body.messages[0].text = 'unknown'
-  assert.equal((await f.send()).body.text, null)
+  const response = await f.send()
+  assert.equal(response.body.text, 'AI reply')
+  assert.equal(response.body.route, 'ai')
+  assert.equal(f.calls.filter((call) => call.kind === 'ai').length, 1)
 })
 
 test('Playground ignores obsolete fallback values and rejects oversized lists', async () => {
   const f = fixture()
   f.body.settings.reply_mode = 'keyword'
   f.body.settings.fallback_messages = ['new fallback']
-  assert.equal((await f.send()).body.text, null)
+  assert.equal((await f.send()).body.text, 'AI reply')
   f.body.settings.fallback_messages = []
-  assert.equal((await f.send()).body.text, null)
+  assert.equal((await f.send()).body.text, 'AI reply')
   f.body.settings.fallback_messages = Array(21).fill('message')
   assert.equal((await f.send()).status, 400)
 })

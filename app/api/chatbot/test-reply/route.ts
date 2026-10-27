@@ -148,8 +148,6 @@ export async function POST(req: NextRequest) {
         route: 'handover',
         providerCalled: false,
       })
-    if (settings.reply_mode === 'keyword')
-      return respond(null, false, null, [], { route: 'none', providerCalled: false })
     if (!aiConfigured()) return bad('ระบบ AI ยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ', 503)
     const { data: tenant, error: tenantError } = await db
       .from('tenants')

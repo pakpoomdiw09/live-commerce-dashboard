@@ -106,11 +106,16 @@ export function ConversationsClient({
       ? { ...draftSettings, reply_mode: 'keyword' as const }
       : draftSettings
   const quotaPercent =
-    aiQuota && aiQuota.limit > 0
-      ? Math.min(100, Math.round((aiQuota.used / aiQuota.limit) * 100))
-      : aiQuota?.used
-        ? 100
+    aiQuota && aiQuota.limit === 0
+      ? 100
+      : aiQuota
+        ? Math.min(100, Math.round((aiQuota.used / aiQuota.limit) * 100))
         : 0
+  const quotaNearEmpty =
+    !!aiQuota &&
+    aiQuota.remaining > 0 &&
+    aiQuota.limit > 0 &&
+    aiQuota.remaining / aiQuota.limit <= 0.1
   const [rules, setRules] = useState(initialRules)
   const [editing, setEditing] = useState<ChatRule | 'new' | null>(null)
   const [saving, setSaving] = useState(false)
@@ -207,18 +212,24 @@ export function ConversationsClient({
       />
 
       {aiQuota && (
-        <Card className="flex flex-wrap items-center justify-between gap-3 border-orange-100 p-4 sm:p-5">
-          <div className="min-w-0 flex-1">
+        <div className="grid gap-3 md:grid-cols-2">
+          <Card className="border-orange-100 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium text-slate-700">โควตาข้อความ AI</p>
               <span
                 className={
-                  aiQuota.remaining > 0
-                    ? 'rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-600'
-                    : 'rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600'
+                  aiQuota.remaining === 0
+                    ? 'rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600'
+                    : quotaNearEmpty
+                      ? 'rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-700'
+                      : 'rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700'
                 }
               >
-                {aiQuota.remaining > 0 ? 'กำลังใช้งาน' : 'โควตาหมด'}
+                {aiQuota.remaining === 0
+                  ? 'โควตาหมด'
+                  : quotaNearEmpty
+                    ? 'โควตาใกล้หมด'
+                    : 'พร้อมใช้งาน'}
               </span>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
@@ -242,20 +253,37 @@ export function ConversationsClient({
                 style={{ width: `${quotaPercent}%` }}
               />
             </div>
-            <div className="mt-2 flex justify-between gap-3 text-xs text-slate-500">
-              <span>ใช้ไปแล้ว {aiQuota.used.toLocaleString('th-TH')} ครั้ง</span>
-              <span>{quotaPercent}%</span>
+            <div className="mt-1 flex justify-end text-xs text-slate-500">
+              {quotaPercent}% ใช้แล้ว
             </div>
             {aiQuota.remaining === 0 && (
-              <p className="mt-2 text-sm text-amber-700">
-                โควตาเต็มแล้ว แชทที่ต้องใช้ AI จะส่งเข้า Inbox ของแอดมิน
+              <p className="mt-1 text-xs text-amber-700">
+                แชทที่ต้องใช้ AI จะส่งเข้า Inbox ของแอดมิน
               </p>
             )}
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => router.refresh()}>
-            อัปเดตโควตา
-          </Button>
-        </Card>
+          </Card>
+          <Card className="flex flex-col justify-between gap-3 p-4">
+            <div>
+              <p className="text-xs font-medium text-slate-500">คำตอบ AI ที่ส่งสำเร็จ</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
+                {aiQuota.used.toLocaleString('th-TH')}
+                <span className="ml-1 text-xs font-normal text-slate-500">ครั้ง</span>
+              </p>
+              <p className="mt-1 text-xs text-slate-500">โควตาสะสม · ไม่มีการรีเซ็ตอัตโนมัติ</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={() => router.refresh()}>
+                อัปเดต
+              </Button>
+              <Link
+                href="/billing"
+                className="inline-flex h-8 items-center justify-center rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white transition-colors hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+              >
+                เติมโควตา
+              </Link>
+            </div>
+          </Card>
+        </div>
       )}
       {!tenantBotOn && (
         <Notice tone="error">
