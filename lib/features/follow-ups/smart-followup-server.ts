@@ -39,7 +39,7 @@ export async function followUpDashboard(
     const time = new Date(before).toISOString()
     query = query.or(`created_at.lt.${time},and(created_at.eq.${time},id.lt.${beforeId})`)
   }
-  const [workflows, jobs, logs, overview, ai, billing] = await Promise.all([
+  const [workflows, jobs, logs, overview, ai, billing, policy] = await Promise.all([
     db.from('follow_up_workflows').select('*').eq('tenant_id', tenantId).order('kind'),
     query,
     db
@@ -51,14 +51,26 @@ export async function followUpDashboard(
     db.rpc('follow_up_overview', { p_tenant: tenantId }),
     hasFeature(db, tenantId, 'ai_agent'),
     getBilling(db, tenantId),
+    db.from('follow_up_policies').select('*').eq('tenant_id', tenantId).maybeSingle(),
   ])
-  for (const result of [workflows, jobs, logs, overview]) if (result.error) throw result.error
+  for (const result of [workflows, jobs, logs, overview, policy])
+    if (result.error) throw result.error
   const configured = (workflows.data ?? []) as FollowUpWorkflow[]
   // Keep machine-readable job reasons (window_closed/api_rejected) for existing
   // actions/refunds, and attach Meta's detailed explanation from its durable audit.
   const deliveryErrors = new Map<string, NonNullable<SmartJob['delivery_error']>>()
+  const jobById = new Map(((jobs.data ?? []) as unknown as SmartJob[]).map((job) => [job.id, job]))
   for (const log of logs.data ?? []) {
     if (log.status !== 'delivery_error' || !log.reason || deliveryErrors.has(log.job_id)) continue
+    const job = jobById.get(log.job_id)
+    if (!job || !['failed', 'requires_review', 'cancelled'].includes(job.status)) continue
+    // Retrying keeps the old audit. Only display errors from the current attempt.
+    if (
+      job.dispatch_started_at &&
+      log.created_at &&
+      Date.parse(log.created_at) < Date.parse(job.dispatch_started_at)
+    )
+      continue
     try {
       const detail = JSON.parse(log.reason)
       const numeric = (value: unknown) =>
@@ -75,7 +87,7 @@ export async function followUpDashboard(
     }
   }
   return {
-    policy: { ...DEFAULT_POLICY, tenant_id: tenantId } as CommunicationPolicy,
+    policy: { ...DEFAULT_POLICY, ...policy.data, tenant_id: tenantId } as CommunicationPolicy,
     workflows: (['payment', 'interested', 'after_sales'] as const).map(
       (kind) =>
         configured.find((w) => w.kind === kind) ?? {

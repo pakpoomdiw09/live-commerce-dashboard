@@ -1,20 +1,15 @@
-import { temporaryFullAccess } from '@/lib/full-access'
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { hasFeature, hasSlipAccess } from '@/lib/feature-access'
+import { hasFeature } from '@/lib/feature-access'
 import { analyzeVision } from '@/lib/features/vision/vision-provider'
 import { validateVisionFile, downloadVisionImage } from '@/lib/features/vision/vision-image'
 import {
   decideVisionAction,
   type VisionJob,
-  type VisionProduct,
-  type VisionSettings,
 } from '@/lib/features/vision/vision-types'
 import { IMAGE_RULE_COLUMNS, type ImageResponseRule } from '@/lib/features/vision/image-rules'
-import { processSlip } from '@/lib/features/slips/process'
-import { deliverRichOnce, notifySlipResult } from '@/lib/features/slips/notify'
+import { deliverRichOnce } from '@/lib/features/slips/notify'
 import { pageTokenFor } from '@/lib/integrations/facebook/client'
-import { defaultVisionSettings } from '@/lib/features/vision/vision-server'
 
 export async function enqueueVision(
   db: SupabaseClient,
@@ -87,7 +82,7 @@ export async function queueMessengerVision(
   messageId: string,
   urls: string[],
 ) {
-  if (process.env.AI_VISION_AUTOMATION_ENABLED !== 'true' || !urls.length) return false
+  if (!urls.length) return false
   if (!(await hasFeature(db, tenantId, 'image_assistant'))) return false
   const settings = await db
     .from('vision_settings')
@@ -134,6 +129,17 @@ async function saveJob(db: SupabaseClient, job: VisionJob, values: Record<string
   if (saved.error || !saved.data) throw new Error('VISION_CLAIM_CHANGED')
 }
 
+async function handoverVisionJob(db: SupabaseClient, job: VisionJob, reason: string) {
+  if (job.source !== 'messenger') return false
+  const routed = await db.rpc('handover_vision_job', {
+    p_job: job.id,
+    p_claim: job.claim_token,
+    p_reason: reason,
+  })
+  if (routed.error) throw routed.error
+  return routed.data === true
+}
+
 /** One claim = at most one AI request and one dispatch attempt. Uncertain work always needs review. */
 export async function runVisionJob(db: SupabaseClient, jobId?: string) {
   if (!process.env.GEMINI_API_KEY?.trim()) throw new Error('VISION_PROVIDER_NOT_CONFIGURED')
@@ -149,13 +155,6 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
     const stored = await db.storage.from('vision-images').download(job.image_path)
     if (stored.error || !stored.data) throw new Error('VISION_IMAGE_UNAVAILABLE')
     const file = new File([stored.data], 'image', { type: job.mime_type })
-    const settingsRow = await db
-      .from('vision_settings')
-      .select('*')
-      .eq('tenant_id', job.tenant_id)
-      .maybeSingle()
-    if (settingsRow.error) throw settingsRow.error
-    const settings = (settingsRow.data ?? defaultVisionSettings(job.tenant_id)) as VisionSettings
     const tenant = await db
       .from('tenants')
       .select(
@@ -164,26 +163,6 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       .eq('id', job.tenant_id)
       .single()
     if (tenant.error) throw tenant.error
-    const limit = await db
-      .from('vision_plan_limits')
-      .select('product_search')
-      .eq('plan', tenant.data.plan)
-      .single()
-    if (limit.error) throw limit.error
-    const productSearch =
-      (temporaryFullAccess || limit.data.product_search === true) &&
-      (await hasFeature(db, job.tenant_id, 'ai_agent'))
-    const products = productSearch
-      ? await db
-          .from('products')
-          .select('id,code,name,price,stock,description')
-          .eq('tenant_id', job.tenant_id)
-          .eq('is_active', true)
-          .order('id')
-          .limit(100)
-      : { data: [], error: null }
-    if (products.error) throw products.error
-    const catalog = (products.data ?? []) as VisionProduct[]
     // A bad/corrupt stored file must not use quota or leave an ambiguous provider marker.
     await validateVisionFile(file)
     const started = await db.rpc('start_vision_analysis', {
@@ -194,7 +173,7 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
     if (process.env.AGENT_CONTROL_KILL_SWITCH === 'true') throw new Error('AI_EMERGENCY_STOP')
     if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
       await (await import('@/lib/automation-safety')).assertAutomationRunning(db, job.tenant_id)
-    const result = await analyzeVision(file, catalog)
+    const result = await analyzeVision(file, [])
     if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
       await (await import('@/lib/automation-safety')).assertAutomationRunning(db, job.tenant_id)
     const rules = await db
@@ -206,30 +185,9 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       .order('id')
       .limit(1000)
     if (rules.error) throw rules.error
-    let currentCatalog = catalog
-    if (
-      result.category === 'PRODUCT' &&
-      result.productId &&
-      productSearch &&
-      catalog.some((p) => p.id === result.productId)
-    ) {
-      // Prices/stock may have changed while Gemini was running. Use a fresh tenant-scoped row.
-      const current = await db
-        .from('products')
-        .select('id,code,name,price,stock,description')
-        .eq('tenant_id', job.tenant_id)
-        .eq('id', result.productId)
-        .eq('is_active', true)
-        .maybeSingle()
-      if (current.error) throw current.error
-      currentCatalog = current.data ? [current.data as VisionProduct] : []
-    }
     const decision = decideVisionAction(
       result,
-      settings,
       (rules.data ?? []) as ImageResponseRule[],
-      currentCatalog,
-      productSearch,
     )
     await saveJob(db, job, { result, decision })
     if (job.source === 'test') {
@@ -241,8 +199,11 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       })
       return job.id // Tests analyze real files, but never call SlipOK or send customer messages.
     }
-    // DB rechecks plan/settings, customer assignment and 24h window immediately before effects.
-    if (process.env.AI_VISION_AUTOMATION_ENABLED !== 'true') throw new Error('AUTOMATION_DISABLED')
+    if (decision.action === 'HUMAN_HANDOFF') {
+      if (!(await handoverVisionJob(db, job, decision.reason))) throw new Error('VISION_HANDOFF_BLOCKED')
+      return job.id
+    }
+    // The store's Master Switch is rechecked by the DB before sending.
     const dispatch = await db.rpc('begin_vision_dispatch', {
       p_job: job.id,
       p_claim: job.claim_token,
@@ -261,42 +222,7 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       psid: customer.data.platform_user_id,
       token: pageTokenFor(tenant.data),
     }
-    if (decision.action === 'HUMAN_HANDOFF') {
-      if (settings.handoff_enabled) {
-        const handoff = await db.rpc('start_inbox_handover', { p_customer: job.customer_id })
-        if (handoff.error) throw handoff.error
-        if (handoff.data) {
-          const release = await db.rpc('end_inbox_delivery', {
-            p_customer: job.customer_id,
-            p_lease: handoff.data,
-          })
-          if (release.error) throw release.error
-        }
-      }
-      await saveJob(db, job, {
-        status: 'requires_review',
-        reason: decision.reason,
-        claim_token: null,
-        claim_until: null,
-      })
-    } else if (decision.action === 'VERIFY_SLIP') {
-      if (!tenant.data.auto_verify_enabled || !(await hasSlipAccess(db, job.tenant_id)))
-        throw new Error('SLIP_ACCESS_OR_CREDITS_REQUIRED')
-      const slip = await processSlip(db, {
-        file,
-        customerId: job.customer_id,
-        messageId: job.message_id,
-        tenant: tenant.data,
-      })
-      if (slip.failure || slip.crashed) throw new Error('SLIP_PROVIDER_FAILED')
-      await saveJob(db, job, { reason: `SLIP_${slip.status.toUpperCase()}` })
-      if (recipient.token) await notifySlipResult(db, slip, recipient, tenant.data.name)
-      await saveJob(db, job, {
-        status: slip.status === 'valid' ? 'completed' : 'requires_review',
-        claim_token: null,
-        claim_until: null,
-      })
-    } else {
+    {
       if (!recipient.token) throw new Error('PAGE_TOKEN_UNAVAILABLE')
       const messages: object[] = []
       if (decision.responseText) messages.push({ text: decision.responseText })
@@ -339,6 +265,14 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
         jobId: job.id,
         code: refund.error.code,
       })
+    try {
+      if (await handoverVisionJob(db, job, reason)) return job.id
+    } catch (handoffError) {
+      console.error('[vision] Inbox handover requires review', {
+        jobId: job.id,
+        code: (handoffError as { code?: string })?.code ?? 'unknown',
+      })
+    }
     await saveJob(db, job, {
       status: 'requires_review',
       reason,
@@ -350,7 +284,6 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
 }
 
 export async function runVisionQueue(db: SupabaseClient) {
-  if (process.env.AI_VISION_AUTOMATION_ENABLED !== 'true') return { enabled: false, processed: 0 }
   let processed = 0
   // One provider call can take 25s; leave serverless time for persistence and delivery.
   if (await runVisionJob(db)) processed++

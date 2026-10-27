@@ -4,7 +4,7 @@ import { createBackgroundRefresh } from '@/lib/background-refresh'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CalendarClock, Lock, Plus, Save, Sparkles, Trash2 } from 'lucide-react'
+import { CalendarClock, Lock, Plus, RotateCw, Save, Sparkles, Trash2 } from 'lucide-react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import { apiError, baht, customerName, when } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,9 @@ import {
   REASON_LABELS,
   PRECHECK_LABELS,
   renderSmartFollowUp,
+  isMetaPageRestricted,
+  canRetryRejectedFollowUp,
+  type ApprovalMode,
   type WorkflowKind,
   type SmartJob,
   type SmartDashboard,
@@ -202,14 +205,37 @@ export function SmartFollowUpsClient({
         body: JSON.stringify({ tenantId, action, text }),
       })
       if (!res.ok) throw new Error(await apiError(res))
+      const result = await res.json()
       setReview(null)
       setNotice({
         tone: 'success',
         text:
           action === 'approve'
             ? 'ตรวจทานแล้ว งานกลับเข้าคิวและจะเช็กเงื่อนไขอีกครั้งก่อนส่ง'
-            : 'อัปเดตงานแล้ว',
+            : action === 'retry_send'
+              ? result.status === 'cancelled'
+                ? 'งานหมดกรอบเวลา 24 ชั่วโมงแล้ว ระบบยกเลิกการส่ง'
+                : 'นำงานกลับเข้าคิวแล้ว Worker จะตรวจกรอบ 24 ชั่วโมงและเงื่อนไขล่าสุดก่อนส่ง'
+              : 'อัปเดตงานแล้ว',
       })
+    })
+  }
+  async function saveApprovalMode(approvalMode: ApprovalMode) {
+    await perform('approval', async () => {
+      invalidate()
+      const res = await fetch('/api/chatbot/follow-ups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, approvalMode }),
+      })
+      if (!res.ok) throw new Error(await apiError(res))
+      const saved = await res.json()
+      invalidate()
+      setData((previous) => ({
+        ...previous,
+        policy: { ...previous.policy, approval_mode: saved.approvalMode },
+      }))
+      setNotice({ tone: 'success', text: 'บันทึกโหมดอนุมัติแล้ว ใช้กับงานที่สร้างใหม่' })
     })
   }
   async function stopCustomer(job: SmartJob) {
@@ -316,10 +342,55 @@ export function SmartFollowUpsClient({
           className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"
         >
           เปิดใช้งานการส่งข้อความจริง · เมื่อเปิดระบบติดตามและถึงกำหนด Worker จะตรวจเงื่อนไขก่อนส่ง
-          งานที่ต้องตรวจร่างยังรอแอดมินอนุมัติตามเดิม
+          {data.policy.approval_mode === 'auto_approve'
+            ? 'งานใหม่อนุมัติอัตโนมัติ ส่วนร่างเดิมยังรอแอดมินตรวจสอบ'
+            : 'งานใหม่รอแอดมินตรวจและอนุมัติก่อนเข้าคิวส่ง'}
         </p>
       )}
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
+      <Card>
+        <CardHeader
+          title="โหมดการอนุมัติงานติดตาม"
+          description="ใช้กับงานใหม่ ทั้งที่เพิ่มเองและสร้างอัตโนมัติ บันทึกทันทีเมื่อเลือก"
+        />
+        <div className="space-y-3 p-4 sm:p-5">
+          <div role="group" aria-label="โหมดการอนุมัติ" className="grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                ['manual_review', 'ให้แอดมินตรวจสอบ', 'ตรวจและอนุมัติข้อความก่อนนำงานเข้าคิวส่ง'],
+                [
+                  'auto_approve',
+                  'ให้ AI อนุมัติอัตโนมัติ',
+                  'อนุมัติงานใหม่ทันที ส่งเมื่อถึงกำหนดและผ่านเงื่อนไข',
+                ],
+              ] as const
+            ).map(([mode, label, description]) => {
+              const selected = (data.policy.approval_mode ?? 'manual_review') === mode
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={!!busy}
+                  onClick={() => {
+                    if (!selected) void saveApprovalMode(mode)
+                  }}
+                  className={`rounded-xl border p-4 text-left transition disabled:opacity-50 ${selected ? 'border-orange-300 bg-orange-50 ring-1 ring-orange-200' : 'border-slate-200 hover:border-orange-200'}`}
+                >
+                  <span className="block text-sm font-semibold text-slate-900">{label}</span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                    {description}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-xs leading-relaxed text-slate-500">
+            เปลี่ยนโหมดแล้วร่างเดิมยังรอการตรวจสอบ ทุกโหมดตรวจกรอบเวลา 24 ชั่วโมง สถานะลูกค้า
+            ออเดอร์ และเครดิตก่อนส่ง
+          </p>
+        </div>
+      </Card>
       <section aria-label="แพ็กเกจและโควตาจริง" className="grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-orange-100 bg-white p-4">
           <p className="text-xs text-slate-500">แพ็กเกจปัจจุบัน</p>
@@ -653,6 +724,12 @@ export function SmartFollowUpsClient({
                       </p>
                     )}
                     {job.responded_at && <p className="mt-1 text-green-600">ลูกค้าตอบกลับแล้ว</p>}
+                    {job.reason !== 'page_restricted' &&
+                      isMetaPageRestricted(job.delivery_error) && (
+                        <p className="mt-2 max-w-xs text-xs leading-relaxed text-amber-700">
+                          {REASON_LABELS.page_restricted}
+                        </p>
+                      )}
                     {job.delivery_error && (
                       <details className="mt-2 max-w-xs text-xs text-rose-700">
                         <summary className="cursor-pointer">รายละเอียดจาก Meta</summary>
@@ -669,6 +746,16 @@ export function SmartFollowUpsClient({
                   </td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">
+                      {canRetryRejectedFollowUp(job) && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!!busy}
+                          onClick={() => void action(job, 'retry_send')}
+                        >
+                          <RotateCw size={14} /> ทดสอบส่งใหม่
+                        </Button>
+                      )}
                       {job.status === 'requires_review' &&
                         job.reason === 'ai_draft' &&
                         !job.dispatch_started_at && (

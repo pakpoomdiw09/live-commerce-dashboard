@@ -2,9 +2,9 @@
 import { temporaryFullAccess } from '@/lib/full-access'
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import Link from 'next/link'
 import Image from 'next/image'
-import { FlaskConical, LockKeyhole, RefreshCw, ScanEye, Upload } from 'lucide-react'
+import { FlaskConical, RefreshCw, ScanEye, Upload } from 'lucide-react'
+import { PageBanner } from '@/components/ui/page-banner'
 import {
   VISION_CONFIDENCE_THRESHOLD,
   type VisionSettings,
@@ -41,7 +41,7 @@ export function normalizeVisionOverview(value: unknown): Overview {
     typeof v.settings.enabled === 'boolean' &&
     ['rules', 'catalog'].includes(v.settings.mode) &&
     typeof v.settings.confidence_threshold === 'number'
-      ? { ...v.settings, confidence_threshold: VISION_CONFIDENCE_THRESHOLD }
+      ? { ...v.settings, mode: 'rules' as const, handoff_enabled: true, confidence_threshold: VISION_CONFIDENCE_THRESHOLD }
       : null
   return {
     ...v,
@@ -139,8 +139,8 @@ export function VisionCenter({
     })
     return () => abort.abort()
   }, [load])
-  async function save() {
-    if (!settings || !canManage) return
+  async function save(enabled: boolean) {
+    if (!settings || !canManage || busy) return
     setBusy(true)
     setError('')
     setNotice('')
@@ -149,8 +149,7 @@ export function VisionCenter({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...settings,
-          confidence_threshold: VISION_CONFIDENCE_THRESHOLD,
+          enabled,
           tenantId,
         }),
       })
@@ -159,7 +158,7 @@ export function VisionCenter({
       const next = normalizeVisionOverview(value)
       setData(next)
       setSettings(next.settings)
-      setNotice('บันทึกการตั้งค่าแล้ว')
+      setNotice(enabled ? 'เปิดใช้งานระบบตอบรูปภาพแล้ว' : 'ปิดใช้งานระบบตอบรูปภาพแล้ว')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')
     } finally {
@@ -218,18 +217,29 @@ export function VisionCenter({
   }
   return (
     <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
-      <div className="-mx-4 md:-mx-8">{children}</div>
-      <header className="flex items-start gap-3 border-t border-slate-200 pt-6">
-        <span className="rounded-xl bg-orange-50 p-2.5 text-orange-600">
-          <ScanEye className="h-5 w-5" aria-hidden />
-        </span>
+      <PageBanner className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-slate-900">AI Vision Center</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            ตั้งค่าการวิเคราะห์ภาพ ทดลองคำตอบ และดูประวัติการทำงาน
+          <ScanEye className="mb-3 h-7 w-7" aria-hidden />
+          <h1 className="text-xl font-semibold sm:text-2xl">AI Vision Center</h1>
+          <p className="mt-2 text-sm leading-relaxed text-white/90">
+            จัดการกฎตอบรูปภาพและทดลองวิเคราะห์ภาพของร้าน
           </p>
         </div>
-      </header>
+        <div className="flex items-center justify-between gap-5 rounded-2xl border border-white/25 bg-white/15 p-4 sm:min-w-56">
+          <div id="vision-enabled-label">
+            <p className="text-sm font-semibold">ระบบตอบรูปภาพ</p>
+            <p role="status" className="mt-1 text-xs text-white/85">
+              {busy && !testing ? 'กำลังบันทึก…' : !settings ? 'กำลังโหลด…' : settings.enabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+            </p>
+          </div>
+          <button type="button" role="switch" aria-checked={settings?.enabled ?? false}
+            aria-labelledby="vision-enabled-label" disabled={!canManage || busy || !settings}
+            onClick={() => void save(!settings?.enabled)}
+            className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white disabled:opacity-50 ${settings?.enabled ? 'bg-emerald-500' : 'bg-black/25'}`}>
+            <span className={`h-6 w-6 rounded-full bg-white shadow transition-transform ${settings?.enabled ? 'translate-x-5.5' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+      </PageBanner>
       {error && data && (
         <p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">
           {error}
@@ -240,6 +250,7 @@ export function VisionCenter({
           {notice}
         </p>
       )}
+      <div className="-mx-4 md:-mx-8">{children}</div>
       {!data ? (
         <div role={error ? 'alert' : 'status'} aria-busy={!error} className="min-w-0 space-y-6">
           {error && (
@@ -264,23 +275,12 @@ export function VisionCenter({
             </div>
           )}
           <p className="sr-only">กำลังโหลดข้อมูล Vision จากฐานข้อมูล…</p>
-          <div className="grid gap-4 sm:grid-cols-3" aria-hidden="true">
-            {[0, 1, 2].map((item) => (
-              <div key={item} className={`${box} min-h-28 animate-pulse`}>
-                <div className="h-4 w-2/3 rounded bg-slate-200" />
-                <div className="mt-4 h-8 w-1/2 rounded bg-slate-200" />
-                <div className="mt-3 h-3 w-5/6 rounded bg-slate-100" />
-              </div>
-            ))}
-          </div>
-          {[0, 1, 2].map((item) => (
-            <div key={item} aria-hidden="true" className={`${box} min-h-48 animate-pulse`}>
+            <div aria-hidden="true" className={`${box} ml-auto min-h-48 w-full max-w-sm animate-pulse`}>
               <div className="h-5 w-1/3 rounded bg-slate-200" />
               <div className="mt-4 h-3 w-5/6 rounded bg-slate-100" />
               <div className="mt-3 h-3 w-2/3 rounded bg-slate-100" />
               <div className="mt-6 h-16 rounded-xl bg-slate-100" />
             </div>
-          ))}
           <div aria-hidden="true" className={`${box} min-h-72 animate-pulse`}>
             <div className="h-5 w-1/3 rounded bg-slate-200" />
             <div className="mt-5 space-y-4">
@@ -292,77 +292,7 @@ export function VisionCenter({
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <section className={box}>
-              <p className="text-sm text-slate-500">ใช้ AI Vision เดือนนี้ (UTC)</p>
-              <p className="mt-2 text-3xl font-bold text-orange-600">
-                {data.usage.used.toLocaleString()}{' '}
-                <span className="text-sm font-normal">
-                  / {data.usage.limit.toLocaleString()} ภาพ
-                </span>
-              </p>
-            </section>
-            <section className={box}>
-              <p className="text-sm text-slate-500">โควตาภาพคงเหลือ</p>
-              <p className="mt-2 text-3xl font-bold">
-                {temporaryFullAccess
-                  ? 'ไม่จำกัด (Full Access)'
-                  : data.usage.remaining.toLocaleString()}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">แยกจากเครดิตตรวจสลิปและข้อความ</p>
-            </section>
-            <section className={box}>
-              <p className="text-sm text-slate-500">งานที่ต้องตรวจสอบใน 30 งานล่าสุด</p>
-              <p className="mt-2 text-3xl font-bold">
-                {data.jobs.filter((j) => j.status === 'requires_review').length}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                ภาพไม่ชัด จับคู่ไม่ได้ หรือผลการส่งไม่แน่นอน
-              </p>
-            </section>
-          </div>
-          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
-            <section className={box}>
-              <h3 className="font-semibold text-slate-900">โหมด Vision และการส่งต่อแอดมิน</h3>
-              <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-500">
-                เปิดให้ผู้ช่วยวิเคราะห์ภาพจากลูกค้าและเลือกคำตอบตามการตั้งค่าของร้าน
-              </p>
-              <div className="mt-5 flex items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
-                <div id="vision-enabled-label" className="min-w-0">
-                  <p className="text-sm font-medium text-slate-800">เปิดใช้งาน Vision</p>
-                  <p className="mt-1 text-xs text-slate-500">รับงานรูปภาพอัตโนมัติของร้าน</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.enabled ?? false}
-                  aria-labelledby="vision-enabled-label"
-                  disabled={!canManage || busy || !settings}
-                  onClick={() => setSettings((s) => s && { ...s, enabled: !s.enabled })}
-                  className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 disabled:opacity-50 ${settings?.enabled ? 'bg-orange-500' : 'bg-slate-300'}`}
-                >
-                  <span
-                    className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${settings?.enabled ? 'translate-x-5.5' : 'translate-x-0.5'}`}
-                  />
-                </button>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs ${data.automationEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
-                >
-                  การส่งอัตโนมัติ: {data.automationEnabled ? 'พร้อมใช้งาน' : 'ยังไม่เปิดใช้งาน'}
-                </span>
-                <button
-                  type="button"
-                  className={button}
-                  disabled={!canManage || busy || !settings}
-                  onClick={() => void save()}
-                >
-                  บันทึกการตั้งค่า
-                </button>
-              </div>
-            </section>
-            <section aria-label="โหมดทดลองวิเคราะห์ภาพ" className={`${box} border-orange-100`}>
+            <section aria-label="โหมดทดลองวิเคราะห์ภาพ" className={`${box} w-full max-w-sm border-orange-100 sm:ml-auto`}>
               <div className="flex items-center gap-2">
                 <FlaskConical className="h-4 w-4 text-orange-500" aria-hidden />
                 <h3 className="font-semibold text-slate-900">โหมดทดลอง</h3>
@@ -431,7 +361,7 @@ export function VisionCenter({
                   )}
                   {preview.decision && (
                     <p>
-                      {preview.decision.responseText ?? 'ส่งต่อแอดมินหรือระบบตรวจสลิปตามสิทธิ์'}
+                    {preview.decision.responseText ?? 'ไม่พบคำตอบอัตโนมัติ'}
                     </p>
                   )}
                   {preview.decision?.mediaUrl && (
@@ -448,7 +378,6 @@ export function VisionCenter({
                 </div>
               )}
             </section>
-          </div>
           <section className={box}>
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold">ประวัติรูปภาพ · 30 งานล่าสุด</h2>
@@ -516,19 +445,6 @@ export function VisionCenter({
                 <p className="p-4 text-sm text-slate-500">ยังไม่มีประวัติการวิเคราะห์ภาพ</p>
               )}
             </div>
-          </section>
-          <section className="rounded-2xl bg-orange-50 p-5 text-sm text-orange-900">
-            <p className="flex items-center gap-2 font-semibold">
-              <LockKeyhole className="h-4 w-4" />
-              แพ็กเกจและเครดิต
-            </p>
-            <p className="my-2">
-              Starter ใช้กฎตอบภาพและจำแนกภาพได้ · Pro เพิ่มการจับคู่สินค้าจากแคตตาล็อก · Free
-              ถูกล็อกตามสิทธิ์เดิม เมื่อโควตาภาพหมดจะหยุด AI Vision โดยไม่ใช้เครดิตตรวจสลิปแทน
-            </p>
-            <Link href="/billing" className="font-semibold underline">
-              ดูแพ็กเกจ / เติมเครดิตตรวจสลิปและข้อความ
-            </Link>
           </section>
         </>
       )}

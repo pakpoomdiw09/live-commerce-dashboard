@@ -58,6 +58,8 @@ export async function visionOverview(db: ReturnType<typeof supabaseAdmin>, tenan
   return {
     settings: {
       ...(settings.data ?? defaultVisionSettings(tenantId)),
+      mode: 'rules',
+      handoff_enabled: true,
       confidence_threshold: VISION_CONFIDENCE_THRESHOLD,
     } as VisionSettings,
     usage: { used, limit, remaining: Math.max(0, limit - used), month },
@@ -65,6 +67,6 @@ export async function visionOverview(db: ReturnType<typeof supabaseAdmin>, tenan
       (temporaryFullAccess || limits.data.product_search === true) &&
       (await hasFeature(db, tenantId, 'ai_agent')),
     jobs: jobs.data ?? [],
-    automationEnabled: process.env.AI_VISION_AUTOMATION_ENABLED === 'true',
+    automationEnabled: settings.data?.enabled === true,
   }
 }

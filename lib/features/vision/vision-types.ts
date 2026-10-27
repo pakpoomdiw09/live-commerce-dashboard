@@ -69,27 +69,13 @@ export function parseVisionResult(text: string): VisionResult {
 }
 export function decideVisionAction(
   result: VisionResult,
-  settings: VisionSettings,
   rules: ImageResponseRule[],
-  products: VisionProduct[],
-  productSearch: boolean,
 ): VisionDecision {
   if (result.confidence < VISION_CONFIDENCE_THRESHOLD)
     return { action: 'HUMAN_HANDOFF', reason: 'LOW_CONFIDENCE' }
-  if (result.category === 'PAYMENT_SLIP') return { action: 'VERIFY_SLIP', reason: 'SLIP_DETECTED' }
   if (result.category === 'UNKNOWN') return { action: 'HUMAN_HANDOFF', reason: 'UNKNOWN_IMAGE' }
-  if (result.category === 'PRODUCT' && settings.mode === 'catalog') {
-    if (!productSearch) return { action: 'HUMAN_HANDOFF', reason: 'PRO_REQUIRED' }
-    const product = products.find((p) => p.id === result.productId)
-    if (!product) return { action: 'HUMAN_HANDOFF', reason: 'NO_CATALOG_MATCH' }
-    return {
-      action: 'PRODUCT_SEARCH',
-      reason: 'CATALOG_MATCH',
-      productId: product.id,
-      responseText: `${product.name} (${product.code}) ราคา ${Number(product.price).toFixed(2)} บาท · ${product.stock > 0 ? `คงเหลือ ${product.stock} ชิ้น` : 'สินค้าหมด'}`,
-    }
-  }
-  const rule = selectImageRule(rules, result.category === 'PRODUCT' ? 'product' : 'general')
+  const trigger = result.category === 'PRODUCT' ? 'product' : result.category === 'PAYMENT_SLIP' ? 'slip' : 'general'
+  const rule = selectImageRule(rules, trigger)
   return rule
     ? {
         action: 'RULE_REPLY',

@@ -82,6 +82,44 @@ alone does not establish a 24-hour window failure. Code 10 alone is also no long
 treated as a window rejection: it may indicate missing permissions. No automatic
 retry with an unrelated event-update tag is performed for a general follow-up.
 
+## Approval mode and explicit retry
+
+Run `supabase/follow-up-approval-mode.sql` in Supabase SQL Editor after
+`follow-up-24h-window.sql` and `follow-up-step-settings.sql`, then deploy the code.
+It is rerunnable; it never sends messages or changes existing jobs at installation.
+
+The setting lives in `follow_up_policies.approval_mode`. The default is
+`manual_review`: all newly created jobs use `requires_review / ai_draft` until an
+admin approves them. `auto_approve` sets `ai_approved=true` and `status=pending`
+for new manual and automatically scheduled jobs. A BEFORE INSERT trigger applies
+the setting to every creation path. Changing the mode does not approve old drafts
+or revoke approvals already granted. The Dashboard saves this setting immediately
+through `PATCH /api/chatbot/follow-ups` with `{tenantId, approvalMode}`; this scoped
+RPC does not revise workflows or cancel queues. `/api/follow-ups` returns the
+saved policy on refresh.
+
+Approval does not bypass the worker's tenant, workflow, handover, opt-out,
+order/slip, quota or verified 24-hour checks. No extra AI call is made just to
+approve a job.
+
+Code 2022 or subcode 1404132 is stored with reason `page_restricted`; the Dashboard
+shows the Page-status guidance and “ทดสอบส่งใหม่”. Historical `api_rejected`
+failures with these diagnostics also show the guidance. This button requests
+`retry_send` via the existing job endpoint. The server allows it only for a
+confirmed refused send with a failed message, no provider receipt, no live claim
+and no outstanding reserved credits. It keeps the failed message and audits the
+admin action, clears the completed dispatch markers, and queues a new attempt.
+The Cron sends it after checking the current conditions again. Double clicks,
+unknown delivery outcomes and accepted sends cannot reset a job. If the window
+has already expired, retry cancels the job without contacting Meta.
+
+Validation commands:
+
+```sh
+node --test scripts/test-smart-followups.cjs
+node scripts/test-followup-approval-sql.cjs
+```
+
 ## Read-only checks
 
 ```sql

@@ -1,4 +1,5 @@
 export type WorkflowKind = 'payment' | 'interested' | 'after_sales'
+export type ApprovalMode = 'manual_review' | 'auto_approve'
 export type SmartJobStatus =
   'pending' | 'processing' | 'sent' | 'failed' | 'cancelled' | 'skipped' | 'requires_review'
 export type WorkflowStep = { delay_minutes: number; text: string }
@@ -14,6 +15,7 @@ export type FollowUpWorkflow = {
 }
 export type CommunicationPolicy = {
   tenant_id: string
+  approval_mode: ApprovalMode
   enabled: boolean
   timezone: string
   quiet_enabled: boolean
@@ -108,6 +110,7 @@ export const DEFAULT_STEPS: Record<WorkflowKind, WorkflowStep[]> = {
   ],
 }
 export const DEFAULT_POLICY = {
+  approval_mode: 'manual_review' as ApprovalMode,
   enabled: false,
   timezone: 'Asia/Bangkok',
   quiet_enabled: false,
@@ -160,12 +163,20 @@ export const REASON_LABELS: Record<string, string> = {
   worker_restarted: 'Worker หยุดก่อนทราบผล',
   ai_draft: 'รอตรวจทานข้อความ AI',
   api_rejected: 'Messenger ปฏิเสธ',
+  page_restricted: 'เพจถูก Meta จำกัดการส่งข้อความชั่วคราว กรุณาตรวจสอบสถานะเพจบน Facebook',
   manual: 'ผู้ดูแลยกเลิก',
   new_order: 'ลูกค้ามีออเดอร์แล้ว',
   complaint: 'พบข้อร้องเรียน',
   contact_suspended: 'ระงับการติดต่อ',
   no_token: 'ยังไม่มี Token เพจ',
   order_unconfirmed: 'ยังไม่ได้ยืนยันออเดอร์',
+}
+export function isMetaPageRestricted(error: SmartJob['delivery_error']) {
+  return error?.facebookCode === 2022 || error?.facebookSubcode === 1404132
+}
+
+export function canRetryRejectedFollowUp(job: SmartJob) {
+  return job.status === 'failed' && ['api_rejected', 'page_restricted'].includes(job.reason ?? '')
 }
 export function renderSmartFollowUp(
   text: string,

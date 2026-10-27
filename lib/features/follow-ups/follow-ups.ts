@@ -346,6 +346,8 @@ export async function runFollowUps(
         if (error instanceof SendApiError && error.status < 500) {
           outcome = isWindowOrTagError(error) ? 'cancelled' : 'failed'
           reason = isWindowOrTagError(error) ? 'outside_24h_window' : 'api_rejected'
+          if (outcome === 'failed' && (error.code === 2022 || error.subcode === 1404132))
+            reason = 'page_restricted'
         }
         console.warn('[smart-follow-up] delivery result', {
           jobId: job.id,

@@ -377,6 +377,7 @@ test('provider rejection stores safe structured HTTP/code diagnostics in the exe
   const result = await f.api.runFollowUps(f.db, tenant)
   const audit = f.writes.find((write) => write.table === 'follow_up_execution_logs')
   assert.equal(result.failed, 1)
+  assert.equal(f.settled[0].p_reason, 'page_restricted')
   assert.equal(JSON.parse(audit.value.reason).httpStatus, 400)
   assert.equal(JSON.parse(audit.value.reason).facebookCode, 2022)
   assert.equal(JSON.parse(audit.value.reason).facebookSubcode, 1404132)
@@ -412,6 +413,7 @@ test('new follow-up APIs fail closed before cross-tenant DB access', async () =>
   }
   for (const [file, methods] of [
     ['app/api/follow-ups/route.ts', ['GET', 'PATCH']],
+    ['app/api/chatbot/follow-ups/route.ts', ['PATCH']],
     ['app/api/follow-ups/jobs/[id]/route.ts', ['PATCH']],
     ['app/api/follow-ups/jobs/[id]/draft/route.ts', ['POST']],
     ['app/api/follow-ups/orders/[id]/delivery/route.ts', ['POST']],
@@ -456,6 +458,7 @@ test('new follow-up APIs fail closed before cross-tenant DB access', async () =>
 })
 test('dashboard returns canonical server billing without bypass flags or private credentials', async () => {
   const scopes = []
+  let jobStatus = 'failed'
   const db = {
     from(table) {
       const q = {
@@ -472,11 +475,14 @@ test('dashboard returns canonical server billing without bypass flags or private
         limit() {
           return q
         },
-        maybeSingle: async () => ({ data: null, error: null }),
+        maybeSingle: async () => ({
+          data: table === 'follow_up_policies' ? { approval_mode: 'auto_approve' } : null,
+          error: null,
+        }),
         then(resolve, reject) {
           const data =
             table === 'follow_up_jobs'
-              ? [{ id, status: 'failed', reason: 'api_rejected' }]
+              ? [{ id, status: jobStatus, reason: 'api_rejected' }]
               : table === 'follow_up_execution_logs'
                 ? [
                     {
@@ -523,15 +529,107 @@ test('dashboard returns canonical server billing without bypass flags or private
   })
   const result = await server.followUpDashboard(db, tenant)
   assert.equal(result.billing.plan, 'starter')
+  assert.equal(result.policy.approval_mode, 'auto_approve')
   assert.equal(result.billing.monthly + result.billing.topup, 46)
   assert.equal(result.billing.slipRemaining, 56)
   assert.equal(result.jobs[0].reason, 'api_rejected')
   assert.equal(result.jobs[0].delivery_error.message, 'Meta rejected this request')
   assert.equal(result.jobs[0].delivery_error.facebookSubcode, 1404132)
+  for (jobStatus of ['pending', 'sent']) {
+    const refreshed = await server.followUpDashboard(db, tenant)
+    assert.equal(
+      refreshed.jobs[0].delivery_error,
+      null,
+      'old refusal diagnostics stay in the audit after a retry',
+    )
+  }
   assert.equal('featureBypass' in result.billing, false)
   assert.equal(JSON.stringify(result).includes('must-not-leak'), false)
-  for (const table of ['follow_up_jobs', 'follow_up_workflows', 'follow_up_execution_logs'])
+  for (const table of [
+    'follow_up_jobs',
+    'follow_up_workflows',
+    'follow_up_execution_logs',
+    'follow_up_policies',
+  ])
     assert.ok(scopes.some(([t, k, v]) => t === table && k === 'tenant_id' && v === tenant))
+})
+
+test('approval mode API validates choices and uses a scoped setting RPC without rewriting workflows', async () => {
+  const calls = []
+  const api = load('app/api/chatbot/follow-ups/route.ts', {
+    'next/server': next,
+    '@/lib/features/inbox/inbox-server': errors,
+    '@/lib/features/follow-ups/smart-followup-server': {
+      followUpTenant: async () => ({
+        tenantId: tenant,
+        actor: { id },
+        db: {
+          rpc: async (name, args) => {
+            calls.push({ name, args })
+            return { data: args.p_mode, error: null }
+          },
+        },
+      }),
+    },
+  })
+  assert.equal(
+    (await api.PATCH({ json: async () => ({ tenantId: tenant, approvalMode: 'invalid' }) })).status,
+    400,
+  )
+  assert.equal(calls.length, 0)
+  for (const approvalMode of ['manual_review', 'auto_approve']) {
+    const response = await api.PATCH({ json: async () => ({ tenantId: tenant, approvalMode }) })
+    assert.equal(response.status, 200)
+    assert.equal(response.body.approvalMode, approvalMode)
+    assert.equal(calls.at(-1).name, 'set_follow_up_approval_mode')
+    assert.equal(calls.at(-1).args.p_tenant, tenant)
+    assert.equal(calls.at(-1).args.p_actor, id)
+  }
+})
+
+test('dashboard flags restricted Pages and offers retries only for confirmed rejections', () => {
+  assert.equal(types.isMetaPageRestricted({ facebookCode: 2022 }), true)
+  assert.equal(types.isMetaPageRestricted({ facebookSubcode: 1404132 }), true)
+  assert.equal(types.isMetaPageRestricted({ facebookCode: 100 }), false)
+  assert.equal(types.canRetryRejectedFollowUp({ status: 'failed', reason: 'api_rejected' }), true)
+  assert.equal(
+    types.canRetryRejectedFollowUp({ status: 'failed', reason: 'page_restricted' }),
+    true,
+  )
+  for (const job of [
+    { status: 'sent', reason: 'api_rejected' },
+    { status: 'failed', reason: 'worker_restarted' },
+    { status: 'requires_review', reason: 'delivery_unknown' },
+  ])
+    assert.equal(types.canRetryRejectedFollowUp(job), false)
+})
+
+test('retry-send endpoint uses the confirmed-refusal RPC and returns window cancellation', async () => {
+  const api = load('app/api/follow-ups/jobs/[id]/route.ts', {
+    'next/server': next,
+    '@/lib/utils': utils,
+    '@/lib/features/inbox/inbox-server': errors,
+    '@/lib/features/follow-ups/smart-followup-server': {
+      followUpTenant: async () => ({
+        tenantId: tenant,
+        actor: { id },
+        db: {
+          rpc: async (name, args) => {
+            assert.equal(name, 'retry_rejected_follow_up')
+            assert.equal(args.p_tenant, tenant)
+            assert.equal(args.p_job, id)
+            return { data: 'cancelled', error: null }
+          },
+        },
+      }),
+    },
+  })
+  const response = await api.PATCH(
+    { json: async () => ({ tenantId: tenant, action: 'retry_send' }) },
+    { params: Promise.resolve({ id }) },
+  )
+  assert.equal(response.status, 200)
+  assert.equal(response.body.status, 'cancelled')
 })
 function handoffFixture({ missing = false, conflict = false } = {}) {
   const calls = [],
