@@ -726,3 +726,76 @@ test('default simulation uses real catalog and never imports provider or consume
   assert.equal(result.body.chargedAiCredits, 0)
   assert.match(result.body.proposedText, /99\.00/)
 })
+test('chat simulator builds grounded context without Agent Control or paid-plan gates', async () => {
+  let quotaReservations = 0
+  const api = load(
+    'lib/features/agents/agent-control-ai.ts',
+    {
+      'server-only': {},
+      '@/lib/features/agents/ai-errors': { AiAgentError },
+      '@/lib/features/agents/agent-control-flags': {
+        agentControlConfig: async () => {
+          throw Error('simulator must not read paid Agent Control config')
+        },
+      },
+      '@/lib/features/store-rules/store-rule-items': load(
+        'lib/features/store-rules/store-rule-items.ts',
+      ),
+      '@/lib/features/store-rules/shop-persona-settings': load(
+        'lib/features/store-rules/shop-persona-settings.ts',
+        {
+          '@/lib/features/store-rules/store-rule-items': load(
+            'lib/features/store-rules/store-rule-items.ts',
+          ),
+        },
+      ),
+      '@/lib/features/agents/agent-control-core': core,
+    },
+    { process: { env: {} } },
+  )
+  const db = {
+    from(table) {
+      const q = {
+        select() {
+          return q
+        },
+        eq() {
+          return q
+        },
+        order() {
+          return q
+        },
+        maybeSingle: async () => ({ data: { ai_instructions: 'จัดส่ง 50 บาท' }, error: null }),
+        limit: async () => ({ data: [], error: null }),
+        range: async () => ({ data: [], error: null }),
+      }
+      assert.ok(
+        ['products', 'bot_settings', 'inbox_quick_replies', 'agent_knowledge_sources'].includes(
+          table,
+        ),
+      )
+      return q
+    },
+    rpc: async (name) => {
+      assert.equal(name, 'reserve_tenant_ai_simulation')
+      quotaReservations++
+      return { data: true }
+    },
+  }
+  const result = await api.prepareAgentGeneration(
+    db,
+    {
+      tenantId: tenant,
+      shopName: 'Shop',
+      instructions: null,
+      customerName: null,
+      customerId: '',
+      simulation: true,
+    },
+    'ขอทราบค่าจัดส่ง',
+  )
+  assert.ok(result)
+  assert.equal(result.simulation, true)
+  assert.match(result.systemInstruction, /จัดส่ง/)
+  assert.equal(quotaReservations, 1)
+})

@@ -264,12 +264,14 @@ export function ConversationsClient({
           </Card>
           <Card className="flex flex-col justify-between gap-3 p-4">
             <div>
-              <p className="text-xs font-medium text-slate-500">คำตอบ AI ที่ส่งสำเร็จ</p>
+              <p className="text-xs font-medium text-slate-500">ใช้โควตา AI แล้ว</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
                 {aiQuota.used.toLocaleString('th-TH')}
                 <span className="ml-1 text-xs font-normal text-slate-500">ครั้ง</span>
               </p>
-              <p className="mt-1 text-xs text-slate-500">โควตาสะสม · ไม่มีการรีเซ็ตอัตโนมัติ</p>
+              <p className="mt-1 text-xs text-slate-500">
+                รวมคำตอบจริงและการทดลอง · ไม่มีการรีเซ็ตอัตโนมัติ
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" size="sm" onClick={() => router.refresh()}>
@@ -490,7 +492,8 @@ export function ConversationsClient({
               tenantId={tenantId}
               settings={settings}
               activeRuleCount={rules.filter((rule) => rule.is_active).length}
-              aiAllowed={aiAllowed}
+              aiAllowed={aiReady && (aiQuota?.remaining ?? 0) > 0}
+              onUsage={() => router.refresh()}
             />
           </div>
 

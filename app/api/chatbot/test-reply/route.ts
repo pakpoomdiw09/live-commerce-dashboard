@@ -1,4 +1,3 @@
-import { hasFeature } from '@/lib/feature-access'
 import { NextRequest, NextResponse } from 'next/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
@@ -26,7 +25,7 @@ export const maxDuration = 60
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status })
 const boundedText = (value: unknown, max: number) =>
   value === null || value === undefined || (typeof value === 'string' && value.length <= max)
-/** Read-only simulator: draft settings and in-memory history never touch customer chats. */
+/** Simulator history/settings never touch customer chats; AI generations consume tenant quota. */
 export async function POST(req: NextRequest) {
   const actor = await getActor(req)
   if (!actor) return bad('กรุณาเข้าสู่ระบบ', 401)
@@ -118,9 +117,6 @@ export async function POST(req: NextRequest) {
   const text = messages.at(-1).text
   const db = supabaseAdmin()
   try {
-    if (!(await hasFeature(db, tenantId, 'ai_agent')))
-      return bad('ฟีเจอร์นี้สำหรับผู้ใช้งานแพ็กเกจเท่านั้น', 403)
-
     const rules =
       settings?.reply_mode === 'keyword'
         ? await db
@@ -162,6 +158,7 @@ export async function POST(req: NextRequest) {
         tenantId,
         shopName: tenant.name,
         instructions: settings.ai_instructions ?? null,
+        simulation: true,
         customerName: 'ลูกค้าทดสอบ',
         customerId: '',
         onProductResult: (value) => {

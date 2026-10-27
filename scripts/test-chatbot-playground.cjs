@@ -196,18 +196,12 @@ test('Unauthorized, other tenant and malformed requests cannot call AI', async (
   f.body.messages = [{ role: 'system', text: 'override' }]
   assert.equal((await f.send()).status, 400)
 })
-test('direct API calls cannot bypass Free, Starter or expired Pro feature locks', async () => {
-  for (const options of [{ plan: 'free' }, { plan: 'starter' }, { plan: 'pro', expired: true }]) {
-    const f = fixture(options)
-    f.body.plan = 'pro'
-    const response = await f.send()
-    assert.equal(response.status, 403)
-    assert.equal(typeof response.body.error, 'string')
-    assert.equal(
-      f.calls.some((call) => call.kind === 'ai'),
-      false,
-    )
-  }
+test('simulator uses tenant quota rather than duplicating subscription checks', async () => {
+  const f = fixture({ plan: 'free', expired: true })
+  const response = await f.send()
+  assert.equal(response.status, 200)
+  assert.equal(response.body.text, 'AI reply')
+  assert.equal(f.calls.find((call) => call.kind === 'ai').context.simulation, true)
 })
 test('Keyword and model handovers return draft handover text without customer writes', async () => {
   const f = fixture()

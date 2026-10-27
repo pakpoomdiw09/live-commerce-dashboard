@@ -28,10 +28,17 @@ function load(file, deps = {}, env = {}) {
 function textFixture({ paid = true, quota = 2, fail = false } = {}) {
   let calls = 0,
     reserves = 0,
+    simulationReservations = 0,
     completed = 0
   const db = {
-    rpc: async () => {
+    rpc: async (name) => {
       reserves++
+      if (name === 'reserve_tenant_ai_simulation') {
+        simulationReservations++
+        if (quota <= 0) return { data: false }
+        quota--
+        return { data: true }
+      }
       if (quota <= 0) return { data: { reason: 'AI_QUOTA_EXHAUSTED' } }
       quota--
       return { data: { id: 'receipt' } }
@@ -70,15 +77,21 @@ function textFixture({ paid = true, quota = 2, fail = false } = {}) {
     }
   }
   const managed = {
-    prepareAgentGeneration: async (db) => {
-      const reserved = await db.rpc()
+    prepareAgentGeneration: async (db, context) => {
+      const reserved = await db.rpc(
+        context.simulation ? 'reserve_tenant_ai_simulation' : 'start_agent_ai_call',
+      )
+      if (context.simulation)
+        return reserved.data
+          ? { simulation: true, systemInstruction: 'Only approved store facts' }
+          : null
       return reserved.data.id
         ? { usageId: reserved.data.id, systemInstruction: 'Only approved store facts' }
         : null
     },
     sanitizeAgentHistory: (text) => text,
-    finishAgentGeneration: async () => {
-      completed++
+    finishAgentGeneration: async (_db, control) => {
+      if (!control.simulation) completed++
       return 'คำตอบจากข้อมูลร้าน'
     },
     failAgentGeneration: async () => {},
@@ -99,11 +112,12 @@ function textFixture({ paid = true, quota = 2, fail = false } = {}) {
     },
   )
   return {
-    run: (managedFlag = false, bypassFlag = true) =>
+    run: (managedFlag = false, bypassFlag = true, simulation = false) =>
       api.aiReply(
         db,
         {
           tenantId: 'own',
+          simulation,
           shopName: 'Shop',
           customerId: '',
           customerName: null,
@@ -115,6 +129,7 @@ function textFixture({ paid = true, quota = 2, fail = false } = {}) {
         bypassFlag,
       ),
     metrics: () => ({ calls, reserves, completed, remaining: quota }),
+    simulationReservations: () => simulationReservations,
   }
 }
 test('free stores cannot reach the provider or consume AI quota', async () => {
@@ -134,6 +149,16 @@ test('an uncertain provider failure is charged once and never automatically retr
   const f = textFixture({ fail: true })
   await assert.rejects(f.run())
   assert.deepEqual(f.metrics(), { calls: 1, reserves: 1, completed: 0, remaining: 1 })
+})
+test('simulator bypasses paid-package checks but atomically consumes tenant AI quota', async () => {
+  const f = textFixture({ paid: false, quota: 1 })
+  assert.equal(await f.run(false, true, true), 'คำตอบจากข้อมูลร้าน')
+  assert.equal(f.simulationReservations(), 1)
+  assert.equal(f.metrics().calls, 1)
+  assert.equal(f.metrics().remaining, 0)
+  await assert.rejects(f.run(false, true, true), (e) => e.code === 'AI_QUOTA_EXHAUSTED')
+  assert.equal(f.metrics().calls, 1)
+  assert.equal(f.simulationReservations(), 2)
 })
 test('follow-up analysis reserves paid quota before the provider and skips exhausted or repeated messages', async () => {
   for (const allowed of [false, true]) {

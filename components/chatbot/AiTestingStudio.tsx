@@ -48,16 +48,18 @@ export function AiTestingStudio({
   settings,
   activeRuleCount,
   aiAllowed,
+  onUsage,
 }: {
   tenantId: string
   settings: BotSettings
   activeRuleCount: number
   aiAllowed: boolean
+  onUsage?: () => void
   embedded?: boolean
 }) {
   const welcomeMessage = aiAllowed
-    ? 'พื้นที่ทดสอบระบบ: หากข้อความตรงกับคำที่ตั้งค่าไว้ ระบบจะตอบตามกฎของร้าน หากไม่ตรง ระบบจะส่งให้ AI จริงประมวลผลโดยใช้ข้อมูลสอนที่ตั้งไว้'
-    : 'ฟีเจอร์นี้สำหรับผู้ใช้งานแพ็กเกจเท่านั้น'
+    ? 'พื้นที่ทดสอบระบบ: หากข้อความตรงกับคำที่ตั้งค่าไว้ ระบบจะตอบตามกฎของร้าน หากไม่ตรง AI จะทดลองตอบโดยใช้ข้อมูลร้านและโควตา AI ของร้าน'
+    : 'ระบบทดลองยังไม่พร้อม กรุณาตรวจสอบการเชื่อมต่อ AI และโควตาคงเหลือ'
   const [turns, setTurns] = useState<Turn[]>([{ id: 0, role: 'system', text: welcomeMessage }])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -152,6 +154,7 @@ export function AiTestingStudio({
       setRetryText(trimmed)
       if (!retry) setInput(trimmed)
     } finally {
+      onUsage?.()
       lock.current = false
       setBusy(false)
     }
@@ -323,8 +326,8 @@ export function AiTestingStudio({
         </div>
         {aiAllowed && (
           <p className={`mb-3 text-xs ${'text-slate-500'}`}>
-            ผู้ช่วย AI ใช้ข้อมูลร้าน สินค้า และข้อความที่บันทึกไว้ การทดลองใช้โควตา AI ของร้าน
-            และจะส่งต่อแอดมินเมื่อไม่สามารถตอบได้
+            ผู้ช่วย AI ใช้ข้อมูลร้าน สินค้า และข้อความที่บันทึกไว้ การทดลองใช้โควตา AI ของร้าน 1
+            ครั้งต่อคำถาม และจะส่งต่อแอดมินเมื่อไม่สามารถตอบได้
           </p>
         )}
         {error && (
@@ -363,7 +366,7 @@ export function AiTestingStudio({
             placeholder={
               aiAllowed
                 ? 'พิมพ์ข้อความที่ต้องการทดลอง...'
-                : 'ฟีเจอร์นี้สำหรับผู้ใช้งานแพ็กเกจเท่านั้น'
+                : 'ตรวจสอบการเชื่อมต่อ AI และโควตาคงเหลือก่อนทดลอง'
             }
             className="max-h-32 min-h-10 min-w-0 flex-1 resize-y border-0 bg-transparent px-2 py-2 text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400 focus:ring-0"
           />

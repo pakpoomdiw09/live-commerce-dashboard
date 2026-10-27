@@ -81,6 +81,7 @@ function gemini(apiKey: string) {
 
 export type AiContext = {
   aiQuotaReservation?: string
+  simulation?: boolean
   onProductResult?: (result: AiProductResult) => void
   imageUrls?: readonly string[]
   agentJob?: { id: string; claim: string }
@@ -104,7 +105,7 @@ export async function aiReply(
   _bypassAgentControl = false,
   draftMode = false,
 ): Promise<string | null> {
-  if (!(await hasFeature(db, ctx.tenantId, 'ai_agent'))) {
+  if (!ctx.simulation && !(await hasFeature(db, ctx.tenantId, 'ai_agent'))) {
     if (reportErrors)
       throw new AiAgentError(
         'FEATURE_LOCKED',
@@ -144,7 +145,7 @@ export async function aiReply(
       : await history(db, ctx.customerId)
     if (!messages.length)
       throw new AiAgentError('EMPTY_HISTORY', 'ไม่มีข้อความให้ AI ตอบ กรุณาพิมพ์ข้อความใหม่', 400)
-    // Every provider call, including tests and drafts, must reserve real paid quota.
+    // Every provider call reserves the tenant test quota or the paid monthly allowance.
     {
       const managed = await import('@/lib/features/agents/agent-control-ai')
       const latest =
@@ -165,8 +166,10 @@ export async function aiReply(
     if (!control)
       throw new AiAgentError(
         'AI_QUOTA_EXHAUSTED',
-        'กรุณาตรวจสอบแพ็กเกจที่ชำระแล้วและโควตา AI คงเหลือ',
-        409,
+        ctx.simulation
+          ? 'โควตา AI ของร้านหมดแล้ว กรุณาตรวจสอบยอดคงเหลือก่อนทดลองอีกครั้ง'
+          : 'กรุณาตรวจสอบแพ็กเกจที่ชำระแล้วและโควตา AI คงเหลือ',
+        ctx.simulation ? 429 : 409,
       )
 
     if (ctx.imageUrls?.length) {

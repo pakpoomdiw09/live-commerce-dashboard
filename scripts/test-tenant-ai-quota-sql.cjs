@@ -57,6 +57,14 @@ const assert = require('node:assert/strict'),
     const authorize = async (id) => (await one('select authorize_tenant_ai_reply($1) r', [id])).r
     const settle = async (id) => (await one('select settle_tenant_ai_reply($1) r', [id])).r
     const used = async (t) => (await one('select ai_quota_used n from tenants where id=$1', [t])).n
+    const simTenant = await shop(1)
+    assert.equal((await one('select reserve_tenant_ai_simulation($1) r', [simTenant])).r, true)
+    assert.equal(await used(simTenant), 1)
+    assert.equal(
+      (await one('select reserve_tenant_ai_simulation($1) r', [simTenant])).r,
+      false,
+      'simulator quota cannot exceed the tenant limit',
+    )
     const outgoing = async (m, status = 'pending', prefix = 'reply:') =>
       (
         await one(
@@ -230,6 +238,10 @@ const assert = require('node:assert/strict'),
     )
     await assert.rejects(
       db.query('select reserve_tenant_ai_reply($1,$2,$3)', [tenant, a.customer, a.message]),
+      (e) => e.code === '42501',
+    )
+    await assert.rejects(
+      db.query('select reserve_tenant_ai_simulation($1)', [tenant]),
       (e) => e.code === '42501',
     )
     await assert.rejects(
