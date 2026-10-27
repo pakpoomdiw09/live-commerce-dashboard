@@ -149,10 +149,20 @@ export async function POST(req: NextRequest) {
         .from('messages')
         .update({ delivery_status: rejected ? 'failed' : 'unknown' })
         .eq('id', id)
-      console.error('[inbox/send] provider failure', {
-        id,
-        code: error instanceof SendApiError ? error.code : 'unknown',
-      })
+      if (error instanceof SendApiError) {
+        console.error('[inbox/send] Facebook Graph API rejected message', {
+          id,
+          httpStatus: error.status,
+          errorCode: error.code,
+          errorSubcode: error.subcode,
+          message: error.providerMessage,
+        })
+      } else {
+        console.error('[inbox/send] Facebook provider failure', {
+          id,
+          error: 'unknown_or_network_failure',
+        })
+      }
       throw new InboxError(
         isWindowOrTagError(error)
           ? 'เฟซบุ๊ก ปฏิเสธ: อยู่นอกช่วงเวลาที่อนุญาต'

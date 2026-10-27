@@ -777,9 +777,8 @@ test('chat simulator builds grounded context without Agent Control or paid-plan 
       return q
     },
     rpc: async (name) => {
-      assert.equal(name, 'reserve_tenant_ai_simulation')
       quotaReservations++
-      return { data: true }
+      throw Error(`Simulator must not call Supabase RPC: ${name}`)
     },
   }
   const result = await api.prepareAgentGeneration(
@@ -797,5 +796,5 @@ test('chat simulator builds grounded context without Agent Control or paid-plan 
   assert.ok(result)
   assert.equal(result.simulation, true)
   assert.match(result.systemInstruction, /จัดส่ง/)
-  assert.equal(quotaReservations, 1)
+  assert.equal(quotaReservations, 0)
 })

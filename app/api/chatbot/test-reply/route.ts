@@ -25,7 +25,7 @@ export const maxDuration = 60
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status })
 const boundedText = (value: unknown, max: number) =>
   value === null || value === undefined || (typeof value === 'string' && value.length <= max)
-/** Simulator history/settings never touch customer chats; AI generations consume tenant quota. */
+/** Simulator history/settings never touch customer chats or consume AI quota. */
 export async function POST(req: NextRequest) {
   const actor = await getActor(req)
   if (!actor) return bad('กรุณาเข้าสู่ระบบ', 401)
@@ -110,6 +110,9 @@ export async function POST(req: NextRequest) {
         product_id: details.route === 'ai' ? (product.current?.product_id ?? null) : null,
         quickReplies,
         ...details,
+        success: text !== null,
+        reply: text,
+        route: details.route.toUpperCase(),
         elapsedMs: Date.now() - startedAt,
       },
       { headers: { 'Cache-Control': 'no-store' } },

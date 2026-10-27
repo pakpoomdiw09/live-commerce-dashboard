@@ -27,7 +27,7 @@ function load(file, dependencies = {}, globals = {}) {
       Date,
       setInterval,
       clearInterval,
-      console: { error() {}, warn() {}, log() {} },
+      console: { error() {}, warn() {}, log() {}, info() {} },
       process: { env: {} },
       ...globals,
       require(name) {

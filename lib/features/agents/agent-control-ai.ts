@@ -198,13 +198,7 @@ export async function prepareAgentGeneration(
     )
   // Reserve once, only after all local data preparation. No client-controlled credit/plan/key.
   let usageId: string | undefined
-  if (ctx.simulation) {
-    const reservation = await db.rpc('reserve_tenant_ai_simulation', { p_tenant: ctx.tenantId })
-    if (reservation.error)
-      throw new AiAgentError('AI_QUOTA_UNAVAILABLE', 'ตรวจสอบโควตา AI ไม่สำเร็จ', 503)
-    if (reservation.data !== true)
-      throw new AiAgentError('AI_QUOTA_EXHAUSTED', 'โควตา AI ของร้านหมดแล้ว', 429)
-  } else {
+  if (!ctx.simulation) {
     const invocation = await db.rpc('start_agent_ai_call', {
       p_tenant: ctx.tenantId,
       p_key: ctx.aiQuotaReservation ?? crypto.randomUUID(),

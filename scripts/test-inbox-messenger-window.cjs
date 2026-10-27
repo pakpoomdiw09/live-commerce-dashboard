@@ -123,7 +123,15 @@ test('manual send requires ownership and consent, attaches the server tag, and r
     leases = 0,
     releases = 0,
     inserted = 0,
-    failSecond = false
+    failSecond = false,
+    sendFailure = false
+  const errorLogs = []
+  class FakeSendApiError extends Error {
+    status = 403
+    code = 10
+    subcode = 2018001
+    providerMessage = 'Permission denied'
+  }
   const db = {
     async rpc(name) {
       if (name === 'end_inbox_delivery') releases++
@@ -197,16 +205,20 @@ test('manual send requires ownership and consent, attaches the server tag, and r
       },
       '@/lib/integrations/facebook/client': {
         pageTokenFor: (page) => page.page_access_token,
-        SendApiError: class extends Error {},
+        SendApiError: FakeSendApiError,
         isWindowOrTagError: () => false,
         sendMessageWithReceipt: async (_token, _psid, _message, type) => {
           assert.equal(type.tag, 'HUMAN_AGENT')
           sends++
+          if (sendFailure) throw new FakeSendApiError('Facebook send rejected')
           return 'receipt'
         },
       },
     },
-    { process: { env: {} }, console },
+    {
+      process: { env: {} },
+      console: { ...console, error: (...args) => errorLogs.push(args) },
+    },
   )
   const send = (humanAgent) =>
     api.POST({
@@ -235,6 +247,16 @@ test('manual send requires ownership and consent, attaches the server tag, and r
   assert.equal(sends, 1)
   assert.equal(inserted, 0)
   assert.equal(releases, 2)
+  checks = 0
+  failSecond = false
+  sendFailure = true
+  assert.equal((await send(true)).status, 502)
+  const loggedFailure = JSON.stringify(errorLogs.at(-1))
+  assert.match(loggedFailure, /httpStatus/)
+  assert.match(loggedFailure, /errorCode/)
+  assert.match(loggedFailure, /errorSubcode/)
+  assert.match(loggedFailure, /Permission denied/)
+  assert.doesNotMatch(loggedFailure, /psid|fake-token|ช่วยดูแลปัญหา/)
 })
 
 test('database guards use tenant/page evidence and separate automated 24-hour from manual seven-day leases', async () => {

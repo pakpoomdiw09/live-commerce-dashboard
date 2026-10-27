@@ -24,13 +24,15 @@ type Turn = {
 }
 
 type Reply = {
-  text: string | null
+  success?: boolean
+  reply?: string | null
+  text?: string | null
   image_url?: string | null
-  imageUrl: string | null
-  handover: boolean
-  route: 'keyword' | 'ai' | 'handover' | 'none'
+  imageUrl?: string | null
+  handover?: boolean
+  route: 'keyword' | 'ai' | 'handover' | 'none' | 'AI' | 'KEYWORD' | 'HANDOVER' | 'NONE'
   providerCalled?: boolean
-  elapsedMs: number
+  elapsedMs?: number
 }
 
 const SAMPLE_MESSAGES = [
@@ -48,13 +50,11 @@ export function AiTestingStudio({
   settings,
   activeRuleCount,
   aiAllowed,
-  onUsage,
 }: {
   tenantId: string
   settings: BotSettings
   activeRuleCount: number
   aiAllowed: boolean
-  onUsage?: () => void
   embedded?: boolean
 }) {
   const welcomeMessage = aiAllowed
@@ -120,17 +120,33 @@ export function AiTestingStudio({
         }),
       })
       const result = await response.json()
-      if (!response.ok) throw new Error(result.error ?? 'ทดสอบไม่สำเร็จ กรุณาลองใหม่')
-
       const reply = result as Reply
-      const now = new Date().toISOString()
-      if (reply.text || reply.image_url || reply.imageUrl) {
+      const replyText = reply.reply ?? reply.text
+      if (typeof replyText === 'string' && replyText.trim()) {
+        const now = new Date().toISOString()
         setTurns((current) => [
           ...current,
           {
             id: ++sequence.current,
             role: 'model',
-            text: reply.text ?? '',
+            text: replyText,
+            time: now,
+            providerCalled: reply.providerCalled,
+            handover: reply.handover,
+            imageUrl: reply.image_url ?? reply.imageUrl,
+          },
+        ])
+        return
+      }
+      if (!response.ok) throw new Error(result.error ?? 'ทดสอบไม่สำเร็จ กรุณาลองใหม่')
+      const now = new Date().toISOString()
+      if (reply.image_url || reply.imageUrl) {
+        setTurns((current) => [
+          ...current,
+          {
+            id: ++sequence.current,
+            role: 'model',
+            text: '',
             time: now,
             providerCalled: reply.providerCalled,
             handover: reply.handover,
@@ -138,7 +154,10 @@ export function AiTestingStudio({
           },
         ])
       } else {
-        const message = reply.route === 'none' ? 'ไม่มีคำตอบจากระบบในรอบนี้' : 'ไม่มีข้อความตอบกลับ'
+        const message =
+          reply.route === 'none' || reply.route === 'NONE'
+            ? 'ไม่มีคำตอบจากระบบในรอบนี้'
+            : 'ไม่มีข้อความตอบกลับ'
         setTurns((current) => [
           ...current,
           {
@@ -154,7 +173,6 @@ export function AiTestingStudio({
       setRetryText(trimmed)
       if (!retry) setInput(trimmed)
     } finally {
-      onUsage?.()
       lock.current = false
       setBusy(false)
     }

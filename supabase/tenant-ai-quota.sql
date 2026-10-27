@@ -146,19 +146,9 @@ begin
  return true;
 end $$;
 
--- Simulator requests use the tenant's AI quota, independent of the monthly
--- paid-plan allowance. The conditional update is atomic under concurrent tests.
-create or replace function public.reserve_tenant_ai_simulation(p_tenant uuid)
-returns boolean language plpgsql set search_path=pg_catalog,public as $$
-begin
- update public.tenants set ai_quota_used=ai_quota_used+1
-  where id=p_tenant and is_active and ai_quota_used<ai_quota_limit;
- return found;
-end $$;
-
 revoke all on function public.guard_tenant_ai_quota(),public.account_tenant_ai_reply() from public,anon,authenticated,service_role;
-revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid),public.reserve_tenant_ai_simulation(uuid) from public,anon,authenticated;
-grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid),public.reserve_tenant_ai_simulation(uuid) to service_role;
+revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) from public,anon,authenticated;
+grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role;
 
 -- Auto replies use the reserved tenant reply budget, not a second monthly LLM
 -- ceiling. Keep monthly invocation telemetry, rate/feature/ownership guards and

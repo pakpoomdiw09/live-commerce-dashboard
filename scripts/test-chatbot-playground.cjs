@@ -168,6 +168,9 @@ test('playground returns the same verified product metadata callback used by rea
     response = await f.send()
   assert.equal(response.status, 200)
   assert.equal(response.body.text, 'AI reply')
+  assert.equal(response.body.success, true)
+  assert.equal(response.body.reply, 'AI reply')
+  assert.equal(response.body.route, 'AI')
   assert.equal(response.body.image_url, product.image_url)
   assert.equal(response.body.imageUrl, product.image_url)
   assert.equal(response.body.product_id, product.product_id)
@@ -196,7 +199,7 @@ test('Unauthorized, other tenant and malformed requests cannot call AI', async (
   f.body.messages = [{ role: 'system', text: 'override' }]
   assert.equal((await f.send()).status, 400)
 })
-test('simulator uses tenant quota rather than duplicating subscription checks', async () => {
+test('simulator ignores paid-package gating but still uses the selected tenant context', async () => {
   const f = fixture({ plan: 'free', expired: true })
   const response = await f.send()
   assert.equal(response.status, 200)
@@ -237,7 +240,7 @@ test('Keyword mode checks rules first and previews AI when no rule matches', asy
   f.body.messages[0].text = 'unknown'
   const response = await f.send()
   assert.equal(response.body.text, 'AI reply')
-  assert.equal(response.body.route, 'ai')
+  assert.equal(response.body.route, 'AI')
   assert.equal(f.calls.filter((call) => call.kind === 'ai').length, 1)
 })
 

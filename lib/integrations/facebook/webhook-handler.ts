@@ -228,6 +228,12 @@ async function onMessage(
           { onConflict: 'tenant_id,event_id', ignoreDuplicates: true },
         )
       if (saved.error) throw saved.error
+        console.info('[fb webhook] inbound message evidence saved', {
+          tenantId: tenant.id,
+          pageId,
+          eventId: evidence.event_id,
+          interactedAt: evidence.interacted_at,
+        })
     }
   }
 

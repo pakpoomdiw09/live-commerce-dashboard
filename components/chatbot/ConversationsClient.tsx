@@ -492,8 +492,7 @@ export function ConversationsClient({
               tenantId={tenantId}
               settings={settings}
               activeRuleCount={rules.filter((rule) => rule.is_active).length}
-              aiAllowed={aiReady && (aiQuota?.remaining ?? 0) > 0}
-              onUsage={() => router.refresh()}
+              aiAllowed={aiReady}
             />
           </div>
 

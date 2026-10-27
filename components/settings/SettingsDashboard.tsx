@@ -129,6 +129,7 @@ export function SettingsDashboard({
   role,
   isFirst,
   connectionStatus,
+  webhookEvidence,
   billing,
   slipCredits,
   slipAccess,
@@ -140,6 +141,7 @@ export function SettingsDashboard({
   role: TenantRole
   isFirst: boolean
   connectionStatus: PageConnectionStatus
+  webhookEvidence?: string | null
   billing: Billing | null
   slipCredits: { quota: number; used: number }
   slipAccess: boolean
@@ -174,16 +176,32 @@ export function SettingsDashboard({
         ? 'เปิดระบบอัตโนมัติและมีสิทธิ์ตรวจสลิป'
         : 'ตรวจสอบสิทธิ์ เครดิต และบัญชีรับเงินที่เปิดใช้งานจากหน้าจัดการสลิป'
   const pageName = page?.name ?? tenant.page_name ?? tenant.name
+  const messengerStatus: Readiness =
+    connectionStatus !== 'verified'
+      ? pageStatus
+      : webhookEvidence
+        ? 'ready'
+        : webhookEvidence === null
+          ? 'setup'
+          : 'unknown'
   const messengerLabel =
-    connectionStatus === 'verified'
-      ? 'ยังตรวจสอบการรับข้อความไม่ได้'
-      : connectionStatus === 'missing-page' || connectionStatus === 'missing-token'
-        ? 'ยังไม่ได้เชื่อมต่อ'
-        : 'ยังไม่สามารถตรวจสอบสถานะ'
+    connectionStatus === 'verified' && webhookEvidence
+      ? 'รับข้อความจาก webhook แล้ว'
+      : connectionStatus === 'verified' && webhookEvidence === null
+        ? 'รอข้อความทดสอบ'
+        : connectionStatus === 'verified'
+          ? 'ยังไม่สามารถตรวจสอบสถานะ'
+          : connectionStatus === 'missing-page' || connectionStatus === 'missing-token'
+            ? 'ยังไม่ได้เชื่อมต่อ'
+            : 'ยังไม่สามารถตรวจสอบสถานะ'
   const messengerDetail =
-    connectionStatus === 'verified'
-      ? 'สิทธิ์ส่งข้อความของเพจใช้ได้ แต่ระบบยังไม่มีข้อมูลยืนยันการรับข้อความจาก webhook'
-      : 'สถานะการรับข้อความจากเพจยังไม่ได้รับการยืนยัน'
+    connectionStatus === 'verified' && webhookEvidence
+      ? `ได้รับข้อความล่าสุด ${new Date(webhookEvidence).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`
+      : connectionStatus === 'verified' && webhookEvidence === null
+        ? 'สิทธิ์ส่งข้อความใช้ได้แล้ว ส่งข้อความใหม่ถึงเพจเพื่อยืนยันการรับ webhook'
+        : connectionStatus === 'verified'
+          ? 'เชื่อมต่อฐานข้อมูลเพื่อตรวจสอบหลักฐาน webhook ไม่สำเร็จ'
+          : 'สถานะการรับข้อความจากเพจยังไม่ได้รับการยืนยัน'
 
   function selectTab(nextTab: TabId) {
     setTab(nextTab)
@@ -284,7 +302,7 @@ export function SettingsDashboard({
               <StatusCard
                 title="Messenger"
                 detail={messengerDetail}
-                status={connectionStatus === 'verified' ? 'unknown' : pageStatus}
+                status={messengerStatus}
                 stateLabel={messengerLabel}
                 icon={MessageCircle}
                 href="/settings?tab=security"
