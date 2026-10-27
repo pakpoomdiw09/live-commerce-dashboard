@@ -52,7 +52,7 @@ export function verifiedProductResult(
 export const DRAFT_FALLBACK =
   'รับทราบค่ะ ขออนุญาตตรวจสอบข้อมูลเพิ่มเติมก่อน เพื่อให้ตอบได้ถูกต้องนะคะ'
 
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+const DEFAULT_MODEL = 'gemini-3-flash-preview'
 export const aiModel = () =>
   (process.env.GEMINI_MODEL ?? '')
     .trim()
@@ -258,8 +258,8 @@ export async function aiReply(
           systemInstruction: control!.systemInstruction,
           ...(control ? { responseMimeType: 'application/json' } : {}),
           maxOutputTokens: 2000,
-          // Gemini 2.5 Flash supports disabling thinking for short, quick chat replies.
-          ...(selectedModel.startsWith('gemini-2.5-flash')
+          // Disable thinking for short, quick chat replies.
+          ...(selectedModel.startsWith('gemini-3-flash-preview')
             ? { thinkingConfig: { thinkingBudget: 0 } }
             : {}),
         },

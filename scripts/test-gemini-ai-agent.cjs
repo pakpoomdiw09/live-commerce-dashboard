@@ -249,7 +249,7 @@ test('Gemini receives tenant catalog, shop facts, customer history and the fixed
   assert.equal(api.clients[0].httpOptions.timeout, 25_000)
   assert.equal(api.clients[0].httpOptions.retryOptions.attempts, 1)
   const request = api.requests[0]
-  assert.equal(request.model, 'gemini-2.5-flash')
+  assert.equal(request.model, 'gemini-3-flash-preview')
   assert.equal(request.config.maxOutputTokens, 2000)
   assert.equal(request.config.thinkingConfig.thinkingBudget, 0)
   assert.match(request.config.systemInstruction, /ร้านทดสอบ/)
@@ -490,20 +490,20 @@ test('Playground reports missing key, rate limits, invalid key, retired model, t
   }
 })
 
-test('Configured Gemini model is used without incompatible thinking options', async () => {
-  const api = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'gemini-1.5-flash' } })
+test('Configured custom model is used without incompatible thinking options', async () => {
+  const api = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'custom-model' } })
   await api.aiReply(api.db, context)
-  assert.equal(api.requests[0].model, 'gemini-1.5-flash')
+  assert.equal(api.requests[0].model, 'custom-model')
   assert.equal(Object.hasOwn(api.requests[0].config, 'thinkingConfig'), false)
 })
 
 test('GEMINI_MODEL handles unset, empty, whitespace, quotes and models/ prefix', async () => {
   for (const [value, expected] of [
-    [undefined, 'gemini-2.5-flash'],
-    ['', 'gemini-2.5-flash'],
-    ['   ', 'gemini-2.5-flash'],
-    [' models/gemini-2.5-pro ', 'gemini-2.5-pro'],
-    ['"gemini-2.5-pro"', 'gemini-2.5-pro'],
+    [undefined, 'gemini-3-flash-preview'],
+    ['', 'gemini-3-flash-preview'],
+    ['   ', 'gemini-3-flash-preview'],
+    [' models/custom-model-a ', 'custom-model-a'],
+    ['"custom-model-b"', 'custom-model-b'],
   ]) {
     const api = fixture({ env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: value } })
     await api.aiReply(api.db, context)
@@ -525,7 +525,7 @@ test('Unknown configured model retries default once; rate limit never switches m
   )
   assert.deepEqual(
     api.requests.map((r) => r.model),
-    ['retired-model', 'gemini-2.5-flash'],
+    ['retired-model', 'gemini-3-flash-preview'],
   )
   const failed = fixture({
     env: { GEMINI_API_KEY: FAKE_KEY, GEMINI_MODEL: 'retired-model' },
@@ -561,7 +561,7 @@ test('Overloaded Gemini (503) retries once on the default model, then reports MO
   )
   assert.deepEqual(
     recovered.requests.map((r) => r.model),
-    ['custom-model', 'gemini-2.5-flash'],
+    ['custom-model', 'gemini-3-flash-preview'],
   )
   const failed = fixture({ sdkError: new ApiError({ status: 503, message: 'overloaded' }) })
   await assert.rejects(

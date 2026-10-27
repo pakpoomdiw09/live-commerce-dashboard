@@ -25,7 +25,7 @@
 
 ## AI Agent (Google Gemini)
 
-โหมด AI ในหน้า "ผู้ช่วยตอบบทสนทนา" ใช้ `@google/genai` และโมเดล `gemini-2.5-flash` ฝั่งเซิร์ฟเวอร์ ตั้งค่า API Key จาก Google AI Studio ใน `.env.local`:
+โหมด AI ในหน้า "ผู้ช่วยตอบบทสนทนา" ใช้ `@google/genai` และโมเดล `gemini-3-flash-preview` ฝั่งเซิร์ฟเวอร์ ตั้งค่า API Key จาก Google AI Studio ใน `.env.local`:
 
 ```dotenv
 GEMINI_API_KEY=your_gemini_api_key

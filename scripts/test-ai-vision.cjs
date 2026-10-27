@@ -170,7 +170,7 @@ test('real Gemini adapter sends image inline data and validates structured resul
           }
         },
       },
-      '@/lib/features/agents/ai-agent': { aiModel: () => 'gemini-2.5-flash' },
+      '@/lib/features/agents/ai-agent': { aiModel: () => 'gemini-3-flash-preview' },
       '@/lib/features/vision/vision-types': types,
       '@/lib/features/vision/vision-image': load('lib/features/vision/vision-image.ts', {
         'server-only': {},
