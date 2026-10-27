@@ -12,6 +12,9 @@ feature was enabled. The job also had `ai_approved=false`.
    SQL Editor, after `follow-up-simplified.sql`. This static, rerunnable migration
    updates both dispatch gates. Manual enrollment no longer requires the
    automatic-chat reply switch. Automatic workflows still require their switches.
+   Then run `supabase/follow-up-24h-window.sql` LAST, before deploying the worker.
+   It adds/backfills `customers.window_expires_at`, synchronizes verified inbound
+   events, and installs the expiration RPC and both updated dispatch gates.
 2. Deploy the changed Cron route, worker and Facebook client to Vercel.
 3. Add a new manual follow-up, inspect its draft and approve it when it reaches
    `requires_review / ai_draft`. Previously cancelled jobs are retained as history
@@ -21,6 +24,39 @@ feature was enabled. The job also had `ai_approved=false`.
    `dueCount` counts eligible-by-time pending rows; `sent` counts provider receipts
    whose result is persisted. `jobs` gives each processed job's status/reason.
    HTTP 503 identifies explicit send failures or operational/persistence errors.
+
+## 24-hour expiration
+
+`persist_facebook_webhook_record` stores each accepted incoming message and its
+latest inbound timestamp in one transaction. `window_expires_at` is that verified
+Meta event time plus exactly 86,400 seconds. New inbound messages extend it;
+duplicates, out-of-order messages, delivery/read receipts and outgoing messages
+never extend it to the worker's processing time. A delayed webhook therefore
+does not grant an extra 24 hours. All persisted times are `timestamptz` and the
+worker parses ISO timestamps into milliseconds; the server's local timezone is
+irrelevant.
+
+The worker first calls `expire_follow_up_if_outside_window` for the claimed due
+job, before token/credit work. Closed, missing or future inbound windows cause
+`cancelled / outside_24h_window`. Preparation and final authorization check again
+in the database; the worker compares `windowExpiresAt` once more immediately
+before the network call. Expiration after preparation refunds reserved credits
+and releases the delivery lease. Exact equality with the expiry time is closed.
+An explicit late window rejection from Meta is also cancelled and recorded;
+other Meta failures retain their original message and codes. A valid local window
+cannot override a provider refusal due to permissions, token or Page restrictions.
+
+Existing expired/cancelled jobs are not resumed when a new inbound opens a new
+window. A new job must still meet its workflow, approval and ownership checks.
+
+```sql
+select id,last_message_at,last_interaction_at,window_expires_at,
+       window_expires_at > now() as cached_window_open
+from public.customers where platform='facebook';
+
+select id,status,reason,sent_at from public.follow_up_jobs
+order by created_at desc limit 20;
+```
 
 `Send API` uses `POST /{FB_GRAPH_VERSION}/me/messages`, the tenant's Page token
 in `Authorization: Bearer`, and `recipient.id`, `message.text`,
@@ -32,9 +68,19 @@ A successful receipt completes `follow_up_jobs` and its durable `messages` row
 through `complete_follow_up`, including `sent_at` and `provider_message_id`.
 Completion failures retry only database persistence and then verify the stored
 receipt; the network send is never retried automatically after an uncertain result.
-Provider failures are JSON-logged with HTTP status, Meta code/subcode and a fixed
-error message, and saved to `follow_up_execution_logs` with `status=delivery_error`.
+Provider failures are JSON-logged with HTTP status, Meta code/subcode and Meta's
+own error message (credentials and reflected outgoing text are redacted), and
+saved to `follow_up_execution_logs` with `status=delivery_error`.
+The Dashboard attaches the latest delivery error to each matching job and shows
+the message and codes under “รายละเอียดจาก Meta”. No extra database column is required.
 Tokens, message contents and raw provider responses are excluded from these logs.
+
+The latest stored refusal at 20:41 Bangkok was HTTP 400, code 2022, subcode
+1404132. The earlier client discarded Meta's explanation, so that historical
+message cannot be reconstructed. A new failed request will retain it. This code
+alone does not establish a 24-hour window failure. Code 10 alone is also no longer
+treated as a window rejection: it may indicate missing permissions. No automatic
+retry with an unrelated event-update tag is performed for a general follow-up.
 
 ## Read-only checks
 

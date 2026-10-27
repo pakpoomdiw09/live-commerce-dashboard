@@ -94,6 +94,53 @@ test('quick replies omit empty labels and respect title/count limits', () => {
   assert.equal(buttons[0].payload.length, 30)
 })
 
+test('Meta error messages retain diagnostic text while masking the Page token and reflected payload', async () => {
+  const pageToken = 'EAA_TEST_SECRET_12345678'
+  const explanation = '(#2022) Your Page is temporarily restricted.'
+  const api = load(
+    'lib/integrations/facebook/client.ts',
+    {},
+    {
+      fetch: async () => ({
+        ok: false,
+        status: 400,
+        text: async () =>
+          JSON.stringify({
+            error: {
+              message: explanation + ' access_token=' + pageToken + ' body=private outbound text',
+              code: 2022,
+              error_subcode: 1404132,
+            },
+          }),
+      }),
+    },
+  )
+  await assert.rejects(
+    api.sendMessageWithReceipt(pageToken, '1234567890', { text: 'private outbound text' }),
+    (error) => {
+      assert.equal(error.code, 2022)
+      assert.equal(error.subcode, 1404132)
+      assert.ok(error.providerMessage.includes(explanation))
+      assert.ok(!JSON.stringify(error).includes(pageToken))
+      assert.ok(!JSON.stringify(error).includes('private outbound text'))
+      assert.equal(api.isWindowOrTagError(error), false)
+      return true
+    },
+  )
+  assert.equal(
+    api.isWindowOrTagError(
+      new api.SendApiError(400, 10, null, 'Application does not have permission'),
+    ),
+    false,
+  )
+  assert.equal(
+    api.isWindowOrTagError(
+      new api.SendApiError(400, 10, null, 'Message sent outside the 24-hour messaging window'),
+    ),
+    true,
+  )
+})
+
 test('customer profiles retain usable names/photos and do not erase saved data after errors', async () => {
   let response = {
     ok: true,

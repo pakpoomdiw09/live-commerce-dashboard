@@ -33,6 +33,12 @@ export type SmartJob = {
   run_at: string
   status: SmartJobStatus
   reason: string | null
+  delivery_error?: {
+    message: string
+    httpStatus: number | null
+    facebookCode: number | null
+    facebookSubcode: number | null
+  } | null
   sent_at: string | null
   responded_at: string | null
   attempts: number
@@ -131,6 +137,7 @@ export const JOB_LABELS: Record<string, string> = {
   requires_review: 'รอแอดมิน',
 }
 export const REASON_LABELS: Record<string, string> = {
+  outside_24h_window: 'หมดกรอบเวลา 24 ชั่วโมงของ Messenger ยกเลิกการส่งแล้ว',
   prepare_failed: 'ตรวจเงื่อนไขก่อนส่งไม่สำเร็จ กรุณาตรวจสอบฐานข้อมูล',
   precheck_failed: 'ตรวจสถานะล่าสุดไม่ได้ จึงไม่ส่ง',
   result_persistence_failed: 'ได้รับผลส่งแล้ว แต่ยังยืนยันการบันทึกสถานะไม่ได้',

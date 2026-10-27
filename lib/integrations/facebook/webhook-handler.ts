@@ -149,6 +149,9 @@ async function onMessage(
   const psid = incoming.senderId
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const token = pageTokenFor(tenant ?? { page_id: pageId, page_access_token: null })
+  // persistRecord atomically stores the inbound message, last_message_at and
+  // window_expires_at = latest verified Meta message time + 24 hours. Never use
+  // worker processing time: delayed/replayed webhooks cannot renew an old window.
   // Persist before any optional Graph diagnostics or profile requests.
   const stored = await execution.persistRecord(tenant?.id ?? null)
   if (stored.duplicate || stored.ignored) return

@@ -32,6 +32,8 @@ const assert = require('node:assert/strict'),
       'follow-up-step-settings.sql',
     ])
       await db.exec(fs.readFileSync('supabase/' + file, 'utf8'))
+    await db.exec(fs.readFileSync('supabase/follow-up-24h-window.sql', 'utf8'))
+    await db.exec(fs.readFileSync('supabase/follow-up-24h-window.sql', 'utf8'))
     const one = async (sql, args = []) => (await db.query(sql, args)).rows[0]
     const owner = (await one('insert into auth.users default values returning id')).id
     const tenant = (await one('insert into tenants default values returning id')).id
@@ -203,8 +205,38 @@ const assert = require('node:assert/strict'),
         lateClaim.claim_token,
       ])
     ).r
-    assert.equal(expired.reason, 'window_closed')
-    assert.equal(expired.status, 'requires_review')
+    assert.equal(expired.reason, 'outside_24h_window')
+    assert.equal(expired.status, 'cancelled')
+    const expiredStored = await one(
+      'select status,reserved_monthly,reserved_topup,delivery_lease from follow_up_jobs where id=$1',
+      [lateClaim.id],
+    )
+    assert.equal(expiredStored.status, 'cancelled')
+    assert.equal(expiredStored.reserved_monthly, 0)
+    assert.equal(expiredStored.reserved_topup, 0)
+    assert.equal(
+      (await one('select outbound_lock_until from customers where id=$1', [lateCustomer]))
+        .outbound_lock_until,
+      null,
+    )
+
+    // A newer verified inbound renews the cached expiry; an old/future one cannot open a window.
+    await db.query(
+      "insert into broadcast_messaging_events values($1,$2,'page','inbound_message',clock_timestamp())",
+      [tenant, lateCustomer],
+    )
+    const cache = await one(
+      'select last_interaction_at,window_expires_at from customers where id=$1',
+      [lateCustomer],
+    )
+    assert.equal(
+      new Date(cache.window_expires_at).getTime() - new Date(cache.last_interaction_at).getTime(),
+      86400000,
+    )
+    assert.equal(
+      (await one('select follow_up_window_open($1,$2) ok', [tenant, lateCustomer])).ok,
+      true,
+    )
     // Scheduling stores an absolute instant: Bangkok and UTC sessions claim at the same moment.
     await db.exec("set time zone 'Asia/Bangkok'")
     await db.query(
@@ -240,6 +272,24 @@ const assert = require('node:assert/strict'),
       [clockJob.id],
     )
     assert.equal((await claim()).id, clockJob.id)
+    const expiredClaim = await one('select id,claim_token from follow_up_jobs where id=$1', [
+      clockJob.id,
+    ])
+    const messagesBeforeExpiry = (await one('select count(*)::int n from messages')).n
+    assert.equal(
+      (
+        await one('select expire_follow_up_if_outside_window($1,$2) ok', [
+          expiredClaim.id,
+          expiredClaim.claim_token,
+        ])
+      ).ok,
+      true,
+    )
+    assert.equal(
+      (await one('select reason from follow_up_jobs where id=$1', [clockJob.id])).reason,
+      'outside_24h_window',
+    )
+    assert.equal((await one('select count(*)::int n from messages')).n, messagesBeforeExpiry)
     await db.exec(fs.readFileSync('supabase/follow-up-worker-diagnostics.sql', 'utf8'))
     console.log(
       'PASS: migration rerun, manual enrollment without policy/order, duplicate prevention, approval, ignored quiet hours and caps, verified 24h boundary/future timestamps, per-step persistence, conflict and authorization',

@@ -117,6 +117,8 @@ function workerFixture({
   prepareError = false,
   finalStatus = 'ready',
   finalError = false,
+  outsideWindow = false,
+  finalWindowExpiresAt = new Date(Date.now() + 60_000).toISOString(),
   disableAfterPrepare = false,
   disableAfterAuthorize = false,
 } = {}) {
@@ -132,6 +134,7 @@ function workerFixture({
     rpc: async (name, args) => {
       calls.push([name, args])
       if (name === 'claim_follow_up_jobs') return { data: pending.splice(0, 1), error: null }
+      if (name === 'expire_follow_up_if_outside_window') return { data: outsideWindow, error: null }
       if (name === 'prepare_follow_up') {
         if (prepareError) return { error: { code: '42703' }, data: null }
         if (disableAfterPrepare) env.SMART_FOLLOW_UP_SEND_ENABLED = 'false'
@@ -144,7 +147,7 @@ function workerFixture({
         if (disableAfterAuthorize) env.SMART_FOLLOW_UP_SEND_ENABLED = 'false'
         return finalError
           ? { error: { code: 'DB_DOWN' } }
-          : { data: { status: finalStatus }, error: null }
+          : { data: { status: finalStatus, windowExpiresAt: finalWindowExpiresAt }, error: null }
       }
       if (name === 'complete_follow_up') {
         settled.push(args)
@@ -286,7 +289,7 @@ test('network uncertainty goes to review; explicit refusal is failed; neither is
   for (const [error, status] of [
     [Error('timeout'), 'requires_review'],
     [new SendApiError(400), 'failed'],
-    [new SendApiError(403, true), 'requires_review'],
+    [new SendApiError(403, true), 'cancelled'],
   ]) {
     const f = workerFixture({ error })
     await f.api.runFollowUps(f.db, tenant)
@@ -314,6 +317,43 @@ test('verified follow-up uses the tenant token and RESPONSE body before atomical
   assert.equal(result.jobs[0].status, 'sent')
 })
 
+test('expired due jobs are cancelled before token lookup, preparation or Facebook', async () => {
+  const f = workerFixture({ outsideWindow: true })
+  const result = await f.api.runFollowUps(f.db, tenant)
+  assert.equal(f.network(), 0)
+  assert.equal(
+    f.calls.some(([name]) => name === 'prepare_follow_up'),
+    false,
+  )
+  assert.equal(f.settled.length, 0)
+  assert.equal(result.cancelled, 1)
+  assert.equal(result.jobs[0].reason, 'outside_24h_window')
+})
+
+test('a window expiring after database authorization is cancelled without a network send', async () => {
+  for (const finalWindowExpiresAt of [new Date(Date.now() - 1).toISOString(), null, 'invalid']) {
+    const f = workerFixture({ finalWindowExpiresAt })
+    const result = await f.api.runFollowUps(f.db, tenant)
+    assert.equal(f.network(), 0)
+    assert.equal(result.cancelled, 1)
+    assert.equal(f.settled[0].p_result, 'cancelled')
+    assert.equal(f.settled[0].p_reason, 'outside_24h_window')
+  }
+})
+
+test('UTC and Bangkok offset expiries compare as the same instant', async () => {
+  const utc = new Date(Date.now() + 60_000).toISOString()
+  const bangkok = new Date(Date.parse(utc) + 7 * 60 * 60 * 1000)
+    .toISOString()
+    .replace('Z', '+07:00')
+  assert.equal(Date.parse(utc), Date.parse(bangkok))
+  for (const finalWindowExpiresAt of [utc, bangkok]) {
+    const f = workerFixture({ finalWindowExpiresAt })
+    assert.equal((await f.api.runFollowUps(f.db, tenant)).sent, 1)
+    assert.equal(f.network(), 1)
+  }
+})
+
 test('result persistence retries and lost completion responses never resend the provider request', async () => {
   for (const options of [
     { persistenceFailures: 1 },
@@ -329,13 +369,23 @@ test('result persistence retries and lost completion responses never resend the 
 })
 
 test('provider rejection stores safe structured HTTP/code diagnostics in the execution log', async () => {
-  const f = workerFixture({ error: new SendApiError(400) })
+  const error = new SendApiError(400)
+  error.code = 2022
+  error.subcode = 1404132
+  error.providerMessage = '(#2022) Your Page is temporarily restricted'
+  const f = workerFixture({ error })
   const result = await f.api.runFollowUps(f.db, tenant)
   const audit = f.writes.find((write) => write.table === 'follow_up_execution_logs')
   assert.equal(result.failed, 1)
   assert.equal(JSON.parse(audit.value.reason).httpStatus, 400)
-  assert.equal(JSON.parse(audit.value.reason).facebookCode, 100)
+  assert.equal(JSON.parse(audit.value.reason).facebookCode, 2022)
+  assert.equal(JSON.parse(audit.value.reason).facebookSubcode, 1404132)
+  assert.equal(JSON.parse(audit.value.reason).message, error.providerMessage)
   assert.equal(audit.value.tenant_id, tenant)
+  assert.equal(f.network(), 1, 'an unrelated provider refusal never triggers a tagged retry')
+  const log = f.logs.find((entry) => typeof entry[0] === 'string' && entry[0].startsWith('{'))
+  assert.equal(JSON.parse(log[0]).error.message, error.providerMessage)
+  assert.equal(JSON.parse(log[0]).error.error_subcode, 1404132)
 })
 test('failed preflight eligibility never reaches provider', async () => {
   for (const status of ['cancelled', 'requires_review', 'deferred', 'skipped']) {
@@ -424,7 +474,24 @@ test('dashboard returns canonical server billing without bypass flags or private
         },
         maybeSingle: async () => ({ data: null, error: null }),
         then(resolve, reject) {
-          return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+          const data =
+            table === 'follow_up_jobs'
+              ? [{ id, status: 'failed', reason: 'api_rejected' }]
+              : table === 'follow_up_execution_logs'
+                ? [
+                    {
+                      job_id: id,
+                      status: 'delivery_error',
+                      reason: JSON.stringify({
+                        message: 'Meta rejected this request',
+                        httpStatus: 400,
+                        facebookCode: 2022,
+                        facebookSubcode: 1404132,
+                      }),
+                    },
+                  ]
+                : []
+          return Promise.resolve({ data, error: null }).then(resolve, reject)
         },
       }
       return q
@@ -458,6 +525,9 @@ test('dashboard returns canonical server billing without bypass flags or private
   assert.equal(result.billing.plan, 'starter')
   assert.equal(result.billing.monthly + result.billing.topup, 46)
   assert.equal(result.billing.slipRemaining, 56)
+  assert.equal(result.jobs[0].reason, 'api_rejected')
+  assert.equal(result.jobs[0].delivery_error.message, 'Meta rejected this request')
+  assert.equal(result.jobs[0].delivery_error.facebookSubcode, 1404132)
   assert.equal('featureBypass' in result.billing, false)
   assert.equal(JSON.stringify(result).includes('must-not-leak'), false)
   for (const table of ['follow_up_jobs', 'follow_up_workflows', 'follow_up_execution_logs'])

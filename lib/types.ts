@@ -54,6 +54,7 @@ export type CustomerRow = {
   inbound_seq?: number
   last_message_at: string | null
   last_interaction_at?: string | null
+  window_expires_at?: string | null
   phone: string | null
   address: string | null
   tags: string[]

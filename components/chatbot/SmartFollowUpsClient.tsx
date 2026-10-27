@@ -653,6 +653,19 @@ export function SmartFollowUpsClient({
                       </p>
                     )}
                     {job.responded_at && <p className="mt-1 text-green-600">ลูกค้าตอบกลับแล้ว</p>}
+                    {job.delivery_error && (
+                      <details className="mt-2 max-w-xs text-xs text-rose-700">
+                        <summary className="cursor-pointer">รายละเอียดจาก Meta</summary>
+                        <p className="mt-1 whitespace-pre-wrap break-words">
+                          {job.delivery_error.message}
+                        </p>
+                        <p className="mt-1 font-mono">
+                          HTTP {job.delivery_error.httpStatus ?? '—'} · code{' '}
+                          {job.delivery_error.facebookCode ?? '—'} · subcode{' '}
+                          {job.delivery_error.facebookSubcode ?? '—'}
+                        </p>
+                      </details>
+                    )}
                   </td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">

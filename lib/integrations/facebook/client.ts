@@ -59,18 +59,57 @@ export class SendApiError extends Error {
     readonly status: number,
     readonly code: number | null,
     readonly subcode: number | null,
-    _body?: string,
+    readonly providerMessage: string | null = null,
   ) {
     super(`Facebook message request failed (HTTP ${status})`)
   }
 }
 
+/** Preserve Meta's explanation without copying credentials or the outgoing message into diagnostics. */
+function providerErrorMessage(
+  value: unknown,
+  token: string | null,
+  psid: string,
+  message: object,
+): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  let text = value
+  const outgoingText = (message as { text?: unknown }).text
+  const secrets = [
+    token,
+    psid,
+    typeof outgoingText === 'string' ? outgoingText : null,
+    ...Object.entries(process.env)
+      .filter(([key]) => /TOKEN|SECRET|API_KEY|SERVICE_ROLE_KEY/i.test(key))
+      .map(([, secret]) => secret),
+  ].filter((secret): secret is string => typeof secret === 'string' && secret.length > 0)
+  for (const secret of secrets.sort((a, b) => b.length - a.length)) {
+    text = text.split(secret).join('[REDACTED]')
+    text = text.split(encodeURIComponent(secret)).join('[REDACTED]')
+  }
+  return text
+    .replace(/Bearer\s+[^\s"'&,)]+/gi, 'Bearer [REDACTED]')
+    .replace(
+      /((?:access_token|appsecret_proof|client_secret)\s*[=:]\s*)[^\s&"',)]+/gi,
+      '$1[REDACTED]',
+    )
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .trim()
+    .slice(0, 8000)
+}
+
 /**
- * Meta refused the message for timing or tag reasons: outside the allowed window (code 10,
- * subcodes 2018001 / 2018278) or a tag that doesn't fit the message.
+ * Code 10 alone can mean missing permissions. Only known window subcodes or
+ * Meta's explicit timing/tag explanation identify a window/tag rejection.
  */
 export const isWindowOrTagError = (e: unknown) =>
-  e instanceof SendApiError && (e.code === 10 || e.subcode === 2018001 || e.subcode === 2018278)
+  e instanceof SendApiError &&
+  (e.subcode === 2018001 ||
+    e.subcode === 2018278 ||
+    (e.code === 10 &&
+      /outside.*(?:24[ -]?hour|messaging window)|(?:24[ -]?hour|messaging) window.*(?:closed|expired)|message tag/i.test(
+        e.providerMessage ?? '',
+      )))
 
 export const WINDOW_OR_TAG_ERROR =
   'เกินระยะเวลาที่ระบบ Facebook อนุญาต หรือหมวดหมู่ข้อความไม่ตรงกับเนื้อหา'
@@ -125,15 +164,25 @@ export async function sendMessageWithReceipt(
     })
     if (!res.ok) {
       const body = await res.text()
-      let err: { code?: unknown; error_subcode?: unknown } | undefined
+      let err: { message?: unknown; code?: unknown; error_subcode?: unknown } | undefined
       try {
         err = JSON.parse(body)?.error
       } catch {}
-      throw new SendApiError(res.status, num(err?.code), num(err?.error_subcode))
+      throw new SendApiError(
+        res.status,
+        num(err?.code),
+        num(err?.error_subcode),
+        providerErrorMessage(err?.message, token, psid, message),
+      )
     }
     const receipt = await res.json()
     if (receipt?.error)
-      throw new SendApiError(res.status, num(receipt.error.code), num(receipt.error.error_subcode))
+      throw new SendApiError(
+        res.status,
+        num(receipt.error.code),
+        num(receipt.error.error_subcode),
+        providerErrorMessage(receipt.error.message, token, psid, message),
+      )
     if (typeof receipt?.message_id !== 'string' || !receipt.message_id.trim())
       throw new Error('Messenger did not return a message receipt')
     return receipt.message_id

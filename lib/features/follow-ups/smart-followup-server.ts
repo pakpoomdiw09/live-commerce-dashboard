@@ -54,6 +54,26 @@ export async function followUpDashboard(
   ])
   for (const result of [workflows, jobs, logs, overview]) if (result.error) throw result.error
   const configured = (workflows.data ?? []) as FollowUpWorkflow[]
+  // Keep machine-readable job reasons (window_closed/api_rejected) for existing
+  // actions/refunds, and attach Meta's detailed explanation from its durable audit.
+  const deliveryErrors = new Map<string, NonNullable<SmartJob['delivery_error']>>()
+  for (const log of logs.data ?? []) {
+    if (log.status !== 'delivery_error' || !log.reason || deliveryErrors.has(log.job_id)) continue
+    try {
+      const detail = JSON.parse(log.reason)
+      const numeric = (value: unknown) =>
+        typeof value === 'number' && Number.isSafeInteger(value) ? value : null
+      if (typeof detail?.message === 'string')
+        deliveryErrors.set(log.job_id, {
+          message: detail.message.slice(0, 8000),
+          httpStatus: numeric(detail.httpStatus),
+          facebookCode: numeric(detail.facebookCode),
+          facebookSubcode: numeric(detail.facebookSubcode),
+        })
+    } catch {
+      // Historical audit rows can contain a plain reason instead of JSON.
+    }
+  }
   return {
     policy: { ...DEFAULT_POLICY, tenant_id: tenantId } as CommunicationPolicy,
     workflows: (['payment', 'interested', 'after_sales'] as const).map(
@@ -69,7 +89,10 @@ export async function followUpDashboard(
           steps: DEFAULT_STEPS[kind],
         },
     ),
-    jobs: (jobs.data ?? []) as unknown as SmartJob[],
+    jobs: ((jobs.data ?? []) as unknown as SmartJob[]).map((job) => ({
+      ...job,
+      delivery_error: deliveryErrors.get(job.id) ?? null,
+    })),
     logs: (logs.data ?? []) as ExecutionLog[],
     overview: overview.data,
     billing: {

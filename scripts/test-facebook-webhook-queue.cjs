@@ -149,6 +149,11 @@ test('message persistence assigns a Facebook fallback name before optional profi
     })
     assert.equal(result.completed, 1)
     assert.equal((await f.one('select count(*)::int n from messages')).n, 1)
+    const clock = await f.one('select last_message_at,window_expires_at from customers')
+    assert.equal(
+      milliseconds(clock.window_expires_at) - milliseconds(clock.last_message_at),
+      86400000,
+    )
     assert.equal(
       (await f.one('select display_name from customers')).display_name,
       `ลูกค้า Facebook (${senderId.slice(-4)})`,
@@ -922,10 +927,17 @@ test('duplicate, stale and out-of-order events cannot advance or rewind the cust
     const newer = Date.now() - 2000,
       older = newer - 86400000 * 2
     await submit('newer', newer)
-    const first = await f.one('select last_message_at,last_interaction_at,inbound_seq from customers')
+    const first = await f.one(
+      'select last_message_at,last_interaction_at,window_expires_at,inbound_seq from customers',
+    )
     assert.equal(milliseconds(first.last_message_at), newer)
     assert.equal(milliseconds(first.last_interaction_at), newer)
+    assert.equal(milliseconds(first.window_expires_at), newer + 86400000)
     await submit('older', older)
+    assert.equal(
+      milliseconds((await f.one('select window_expires_at from customers')).window_expires_at),
+      newer + 86400000,
+    )
     assert.equal(
       milliseconds((await f.one('select last_message_at from customers')).last_message_at),
       newer,

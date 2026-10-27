@@ -23,7 +23,7 @@ type Claimed = { id: string; tenant_id: string; claim_token: string; run_at?: st
 async function settleFollowUp(
   db: SupabaseClient,
   job: Claimed,
-  outcome: 'sent' | 'failed' | 'requires_review',
+  outcome: 'sent' | 'failed' | 'requires_review' | 'cancelled',
   provider: string | null,
   reason: string | null,
 ) {
@@ -109,6 +109,26 @@ export async function runFollowUps(
         nowUTC: new Date().toISOString(),
       })
       result.remaining = true
+      const expired = await db.rpc('expire_follow_up_if_outside_window', {
+        p_job: job.id,
+        p_claim: job.claim_token,
+      })
+      if (expired.error || typeof expired.data !== 'boolean') {
+        console.error('[FOLLOW-UP WINDOW] check failed', {
+          jobId: job.id,
+          code: expired.error?.code ?? 'invalid_response',
+        })
+        throw new Error('FOLLOW_UP_WINDOW_CHECK_FAILED: apply supabase/follow-up-24h-window.sql')
+      }
+      if (expired.data) {
+        result.cancelled++
+        result.jobs.push({ jobId: job.id, status: 'cancelled', reason: 'outside_24h_window' })
+        console.info('[FOLLOW-UP WINDOW] cancelled', {
+          jobId: job.id,
+          reason: 'outside_24h_window',
+        })
+        continue
+      }
       if (
         process.env.SNAPBOT_SAFETY_ENABLED === 'true' &&
         (await (await import('@/lib/automation-safety')).automationStopped(db, job.tenant_id))
@@ -226,7 +246,7 @@ export async function runFollowUps(
         continue
       }
       // prepare_follow_up commits the message/dispatch marker before this one and only network call.
-      let outcome: 'sent' | 'failed' | 'requires_review' = 'requires_review',
+      let outcome: 'sent' | 'failed' | 'requires_review' | 'cancelled' = 'requires_review',
         provider: string | null = null,
         reason: string | null = 'delivery_unknown'
       let deliveryError: {
@@ -250,7 +270,11 @@ export async function runFollowUps(
           })
           throw new Error('FOLLOW_UP_PRECHECK_FAILED')
         }
-        const permission = authorized.data as { status?: string; reason?: string } | null
+        const permission = authorized.data as {
+          status?: string
+          reason?: string
+          windowExpiresAt?: string | null
+        } | null
         console.info('[smart-follow-up] final check', {
           jobId: job.id,
           status: permission?.status ?? 'invalid',
@@ -272,23 +296,41 @@ export async function runFollowUps(
           })
           continue
         }
-        const sendStarted = Date.now()
-        console.info('[FOLLOW-UP SEND] request', {
-          jobId: job.id,
-          tenantId: job.tenant_id,
-          textLength: ready.text.length,
-          nowUTC: new Date(sendStarted).toISOString(),
-        })
-        // Both database gates verified the inbound 24-hour window. General follow-ups
-        // do not establish an event registration that would justify an event-update tag.
-        provider = await sendMessageWithReceipt(token, ready.psid, { text: ready.text }, 'RESPONSE')
-        console.info('[FOLLOW-UP SEND] accepted', {
-          jobId: job.id,
-          providerMessageId: provider,
-          durationMs: Date.now() - sendStarted,
-        })
-        outcome = 'sent'
-        reason = null
+        if (permission.windowExpiresAt === undefined) throw new Error('FOLLOW_UP_PRECHECK_FAILED')
+        // ISO/timestamptz offsets represent absolute instants. Never compare local
+        // time strings or add seven hours for Bangkok. Exact expiry is closed.
+        const expiresAt = Date.parse(permission.windowExpiresAt ?? '')
+        if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) {
+          outcome = 'cancelled'
+          reason = 'outside_24h_window'
+          console.info('[FOLLOW-UP WINDOW] expired before network send', {
+            jobId: job.id,
+            windowExpiresAt: permission.windowExpiresAt,
+          })
+        } else {
+          const sendStarted = Date.now()
+          console.info('[FOLLOW-UP SEND] request', {
+            jobId: job.id,
+            tenantId: job.tenant_id,
+            textLength: ready.text.length,
+            nowUTC: new Date(sendStarted).toISOString(),
+          })
+          // Both database gates verified the inbound 24-hour window. General follow-ups
+          // do not establish an event registration that would justify an event-update tag.
+          provider = await sendMessageWithReceipt(
+            token,
+            ready.psid,
+            { text: ready.text },
+            'RESPONSE',
+          )
+          console.info('[FOLLOW-UP SEND] accepted', {
+            jobId: job.id,
+            providerMessageId: provider,
+            durationMs: Date.now() - sendStarted,
+          })
+          outcome = 'sent'
+          reason = null
+        }
       } catch (error) {
         if ((error as { code?: string })?.code === 'AUTOMATION_STOPPED') {
           outcome = 'failed'
@@ -302,8 +344,8 @@ export async function runFollowUps(
           reason = error.message === 'FOLLOW_UP_SEND_DISABLED' ? 'send_disabled' : 'precheck_failed'
         }
         if (error instanceof SendApiError && error.status < 500) {
-          outcome = isWindowOrTagError(error) ? 'requires_review' : 'failed'
-          reason = isWindowOrTagError(error) ? 'window_closed' : 'api_rejected'
+          outcome = isWindowOrTagError(error) ? 'cancelled' : 'failed'
+          reason = isWindowOrTagError(error) ? 'outside_24h_window' : 'api_rejected'
         }
         console.warn('[smart-follow-up] delivery result', {
           jobId: job.id,
@@ -312,7 +354,9 @@ export async function runFollowUps(
         })
         deliveryError = {
           message:
-            error instanceof SendApiError ? error.message : 'Follow-up delivery was not confirmed',
+            error instanceof SendApiError
+              ? error.providerMessage || error.message
+              : 'Follow-up delivery was not confirmed',
           httpStatus: error instanceof SendApiError ? error.status : null,
           facebookCode: error instanceof SendApiError ? error.code : null,
           facebookSubcode: error instanceof SendApiError ? error.subcode : null,
@@ -325,14 +369,21 @@ export async function runFollowUps(
             outcome,
             reason,
             ...deliveryError,
+            error: {
+              message: deliveryError.message,
+              code: deliveryError.facebookCode,
+              error_subcode: deliveryError.facebookSubcode,
+            },
+            // A rejected RESPONSE is not evidence that an unrelated event tag is eligible.
+            tagFallbackAttempted: false,
           }),
         )
       }
-      // Explicit window rejection is also known not delivered; refund before putting it in review.
+      // Cancellation before sending or explicit window rejection releases reserved credit/lease.
       const settled = await settleFollowUp(db, job, outcome, provider, reason)
       if (deliveryError) {
         // Keep structured diagnostics in the existing tenant-scoped audit table.
-        // Raw provider responses may echo credentials; only fixed messages/codes are retained.
+        // The client removes credentials and reflected outgoing text from Meta's message.
         const audit = await db.from('follow_up_execution_logs').insert({
           tenant_id: job.tenant_id,
           job_id: job.id,
@@ -360,6 +411,7 @@ export async function runFollowUps(
       }
       if (outcome === 'sent') result.sent++
       else if (outcome === 'failed') result.failed++
+      else if (outcome === 'cancelled') result.cancelled++
       else result.review++
       result.jobs.push({ jobId: job.id, status: outcome, reason })
       console.info('[FOLLOW-UP SEND] persisted', { jobId: job.id, outcome, reason })
