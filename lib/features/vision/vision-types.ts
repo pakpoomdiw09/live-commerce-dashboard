@@ -1,6 +1,7 @@
 import { selectImageRule, type ImageResponseRule } from '@/lib/features/vision/image-rules'
 
 export const VISION_CATEGORIES = ['PRODUCT', 'PAYMENT_SLIP', 'GENERAL', 'UNKNOWN'] as const
+export const VISION_CONFIDENCE_THRESHOLD = 0.8
 export type VisionCategory = (typeof VISION_CATEGORIES)[number]
 export type VisionResult = {
   category: VisionCategory
@@ -73,7 +74,7 @@ export function decideVisionAction(
   products: VisionProduct[],
   productSearch: boolean,
 ): VisionDecision {
-  if (result.confidence < settings.confidence_threshold)
+  if (result.confidence < VISION_CONFIDENCE_THRESHOLD)
     return { action: 'HUMAN_HANDOFF', reason: 'LOW_CONFIDENCE' }
   if (result.category === 'PAYMENT_SLIP') return { action: 'VERIFY_SLIP', reason: 'SLIP_DETECTED' }
   if (result.category === 'UNKNOWN') return { action: 'HUMAN_HANDOFF', reason: 'UNKNOWN_IMAGE' }

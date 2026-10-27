@@ -1,15 +1,15 @@
 'use client'
 import { temporaryFullAccess } from '@/lib/full-access'
 
-import { PageBanner } from '@/components/ui/page-banner'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { LockKeyhole, RefreshCw, ScanEye } from 'lucide-react'
-import type {
-  VisionSettings,
-  VisionResult,
-  VisionDecision,
+import { FlaskConical, LockKeyhole, RefreshCw, ScanEye, Upload } from 'lucide-react'
+import {
+  VISION_CONFIDENCE_THRESHOLD,
+  type VisionSettings,
+  type VisionResult,
+  type VisionDecision,
 } from '@/lib/features/vision/vision-types'
 
 type History = {
@@ -41,7 +41,7 @@ export function normalizeVisionOverview(value: unknown): Overview {
     typeof v.settings.enabled === 'boolean' &&
     ['rules', 'catalog'].includes(v.settings.mode) &&
     typeof v.settings.confidence_threshold === 'number'
-      ? v.settings
+      ? { ...v.settings, confidence_threshold: VISION_CONFIDENCE_THRESHOLD }
       : null
   return {
     ...v,
@@ -59,10 +59,9 @@ export function normalizeVisionOverview(value: unknown): Overview {
     automationEnabled: v.automationEnabled === true,
   }
 }
-const box = 'rounded-2xl border border-orange-100 bg-white p-5 shadow-sm'
+const box = 'min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5'
 const button =
   'rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50'
-const field = 'rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm'
 const statusLabel: Record<string, string> = {
   pending: 'รอประมวลผล',
   processing: 'กำลังประมวลผล',
@@ -90,8 +89,11 @@ export function VisionCenter({
     [requestId, setRequestId] = useState(''),
     [preview, setPreview] = useState<History | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [testError, setTestError] = useState('')
   function selectFile(next: File | null) {
     setPreview(null)
+    setTestError('')
     setError('')
     if (!next) {
       setFile(null)
@@ -105,7 +107,7 @@ export function VisionCenter({
     } catch {
       setFile(null)
       setRequestId('')
-      setError('ไม่สามารถเตรียมรูปภาพได้ กรุณาเปิดเว็บผ่าน HTTPS แล้วลองอีกครั้ง')
+      setTestError('ไม่สามารถเตรียมรูปภาพได้ กรุณาเปิดเว็บผ่าน HTTPS แล้วลองอีกครั้ง')
     }
   }
   useEffect(() => {
@@ -146,7 +148,11 @@ export function VisionCenter({
       const response = await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...settings, tenantId }),
+        body: JSON.stringify({
+          ...settings,
+          confidence_threshold: VISION_CONFIDENCE_THRESHOLD,
+          tenantId,
+        }),
       })
       const value = await response.json()
       if (!response.ok) throw new Error(value?.error ?? 'บันทึกไม่สำเร็จ')
@@ -163,6 +169,8 @@ export function VisionCenter({
   async function test() {
     if (!file || !requestId) return
     setBusy(true)
+    setTesting(true)
+    setTestError('')
     setError('')
     setNotice('')
     setPreview(null)
@@ -182,11 +190,11 @@ export function VisionCenter({
           : null,
       )
       await load()
-      setNotice('ประมวลผลคำขอแล้ว ดูผลด้านล่าง · ไม่มีการส่งข้อความหรือตรวจสลิปจริงจากหน้าทดสอบ')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'วิเคราะห์ไม่สำเร็จ')
+      setTestError(e instanceof Error ? e.message : 'วิเคราะห์ไม่สำเร็จ')
     } finally {
       setBusy(false)
+      setTesting(false)
     }
   }
   async function retry(jobId: string) {
@@ -210,13 +218,18 @@ export function VisionCenter({
   }
   return (
     <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
-      <PageBanner>
-        <ScanEye className="mb-3 h-8 w-8" />
-        <h1 className="text-2xl font-bold">AI Vision Center</h1>
-        <p className="mt-2 text-sm text-white/90">
-          ผู้ช่วยจำแนกรูปภาพ ค้นหาสินค้าจากแคตตาล็อก และส่งสลิปให้ระบบตรวจสอบจริง
-        </p>
-      </PageBanner>
+      <div className="-mx-4 md:-mx-8">{children}</div>
+      <header className="flex items-start gap-3 border-t border-slate-200 pt-6">
+        <span className="rounded-xl bg-orange-50 p-2.5 text-orange-600">
+          <ScanEye className="h-5 w-5" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-slate-900">AI Vision Center</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            ตั้งค่าการวิเคราะห์ภาพ ทดลองคำตอบ และดูประวัติการทำงาน
+          </p>
+        </div>
+      </header>
       {error && data && (
         <p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">
           {error}
@@ -308,140 +321,134 @@ export function VisionCenter({
               </p>
             </section>
           </div>
-          <section className={box}>
-            <h2 className="font-semibold">โหมด Vision และการส่งต่อแอดมิน</h2>
-            <p className="mt-2 text-sm text-slate-500">
-              การส่งข้อความจริงต้องเปิดทั้งสวิตช์ร้านนี้และ AI_VISION_AUTOMATION_ENABLED
-              บนเซิร์ฟเวอร์ สถานะเซิร์ฟเวอร์: {data.automationEnabled ? 'เปิด' : 'ปิด'}
-            </p>
-            <fieldset
-              disabled={!canManage || busy || !settings}
-              className="mt-4 grid gap-4 sm:grid-cols-2"
-            >
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={settings?.enabled ?? false}
-                  onChange={(e) => setSettings((s) => s && { ...s, enabled: e.target.checked })}
-                />
-                เปิดรับงานรูปภาพอัตโนมัติของร้าน
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={settings?.handoff_enabled ?? true}
-                  onChange={(e) =>
-                    setSettings((s) => s && { ...s, handoff_enabled: e.target.checked })
-                  }
-                />
-                พักบอทและส่งต่อแอดมินเมื่อไม่มั่นใจ
-              </label>
-              <label className="grid gap-2 text-sm">
-                รูปแบบคำตอบ
-                <select
-                  className={field}
-                  value={settings?.mode ?? 'rules'}
-                  onChange={(e) =>
-                    setSettings(
-                      (s) => s && { ...s, mode: e.target.value as VisionSettings['mode'] },
-                    )
-                  }
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+            <section className={box}>
+              <h3 className="font-semibold text-slate-900">โหมด Vision และการส่งต่อแอดมิน</h3>
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-500">
+                เปิดให้ผู้ช่วยวิเคราะห์ภาพจากลูกค้าและเลือกคำตอบตามการตั้งค่าของร้าน
+              </p>
+              <div className="mt-5 flex items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <div id="vision-enabled-label" className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800">เปิดใช้งาน Vision</p>
+                  <p className="mt-1 text-xs text-slate-500">รับงานรูปภาพอัตโนมัติของร้าน</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings?.enabled ?? false}
+                  aria-labelledby="vision-enabled-label"
+                  disabled={!canManage || busy || !settings}
+                  onClick={() => setSettings((s) => s && { ...s, enabled: !s.enabled })}
+                  className={`inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 disabled:opacity-50 ${settings?.enabled ? 'bg-orange-500' : 'bg-slate-300'}`}
                 >
-                  <option value="rules">เลือกกฎตามประเภทภาพ</option>
-                  <option value="catalog" disabled={!data.productSearch}>
-                    ค้นหาสินค้าในแคตตาล็อก (Pro)
-                  </option>
-                </select>
-              </label>
-              <label className="grid gap-2 text-sm">
-                ความมั่นใจขั้นต่ำ (0.80–1.00)
+                  <span
+                    className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${settings?.enabled ? 'translate-x-5.5' : 'translate-x-0.5'}`}
+                  />
+                </button>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs ${data.automationEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
+                >
+                  การส่งอัตโนมัติ: {data.automationEnabled ? 'พร้อมใช้งาน' : 'ยังไม่เปิดใช้งาน'}
+                </span>
+                <button
+                  type="button"
+                  className={button}
+                  disabled={!canManage || busy || !settings}
+                  onClick={() => void save()}
+                >
+                  บันทึกการตั้งค่า
+                </button>
+              </div>
+            </section>
+            <section aria-label="โหมดทดลองวิเคราะห์ภาพ" className={`${box} border-orange-100`}>
+              <div className="flex items-center gap-2">
+                <FlaskConical className="h-4 w-4 text-orange-500" aria-hidden />
+                <h3 className="font-semibold text-slate-900">โหมดทดลอง</h3>
+                <span className="ml-auto rounded-md bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                  Sandbox
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                JPG / PNG / WebP ไม่เกิน 5 MB · ใช้โควตา 1 ภาพต่อการวิเคราะห์ใหม่
+                ไม่ส่งข้อความหาลูกค้า
+              </p>
+              <label className="mt-3 block rounded-xl border border-dashed border-orange-200 bg-orange-50/40 p-3">
+                <span className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                  <Upload className="h-3.5 w-3.5" aria-hidden /> เลือกรูปภาพทดสอบ
+                </span>
                 <input
-                  className={field}
-                  type="number"
-                  min={0.8}
-                  max={1}
-                  step={0.01}
-                  value={settings?.confidence_threshold ?? 0.8}
-                  onChange={(e) =>
-                    setSettings((s) => s && { ...s, confidence_threshold: Number(e.target.value) })
-                  }
+                  aria-label="รูปภาพสำหรับทดลอง AI Vision"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={busy}
+                  onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
+                  className="block w-full min-w-0 text-xs text-slate-500 file:mr-2 file:cursor-pointer file:rounded-lg file:border-0 file:bg-white file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-orange-700 disabled:opacity-50"
                 />
               </label>
-            </fieldset>
-            <button
-              className={`${button} mt-4`}
-              disabled={!canManage || busy}
-              onClick={() => void save()}
-            >
-              บันทึกการตั้งค่า
-            </button>
-          </section>
-          <section className={box}>
-            <h2 className="font-semibold">ทดลองวิเคราะห์ภาพจริง</h2>
-            <p className="mt-2 text-sm text-slate-500">
-              ใช้โควตา Vision 1 ภาพต่อการประมวลผลใหม่ รองรับ JPG / PNG / WebP ไม่เกิน 5 MB ·
-              ทดสอบการจำแนกและเลือกคำตอบเท่านั้น ไม่ส่ง Messenger และไม่ตรวจสอบสลิปอัตโนมัติ
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <input
-                aria-label="รูปภาพสำหรับทดลอง AI Vision"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={busy}
-                onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
-              />
+              {imagePreview && (
+                <div className="mt-3 flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 p-2">
+                  <Image
+                    src={imagePreview}
+                    alt="ภาพที่เลือกสำหรับทดลอง AI Vision"
+                    width={64}
+                    height={64}
+                    unoptimized
+                    className="h-16 w-16 shrink-0 rounded-lg border border-slate-200 bg-white object-contain"
+                  />
+                  <p className="min-w-0 break-all text-xs text-slate-600">{file?.name}</p>
+                </div>
+              )}
               <button
-                className={button}
+                type="button"
+                className={`${button} mt-3 flex w-full items-center justify-center gap-2`}
                 disabled={!file || busy || (!temporaryFullAccess && data.usage.remaining <= 0)}
                 onClick={() => void test()}
               >
-                {busy ? 'กำลังดำเนินการ…' : 'วิเคราะห์ภาพ'}
+                {testing && <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />}
+                {testing ? 'กำลังวิเคราะห์…' : 'วิเคราะห์ภาพ'}
               </button>
-            </div>
-            {imagePreview && (
-              <Image
-                src={imagePreview}
-                alt="ภาพที่เลือกสำหรับทดลอง AI Vision"
-                width={192}
-                height={192}
-                unoptimized
-                className="mt-4 h-48 w-48 rounded-xl border border-orange-100 object-contain"
-              />
-            )}
-            {preview && (
-              <div className="mt-4 space-y-2 rounded-xl bg-orange-50 p-4 text-sm">
-                <p>สถานะ: {statusLabel[preview.status] ?? preview.status}</p>
-                {preview.result && (
-                  <>
+              {testError && (
+                <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-2.5 text-xs text-rose-700">
+                  {testError}
+                </p>
+              )}
+              {preview && (
+                <div
+                  role="status"
+                  className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-xl bg-orange-50 p-3 text-xs leading-relaxed break-words"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-1 font-medium text-orange-900">
+                    <span>{statusLabel[preview.status] ?? preview.status}</span>
+                    {preview.result && <span>{Math.round(preview.result.confidence * 100)}%</span>}
+                  </div>
+                  {preview.result && (
                     <p>
-                      ประเภท: {preview.result.category} · ความมั่นใจ{' '}
-                      {Math.round(preview.result.confidence * 100)}%
+                      <span className="font-medium">{preview.result.category}</span> ·{' '}
+                      {preview.result.description}
                     </p>
-                    <p>{preview.result.description}</p>
-                  </>
-                )}
-                {preview.decision && (
-                  <>
-                    <p>การดำเนินการ: {preview.decision.action}</p>
+                  )}
+                  {preview.decision && (
                     <p>
                       {preview.decision.responseText ?? 'ส่งต่อแอดมินหรือระบบตรวจสลิปตามสิทธิ์'}
                     </p>
-                    {preview.decision.mediaUrl && (
-                      <a
-                        className="text-orange-700 underline"
-                        href={preview.decision.mediaUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        ดูรูปภาพแนบจากกฎ
-                      </a>
-                    )}
-                  </>
-                )}
-                <p className="text-xs text-slate-500">{preview.reason}</p>
-              </div>
-            )}
-          </section>
+                  )}
+                  {preview.decision?.mediaUrl && (
+                    <a
+                      className="inline-block text-orange-700 underline"
+                      href={preview.decision.mediaUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      ดูรูปภาพแนบจากกฎ
+                    </a>
+                  )}
+                  {preview.reason && <p className="text-[11px] text-slate-500">{preview.reason}</p>}
+                </div>
+              )}
+            </section>
+          </div>
           <section className={box}>
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold">ประวัติรูปภาพ · 30 งานล่าสุด</h2>
@@ -525,7 +532,6 @@ export function VisionCenter({
           </section>
         </>
       )}
-      <div className="-mx-4 md:-mx-8">{children}</div>
     </div>
   )
 }

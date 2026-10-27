@@ -24,6 +24,7 @@ function load(file, deps = {}, globals = {}) {
       if (n === '@/lib/image-signature') return load('lib/image-signature.ts')
       if (n === '@/lib/single-flight') return load('lib/single-flight.ts')
       if (n in deps) return deps[n]
+      if (n === '@/lib/full-access') return { temporaryFullAccess: false }
       throw Error('Unexpected dependency ' + n)
     },
     ...globals,
@@ -99,6 +100,20 @@ test('catalog matches only real tenant IDs and reads prices and stock from DB, n
   assert.equal(reply.action, 'PRODUCT_SEARCH')
   assert.match(reply.responseText, /49\.00/)
   assert.match(reply.responseText, /สินค้าหมด/)
+})
+
+test('Vision uses the fixed 80 percent confidence floor with legacy saved settings', () => {
+  for (const confidence_threshold of [0.5, 0.99]) {
+    const legacy = { ...settings, confidence_threshold }
+    assert.equal(
+      types.decideVisionAction(result('GENERAL', 0.8), legacy, [rule('a', 1)], [], false).action,
+      'RULE_REPLY',
+    )
+    assert.equal(
+      types.decideVisionAction(result('GENERAL', 0.79), legacy, [rule('a', 1)], [], false).reason,
+      'LOW_CONFIDENCE',
+    )
+  }
 })
 test('untrusted provider output rejects invalid categories, confidence and non-JSON', () => {
   for (const value of [
@@ -411,6 +426,7 @@ test('Vision tenant guard requires user session, membership and database feature
     let clients = 0
     const guards = load('lib/features/vision/vision-server.ts', {
       'server-only': {},
+      '@/lib/features/vision/vision-types': types,
       '@/lib/auth': { getActor: async () => actor, canAccessTenant: async () => access },
       '@/lib/feature-access': { hasFeature: async () => feature },
       '@/lib/features/inbox/inbox-server': errors,
@@ -441,6 +457,7 @@ test('all public Vision routes reject direct unauthorized calls before storage o
   ]) {
     const api = load(file, {
       'next/server': next,
+      '@/lib/features/vision/vision-types': types,
       '@/lib/features/vision/vision-server': guard,
       '@/lib/features/inbox/inbox-server': errors,
       '@/lib/features/vision/vision': {},
@@ -458,6 +475,41 @@ test('all public Vision routes reject direct unauthorized calls before storage o
     assert.equal(response.body.code, 'FEATURE_LOCKED')
   }
 })
+test('settings API fixes confidence at 0.8 while retaining the existing reply and handoff modes', async () => {
+  let saved
+  const api = load('app/api/chatbot/vision/route.ts', {
+    'next/server': next,
+    '@/lib/features/vision/vision-types': types,
+    '@/lib/features/inbox/inbox-server': errors,
+    '@/lib/features/vision/vision-server': {
+      visionTenant: async () => ({
+        actor: { id },
+        tenantId: tenant,
+        db: {
+          rpc: async (_, args) => {
+            saved = args
+            return { error: null }
+          },
+        },
+      }),
+      visionOverview: async () => ({ settings }),
+    },
+  })
+  const response = await api.PATCH({
+    json: async () => ({
+      ...settings,
+      tenantId: tenant,
+      mode: 'catalog',
+      handoff_enabled: false,
+      confidence_threshold: 0.99,
+    }),
+  })
+  assert.equal(response.status, 200)
+  assert.equal(saved.p_confidence, 0.8)
+  assert.equal(saved.p_mode, 'catalog')
+  assert.equal(saved.p_handoff, false)
+})
+
 test('cron requires configured bearer secret before worker access', async () => {
   let called = 0
   const api = load('app/api/cron/vision/route.ts', {

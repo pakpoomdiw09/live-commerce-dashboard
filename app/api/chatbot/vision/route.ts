@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { visionTenant, visionOverview } from '@/lib/features/vision/vision-server'
+import { VISION_CONFIDENCE_THRESHOLD } from '@/lib/features/vision/vision-types'
 import { inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
 
 export async function GET(req: NextRequest) {
@@ -17,10 +18,7 @@ export async function PATCH(req: NextRequest) {
     if (
       typeof body.enabled !== 'boolean' ||
       typeof body.handoff_enabled !== 'boolean' ||
-      !['rules', 'catalog'].includes(body.mode) ||
-      typeof body.confidence_threshold !== 'number' ||
-      body.confidence_threshold < 0.8 ||
-      body.confidence_threshold > 1
+      !['rules', 'catalog'].includes(body.mode)
     )
       throw new InboxError('ตั้งค่าไม่ถูกต้อง')
     const saved = await db.rpc('save_vision_settings', {
@@ -28,7 +26,7 @@ export async function PATCH(req: NextRequest) {
       p_actor: actor.id,
       p_enabled: body.enabled,
       p_mode: body.mode,
-      p_confidence: body.confidence_threshold,
+      p_confidence: VISION_CONFIDENCE_THRESHOLD,
       p_handoff: body.handoff_enabled,
     })
     if (saved.error?.code === '42501')

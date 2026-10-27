@@ -6,7 +6,10 @@ import { hasFeature } from '@/lib/feature-access'
 import { InboxError } from '@/lib/features/inbox/inbox-server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { UUID } from '@/lib/utils'
-import type { VisionSettings } from '@/lib/features/vision/vision-types'
+import {
+  VISION_CONFIDENCE_THRESHOLD,
+  type VisionSettings,
+} from '@/lib/features/vision/vision-types'
 
 export async function visionTenant(req: NextRequest, tenantId: string, owner = false) {
   const actor = await getActor(req)
@@ -22,7 +25,7 @@ export const defaultVisionSettings = (tenantId: string): VisionSettings => ({
   tenant_id: tenantId,
   enabled: false,
   mode: 'rules',
-  confidence_threshold: 0.8,
+  confidence_threshold: VISION_CONFIDENCE_THRESHOLD,
   handoff_enabled: true,
 })
 export async function visionOverview(db: ReturnType<typeof supabaseAdmin>, tenantId: string) {
@@ -53,7 +56,10 @@ export async function visionOverview(db: ReturnType<typeof supabaseAdmin>, tenan
   const used = usage.data?.used ?? 0,
     limit = limits.data.monthly_images as number
   return {
-    settings: (settings.data ?? defaultVisionSettings(tenantId)) as VisionSettings,
+    settings: {
+      ...(settings.data ?? defaultVisionSettings(tenantId)),
+      confidence_threshold: VISION_CONFIDENCE_THRESHOLD,
+    } as VisionSettings,
     usage: { used, limit, remaining: Math.max(0, limit - used), month },
     productSearch:
       (temporaryFullAccess || limits.data.product_search === true) &&
