@@ -152,9 +152,46 @@ async function onMessage(
   // Persist before any optional Graph diagnostics or profile requests.
   const stored = await execution.persistRecord(tenant?.id ?? null)
   if (stored.duplicate || stored.ignored) return
-  const customer = stored.customer
+  let customer = stored.customer
   if (!customer || !stored.id) throw new Error('MESSAGE_PERSISTENCE_INVALID')
   const message = { id: stored.id }
+
+  // Profile lookup is optional. Give every persisted Facebook customer a useful
+  // identity before calling Graph so a missing permission, expired token or
+  // provider timeout can never leave the Inbox dependent on profile delivery.
+  if (!customer.display_name?.trim()) {
+    const fallbackName = `ลูกค้า Facebook (${psid.slice(-4)})`
+    try {
+      let fallbackUpdate = db
+        .from('customers')
+        .update({ display_name: fallbackName })
+        .eq('id', customer.id)
+        .eq('platform', 'facebook')
+        .eq('platform_user_id', psid)
+        // Do not overwrite a real name saved concurrently by Graph or an admin.
+        .or('display_name.is.null,display_name.eq.')
+      fallbackUpdate = tenant
+        ? fallbackUpdate.eq('tenant_id', tenant.id)
+        : fallbackUpdate.is('tenant_id', null)
+      const fallback = await fallbackUpdate.select('id, display_name').maybeSingle()
+      if (fallback.error) {
+        console.warn('[fb webhook] customer fallback name save failed', {
+          tenantId: tenant?.id ?? null,
+          senderId: psid,
+          code: fallback.error.code,
+        })
+      } else if (fallback.data?.display_name) {
+        customer = { ...customer, display_name: fallback.data.display_name }
+      }
+    } catch {
+      // The message was already committed by persistRecord. Profile decoration
+      // must never turn a successful inbound delivery into a failed webhook.
+      console.warn('[fb webhook] customer fallback name refresh failed', {
+        tenantId: tenant?.id ?? null,
+        senderId: psid,
+      })
+    }
+  }
   if (process.env.FB_DEBUG === 'true') {
     console.log('[fb webhook] customer profile token source', {
       pageId,

@@ -3,9 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import {
-  CUSTOMER_COLUMNS,
-  CUSTOMER_COLUMNS_WITHOUT_AVATAR,
-  isMissingCustomerAvatarColumn,
   SLIP_COLUMNS,
   type CustomerRow,
   type MessageRow,
@@ -261,14 +258,6 @@ export function InboxClient({
     const recentMessages = new Map<string, { revision: number; message: MessageRow }>()
     const events = new InboxEventDeduplicator()
     const scope = `tenant_id=eq.${tenantId}`
-    const chatColumns = (withAvatar = true) =>
-      `${withAvatar ? CUSTOMER_COLUMNS : CUSTOMER_COLUMNS_WITHOUT_AVATAR}, messages(sender,body,attachments,created_at), slips(status,created_at)`
-    type Snapshot = CustomerRow & { messages: Preview[]; slips: { status: SlipStatus }[] }
-    const summary = ({ messages, slips, ...customer }: Snapshot): ChatSummary => ({
-      customer,
-      preview: messages[0] ?? null,
-      latestSlip: slips[0]?.status ?? null,
-    })
     const replayPreview = (chat: ChatSummary, since: number) => {
       const event = recentMessages.get(chat.customer.id)
       return event &&
@@ -287,34 +276,36 @@ export function InboxClient({
           }
         : chat
     }
-    const chatsQuery = (withAvatar = true) =>
-      db
-        .from('customers')
-        .select(chatColumns(withAvatar))
-        .eq('tenant_id', tenantId)
-        .eq('slips.tenant_id', tenantId)
-        .order('created_at', { ascending: false, referencedTable: 'messages' })
-        .limit(1, { referencedTable: 'messages' })
-        .order('created_at', { ascending: false, referencedTable: 'slips' })
-        .limit(1, { referencedTable: 'slips' })
+    const chatSnapshot = async (params = '') => {
+      const response = await fetch(
+        `/api/inbox/conversations?tenantId=${encodeURIComponent(tenantId)}${params}`,
+        { cache: 'no-store' },
+      )
+      const data = (await response.json().catch(() => null)) as
+        | { chats?: ChatSummary[]; comments?: CommentItem[]; error?: string }
+        | null
+      if (!response.ok || !data || !Array.isArray(data.chats))
+        throw new Error(data?.error || 'โหลดรายชื่อแชทไม่สำเร็จ')
+      return data
+    }
     const fetchCustomer = async (id: string) => {
       const since = revision.current
-      let result = await chatsQuery().eq('id', id).maybeSingle()
-      if (isMissingCustomerAvatarColumn(result.error))
-        result = await chatsQuery(false).eq('id', id).maybeSingle()
-      const { data, error } = result
-      if (disposed) return
-      if (error) {
-        console.error('[inbox] customer refresh failed', { customerId: id, code: error.code })
+      let data: { chats?: ChatSummary[] }
+      try {
+        data = await chatSnapshot(`&customerId=${encodeURIComponent(id)}`)
+      } catch {
+        if (!disposed) console.error('[inbox] customer refresh failed', { customerId: id })
         return
       }
-      if (!data) {
+      if (disposed) return
+      const refreshed = data.chats?.[0]
+      if (!refreshed) {
         knownCustomers.current.delete(id)
         recentMessages.delete(id)
         setChats((prev) => prev.filter((chat) => chat.customer.id !== id))
         return
       }
-      const chat = replayPreview(summary(data as unknown as Snapshot), since)
+      const chat = replayPreview(refreshed, since)
       knownCustomers.current.add(id)
       setChats((prev) => [chat, ...prev.filter((item) => item.customer.id !== id)].sort(byRecent))
       setSelectedId((prev) => prev ?? id)
@@ -334,32 +325,10 @@ export function InboxClient({
       const startingIds = new Set(knownCustomers.current)
       const since = revision.current
       try {
-        let [customers, comments] = await Promise.all([
-          chatsQuery().order('last_message_at', { ascending: false, nullsFirst: false }).limit(150),
-          db
-            .from('comments')
-            .select('id,tenant_id,author_name,body,created_at')
-            .eq('tenant_id', tenantId)
-            .order('created_at', { ascending: false })
-            .limit(100),
-        ])
-        if (isMissingCustomerAvatarColumn(customers.error))
-          customers = await chatsQuery(false)
-            .order('last_message_at', { ascending: false, nullsFirst: false })
-            .limit(150)
+        const snapshot = await chatSnapshot('&includeComments=true')
         if (disposed) return
-        if (comments.error)
-          console.error('[inbox] comments recovery failed', { code: comments.error.code })
-        else setComments((comments.data ?? []) as CommentItem[])
-        if (customers.error) {
-          console.error('[inbox] conversations recovery failed', { code: customers.error.code })
-          const selected = selectedRef.current
-          if (selected) await loadThread(selected, true)
-          return
-        }
-        const next = ((customers.data ?? []) as unknown as Snapshot[]).map((row) =>
-          replayPreview(summary(row), since),
-        )
+        if (Array.isArray(snapshot.comments)) setComments(snapshot.comments)
+        const next = (snapshot.chats ?? []).map((chat) => replayPreview(chat, since))
         const arrived = new Set([...knownCustomers.current].filter((id) => !startingIds.has(id)))
         knownCustomers.current = new Set([...next.map((chat) => chat.customer.id), ...arrived])
         setChats((previous) =>

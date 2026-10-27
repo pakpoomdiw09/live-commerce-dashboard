@@ -1,6 +1,6 @@
 import { hasFeature } from '@/lib/feature-access'
 import { FeatureLocked } from '@/components/shared/FeatureLocked'
-import { supabaseServer } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/server'
 import { getActiveTenant } from '@/lib/tenant'
 import { SetupNotice } from '@/components/shared/SetupNotice'
 import {
@@ -28,7 +28,10 @@ export default async function InboxPage({
   searchParams: Promise<{ customer?: string }>
 }) {
   const [db, tenant, { customer: requested }] = await Promise.all([
-    supabaseServer(),
+    // getActiveTenant() only returns a tenant the signed-in actor may access.
+    // Use the service-role client for this server-only read so a package/RLS
+    // migration mismatch cannot silently turn persisted chats into an empty Inbox.
+    Promise.resolve(supabaseAdmin({ timeoutMs: 10000 })),
     getActiveTenant(),
     searchParams,
   ])

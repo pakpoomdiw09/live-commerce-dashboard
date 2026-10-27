@@ -101,6 +101,8 @@ async function database() {
   await pg.exec(fs.readFileSync('supabase/facebook-webhook-nonblocking.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-message-window.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-message-window.sql', 'utf8'))
+  await pg.exec(fs.readFileSync('supabase/facebook-inbox-recovery.sql', 'utf8'))
+  await pg.exec(fs.readFileSync('supabase/facebook-inbox-recovery.sql', 'utf8'))
   await pg.exec(
     'create trigger inbox_message_counter before insert on messages for each row execute function inbox_incoming_message()',
   )
@@ -137,6 +139,24 @@ async function database() {
   const one = async (sql) => (await pg.query(sql)).rows[0]
   return { pg, db: { rpc }, enqueue, one }
 }
+
+test('message persistence assigns a Facebook fallback name before optional profile lookup', async () => {
+  const f = await database()
+  try {
+    await f.enqueue(payload('fallback-name'))
+    const result = await worker.runFacebookWebhookWorker(f.db, async (execution) => {
+      await execution.persistRecord(tenantId)
+    })
+    assert.equal(result.completed, 1)
+    assert.equal((await f.one('select count(*)::int n from messages')).n, 1)
+    assert.equal(
+      (await f.one('select display_name from customers')).display_name,
+      `ลูกค้า Facebook (${senderId.slice(-4)})`,
+    )
+  } finally {
+    await f.pg.close()
+  }
+})
 
 test('signature validates exact bytes; malformed, changed and oversized payloads are rejected', async () => {
   const bytes = encode(payload()),

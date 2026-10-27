@@ -257,7 +257,9 @@ export async function getCustomerProfile(
     record('skipped', !token ? 'AUTH_***' : 'INPUT_***')
     return {}
   }
-  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(psid)}?fields=first_name,last_name,name,profile_pic`
+  const url = graph(
+    `${encodeURIComponent(psid)}?fields=first_name,last_name,name,profile_pic`,
+  )
   try {
     const res = await fetch(url, {
       headers: auth(token),

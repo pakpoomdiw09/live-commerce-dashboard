@@ -10,7 +10,11 @@ export async function GET(req: NextRequest) {
   try {
     const { db, tenantId } = await inboxTenant(req, req.nextUrl.searchParams.get('tenantId') ?? '')
     const before = req.nextUrl.searchParams.get('before'),
-      id = req.nextUrl.searchParams.get('beforeId')
+      id = req.nextUrl.searchParams.get('beforeId'),
+      customerId = req.nextUrl.searchParams.get('customerId'),
+      includeComments = req.nextUrl.searchParams.get('includeComments') === 'true'
+    if (customerId && !UUID.test(customerId))
+      throw new InboxError('รหัสลูกค้าไม่ถูกต้อง')
     const load = (withAvatar: boolean) => {
       let query = withAvatar
         ? db
@@ -27,6 +31,7 @@ export async function GET(req: NextRequest) {
             )
             .eq('tenant_id', tenantId)
             .eq('slips.tenant_id', tenantId)
+      if (customerId) query = query.eq('id', customerId)
       if (before) {
         if (!UUID.test(id ?? '') || (before !== 'null' && !Number.isFinite(Date.parse(before))))
           throw new InboxError('ตัวแบ่งหน้าไม่ถูกต้อง')
@@ -47,9 +52,17 @@ export async function GET(req: NextRequest) {
         .limit(1, { referencedTable: 'slips' })
         .limit(101)
     }
-    let result = await load(true)
+    const commentsQuery = includeComments
+      ? db
+          .from('comments')
+          .select('id,tenant_id,author_name,body,created_at')
+          .eq('tenant_id', tenantId)
+          .order('created_at', { ascending: false })
+          .limit(100)
+      : Promise.resolve({ data: null, error: null })
+    let [result, comments] = await Promise.all([load(true), commentsQuery])
     if (isMissingCustomerAvatarColumn(result.error)) result = await load(false)
-    if (result.error) throw result.error
+    if (result.error || comments.error) throw result.error || comments.error
     return NextResponse.json(
       {
         chats: (result.data ?? []).slice(0, 100).map(({ messages, slips, ...customer }) => ({
@@ -58,6 +71,7 @@ export async function GET(req: NextRequest) {
           latestSlip: slips[0]?.status ?? null,
         })),
         hasMore: (result.data?.length ?? 0) > 100,
+        ...(includeComments ? { comments: comments.data ?? [] } : {}),
       },
       { headers: { 'Cache-Control': 'no-store' } },
     )
