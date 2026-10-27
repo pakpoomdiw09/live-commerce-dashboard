@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { MapPin, Pencil, Phone, StickyNote } from 'lucide-react'
+import { MapPin, Pencil, Phone, RefreshCw, StickyNote } from 'lucide-react'
 import { BotToggle } from '@/components/chatbot/BotToggle'
 import { Badge, Tag } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,28 @@ export function CustomerPanel({
   onSaved: (c: CustomerRow) => void
 }) {
   const [editing, setEditing] = useState(false)
+  const [syncingProfile, setSyncingProfile] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
   useEffect(() => setEditing(false), [customer.id])
+
+  async function syncFacebookProfile() {
+    setSyncingProfile(true)
+    setProfileError(null)
+    try {
+      const response = await fetch(`/api/inbox/conversations/${customer.id}/profile`, {
+        method: 'POST',
+      })
+      if (!response.ok) throw new Error(await apiError(response))
+      const body = (await response.json()) as { customer: CustomerRow }
+      onSaved(body.customer)
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : 'รีเฟรชโปรไฟล์จาก Facebook ไม่สำเร็จ',
+      )
+    } finally {
+      setSyncingProfile(false)
+    }
+  }
 
   const paid = slips
     .filter((s) => s.status === 'valid')
@@ -44,16 +65,34 @@ export function CustomerPanel({
           </p>
         </div>
         {!editing && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setEditing(true)}
-            aria-label="แก้ไขข้อมูลลูกค้า"
-          >
-            <Pencil className="h-4 w-4" />
-          </Button>
+          <div className="flex shrink-0 items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => void syncFacebookProfile()}
+              disabled={syncingProfile}
+              aria-label="รีเฟรชชื่อและรูปจาก Facebook"
+              title="รีเฟรชชื่อและรูปจาก Facebook"
+            >
+              <RefreshCw className={`h-4 w-4 ${syncingProfile ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setEditing(true)}
+              aria-label="แก้ไขข้อมูลลูกค้า"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          </div>
         )}
       </div>
+
+      {profileError && (
+        <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          {profileError}
+        </p>
+      )}
 
       {editing ? (
         <CustomerForm

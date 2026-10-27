@@ -345,6 +345,7 @@ test('all new Inbox entry points reject a failed guard before data, mutation or 
     ['app/api/inbox/conversations/[id]/messages/route.ts', ['GET']],
     ['app/api/inbox/conversations/[id]/read/route.ts', ['POST']],
     ['app/api/inbox/conversations/[id]/route.ts', ['GET', 'PATCH']],
+    ['app/api/inbox/conversations/[id]/profile/route.ts', ['POST']],
     ['app/api/inbox/conversations/[id]/draft/route.ts', ['POST']],
   ]) {
     const api = load(file, {
@@ -358,6 +359,14 @@ test('all new Inbox entry points reject a failed guard before data, mutation or 
         },
       },
       '@/lib/features/agents/ai-agent': { AiAgentError: class extends Error {} },
+      '@/lib/integrations/facebook/client': {
+        getCustomerProfile() {
+          throw Error('No provider work')
+        },
+        pageTokenFor() {
+          throw Error('No provider work')
+        },
+      },
     })
     for (const method of methods) {
       const result = await api[method](
@@ -368,6 +377,79 @@ test('all new Inbox entry points reject a failed guard before data, mutation or 
       assert.equal(result.body.code, 'FEATURE_LOCKED')
     }
   }
+})
+
+test('profile refresh uses the tenant Page token and persists returned name and avatar', async () => {
+  const baseGuard = guardFixture().guard
+  let update = null,
+    receivedToken = null,
+    receivedPsid = null
+  const db = {
+    from(table) {
+      const q = {
+        select() {
+          return q
+        },
+        update(value) {
+          update = value
+          return q
+        },
+        eq() {
+          return q
+        },
+        maybeSingle: async () => {
+          if (table === 'tenants')
+            return {
+              data: { page_id: 'page-123', page_access_token: 'page-token' },
+              error: null,
+            }
+          if (update)
+            return {
+              data: {
+                id,
+                tenant_id: shop,
+                platform_user_id: '123456',
+                display_name: update.display_name,
+                avatar_url: update.avatar_url,
+              },
+              error: null,
+            }
+          return {
+            data: { platform: 'facebook', platform_user_id: '123456' },
+            error: null,
+          }
+        },
+      }
+      return q
+    },
+  }
+  const api = load('app/api/inbox/conversations/[id]/profile/route.ts', {
+    'next/server': next,
+    '@/lib/features/inbox/inbox-server': {
+      InboxError: baseGuard.InboxError,
+      inboxError: baseGuard.inboxError,
+      inboxCustomer: async () => ({ db, customer: { id }, tenantId: shop }),
+    },
+    '@/lib/integrations/facebook/client': {
+      pageTokenFor: (page) => page.page_access_token,
+      getCustomerProfile: async (token, psid) => {
+        receivedToken = token
+        receivedPsid = psid
+        return {
+          display_name: 'Meta Customer',
+          avatar_url: 'https://platform-lookaside.fbsbx.com/avatar',
+        }
+      },
+    },
+    '@/lib/types': { CUSTOMER_COLUMNS: 'CUSTOMER_COLUMNS' },
+  })
+  const response = await api.POST({}, { params: Promise.resolve({ id }) })
+  assert.equal(response.status, 200)
+  assert.equal(receivedToken, 'page-token')
+  assert.equal(receivedPsid, '123456')
+  assert.equal(update.display_name, 'Meta Customer')
+  assert.equal(update.avatar_url, 'https://platform-lookaside.fbsbx.com/avatar')
+  assert.equal(response.body.customer.display_name, 'Meta Customer')
 })
 
 test('draft endpoint returns a safe editable draft when AI hands off or returns no text', async () => {

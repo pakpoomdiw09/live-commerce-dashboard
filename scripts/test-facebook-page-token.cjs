@@ -24,6 +24,7 @@ function facebook({ env = {}, status = 200, json = null, networkError = false } 
     },
     process: { env },
     AbortSignal,
+    URL,
     fetch: async (url, options) => {
       calls.push({ url, options })
       if (networkError) throw new Error('mock timeout')
@@ -49,6 +50,27 @@ test('messaging Page is verified without profile-reading permissions', async () 
   assert.match(api.calls[0].url, /\/debug_token\?input_token=saved-page-token$/)
   assert.equal(api.calls[0].options.headers.Authorization, 'Bearer saved-page-token')
   assert.equal(api.calls[0].options.cache, 'no-store')
+})
+
+test('customer profile uses the configured Graph version and bearer token without URL leakage', async () => {
+  const api = facebook({
+    env: { FB_GRAPH_VERSION: 'v24.0' },
+    json: {
+      first_name: 'Test',
+      last_name: 'Customer',
+      profile_pic: 'https://platform-lookaside.fbsbx.com/avatar',
+    },
+  })
+  const profile = await api.getCustomerProfile('saved-page-token', '123456')
+  assert.equal(profile.display_name, 'Test Customer')
+  assert.equal(profile.avatar_url, 'https://platform-lookaside.fbsbx.com/avatar')
+  assert.equal(api.calls.length, 1)
+  assert.match(
+    api.calls[0].url,
+    /^https:\/\/graph\.facebook\.com\/v24\.0\/123456\?fields=first_name,last_name,name,profile_pic$/,
+  )
+  assert.ok(!api.calls[0].url.includes('saved-page-token'))
+  assert.equal(api.calls[0].options.headers.Authorization, 'Bearer saved-page-token')
 })
 
 for (const [name, override] of [

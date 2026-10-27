@@ -5,6 +5,7 @@
   "scripts": {
     "db:migrate:safe": "node scripts/run-safe-db-migration.cjs",
     "db:migrate:sql": "node scripts/run-safe-db-migration.cjs --write-sql",
+    "facebook:profiles:backfill": "node scripts/backfill-facebook-profiles.cjs",
     "test:db-migration": "node --test --test-concurrency=1 scripts/test-safe-db-migration.cjs scripts/test-platform-migration.cjs",
     "clean:preview": "node scripts/clean-cache.cjs --dry-run",
     "clean:cache": "node scripts/clean-cache.cjs --apply",

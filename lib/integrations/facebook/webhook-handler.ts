@@ -253,8 +253,8 @@ async function onMessage(
             customerId: savedProfile.id,
             tenantId: savedProfile.tenant_id,
             senderId: savedProfile.platform_user_id,
-            name: savedProfile.display_name,
-            avatarUrl: savedProfile.avatar_url,
+            namePresent: Boolean(savedProfile.display_name),
+            avatarPresent: Boolean(savedProfile.avatar_url),
             updatedFields: Object.keys(profile),
           })
         } else {
