@@ -14,8 +14,49 @@ export type FollowUpRun = {
   skipped: number
   remaining: boolean
   sendEnabled: boolean
+  errors: number
+  jobs: { jobId: string; status: string; reason: string | null }[]
 }
 type Claimed = { id: string; tenant_id: string; claim_token: string; run_at?: string }
+
+/** Retry only result persistence, never the provider request. A lost RPC response may have committed. */
+async function settleFollowUp(
+  db: SupabaseClient,
+  job: Claimed,
+  outcome: 'sent' | 'failed' | 'requires_review',
+  provider: string | null,
+  reason: string | null,
+) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const settled = await db.rpc('complete_follow_up', {
+      p_job: job.id,
+      p_claim: job.claim_token,
+      p_result: outcome,
+      p_provider: provider,
+      p_reason: reason,
+    })
+    if (!settled.error && settled.data === true) return true
+    console.error('[FOLLOW-UP RESULT] persistence not confirmed', {
+      jobId: job.id,
+      attempt: attempt + 1,
+      code: settled.error?.code ?? 'claim_changed',
+    })
+  }
+  // Do not mistake an already-committed completion for a failed send.
+  const saved = await db
+    .from('follow_up_jobs')
+    .select('status,provider_message_id,reason')
+    .eq('id', job.id)
+    .eq('tenant_id', job.tenant_id)
+    .maybeSingle()
+  return (
+    !saved.error &&
+    saved.data?.status === outcome &&
+    saved.data.provider_message_id === provider &&
+    saved.data.reason === reason
+  )
+}
+
 /** DB transactions own claims, preflight checks, leases, quota, durable messages and result persistence. */
 export async function runFollowUps(
   db: SupabaseClient,
@@ -31,6 +72,8 @@ export async function runFollowUps(
     skipped: 0,
     remaining: false,
     sendEnabled: true,
+    errors: 0,
+    jobs: [],
   }
   const started = Date.now()
   let claimedCount = 0
@@ -84,6 +127,7 @@ export async function runFollowUps(
         if (held.error) throw held.error
         console.info('[FOLLOW-UP PREPARE] blocked', { jobId: job.id, reason: 'automation_stopped' })
         result.review++
+        result.jobs.push({ jobId: job.id, status: 'requires_review', reason: 'automation_stopped' })
         continue
       }
       // Obtain the Page token before preflight: a missing token must never consume message credit.
@@ -93,7 +137,15 @@ export async function runFollowUps(
         .eq('id', job.tenant_id)
         .maybeSingle()
       if (page.error) throw page.error
-      const token = pageTokenFor(page.data)
+      // A missing tenant/Page must never accidentally select an unrelated shared token.
+      const token = page.data?.page_id ? pageTokenFor(page.data) : null
+      console.info('[FOLLOW-UP PREPARE] token', {
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        pageId: page.data?.page_id ?? null,
+        tokenPresent: Boolean(token),
+        source: page.data?.page_access_token?.trim() ? 'tenant' : token ? 'environment' : 'missing',
+      })
       if (!token) {
         const saved = await db
           .from('follow_up_jobs')
@@ -109,6 +161,7 @@ export async function runFollowUps(
         if (saved.error) throw saved.error
         console.warn('[FOLLOW-UP PREPARE] blocked', { jobId: job.id, reason: 'no_token' })
         result.review++
+        result.jobs.push({ jobId: job.id, status: 'requires_review', reason: 'no_token' })
         continue
       }
       const prepared = await db.rpc('prepare_follow_up', {
@@ -120,6 +173,28 @@ export async function runFollowUps(
           jobId: job.id,
           code: prepared.error.code,
         })
+        // Preflight is transactional. Only release a claim if dispatch never started.
+        const held = await db
+          .from('follow_up_jobs')
+          .update({
+            status: 'requires_review',
+            reason: 'prepare_failed',
+            claim_token: null,
+            claim_until: null,
+          })
+          .eq('id', job.id)
+          .eq('tenant_id', job.tenant_id)
+          .eq('status', 'processing')
+          .eq('claim_token', job.claim_token)
+          .is('dispatch_started_at', null)
+        if (held.error)
+          console.error('[FOLLOW-UP PREPARE] release failed', {
+            jobId: job.id,
+            code: held.error.code,
+          })
+        result.errors++
+        result.review++
+        result.jobs.push({ jobId: job.id, status: 'requires_review', reason: 'prepare_failed' })
         continue
       }
       const ready = prepared.data as {
@@ -135,18 +210,31 @@ export async function runFollowUps(
       })
       if (!ready) {
         console.error('[FOLLOW-UP PREPARE] invalid response', { jobId: job.id })
+        result.errors++
+        result.jobs.push({
+          jobId: job.id,
+          status: 'requires_review',
+          reason: 'invalid_prepare_response',
+        })
         continue
       }
       if (ready.status !== 'ready') {
         if (ready.status === 'requires_review') result.review++
         else if (ready.status === 'cancelled') result.cancelled++
         else result.skipped++
+        result.jobs.push({ jobId: job.id, status: ready.status, reason: ready.reason ?? null })
         continue
       }
       // prepare_follow_up commits the message/dispatch marker before this one and only network call.
       let outcome: 'sent' | 'failed' | 'requires_review' = 'requires_review',
         provider: string | null = null,
         reason: string | null = 'delivery_unknown'
+      let deliveryError: {
+        message: string
+        httpStatus: number | null
+        facebookCode: number | null
+        facebookSubcode: number | null
+      } | null = null
       try {
         if (!ready.text || !ready.psid) throw new Error('Invalid prepared dispatch')
         if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
@@ -177,6 +265,11 @@ export async function runFollowUps(
           if (permission.status === 'cancelled') result.cancelled++
           else if (permission.status === 'requires_review') result.review++
           else result.skipped++
+          result.jobs.push({
+            jobId: job.id,
+            status: permission.status!,
+            reason: permission.reason ?? null,
+          })
           continue
         }
         const sendStarted = Date.now()
@@ -186,7 +279,9 @@ export async function runFollowUps(
           textLength: ready.text.length,
           nowUTC: new Date(sendStarted).toISOString(),
         })
-        provider = await sendMessageWithReceipt(token, ready.psid, { text: ready.text }, 'UPDATE')
+        // Both database gates verified the inbound 24-hour window. General follow-ups
+        // do not establish an event registration that would justify an event-update tag.
+        provider = await sendMessageWithReceipt(token, ready.psid, { text: ready.text }, 'RESPONSE')
         console.info('[FOLLOW-UP SEND] accepted', {
           jobId: job.id,
           providerMessageId: provider,
@@ -215,36 +310,58 @@ export async function runFollowUps(
           outcome,
           code: error instanceof SendApiError ? error.code : 'network_unknown',
         })
-        console.warn('[FOLLOW-UP SEND] failed', {
-          jobId: job.id,
-          tenantId: job.tenant_id,
-          outcome,
-          reason,
+        deliveryError = {
+          message:
+            error instanceof SendApiError ? error.message : 'Follow-up delivery was not confirmed',
           httpStatus: error instanceof SendApiError ? error.status : null,
           facebookCode: error instanceof SendApiError ? error.code : null,
           facebookSubcode: error instanceof SendApiError ? error.subcode : null,
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-        })
+        }
+        console.error(
+          JSON.stringify({
+            event: 'follow_up.send_failed',
+            jobId: job.id,
+            tenantId: job.tenant_id,
+            outcome,
+            reason,
+            ...deliveryError,
+          }),
+        )
       }
       // Explicit window rejection is also known not delivered; refund before putting it in review.
-      const settled = await db.rpc('complete_follow_up', {
-        p_job: job.id,
-        p_claim: job.claim_token,
-        p_result: outcome,
-        p_provider: provider,
-        p_reason: reason,
-      })
-      if (settled.error || settled.data !== true) {
+      const settled = await settleFollowUp(db, job, outcome, provider, reason)
+      if (deliveryError) {
+        // Keep structured diagnostics in the existing tenant-scoped audit table.
+        // Raw provider responses may echo credentials; only fixed messages/codes are retained.
+        const audit = await db.from('follow_up_execution_logs').insert({
+          tenant_id: job.tenant_id,
+          job_id: job.id,
+          status: 'delivery_error',
+          reason: JSON.stringify({ reason, ...deliveryError }),
+        })
+        if (audit.error)
+          console.error('[FOLLOW-UP RESULT] error audit failed', {
+            jobId: job.id,
+            code: audit.error.code,
+          })
+      }
+      if (!settled) {
         console.error('[smart-follow-up] result persistence requires review', {
           jobId: job.id,
-          code: settled.error?.code ?? 'claim_changed',
         })
+        result.errors++
         result.review++
+        result.jobs.push({
+          jobId: job.id,
+          status: 'requires_review',
+          reason: 'result_persistence_failed',
+        })
         continue // recovery converts an expired dispatch to review; never resend.
       }
       if (outcome === 'sent') result.sent++
       else if (outcome === 'failed') result.failed++
       else result.review++
+      result.jobs.push({ jobId: job.id, status: outcome, reason })
       console.info('[FOLLOW-UP SEND] persisted', { jobId: job.id, outcome, reason })
     }
     return result

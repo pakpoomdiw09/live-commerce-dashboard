@@ -2,7 +2,7 @@
 const fs = require('node:fs')
 const vm = require('node:vm')
 const ts = require('typescript')
-function fixture() {
+function fixture(workerResult = { sent: 1 }) {
   let calls = 0,
     queries = 0
   const exports = {}
@@ -53,7 +53,7 @@ function fixture() {
     '@/lib/features/follow-ups/follow-ups': {
       runFollowUps: async () => {
         calls++
-        return { sent: 1 }
+        return workerResult
       },
     },
   }
@@ -101,6 +101,33 @@ function fixture() {
     assert.equal(f.calls(), 1)
     assert.equal(live.headers['Cache-Control'], 'no-store')
   }
+  for (const result of [
+    { sent: 0, failed: 1, errors: 0 },
+    { sent: 0, failed: 0, errors: 1 },
+  ]) {
+    const f = fixture(result)
+    const response = await f.api.GET({
+      method: 'GET',
+      headers: new Headers({ Authorization: 'Bearer test-secret' }),
+      nextUrl: new URL('https://example.test/api/cron/follow-ups'),
+    })
+    assert.equal(response.status, 503)
+    assert.equal(response.body.dueCount, 1)
+    assert.equal(response.body.sent, 0)
+  }
+  const blocked = fixture({
+    sent: 0,
+    failed: 0,
+    errors: 0,
+    jobs: [{ jobId: 'job', status: 'requires_review', reason: 'ai_draft' }],
+  })
+  const held = await blocked.api.GET({
+    method: 'GET',
+    headers: new Headers({ Authorization: 'Bearer test-secret' }),
+    nextUrl: new URL('https://example.test/api/cron/follow-ups'),
+  })
+  assert.equal(held.body.jobs[0].reason, 'ai_draft')
+  assert.equal(held.body.sent, 0)
   const f = fixture()
   assert.deepEqual(
     Object.keys(f.api)

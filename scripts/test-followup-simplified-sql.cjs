@@ -26,6 +26,8 @@ const assert = require('node:assert/strict'),
       'manual-follow-ups.sql',
       'follow-up-simplified.sql',
       'follow-up-step-settings.sql',
+      'follow-up-manual-dispatch-fix.sql',
+      'follow-up-manual-dispatch-fix.sql',
       'follow-up-simplified.sql',
       'follow-up-step-settings.sql',
     ])
@@ -47,6 +49,8 @@ const assert = require('node:assert/strict'),
     const job = (await add()).rows[0]
     assert.ok(job)
     assert.equal(job.status, 'pending')
+    // The manual action does not require enabling automatic chat replies.
+    await db.query('update tenants set auto_reply_enabled=false where id=$1', [tenant])
     assert.equal((await add()).rows[0].id, job.id)
     assert.equal(
       await one('select * from follow_up_policies where tenant_id=$1', [tenant]),
@@ -84,6 +88,37 @@ const assert = require('node:assert/strict'),
       (await one('select authorize_follow_up_dispatch($1,$2) r', [ready.id, ready.claim_token])).r
         .status,
       'ready',
+    )
+    assert.equal(
+      (
+        await one("select complete_follow_up($1,$2,'sent','provider-receipt',null) ok", [
+          ready.id,
+          ready.claim_token,
+        ])
+      ).ok,
+      true,
+    )
+    const completed = await one(
+      'select status,sent_at,provider_message_id,message_id from follow_up_jobs where id=$1',
+      [ready.id],
+    )
+    assert.equal(completed.status, 'sent')
+    assert.ok(completed.sent_at)
+    assert.equal(completed.provider_message_id, 'provider-receipt')
+    assert.equal(
+      (await one('select delivery_status from messages where id=$1', [completed.message_id]))
+        .delivery_status,
+      'sent',
+    )
+    // An automatic job still respects the disabled switches.
+    const automatic = await one(
+      "insert into follow_up_jobs(tenant_id,customer_id,kind,workflow_id,workflow_version,step,text,run_at,source_seq,status) values($1,$2,'payment',$3,$4,1,'Automatic reminder',now()-interval '1 minute',0,'pending') returning id",
+      [tenant, customer, job.workflow_id, job.workflow_version],
+    )
+    assert.equal((await prepare(await claim())).reason, 'disabled')
+    assert.equal(
+      (await one('select status from follow_up_jobs where id=$1', [automatic.id])).status,
+      'cancelled',
     )
     // A new outgoing/customer summary timestamp must not extend the verified inbound window.
     await db.query("update broadcast_messaging_events set interacted_at=now()-interval '25 hours'")

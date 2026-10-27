@@ -111,7 +111,10 @@ function workerFixture({
   enabled = true,
   error = null,
   persistenceError = false,
+  persistenceFailures = 0,
+  completionCommitted = false,
   prepared = 'ready',
+  prepareError = false,
   finalStatus = 'ready',
   finalError = false,
   disableAfterPrepare = false,
@@ -120,6 +123,8 @@ function workerFixture({
   const pending = [{ id, tenant_id: tenant, claim_token: 'lease' }],
     calls = [],
     settled = [],
+    sends = [],
+    writes = [],
     env = { SMART_FOLLOW_UP_SEND_ENABLED: enabled ? 'true' : 'false' },
     logs = []
   let network = 0
@@ -128,6 +133,7 @@ function workerFixture({
       calls.push([name, args])
       if (name === 'claim_follow_up_jobs') return { data: pending.splice(0, 1), error: null }
       if (name === 'prepare_follow_up') {
+        if (prepareError) return { error: { code: '42703' }, data: null }
         if (disableAfterPrepare) env.SMART_FOLLOW_UP_SEND_ENABLED = 'false'
         return {
           data: { status: prepared, psid: 'psid', text: 'real configured text' },
@@ -142,19 +148,40 @@ function workerFixture({
       }
       if (name === 'complete_follow_up') {
         settled.push(args)
-        return persistenceError ? { error: { code: 'DB_DOWN' } } : { data: true, error: null }
+        return persistenceError || persistenceFailures-- > 0
+          ? { error: { code: 'DB_DOWN' } }
+          : { data: true, error: null }
       }
       throw Error(name)
     },
-    from: () => ({
+    from: (table) => ({
       select() {
         return this
       },
       eq() {
         return this
       },
+      is() {
+        return this
+      },
+      update(value) {
+        writes.push({ table, value })
+        return this
+      },
+      insert(value) {
+        writes.push({ table, value })
+        return Promise.resolve({ error: null })
+      },
+      then(resolve, reject) {
+        return Promise.resolve({ error: null }).then(resolve, reject)
+      },
       maybeSingle: async () => ({
-        data: { page_id: 'page', page_access_token: 'private' },
+        data:
+          table === 'follow_up_jobs'
+            ? completionCommitted
+              ? { status: 'sent', provider_message_id: 'mid-confirmed', reason: null }
+              : null
+            : { page_id: 'page', page_access_token: 'private' },
         error: null,
       }),
     }),
@@ -168,8 +195,9 @@ function workerFixture({
         pageTokenFor: (p) => p.page_access_token,
         SendApiError,
         isWindowOrTagError: (e) => e.code === 10,
-        sendMessageWithReceipt: async () => {
+        sendMessageWithReceipt: async (...args) => {
           network++
+          sends.push(args)
           if (error) throw error
           return 'mid-confirmed'
         },
@@ -184,7 +212,7 @@ function workerFixture({
       },
     },
   )
-  return { api, db, calls, settled, logs, network: () => network }
+  return { api, db, calls, settled, logs, sends, writes, network: () => network }
 }
 test('follow-up is live by default even with the obsolete paused flag', async () => {
   const f = workerFixture({ enabled: false })
@@ -274,6 +302,41 @@ test('provider success with DB failure stays reviewable instead of re-sending', 
   assert.equal(first.review, 1)
   assert.equal(f.network(), 1)
 })
+
+test('verified follow-up uses the tenant token and RESPONSE body before atomically persisting sent', async () => {
+  const f = workerFixture()
+  const result = await f.api.runFollowUps(f.db, tenant)
+  assert.equal(f.sends[0][0], 'private')
+  assert.equal(f.sends[0][1], 'psid')
+  assert.equal(f.sends[0][2].text, 'real configured text')
+  assert.equal(f.sends[0][3], 'RESPONSE')
+  assert.equal(result.sent, 1)
+  assert.equal(result.jobs[0].status, 'sent')
+})
+
+test('result persistence retries and lost completion responses never resend the provider request', async () => {
+  for (const options of [
+    { persistenceFailures: 1 },
+    { persistenceError: true, completionCommitted: true },
+  ]) {
+    const f = workerFixture(options)
+    const result = await f.api.runFollowUps(f.db, tenant)
+    assert.equal(f.network(), 1)
+    assert.equal(f.settled.length, 2)
+    assert.equal(result.sent, 1)
+    assert.equal(result.errors, 0)
+  }
+})
+
+test('provider rejection stores safe structured HTTP/code diagnostics in the execution log', async () => {
+  const f = workerFixture({ error: new SendApiError(400) })
+  const result = await f.api.runFollowUps(f.db, tenant)
+  const audit = f.writes.find((write) => write.table === 'follow_up_execution_logs')
+  assert.equal(result.failed, 1)
+  assert.equal(JSON.parse(audit.value.reason).httpStatus, 400)
+  assert.equal(JSON.parse(audit.value.reason).facebookCode, 100)
+  assert.equal(audit.value.tenant_id, tenant)
+})
 test('failed preflight eligibility never reaches provider', async () => {
   for (const status of ['cancelled', 'requires_review', 'deferred', 'skipped']) {
     const f = workerFixture({ prepared: status })
@@ -281,6 +344,15 @@ test('failed preflight eligibility never reaches provider', async () => {
     assert.equal(f.network(), 0)
     assert.equal(f.settled.length, 0)
   }
+})
+
+test('preparation failure reports an operational error and releases only an undispatched claim', async () => {
+  const f = workerFixture({ prepareError: true })
+  const result = await f.api.runFollowUps(f.db, tenant)
+  assert.equal(f.network(), 0)
+  assert.equal(result.errors, 1)
+  assert.equal(result.jobs[0].reason, 'prepare_failed')
+  assert.equal(f.writes[0].value.status, 'requires_review')
 })
 test('new follow-up APIs fail closed before cross-tenant DB access', async () => {
   const guarded = {

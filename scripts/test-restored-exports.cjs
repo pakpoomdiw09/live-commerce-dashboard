@@ -76,6 +76,13 @@ test('explicit Send API refusal exposes structured error; missing receipt remain
     (error) => !(error instanceof api.SendApiError),
   )
   assert.equal(api.isWindowOrTagError(new Error('network timeout')), false)
+  response = { ok: true, status: 200, json: async () => ({ error: { code: 190 } }) }
+  await assert.rejects(
+    api.sendMessageWithReceipt('token', 'psid', { text: 'hello' }),
+    (error) => error instanceof api.SendApiError && error.code === 190,
+  )
+  response = { ok: true, status: 200, json: async () => ({ message_id: ' ' }) }
+  await assert.rejects(api.sendMessageWithReceipt('token', 'psid', { text: 'hello' }))
 })
 
 test('quick replies omit empty labels and respect title/count limits', () => {

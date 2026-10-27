@@ -34,7 +34,7 @@ begin
  select * into w from public.follow_up_workflows where id=j.workflow_id and tenant_id=j.tenant_id;
  if c.id is null or c.tenant_id is distinct from j.tenant_id or w.id is null then reason:='invalid_reference';
  elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then reason:='plan_required';
- elsif (not w.enabled and not j.manual_without_order) or not t.auto_reply_enabled then reason:='disabled';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then reason:='disabled';
  elsif w.version<>j.workflow_version then reason:='workflow_changed';
  elsif c.followup_opted_out then reason:='opt_out';
  elsif c.contact_suspended then reason:='contact_suspended';
@@ -99,7 +99,7 @@ begin
  elsif j.claim_until<=clock_timestamp() then block_reason:='claim_expired';next_status:='requires_review';
  elsif j.run_at>clock_timestamp() then block_reason:='not_due';next_status:='requires_review';
  elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then block_reason:='plan_required';
- elsif (not w.enabled and not j.manual_without_order) or not t.auto_reply_enabled then block_reason:='disabled';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then block_reason:='disabled';
  elsif w.version<>j.workflow_version then block_reason:='workflow_changed';
  elsif c.followup_opted_out then block_reason:='opt_out';
  elsif c.contact_suspended then block_reason:='contact_suspended';

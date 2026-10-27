@@ -110,6 +110,13 @@ export async function sendMessageWithReceipt(
   messagingType: MessagingType = 'RESPONSE',
 ): Promise<string> {
   return facebookOperation('facebook.send_message', async () => {
+    const num = (value: unknown) =>
+      typeof value === 'number' &&
+      Number.isSafeInteger(value) &&
+      value >= 0 &&
+      value <= 2_147_483_647
+        ? value
+        : null
     const res = await fetch(graph('me/messages'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth(token) },
@@ -122,12 +129,12 @@ export async function sendMessageWithReceipt(
       try {
         err = JSON.parse(body)?.error
       } catch {}
-      const num = (v: unknown) =>
-        typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= 2_147_483_647 ? v : null
       throw new SendApiError(res.status, num(err?.code), num(err?.error_subcode))
     }
     const receipt = await res.json()
-    if (typeof receipt.message_id !== 'string')
+    if (receipt?.error)
+      throw new SendApiError(res.status, num(receipt.error.code), num(receipt.error.error_subcode))
+    if (typeof receipt?.message_id !== 'string' || !receipt.message_id.trim())
       throw new Error('Messenger did not return a message receipt')
     return receipt.message_id
   })
@@ -257,9 +264,7 @@ export async function getCustomerProfile(
     record('skipped', !token ? 'AUTH_***' : 'INPUT_***')
     return {}
   }
-  const url = graph(
-    `${encodeURIComponent(psid)}?fields=first_name,last_name,name,profile_pic`,
-  )
+  const url = graph(`${encodeURIComponent(psid)}?fields=first_name,last_name,name,profile_pic`)
   try {
     const res = await fetch(url, {
       headers: auth(token),

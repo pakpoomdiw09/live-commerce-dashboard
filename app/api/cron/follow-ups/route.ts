@@ -32,8 +32,10 @@ async function handle(req: NextRequest) {
   })
 
   try {
+    const deadline = Date.now() + 45000
+    const db = supabaseAdmin({ timeoutMs: 8000 })
     const now = new Date().toISOString()
-    const due = await supabaseAdmin()
+    const due = await db
       .from('follow_up_jobs')
       .select('id,tenant_id,run_at', { count: 'exact' })
       .eq('status', 'pending')
@@ -74,11 +76,21 @@ async function handle(req: NextRequest) {
       )
     }
 
-    const result = await singleFlight('cron:follow-ups', () => runFollowUps(supabaseAdmin()))
-
-    return NextResponse.json(result, {
-      headers: { 'Cache-Control': 'no-store' },
+    const result = await singleFlight('cron:follow-ups', () =>
+      runFollowUps(db, undefined, deadline),
+    )
+    console.info('[FOLLOW-UP CRON] worker result', {
+      dueCount: due.count ?? dueJobs.length,
+      ...result,
     })
+
+    return NextResponse.json(
+      { ...result, dueCount: due.count ?? dueJobs.length },
+      {
+        status: result.failed > 0 || result.errors > 0 ? 503 : 200,
+        headers: { 'Cache-Control': 'no-store' },
+      },
+    )
   } catch (error) {
     console.error('[cron follow-ups]', error)
 
