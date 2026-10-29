@@ -60,6 +60,7 @@ export class SendApiError extends Error {
     readonly code: number | null,
     readonly subcode: number | null,
     readonly providerMessage: string | null = null,
+    readonly responseData: string | null = null,
   ) {
     super(`Facebook message request failed (HTTP ${status})`)
   }
@@ -95,7 +96,67 @@ function providerErrorMessage(
     )
     .replace(/[\u0000-\u001f\u007f]+/g, ' ')
     .trim()
-    .slice(0, 8000)
+}
+
+/** Serialize diagnostics in full, redacting credentials and reflected customer content. */
+function providerErrorDetails(
+  value: unknown,
+  token: string | null,
+  recipientId: string,
+  message: object,
+): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return providerErrorMessage(value, token, recipientId, message)
+    }
+  }
+  const serialized = JSON.stringify(value, (key, item) => {
+    if (/token|secret|authorization|password|account|customer_name|recipient_id|psid/i.test(key))
+      return '[REDACTED]'
+    return typeof item === 'string' ? providerErrorMessage(item, token, recipientId, message) : item
+  })
+  return serialized ?? null
+}
+
+function logSendFailure(
+  error: unknown,
+  token: string | null,
+  recipientId: string,
+  message: object,
+) {
+  try {
+    const failure = error as {
+      message?: unknown
+      response?: { status?: unknown; data?: unknown }
+    } | null
+    const responseData =
+      error instanceof SendApiError
+        ? error.responseData
+        : providerErrorDetails(failure?.response?.data, token, recipientId, message)
+    console.error(
+      '[facebook/send] Graph API request failed ' +
+        JSON.stringify({
+          httpStatus: error instanceof SendApiError ? error.status : failure?.response?.status,
+          errorCode: error instanceof SendApiError ? error.code : undefined,
+          errorSubcode: error instanceof SendApiError ? error.subcode : undefined,
+          message:
+            error instanceof SendApiError
+              ? (error.providerMessage ?? error.message)
+              : providerErrorMessage(
+                  typeof error === 'string' ? error : failure?.message,
+                  token,
+                  recipientId,
+                  message,
+                ),
+          responseData,
+        }),
+    )
+  } catch {
+    // Diagnostics must not change delivery status or trigger a duplicate send.
+  }
 }
 
 /**
@@ -115,7 +176,11 @@ export const WINDOW_OR_TAG_ERROR =
   'เกินระยะเวลาที่ระบบ Facebook อนุญาต หรือหมวดหมู่ข้อความไม่ตรงกับเนื้อหา'
 
 /** Never propagate a fetch/JSON exception carrying a URL, response body or nested cause. */
-async function facebookOperation<T>(eventType: SafeEventType, work: () => Promise<T>): Promise<T> {
+async function facebookOperation<T>(
+  eventType: SafeEventType,
+  work: () => Promise<T>,
+  onError?: (error: unknown) => void,
+): Promise<T> {
   const requestId = createLogRequestId(),
     startedAt = Date.now()
   try {
@@ -123,6 +188,7 @@ async function facebookOperation<T>(eventType: SafeEventType, work: () => Promis
     logSafeEvent({ requestId, eventType, status: 'succeeded', durationMs: Date.now() - startedAt })
     return result
   } catch (error) {
+    onError?.(error)
     const known = error instanceof SendApiError || error instanceof MissingPageTokenError
     logSafeEvent({
       requestId,
@@ -148,45 +214,55 @@ export async function sendMessageWithReceipt(
   message: object,
   messagingType: MessagingType = 'RESPONSE',
 ): Promise<string> {
-  return facebookOperation('facebook.send_message', async () => {
-    const num = (value: unknown) =>
-      typeof value === 'number' &&
-      Number.isSafeInteger(value) &&
-      value >= 0 &&
-      value <= 2_147_483_647
-        ? value
-        : null
-    const res = await fetch(graph('me/messages'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...auth(token) },
-      body: JSON.stringify({ recipient: { id: psid }, ...messagingFields(messagingType), message }),
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) {
-      const body = await res.text()
-      let err: { message?: unknown; code?: unknown; error_subcode?: unknown } | undefined
-      try {
-        err = JSON.parse(body)?.error
-      } catch {}
-      throw new SendApiError(
-        res.status,
-        num(err?.code),
-        num(err?.error_subcode),
-        providerErrorMessage(err?.message, token, psid, message),
-      )
-    }
-    const receipt = await res.json()
-    if (receipt?.error)
-      throw new SendApiError(
-        res.status,
-        num(receipt.error.code),
-        num(receipt.error.error_subcode),
-        providerErrorMessage(receipt.error.message, token, psid, message),
-      )
-    if (typeof receipt?.message_id !== 'string' || !receipt.message_id.trim())
-      throw new Error('Messenger did not return a message receipt')
-    return receipt.message_id
-  })
+  return facebookOperation(
+    'facebook.send_message',
+    async () => {
+      const num = (value: unknown) =>
+        typeof value === 'number' &&
+        Number.isSafeInteger(value) &&
+        value >= 0 &&
+        value <= 2_147_483_647
+          ? value
+          : null
+      const res = await fetch(graph('me/messages'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth(token) },
+        body: JSON.stringify({
+          ...messagingFields(messagingType),
+          recipient: { id: psid },
+          message,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!res.ok) {
+        const body = await res.text()
+        let err: { message?: unknown; code?: unknown; error_subcode?: unknown } | undefined
+        try {
+          err = JSON.parse(body)?.error
+        } catch {}
+        throw new SendApiError(
+          res.status,
+          num(err?.code),
+          num(err?.error_subcode),
+          providerErrorMessage(err?.message, token, psid, message),
+          providerErrorDetails(body, token, psid, message),
+        )
+      }
+      const receipt = await res.json()
+      if (receipt?.error)
+        throw new SendApiError(
+          res.status,
+          num(receipt.error.code),
+          num(receipt.error.error_subcode),
+          providerErrorMessage(receipt.error.message, token, psid, message),
+          providerErrorDetails(receipt, token, psid, message),
+        )
+      if (typeof receipt?.message_id !== 'string' || !receipt.message_id.trim())
+        throw new Error('Messenger did not return a message receipt')
+      return receipt.message_id
+    },
+    (error) => logSendFailure(error, token, psid, message),
+  )
 }
 
 export async function sendMessage(
@@ -266,15 +342,23 @@ export async function privateReply(
   commentId: string,
   message: OutgoingMessage,
 ) {
-  return facebookOperation('facebook.private_reply', async () => {
-    const res = await fetch(graph('me/messages'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...auth(token) },
-      body: JSON.stringify({ recipient: { comment_id: commentId }, message }),
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) throw new Error('Facebook private reply failed')
-  })
+  return facebookOperation(
+    'facebook.private_reply',
+    async () => {
+      const res = await fetch(graph('me/messages'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth(token) },
+        body: JSON.stringify({ recipient: { comment_id: commentId }, message }),
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!res.ok) {
+        throw Object.assign(new Error('Facebook private reply failed'), {
+          response: { status: res.status, data: await res.text() },
+        })
+      }
+    },
+    (error) => logSendFailure(error, token, commentId, message),
+  )
 }
 
 /** The customer's name, or null (no token, or Meta refused). Never throws. */

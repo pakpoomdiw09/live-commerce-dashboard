@@ -155,7 +155,7 @@ test('successful Facebook customer and Page lookups retain profiles but never lo
   safeLogs(f.calls)
 })
 
-test('Facebook refusal, malformed JSON and nested network errors cannot escape through logs or thrown Error objects', async () => {
+test('Facebook send diagnostics preserve errors while masking credentials and reflected customer data', async () => {
   for (const scenario of ['refused', 'network', 'malformed']) {
     const f = facebook(async () => {
       if (scenario === 'network')
@@ -189,7 +189,18 @@ test('Facebook refusal, malformed JSON and nested network errors cannot escape t
     }
     const check = await f.api.inspectPageToken(secret, '12345')
     assert.ok(!JSON.stringify(check).includes(secret))
-    safeLogs(f.calls)
+    const diagnostics = f.calls.filter((args) =>
+      String(args[0]).startsWith('[facebook/send] Graph API request failed '),
+    )
+    assert.equal(diagnostics.length, 2)
+    for (const [entry] of diagnostics) {
+      assert.equal(typeof entry, 'string')
+      const details = JSON.parse(entry.slice('[facebook/send] Graph API request failed '.length))
+      assert.ok(Object.hasOwn(details, 'message'))
+      for (const value of [secret, account, customer, 'FAKE_LOG_ENTRY'])
+        assert.ok(!entry.includes(value), value)
+    }
+    safeLogs(f.calls.filter((args) => !diagnostics.includes(args)))
   }
 })
 
@@ -237,7 +248,7 @@ test('payment rejection, database errors and exceptions in auth/provider/billing
   }
 })
 
-test('target files have no direct console or error tracking calls that bypass centralized redaction', () => {
+test('direct diagnostics are restricted to the redacting Facebook send logger', () => {
   for (const file of [
     'lib/integrations/facebook/client.ts',
     'app/api/payments/verify-slip/route.ts',
@@ -249,11 +260,19 @@ test('target files have no direct console or error tracking calls that bypass ce
       true,
     )
     const inspect = (node) => {
-      if (ts.isCallExpression(node))
+      if (ts.isCallExpression(node)) {
+        let owner = node.parent
+        while (owner && !ts.isFunctionDeclaration(owner)) owner = owner.parent
+        const isSendDiagnostic =
+          file === 'lib/integrations/facebook/client.ts' &&
+          owner?.name?.text === 'logSendFailure' &&
+          node.expression.getText(source) === 'console.error'
         assert.ok(
-          !/\bconsole\.|captureException|captureMessage/.test(node.expression.getText(source)),
+          isSendDiagnostic ||
+            !/\bconsole\.|captureException|captureMessage/.test(node.expression.getText(source)),
           file,
         )
+      }
       ts.forEachChild(node, inspect)
     }
     inspect(source)
