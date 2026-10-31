@@ -9,6 +9,24 @@ export const account = {
   is_primary: true,
   qrPayload: __PAYMENT_QR_FIXTURE__,
 }
+const bankAccounts = [
+  {
+    ...account,
+    bank_code: 'KTB',
+    account_name: 'ร้านทดสอบ กรุงไทย',
+    account_number: '1234567890',
+    qrPayload: null,
+  },
+  {
+    ...account,
+    id: '22222222-2222-4222-8222-222222222222',
+    bank_code: 'KBANK',
+    account_name: 'ร้านทดสอบ กสิกรไทย',
+    account_number: '9876543210',
+    is_primary: false,
+    qrPayload: null,
+  },
+]
 export const codes: {
   id: string
   account_id: string
@@ -101,10 +119,13 @@ export function installFetch() {
         new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } }),
       )
     if (url.startsWith('/api/bank-accounts/qr')) {
+      const accountId = new URL(url, 'https://offline.test').searchParams.get('accountId')
+      const selected = bankAccounts.find((row) => row.id === accountId)
+      const key = `bank-qr-upload:${accountId}`
       if (options?.method === 'POST') {
         metrics.bankQrSaves++
         const form = options.body as FormData
-        const previous = JSON.parse(localStorage.getItem('bank-qr-upload') ?? 'null')
+        const previous = JSON.parse(localStorage.getItem(key) ?? 'null')
         const file = form.get('file')
         if (file instanceof File) {
           const dataUrl = await new Promise<string>((resolve) => {
@@ -112,17 +133,12 @@ export function installFetch() {
             reader.onload = () => resolve(String(reader.result))
             reader.readAsDataURL(file)
           })
-          localStorage.setItem('bank-qr-upload-image', dataUrl)
+          localStorage.setItem(`bank-qr-upload-image:${accountId}`, dataUrl)
         }
         localStorage.setItem(
-          'bank-qr-upload',
+          key,
           JSON.stringify({
-            account: {
-              ...account,
-              bank_code: form.get('bank_code'),
-              account_name: form.get('account_name'),
-              account_number: form.get('account_number'),
-            },
+            account: selected,
             hasQr: true,
             version: (previous?.version ?? 0) + 1,
           }),
@@ -131,8 +147,8 @@ export function installFetch() {
         return json({ ok: true })
       }
       return json(
-        JSON.parse(localStorage.getItem('bank-qr-upload') ?? 'null') ?? {
-          account: { ...account, bank_code: 'KBANK', account_number: '1234567890' },
+        JSON.parse(localStorage.getItem(key) ?? 'null') ?? {
+          account: selected,
           hasQr: false,
           version: 0,
         },
@@ -197,8 +213,15 @@ export function installFetch() {
       }
       return json({ accounts: [account], codes, orders: [], audit: [] })
     }
-    if (url.startsWith('/api/bank-accounts'))
-      return json({ accounts: [account], audit: [], canManage: true })
+    if (url.startsWith('/api/bank-accounts')) {
+      if (options?.method === 'POST') {
+        const body = JSON.parse(String(options.body))
+        const selected = bankAccounts.find((row) => row.id === body.id)
+        if (body.action === 'save' && selected) Object.assign(selected, body)
+        return json({ ok: true, id: selected?.id })
+      }
+      return json({ accounts: bankAccounts, audit: [], canManage: true })
+    }
     if (url.startsWith('/api/tenants/')) return json({ ok: true })
     throw Error('Unmocked API: ' + url)
   }) as typeof fetch

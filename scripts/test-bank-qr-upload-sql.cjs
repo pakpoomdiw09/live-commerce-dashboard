@@ -84,9 +84,69 @@ test('migration is repeatable; QR save activates the matching account atomically
       false,
     )
     assert.equal((await one('select count(*)::int n from bank_account_audit')).n, 4)
+    const previous = await one('select * from bank_receiving_qr')
+    const upgrade = readFileSync('supabase/bank-qr-per-account.sql', 'utf8')
+    await db.exec(upgrade)
+    await db.exec(upgrade)
+    assert.deepEqual(await one('select * from bank_receiving_qr'), previous)
+    const primary = await one('select * from bank_accounts where is_primary')
+    await db.query('update bank_accounts set is_active=false where id=$1', [account.id])
+    const upload = ({
+      id = account.id,
+      version = 0,
+      bank = 'KBANK',
+      number = '1234567890',
+      actor = owner,
+      shop = tenant,
+      path = `${tenant}/${id}/new.png`,
+    } = {}) =>
+      db.query('select save_bank_account_qr($1,$2,$3,$4,$5,$6,$7,$8)', [
+        shop,
+        actor,
+        id,
+        bank,
+        number,
+        path,
+        payload,
+        version,
+      ])
+    await upload()
+    assert.equal((await one('select count(*)::int n from bank_receiving_qr')).n, 2)
+    assert.equal(
+      (await one('select is_active from bank_accounts where id=$1', [account.id])).is_active,
+      false,
+    )
+    assert.equal((await one('select id from bank_accounts where is_primary')).id, primary.id)
+    await assert.rejects(upload(), (e) => e.code === '40001')
+    await assert.rejects(upload({ actor: staff, version: 1 }), (e) => e.code === '42501')
+    await assert.rejects(upload({ shop: other, version: 1 }), (e) => e.code === '42501')
+    await assert.rejects(upload({ id: other, version: 0 }), (e) => e.code === 'P0002')
+    await assert.rejects(upload({ number: '9999999999', version: 1 }), (e) => e.code === '40001')
+    await assert.rejects(
+      upload({ path: `${tenant}/${primary.id}/wrong.png`, version: 1 }),
+      (e) => e.code === '22023',
+    )
+    await upload({ id: primary.id, bank: 'KTB', number: '9999999999', version: 2 })
+    assert.equal(
+      (await one('select version from bank_receiving_qr where account_id=$1', [primary.id]))
+        .version,
+      3,
+    )
+    assert.equal(
+      (await one('select version from bank_receiving_qr where account_id=$1', [account.id]))
+        .version,
+      1,
+    )
+    await db.exec(upgrade)
+    assert.equal((await one('select count(*)::int n from bank_receiving_qr')).n, 2)
+    assert.equal(
+      (await one("select count(*)::int n from bank_account_audit where action='qr_upload'")).n,
+      2,
+    )
     await db.exec('set role authenticated')
     await assert.rejects(db.exec('select * from bank_receiving_qr'), (e) => e.code === '42501')
     await assert.rejects(save({ version: 2 }), (e) => e.code === '42501')
+    await assert.rejects(upload({ version: 1 }), (e) => e.code === '42501')
     await db.exec('reset role; set role anon')
     await assert.rejects(db.exec('select * from bank_receiving_qr'), (e) => e.code === '42501')
   } finally {

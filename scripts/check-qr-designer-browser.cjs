@@ -167,9 +167,36 @@ w.init()
       url: require('node:url').pathToFileURL(path.join(root, 'index.html')).href + '#designer',
     })
 
+    const openAccount = async (index = 0) => {
+      await wait(
+        `[...document.querySelectorAll('button')].filter(b=>b.textContent.includes('ดู / แก้ไขบัญชี')).length===2`,
+      )
+      await evaluate(
+        `[...document.querySelectorAll('button')].filter(b=>b.textContent.includes('ดู / แก้ไขบัญชี'))[${index}].click()`,
+      )
+      await wait(
+        `!!document.querySelector('#slip-tab-panel input[type=file]')&&!document.querySelector('#slip-tab-panel input[type=file]').disabled&&!document.querySelector('#slip-tab-panel input[type=file]').closest('fieldset').disabled`,
+      )
+      await pause()
+    }
+    const closeAccount = async () => {
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(b=>b.textContent==='ยกเลิก').click()`,
+      )
+      await pause()
+    }
     await wait(
-      `!!document.querySelector('#slip-tab-panel input[type=file]')&&!document.querySelector('#slip-tab-panel fieldset').disabled`,
+      `document.body.textContent.includes('ร้านทดสอบ กรุงไทย')&&document.body.textContent.includes('ร้านทดสอบ กสิกรไทย')`,
     )
+    assert.equal(
+      await evaluate('document.querySelectorAll("#slip-tab-panel input[type=file]").length'),
+      0,
+    )
+    assert.equal(
+      await evaluate(`document.body.textContent.includes('QR Code บัญชีรับเงินของร้าน')`),
+      false,
+    )
+    await openAccount()
     assert.equal(await evaluate('document.querySelectorAll("[role=tab]").length'), 4)
     assert.equal(await evaluate('document.querySelectorAll("#slip-tab-panel canvas").length'), 0)
     for (const oldText of [
@@ -196,13 +223,44 @@ w.init()
       1,
     )
     await evaluate(
-      `const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึก QR รับเงิน');b.click();b.click();b.click()`,
+      `const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึกการอัปเดตรูป QR Code');b.click();b.click();b.click()`,
     )
-    await wait(`document.body.textContent.includes('บันทึก QR รับเงินแล้ว')`)
+    await wait(`document.body.textContent.includes('บันทึกรูป QR ประจำบัญชีแล้ว')`)
     assert.equal(await evaluate('paymentTest.metrics.bankQrSaves'), 1)
     assert.equal(await evaluate('paymentTest.metrics.designSaves'), 0)
+    await closeAccount()
+    await openAccount(1)
+    assert.equal(
+      await evaluate('document.querySelectorAll("#slip-tab-panel img[alt*=QR]").length'),
+      0,
+    )
+    const secondDoc = await call('DOM.getDocument')
+    const secondNode = await call('DOM.querySelector', {
+      nodeId: secondDoc.root.nodeId,
+      selector: '#slip-tab-panel input[type=file]',
+    })
+    await call('DOM.setFileInputFiles', { nodeId: secondNode.nodeId, files: [upload] })
+    await pause()
+    await evaluate(
+      `[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึกการอัปเดตรูป QR Code').click()`,
+    )
+    await wait(`document.body.textContent.includes('บันทึกรูป QR ประจำบัญชีแล้ว')`)
+    assert.equal(await evaluate('paymentTest.metrics.bankQrSaves'), 2)
+    assert.equal(
+      await evaluate(
+        `JSON.parse(localStorage.getItem('bank-qr-upload:11111111-1111-4111-8111-111111111111')).version`,
+      ),
+      1,
+    )
+    assert.equal(
+      await evaluate(
+        `JSON.parse(localStorage.getItem('bank-qr-upload:22222222-2222-4222-8222-222222222222')).version`,
+      ),
+      1,
+    )
     await call('Page.reload')
-    await wait(`document.querySelector('img[alt="QR รับเงินหลักที่ใช้งานอยู่"]')?.complete`)
+    await openAccount()
+    await wait(`document.querySelector('img[alt="QR Code ประจำบัญชีที่บันทึกไว้"]')?.complete`)
     assert.equal(
       await evaluate('document.querySelectorAll("#slip-tab-panel img[alt*=QR]").length'),
       1,
@@ -212,13 +270,13 @@ w.init()
     )
     await wait(`document.body.textContent.includes('กรุณาเลือกรูป PNG หรือ JPG')`)
     await evaluate(
-      `(()=>{const bytes=Uint8Array.from(atob(localStorage.getItem('bank-qr-upload-image').split(',')[1]),c=>c.charCodeAt(0));const zone=document.querySelector('#slip-tab-panel input[type=file]').closest('div');const transfer=new DataTransfer();transfer.items.add(new File([bytes],'dropped.png',{type:'image/png'}));zone.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}))})()`,
+      `(()=>{const bytes=Uint8Array.from(atob(localStorage.getItem('bank-qr-upload-image:11111111-1111-4111-8111-111111111111').split(',')[1]),c=>c.charCodeAt(0));const zone=document.querySelector('#slip-tab-panel input[type=file]').closest('div');const transfer=new DataTransfer();transfer.items.add(new File([bytes],'dropped.png',{type:'image/png'}));zone.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}))})()`,
     )
     await wait(`!!document.querySelector('img[alt="รูป QR ที่เลือก รอยืนยันการบันทึก"]')`)
     await evaluate(
-      `[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึก QR รับเงิน').click()`,
+      `[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึกการอัปเดตรูป QR Code').click()`,
     )
-    await wait(`document.body.textContent.includes('บันทึก QR รับเงินแล้ว')`)
+    await wait(`document.body.textContent.includes('บันทึกรูป QR ประจำบัญชีแล้ว')`)
     fs.mkdirSync('docs/screenshots', { recursive: true })
     for (const width of [375, 768, 1440]) {
       await call('Emulation.setDeviceMetricsOverride', {
@@ -242,17 +300,18 @@ w.init()
         await pause()
         assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'))
       }
-      await wait(`!!document.querySelector('#slip-tab-panel input[type=file]')`)
+      await openAccount()
     }
     await call('Page.navigate', {
       url: require('node:url').pathToFileURL(path.join(root, 'index.html')).href + '#banks',
     })
     await call('Page.reload')
-    await wait(`document.querySelector('img[alt="QR รับเงินหลักที่ใช้งานอยู่"]')?.complete`)
+    await openAccount()
+    await wait(`document.querySelector('img[alt="QR Code ประจำบัญชีที่บันทึกไว้"]')?.complete`)
     assert.equal(await evaluate('document.querySelectorAll("#slip-tab-panel canvas").length'), 0)
     assert.deepEqual(errors, [])
     console.log(
-      'PASS: offline Chrome/Strict Mode: upload-only banks tab, one preview, single save, private-image reload fixture, invalid drop rejected, 375/768/1440 without overflow.',
+      'PASS: Chrome/Strict Mode: bank cards, account editor, isolated QR uploads for two banks, single save, reload, drag/drop, 375/768/1440 without overflow.',
     )
   } finally {
     socket?.close()

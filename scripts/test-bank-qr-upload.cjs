@@ -6,6 +6,7 @@ const load = require('./helpers/load-typescript.cjs')
 const tenant = '11111111-1111-4111-8111-111111111111'
 const other = '22222222-2222-4222-8222-222222222222'
 const accountId = '33333333-3333-4333-8333-333333333333'
+const secondAccountId = '44444444-4444-4444-8444-444444444444'
 const globals = {
   Buffer,
   File,
@@ -28,9 +29,6 @@ const globals = {
 }
 const core = load('lib/features/payments/payment-codes-core.ts', {}, globals)
 const banks = load('lib/features/banking/banks.ts')
-const accounts = load('lib/features/banking/bank-accounts.ts', {
-  '@/lib/features/banking/banks': banks,
-})
 const qrCore = load(
   'lib/features/banking/bank-qr-upload.ts',
   { '@/lib/features/payments/payment-codes-core': core },
@@ -82,11 +80,12 @@ function fixture({
   rpcError = null,
   stored = null,
   stale = false,
+  accountBank = 'KBANK',
 } = {}) {
   const calls = []
   const account = {
     id: accountId,
-    bank_code: 'KBANK',
+    bank_code: accountBank,
     account_name: 'ร้านทดสอบ',
     account_number: '1234567890',
     is_active: true,
@@ -103,12 +102,19 @@ function fixture({
         },
         async maybeSingle() {
           assert.equal(filters.tenant_id, tenant)
-          calls.push({ read: table })
+          calls.push({ read: table, filters: { ...filters } })
+          const selected = [account, { ...account, id: secondAccountId, is_primary: false }].find(
+            (row) => row.id === filters.id,
+          )
           return {
             data:
               table === 'bank_receiving_qr'
-                ? stored
-                : { ...account, account_number: stale ? '9999999999' : account.account_number },
+                ? stored?.account_id === filters.account_id
+                  ? stored
+                  : null
+                : selected
+                  ? { ...selected, account_number: stale ? '9999999999' : selected.account_number }
+                  : null,
             error: null,
           }
         },
@@ -185,7 +191,8 @@ function fixture({
     {
       'next/server': { NextResponse },
       '@/lib/features/payments/payment-codes-server': server,
-      '@/lib/features/banking/bank-accounts': accounts,
+      '@/lib/features/banking/banks': banks,
+      '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/ },
       '@/lib/features/banking/bank-qr-upload': qrCore,
       '@/lib/features/inbox/inbox-server': errors,
       '@/lib/upload-security': security,
@@ -194,15 +201,18 @@ function fixture({
   )
   function request(
     file,
-    { fields = {}, origin = 'https://shop.test', tenantId = tenant, asset = '' } = {},
+    {
+      fields = {},
+      origin = 'https://shop.test',
+      tenantId = tenant,
+      account = accountId,
+      asset = '',
+    } = {},
   ) {
-    const url = `https://shop.test/api/bank-accounts/qr?tenantId=${tenantId}${asset ? '&asset=' + asset : ''}`
+    const url = `https://shop.test/api/bank-accounts/qr?tenantId=${tenantId}&accountId=${account}${asset ? '&asset=' + asset : ''}`
     if (file === undefined) return { nextUrl: new URL(url), headers: new Headers({ origin }) }
     const form = new FormData()
     for (const [key, value] of Object.entries({
-      bank_code: 'KBANK',
-      account_name: ' ร้านทดสอบ ',
-      account_number: '123-4-56789-0',
       version: String(stored?.version ?? 0),
       ...fields,
     }))
@@ -232,16 +242,17 @@ test('PNG/JPG are decoded on the server, privately uploaded and atomically linke
     assert.equal(result.status, 200)
     const upload = f.calls.find((c) => c.upload),
       save = f.calls.find((c) => c.rpc)
-    assert.ok(upload.upload.startsWith(tenant + '/'))
+    assert.ok(upload.upload.startsWith(`${tenant}/${accountId}/`))
     assert.equal(upload.options.upsert, false)
     assert.equal(upload.bytes.equals(Buffer.from(await file.arrayBuffer())), true)
-    assert.equal(save.rpc, 'save_bank_receiving_qr')
+    assert.equal(save.rpc, 'save_bank_account_qr')
     assert.equal(save.args.p_actor, 'server-owner')
     assert.equal(save.args.p_tenant, tenant)
     assert.equal(save.args.p_number, '1234567890')
     assert.equal(save.args.p_payload, payload)
     assert.equal(save.args.p_path, upload.upload)
-    assert.equal(save.args.p_name, 'ร้านทดสอบ')
+    assert.equal(save.args.p_account, accountId)
+    assert.equal(Object.hasOwn(save.args, 'p_name'), false)
   }
 })
 
@@ -313,17 +324,16 @@ test('invalid bank, spoofed/blank/non-payment images and forged fields cannot ch
   }
 })
 
-test('name-only edits reuse the image; account changes require a new QR and version conflicts never overwrite', async () => {
+test('explicit account selection isolates QR versions and rejects unknown accounts or stale edits', async () => {
   const f = fixture({ stored })
-  assert.equal(
-    (await f.api.POST(f.request(null, { fields: { account_name: 'ชื่อใหม่' } }))).status,
-    200,
-  )
-  assert.equal(
-    f.calls.some((c) => c.upload),
-    false,
-  )
-  assert.equal(f.calls.find((c) => c.rpc).args.p_path, stored.image_path)
+  assert.equal((await f.api.POST(f.request(null))).status, 400)
+  const second = await f.api.GET(f.request(undefined, { account: secondAccountId }))
+  assert.equal(second.body.hasQr, false)
+  assert.equal(second.body.version, 0)
+  assert.equal(second.body.account.id, secondAccountId)
+  assert.equal((await f.api.GET(f.request(undefined, { account: other }))).status, 404)
+  assert.equal((await f.api.POST(f.request(null, { account: '' }))).status, 400)
+  assert.equal((await f.api.POST(f.request(null, { account: other }))).status, 404)
   const g = fixture({ stored })
   assert.equal(
     (await g.api.POST(g.request(null, { fields: { account_number: '9999999999' } }))).status,
@@ -337,6 +347,15 @@ test('name-only edits reuse the image; account changes require a new QR and vers
     g.calls.some((c) => c.upload || c.rpc),
     false,
   )
+  const h = fixture()
+  assert.equal(
+    (await h.api.POST(h.request(await qrFile(), { account: secondAccountId }))).status,
+    200,
+  )
+  assert.equal(h.calls.find((c) => c.rpc).args.p_account, secondAccountId)
+  assert.ok(h.calls.find((c) => c.upload).upload.startsWith(`${tenant}/${secondAccountId}/`))
+  const unsupported = fixture({ accountBank: 'PROMPTPAY' })
+  assert.equal((await unsupported.api.POST(unsupported.request(await qrFile()))).status, 400)
 })
 
 test('definite database refusal cleans a new upload; ambiguous timeout preserves possibly committed image', async () => {

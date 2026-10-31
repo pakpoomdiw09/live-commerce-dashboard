@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     if (result.error?.code === '22023')
       throw new InboxError('กรุณายืนยันและเลือกบัญชีที่เปิดใช้งาน')
     checkRpc(result.error)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, id: result.data })
   } catch (error) {
     return inboxError(error)
   }
