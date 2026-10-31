@@ -6,7 +6,7 @@ import { installFetch, metrics } from './mocks'
 installFetch()
 Object.assign(window, { paymentTest: { metrics } })
 function App() {
-  const [tab, setTab] = useState<PaymentChannelTab>('qr')
+  const [tab, setTab] = useState<PaymentChannelTab>(location.hash === '#banks' ? 'banks' : 'qr')
   useEffect(() => {
     const change = (event: Event) => setTab((event as CustomEvent).detail)
     window.addEventListener('payment-tab', change)

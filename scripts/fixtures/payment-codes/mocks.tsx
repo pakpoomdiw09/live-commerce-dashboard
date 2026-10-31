@@ -22,6 +22,7 @@ export const codes: {
   created_at: string
 }[] = []
 export const metrics = {
+  bankQrSaves: 0,
   designSaves: 0,
   saves: 0,
   imports: 0,
@@ -99,6 +100,46 @@ export function installFetch() {
       Promise.resolve(
         new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } }),
       )
+    if (url.startsWith('/api/bank-accounts/qr')) {
+      if (options?.method === 'POST') {
+        metrics.bankQrSaves++
+        const form = options.body as FormData
+        const previous = JSON.parse(localStorage.getItem('bank-qr-upload') ?? 'null')
+        const file = form.get('file')
+        if (file instanceof File) {
+          const dataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result))
+            reader.readAsDataURL(file)
+          })
+          localStorage.setItem('bank-qr-upload-image', dataUrl)
+        }
+        localStorage.setItem(
+          'bank-qr-upload',
+          JSON.stringify({
+            account: {
+              ...account,
+              bank_code: form.get('bank_code'),
+              account_name: form.get('account_name'),
+              account_number: form.get('account_number'),
+            },
+            hasQr: true,
+            version: (previous?.version ?? 0) + 1,
+          }),
+        )
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        return json({ ok: true })
+      }
+      return json(
+        JSON.parse(localStorage.getItem('bank-qr-upload') ?? 'null') ?? {
+          account: { ...account, bank_code: 'KBANK', account_number: '1234567890' },
+          hasQr: false,
+          version: 0,
+        },
+      )
+    }
+    if (url.startsWith('/api/slips/settings'))
+      return json({ slip_confirmation_template: '', canManage: true })
     if (url.startsWith('/api/payment-designs')) {
       if (options?.method === 'POST') {
         metrics.designSaves++

@@ -25,6 +25,7 @@ w.init()
             '@/lib/supabase/browser$': mock,
             'next/link$': mock,
             'next/navigation$': mock,
+            'next/image$': path.join(cwd, 'scripts/fixtures/payment-codes/bank-qr-image.tsx'),
             '@': cwd,
           },
         },
@@ -167,60 +168,57 @@ w.init()
     })
 
     await wait(
-      `[...document.querySelectorAll('button')].some(b=>b.textContent==='ตกแต่ง QR / อัปเดตรูป')`,
-    )
-    await evaluate(
-      `window.confirm=()=>true;window.fill=(selector,value)=>{const n=document.querySelector(selector);Object.getOwnPropertyDescriptor(n instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set.call(n,value);n.dispatchEvent(new Event(n instanceof HTMLSelectElement?'change':'input',{bubbles:true}))};[...document.querySelectorAll('button')].find(b=>b.textContent==='ตกแต่ง QR / อัปเดตรูป').click()`,
-    )
-    await wait(
-      `!!document.querySelector('aside canvas')&&!document.querySelector('aside fieldset').disabled`,
+      `!!document.querySelector('#slip-tab-panel input[type=file]')&&!document.querySelector('#slip-tab-panel fieldset').disabled`,
     )
     assert.equal(await evaluate('document.querySelectorAll("[role=tab]").length'), 4)
-    for (let i = 0; i < 5; i++) {
-      await evaluate(`fill('aside select','` + i + `')`)
-      await pause()
-      const png = Buffer.from(
-          (await evaluate('document.querySelector("aside canvas[aria-label]").toDataURL()')).split(
-            ',',
-          )[1],
-          'base64',
-        ),
-        raw = await require('sharp')(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    assert.equal(await evaluate('document.querySelectorAll("#slip-tab-panel canvas").length'), 0)
+    for (const oldText of [
+      'QR ของร้าน 100 รายการล่าสุด',
+      'ตัวอย่าง QR ที่บันทึก',
+      'ตกแต่ง QR รับเงิน',
+      'ไม่ระบุยอดเงิน',
+    ])
       assert.equal(
-        require('jsqr')(new Uint8ClampedArray(raw.data), raw.info.width, raw.info.height).data,
-        payload,
+        await evaluate(
+          `document.querySelector('#slip-tab-panel').textContent.includes(${JSON.stringify(oldText)})`,
+        ),
+        false,
       )
-    }
     const doc = await call('DOM.getDocument'),
       node = await call('DOM.querySelector', {
         nodeId: doc.root.nodeId,
-        selector: 'aside input[type=file]',
+        selector: '#slip-tab-panel input[type=file]',
       })
     await call('DOM.setFileInputFiles', { nodeId: node.nodeId, files: [upload] })
     await pause()
-    assert.ok(await evaluate('!!document.querySelector("aside img")'))
-    await evaluate(
-      `const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึกการตกแต่ง');b.click();b.click();b.click()`,
+    assert.equal(
+      await evaluate('document.querySelectorAll("#slip-tab-panel img[alt*=QR]").length'),
+      1,
     )
-    await wait(`document.body.textContent.includes('บันทึกรูปและการตกแต่งแล้ว')`)
-    assert.equal(await evaluate('paymentTest.metrics.designSaves'), 1)
-    const downloads = path.join(root, 'downloads')
-    fs.mkdirSync(downloads)
-    await call('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads })
     await evaluate(
-      `[...document.querySelectorAll('button')].find(b=>b.textContent==='ดาวน์โหลด PNG').click()`,
+      `const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึก QR รับเงิน');b.click();b.click();b.click()`,
     )
-    for (let i = 0; i < 40 && !fs.readdirSync(downloads).some((f) => f.endsWith('.png')); i++)
-      await pause()
-    assert.ok(fs.readdirSync(downloads).some((f) => f.endsWith('.png')))
+    await wait(`document.body.textContent.includes('บันทึก QR รับเงินแล้ว')`)
+    assert.equal(await evaluate('paymentTest.metrics.bankQrSaves'), 1)
+    assert.equal(await evaluate('paymentTest.metrics.designSaves'), 0)
     await call('Page.reload')
-    await wait(
-      `[...document.querySelectorAll('button')].some(b=>b.textContent==='ตกแต่ง QR / อัปเดตรูป')`,
+    await wait(`document.querySelector('img[alt="QR รับเงินหลักที่ใช้งานอยู่"]')?.complete`)
+    assert.equal(
+      await evaluate('document.querySelectorAll("#slip-tab-panel img[alt*=QR]").length'),
+      1,
     )
     await evaluate(
-      `window.confirm=()=>true;[...document.querySelectorAll('button')].find(b=>b.textContent==='ตกแต่ง QR / อัปเดตรูป').click()`,
+      `(()=>{const zone=document.querySelector('#slip-tab-panel input[type=file]').closest('div');const transfer=new DataTransfer();transfer.items.add(new File(['bad'],'bad.svg',{type:'image/svg+xml'}));zone.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}))})()`,
     )
-    await wait(`document.body.textContent.includes('ดูรูป QR ต้นฉบับที่บันทึก')`)
+    await wait(`document.body.textContent.includes('กรุณาเลือกรูป PNG หรือ JPG')`)
+    await evaluate(
+      `(()=>{const bytes=Uint8Array.from(atob(localStorage.getItem('bank-qr-upload-image').split(',')[1]),c=>c.charCodeAt(0));const zone=document.querySelector('#slip-tab-panel input[type=file]').closest('div');const transfer=new DataTransfer();transfer.items.add(new File([bytes],'dropped.png',{type:'image/png'}));zone.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}))})()`,
+    )
+    await wait(`!!document.querySelector('img[alt="รูป QR ที่เลือก รอยืนยันการบันทึก"]')`)
+    await evaluate(
+      `[...document.querySelectorAll('button')].find(b=>b.textContent==='บันทึก QR รับเงิน').click()`,
+    )
+    await wait(`document.body.textContent.includes('บันทึก QR รับเงินแล้ว')`)
     fs.mkdirSync('docs/screenshots', { recursive: true })
     for (const width of [375, 768, 1440]) {
       await call('Emulation.setDeviceMetricsOverride', {
@@ -236,7 +234,7 @@ w.init()
         captureBeyondViewport: false,
       })
       fs.writeFileSync(
-        'docs/screenshots/qr-designer-' + width + '.png',
+        'docs/screenshots/bank-qr-upload-' + width + '.png',
         Buffer.from(shot.data, 'base64'),
       )
       for (const tab of ['history', 'automation', 'security', 'banks']) {
@@ -244,14 +242,17 @@ w.init()
         await pause()
         assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'))
       }
-      await evaluate(
-        `[...document.querySelectorAll('button')].find(b=>b.textContent==='ตกแต่ง QR / อัปเดตรูป').click()`,
-      )
-      await pause()
+      await wait(`!!document.querySelector('#slip-tab-panel input[type=file]')`)
     }
+    await call('Page.navigate', {
+      url: require('node:url').pathToFileURL(path.join(root, 'index.html')).href + '#banks',
+    })
+    await call('Page.reload')
+    await wait(`document.querySelector('img[alt="QR รับเงินหลักที่ใช้งานอยู่"]')?.complete`)
+    assert.equal(await evaluate('document.querySelectorAll("#slip-tab-panel canvas").length'), 0)
     assert.deepEqual(errors, [])
     console.log(
-      'PASS: offline Chrome: four tabs, five templates decode unchanged, upload preview, single save, PNG export, reload persistence fixture, 375/768/1440 without overflow.',
+      'PASS: offline Chrome/Strict Mode: upload-only banks tab, one preview, single save, private-image reload fixture, invalid drop rejected, 375/768/1440 without overflow.',
     )
   } finally {
     socket?.close()

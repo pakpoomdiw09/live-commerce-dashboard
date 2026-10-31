@@ -27,7 +27,10 @@ function load(file, deps = {}, env = {}) {
   return context.exports
 }
 const core = load('lib/features/payments/payment-codes-core.ts'),
-  image = load('lib/features/vision/vision-image.ts', { 'server-only': {} })
+  image = load('lib/features/vision/vision-image.ts', {
+    'server-only': {},
+    '@/lib/image-signature': load('lib/image-signature.ts'),
+  })
 const account = {
   id: 'account',
   bank_code: 'PROMPTPAY',

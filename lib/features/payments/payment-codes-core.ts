@@ -36,7 +36,7 @@ export function crc16(bytes: Uint8Array) {
   }
   return crc.toString(16).toUpperCase().padStart(4, '0')
 }
-function fields(value: string): Map<string, string> {
+export function qrFields(value: string): Map<string, string> {
   const bytes = new TextEncoder().encode(value),
     decoder = new TextDecoder('utf-8', { fatal: true }),
     result = new Map<string, string>()
@@ -61,7 +61,7 @@ export function parseReceivingQr(payload: string) {
     !/6304[0-9a-f]{4}$/i.test(payload)
   )
     throw Error('ไม่ใช่ QR พร้อมเพย์ที่รองรับ')
-  const root = fields(payload)
+  const root = qrFields(payload)
   if ([...root.keys()].some((key) => Number(key) >= 2 && Number(key) <= 51 && key !== '29'))
     throw Error('ยังไม่รองรับ QR ที่รวมหลายช่องทางรับเงิน')
   if (
@@ -72,7 +72,7 @@ export function parseReceivingQr(payload: string) {
     crc16(new TextEncoder().encode(payload.slice(0, -4))) !== payload.slice(-4).toUpperCase()
   )
     throw Error('QR ไม่ผ่านการตรวจรูปแบบ สกุลเงิน หรือรหัสตรวจสอบ')
-  const merchant = fields(root.get('29') ?? '')
+  const merchant = qrFields(root.get('29') ?? '')
   if (merchant.get('00') !== 'A000000677010111')
     throw Error('ยังไม่รองรับ QR ธนาคารหรือผู้ให้บริการรูปแบบนี้')
   const proxies = ['01', '02', '03'].filter((key) => merchant.has(key))

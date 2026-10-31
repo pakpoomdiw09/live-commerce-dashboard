@@ -10,7 +10,6 @@ import { SlipTabs } from '@/components/slips/SlipTabs'
 import type { Billing } from '@/lib/features/billing/plans'
 import type { TenantRole, TenantRow } from '@/lib/types'
 import { ReceivingCodeManager } from '@/components/slips/ReceivingCodeManager'
-import { BankAccountsManager } from '@/components/settings/BankAccountsManager'
 import { PaymentAutomationSettings } from '@/components/slips/PaymentAutomationSettings'
 import { PaymentChannelStatus } from '@/components/slips/PaymentChannelStatus'
 import {
@@ -74,12 +73,7 @@ export function SlipsDashboard({
                 เฉพาะเจ้าของร้านหรือผู้ดูแลที่มีสิทธิ์เท่านั้นที่ดูข้อมูล QR และหมายเลขผู้รับเต็มได้
               </p>
             ))}
-          {tab === 'banks' &&
-            (designerEnabled ? (
-              <BankQrWorkspace tenantId={tenant.id} canManage={canManage} />
-            ) : (
-              <BankAccountsManager tenantId={tenant.id} canManage={canManage} />
-            ))}
+          {tab === 'banks' && <BankQrWorkspace tenantId={tenant.id} canManage={canManage} />}
           {tab === 'history' &&
             (proEnabled ? (
               <SlipOverviewTab tenant={tenant} initial={initial} canManage={canManage} />
