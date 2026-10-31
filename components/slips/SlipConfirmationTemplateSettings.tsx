@@ -73,7 +73,7 @@ export function SlipConfirmationTemplateSettings({ tenantId }: { tenantId: strin
   return (
     <div className="space-y-3 border-t border-orange-100 pt-5">
       <label htmlFor={id} className="block font-medium">
-        ข้อความยืนยันยอดเงิน (Slip Confirmation Template)
+        ข้อความตอบรับยอดเงินอัตโนมัติ
       </label>
       <textarea
         id={id}
@@ -88,14 +88,16 @@ export function SlipConfirmationTemplateSettings({ tenantId }: { tenantId: strin
         }}
         aria-describedby={`${id}-help`}
       />
-      <div id={`${id}-help`} className="space-y-1 text-xs text-slate-500">
+      <div id={`${id}-help`} className="space-y-2 text-xs leading-relaxed text-slate-500">
         <p>
-          <code>{'{amount}'}</code> = ยอดเงินที่โอน เช่น 1.00
+          <code>{'{amount}'}</code> : ยอดเงินที่โอนจริง (เช่น 100.00)
         </p>
         <p>
-          <code>{'{pageName}'}</code> = ชื่อเพจ
+          <code>{'{pageName}'}</code> : ชื่อเพจของคุณ
         </p>
-        <p>เว้นว่างเพื่อใช้ข้อความเริ่มต้น ข้อความนี้จะตรงกันใน Messenger และแดชบอร์ด</p>
+        <p>
+          (หากเว้นว่างไว้ ระบบจะใช้ข้อความเริ่มต้นมาตรฐาน ทั้งในแชทลูกค้าและหน้าจอร้านจะแสดงตรงกัน)
+        </p>
       </div>
       {loading && (
         <p className="text-sm text-slate-500" role="status">
