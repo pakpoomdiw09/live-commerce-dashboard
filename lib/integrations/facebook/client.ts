@@ -370,30 +370,9 @@ export async function privateReply(
   )
 }
 
-/** A single private reply that can include the order summary and its QR image. */
-export function sendPrivateReply(
-  token: string | null,
-  commentId: string,
-  message: string,
-  qrImageUrl: string | null = null,
-) {
-  if (!qrImageUrl) return privateReply(token, commentId, { text: message })
-  const [title = '', ...rest] = message.split('\n')
-  return privateReply(token, commentId, {
-    attachment: {
-      type: 'template',
-      payload: {
-        template_type: 'generic',
-        elements: [
-          {
-            title: title.slice(0, 80),
-            subtitle: rest.join(' ').slice(0, 80),
-            image_url: qrImageUrl,
-          },
-        ],
-      },
-    },
-  })
+/** Live CF private reply: one text payload only; payment media belongs on a signed HTTPS page. */
+export function sendPrivateReply(token: string | null, commentId: string, message: string) {
+  return privateReply(token, commentId, { text: message.normalize('NFC').trim().slice(0, 2000) })
 }
 
 /** Resolve a feed post to a video only when a Live CF keyword already matched. No polling. */

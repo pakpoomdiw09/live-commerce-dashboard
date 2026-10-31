@@ -72,7 +72,7 @@ export async function placeCfOrder(
   ),
 ): Promise<CfResult> {
   if (input.source === 'live_comment')
-    return callCfOrder(db, 'place_live_cf_order', {
+    return callCfOrder(db, 'place_cf_order', {
       p_tenant: input.tenantId,
       p_customer: input.customerId,
       p_rule: input.ruleId,

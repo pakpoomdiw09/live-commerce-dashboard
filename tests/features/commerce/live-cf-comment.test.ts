@@ -114,7 +114,7 @@ async function placeCommentOrder(db: PGlite, code: string, commentId: string) {
   }
 }
 
-test('live comment CF orders match product and variant codes, protect variant stock, and send the primary QR', async () => {
+test('live comment CF orders match codes, protect stock, and send one secure payment link', async () => {
   const db = await commerceDb()
   try {
     const simpleProduct = await saveProduct(db, {
@@ -219,9 +219,8 @@ test('live comment CF orders match product and variant codes, protect variant st
       bankName: 'ธนาคารกสิกรไทย',
       accountName: 'ร้านทดสอบ',
       accountNumber: '1234567890',
-      qrImageUrl: 'https://storage.example/qr.png?token=short-lived',
     }
-    const replies: { message: string; qrImageUrl: string | null }[] = []
+    const replies: string[] = []
     const publicReplies: string[] = []
     const handle = (text: string, commentId: string) =>
       handleLiveCfComment(
@@ -241,9 +240,8 @@ test('live comment CF orders match product and variant codes, protect variant st
             ),
           getPayment: async () => payment,
           getPendingTotal: async () => 159,
-          sendPrivateReply: async (message, qrImageUrl) => {
-            replies.push({ message, qrImageUrl })
-          },
+          getPaymentLink: async (orderId) => `https://shop.example/pay/live/${orderId}.signed`,
+          sendPrivateReply: async (message) => void replies.push(message),
           replyToComment: async (message) => {
             publicReplies.push(message)
           },
@@ -252,8 +250,8 @@ test('live comment CF orders match product and variant codes, protect variant st
 
     assert.equal(cfCode('CF 159'), '159')
     assert.equal(await handle('CF 159', 'comment-simple'), true)
-    assert.match(replies[0].message, /159/)
-    assert.equal(replies[0].qrImageUrl, payment.qrImageUrl)
+    assert.match(replies[0], /159/)
+    assert.match(replies[0], /https:\/\/shop\.example\/pay\/live\//)
     assert.match(publicReplies[0], /รับออเดอร์แล้วค่ะ/)
     assert.equal(
       (await db.query<{ count: number }>('select count(*)::int count from orders')).rows[0].count,
@@ -274,8 +272,7 @@ test('live comment CF orders match product and variant codes, protect variant st
     )
 
     assert.equal(await handle('CF 260', 'comment-require-variant'), true)
-    assert.match(replies[2].message, /มีตัวเลือกสินค้า/)
-    assert.equal(replies[2].qrImageUrl, null)
+    assert.match(replies[2], /มีตัวเลือกสินค้า/)
     assert.match(publicReplies[2], /มีตัวเลือก/)
     assert.equal(
       (

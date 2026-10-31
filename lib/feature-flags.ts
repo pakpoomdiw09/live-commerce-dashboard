@@ -1,4 +1,4 @@
-export type FeatureName = 'sales_page_v2'
+export type FeatureName = 'sales_page_v2' | 'live_cf'
 
 /** Public flags are configuration, not authorization. Only the literal "true" enables a feature.
  * Explicit public values take precedence; old server flags remain a migration fallback.
@@ -11,7 +11,11 @@ export function isFeatureEnabled(feature: FeatureName): boolean {
         (process.env.NEXT_PUBLIC_SALES_PAGE_V2_ENABLED ?? process.env.SALES_PAGE_V2_ENABLED) ===
         'true'
       )
+    case 'live_cf':
+      return process.env.NEXT_PUBLIC_ENABLE_LIVE_CF === 'true'
     default:
       return false
   }
 }
+
+export const LIVE_CF_ENABLED = process.env.NEXT_PUBLIC_ENABLE_LIVE_CF === 'true'

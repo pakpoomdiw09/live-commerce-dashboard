@@ -14,6 +14,7 @@ import {
   House,
   LogOut,
   Megaphone,
+  Radio,
   Menu,
   MessagesSquare,
   Settings,
@@ -26,11 +27,13 @@ import { PageTransition } from '@/components/shell/PageTransition'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
 import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
+import { LIVE_CF_ENABLED } from '@/lib/feature-flags'
 
 type NavLink = { href: string; label: string }
 type NavItem = NavLink & { icon: LucideIcon; children?: NavLink[] }
 
 const NAV: NavItem[] = [
+  ...(LIVE_CF_ENABLED ? [{ href: '/live-cf', label: 'ไลฟ์สด CF', icon: Radio }] : []),
   { href: '/overview', label: 'หน้าหลัก', icon: House },
   { href: '/slips', label: 'ตรวจสอบสลิป', icon: CreditCard },
   {

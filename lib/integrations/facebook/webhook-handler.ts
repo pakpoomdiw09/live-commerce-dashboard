@@ -11,6 +11,7 @@ import {
 } from '@/lib/integrations/facebook/client'
 import {
   RULE_COLUMNS,
+  LIVE_CF_RULE_COLUMNS,
   liveRuleCode,
   ruleMatches,
   type CommentRule,
@@ -25,6 +26,9 @@ import {
   soldOutText,
 } from '@/lib/features/commerce/orders'
 import { handleLiveCfComment } from '@/lib/features/commerce/live-cf-comment'
+import { createLiveCfPaymentLink } from '@/lib/features/commerce/live-cf-payment-link'
+import { createLiveCfMetaAdapter } from '@/lib/integrations/facebook/live-cf-adapter'
+import { isFeatureEnabled } from '@/lib/feature-flags'
 import { findBank } from '@/lib/features/banking/banks'
 import { processSlip } from '@/lib/features/slips/process'
 import { deliverOnce, notifySlipResult, type Recipient } from '@/lib/features/slips/notify'
@@ -492,7 +496,9 @@ async function onComment(
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const rules = await loadCommentRules(db, tenant.id, pageId)
   const psid = typeof v.from?.id === 'string' ? v.from.id : null
-  const possibleLive = rules.filter((r) => r.mode === 'live_cf' && liveRuleCode(r, v.message))
+  const possibleLive = isFeatureEnabled('live_cf')
+    ? rules.filter((r) => r.mode === 'live_cf' && liveRuleCode(r, v.message))
+    : []
   if (psid && stored.customer) {
     const token = pageTokenFor(tenant)
     const selection = await execution.once('comment-live-selection', async () => {
@@ -523,12 +529,18 @@ async function onComment(
       return
     }
     if (selection) {
+      const selectedRule = possibleLive.find((rule) => rule.id === selection.ruleId)
+      if (!selectedRule) return
       const saved = await db
         .from('comments')
         .update({ rule_id: selection.ruleId })
         .eq('id', stored.id)
         .eq('tenant_id', tenant.id)
       if (saved.error) throw saved.error
+      const meta = createLiveCfMetaAdapter({
+        privateText: async (commentId, message) => sendPrivateReply(token, commentId, message),
+        publicText: async (commentId, message) => replyToComment(token, commentId, message),
+      })
       const handled = await handleLiveCfComment(
         { text: v.message, commentId: v.comment_id, code: selection.code },
         {
@@ -545,23 +557,30 @@ async function onComment(
                 code,
               }),
             ),
-          getPayment: () => primaryBankPayment(db, tenant.id),
+          getPayment: () => primaryBankPayment(db, tenant.id, selectedRule.live_bank_account_id),
           getPendingTotal: async () =>
             (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
-          sendPrivateReply: (message, qrImageUrl) =>
-            execution.once('comment-cf-private-reply', async () => {
-              await sendWithMessageCredit(db, tenant.id, () =>
-                sendPrivateReply(token, v.comment_id, message, qrImageUrl),
-              )
-              return null
-            }),
-          replyToComment: (message) =>
-            execution.once('comment-cf-public-reply', async () => {
-              await sendWithMessageCredit(db, tenant.id, () =>
-                replyToComment(token, v.comment_id, message),
-              )
-              return null
-            }),
+          getPaymentLink: (orderId) => createLiveCfPaymentLink(orderId),
+          privateTemplate: selectedRule.inbox_text,
+          publicTemplate: selectedRule.reply_text,
+          sendPrivateReply: selectedRule.inbox_enabled
+            ? (message) =>
+                execution.once('comment-cf-private-reply', async () => {
+                  await sendWithMessageCredit(db, tenant.id, () =>
+                    meta.sendPrivateText(v.comment_id, message),
+                  )
+                  return null
+                })
+            : undefined,
+          replyToComment: selectedRule.reply_enabled
+            ? (message) =>
+                execution.once('comment-cf-public-reply', async () => {
+                  await sendWithMessageCredit(db, tenant.id, () =>
+                    meta.sendPublicText(v.comment_id, message),
+                  )
+                  return null
+                })
+            : undefined,
         },
       )
       if (handled) return
@@ -578,43 +597,24 @@ async function onComment(
   )
 }
 
-async function primaryBankPayment(db: ReturnType<typeof supabaseAdmin>, tenantId: string) {
-  const account = await db
+async function primaryBankPayment(
+  db: ReturnType<typeof supabaseAdmin>,
+  tenantId: string,
+  accountId?: string | null,
+) {
+  let query = db
     .from('bank_accounts')
     .select('id,bank_code,account_name,account_number')
     .eq('tenant_id', tenantId)
-    .eq('is_primary', true)
     .eq('is_active', true)
-    .maybeSingle()
+  query = accountId ? query.eq('id', accountId) : query.eq('is_primary', true)
+  const account = await query.maybeSingle()
   if (account.error) throw account.error
   if (!account.data) return null
-
-  const current = await db
-    .from('bank_receiving_qr')
-    .select('image_path,bank_code_snapshot,account_number_snapshot')
-    .eq('tenant_id', tenantId)
-    .eq('account_id', account.data.id)
-    .maybeSingle()
-  if (current.error) throw current.error
-
-  let qrImageUrl: string | null = null
-  if (
-    current.data &&
-    current.data.bank_code_snapshot === account.data.bank_code &&
-    current.data.account_number_snapshot === account.data.account_number &&
-    current.data.image_path.startsWith(`${tenantId}/`)
-  ) {
-    const signed = await db.storage
-      .from('bank-receiving-qr')
-      .createSignedUrl(current.data.image_path, 60 * 60)
-    if (signed.error) throw signed.error
-    qrImageUrl = signed.data.signedUrl
-  }
   return {
     bankName: findBank(account.data.bank_code)?.name ?? account.data.bank_code,
     accountName: account.data.account_name,
     accountNumber: account.data.account_number,
-    qrImageUrl,
   }
 }
 
@@ -625,7 +625,7 @@ async function loadCommentRules(
 ) {
   const { data, error } = await db
     .from('comment_rules')
-    .select(RULE_COLUMNS)
+    .select(isFeatureEnabled('live_cf') ? LIVE_CF_RULE_COLUMNS : RULE_COLUMNS)
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .contains('page_ids', [pageId])
@@ -634,7 +634,7 @@ async function loadCommentRules(
     throw new Error(
       `comment rules: ${error.message} (did you run supabase/comment-rules.sql and platform.sql?)`,
     )
-  return (data ?? []) as CommentRule[]
+  return (data ?? []) as unknown as CommentRule[]
 }
 
 /** General replies never create orders. Live rules have their own explicit execution path. */

@@ -7,7 +7,7 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
   const [products, variants] = await Promise.all([
     db
       .from('products')
-      .select('id,name,code,price,stock')
+      .select('id,name,code,price,stock,image_url')
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .eq('commerce_archived', false)
@@ -15,7 +15,7 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
       .limit(1000),
     db
       .from('commerce_variants')
-      .select('id,product_id,label,price,stock')
+      .select('id,product_id,label,variant_code,price,stock')
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .order('label')

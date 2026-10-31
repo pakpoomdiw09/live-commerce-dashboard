@@ -1,4 +1,5 @@
 // Shared by the webhook (matching) and the dashboard (editor preview).
+import { matchesCfCode, normalizeCfCode, normalizeCfText } from '@/lib/features/commerce/cf-code'
 
 export type MatchType = 'exact' | 'keyword'
 
@@ -24,10 +25,13 @@ export type CommentRule = {
   /** null = shared stock; otherwise a sales cap, still deducted from shared stock. */
   live_stock_limit?: number | null
   live_post_id?: string | null
+  live_bank_account_id?: string | null
+  live_deduct_stock?: boolean
 }
 
 export const RULE_COLUMNS =
   'id, tenant_id, name, page_ids, match_type, keywords, reply_enabled, reply_text, inbox_enabled, inbox_type, inbox_text, inbox_image_url, is_active, created_at, mode, live_product_id, live_variant_id, live_stock_limit, live_post_id'
+export const LIVE_CF_RULE_COLUMNS = `${RULE_COLUMNS}, live_bank_account_id, live_deduct_stock`
 
 export type LiveProductOption = {
   id: string
@@ -35,21 +39,23 @@ export type LiveProductOption = {
   code: string
   price: number
   stock: number
-  variants: { id: string; label: string; price: number; stock: number }[]
+  image_url?: string | null
+  variants: {
+    id: string
+    label: string
+    price: number
+    stock: number
+    variant_code?: string | null
+  }[]
 }
 
 /** Alias boundaries are stricter than general Thai keyword matching: A1 must not match BA1/A12. */
 export function liveRuleCode(rule: Pick<CommentRule, 'match_type' | 'keywords'>, comment: string) {
-  const text = norm(comment)
   for (const raw of rule.keywords) {
-    const code = norm(raw)
-    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(code)) continue
-    if (
-      rule.match_type === 'exact'
-        ? text === code
-        : new RegExp(`(^|[^a-z0-9_-])${code}(?=$|[^a-z0-9_-])`, 'u').test(text)
-    )
-      return code
+    const code = normalizeCfCode(raw)
+    if (!code) continue
+    const exact = normalizeCfText(comment).replace(/^cf\s*[:.\-]?\s*/u, '') === code
+    if (rule.match_type === 'exact' ? exact : matchesCfCode(comment, code)) return code
   }
   return null
 }

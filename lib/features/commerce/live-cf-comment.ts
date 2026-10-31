@@ -3,6 +3,7 @@ import { cfCode } from './cf-code'
 export type LiveCfOrder =
   | {
       status: 'created'
+      orderId: string
       name: string
       code: string
       amount: number
@@ -16,17 +17,27 @@ export type LiveCfPayment = {
   bankName: string
   accountName: string | null
   accountNumber: string
-  qrImageUrl: string | null
 }
 
+const money = (value: number) =>
+  value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/**
+ * Complete one Live CF comment. The private channel is deliberately text-only:
+ * Meta permits only one private reply for a comment, so payment is opened through
+ * a signed HTTPS link instead of attaching a QR image.
+ */
 export async function handleLiveCfComment(
   input: { text: string; commentId: string; code?: string },
   dependencies: {
     placeOrder: (code: string) => Promise<LiveCfOrder>
     getPayment: () => Promise<LiveCfPayment | null>
     getPendingTotal: () => Promise<number>
-    sendPrivateReply: (message: string, qrImageUrl: string | null) => Promise<unknown>
+    getPaymentLink: (orderId: string) => Promise<string | null> | string | null
+    sendPrivateReply?: (message: string) => Promise<unknown>
     replyToComment?: (message: string) => Promise<unknown>
+    privateTemplate?: string | null
+    publicTemplate?: string | null
   },
 ): Promise<boolean> {
   const code = input.code ?? cfCode(input.text)
@@ -36,59 +47,47 @@ export async function handleLiveCfComment(
   if (order.status === 'no_match') return false
 
   if (order.status === 'require_variant') {
-    await dependencies.sendPrivateReply(
-      `${order.name} มีตัวเลือกสินค้า กรุณาติดต่อแอดมินเพื่อเลือกรหัสสีหรือขนาดก่อนสั่งซื้อ`,
-      null,
+    await dependencies.sendPrivateReply?.(
+      `${order.name} มีตัวเลือกสินค้า กรุณาติดต่อแอดมินเพื่อเลือกสีหรือขนาดก่อนสั่งซื้อ`,
     )
-    if (dependencies.replyToComment) {
-      await dependencies.replyToComment('สินค้ามีตัวเลือก กรุณาเช็คและตอบกลับทางแชทค่ะ')
-    }
+    await dependencies.replyToComment?.('สินค้ามีตัวเลือก กรุณาตรวจสอบข้อความส่วนตัวค่ะ')
     return true
   }
   if (order.status === 'sold_out') {
-    await dependencies.sendPrivateReply(
-      `ขออภัยค่ะ ${order.name} (รหัส ${order.code}) หมดแล้ว`,
-      null,
-    )
-    if (dependencies.replyToComment) {
-      await dependencies.replyToComment('ขออภัยค่ะ สินค้ารหัสนี้หมดแล้วนะคะ')
-    }
+    await dependencies.sendPrivateReply?.(`ขออภัยค่ะ ${order.name} (รหัส ${order.code}) หมดแล้ว`)
+    await dependencies.replyToComment?.('ขออภัยค่ะ สินค้ารหัสนี้หมดแล้ว')
     return true
   }
 
-  const payment = await dependencies.getPayment()
-  const total = await dependencies.getPendingTotal()
-  if (payment?.qrImageUrl) {
-    const title = `ยอดชำระ ${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท · ${order.name}${order.variantLabel ? ` · ${order.variantLabel}` : ''} (${order.code})`
-    const subtitle = `โอน ${payment.bankName} ${payment.accountNumber} · สแกน QR และส่งสลิป`
-    await dependencies.sendPrivateReply(`${title}\n${subtitle}`, payment.qrImageUrl)
-  } else if (payment) {
-    const holder = payment.accountName ? ` (${payment.accountName})` : ''
-    await dependencies.sendPrivateReply(
-      [
-        `รับออเดอร์ ${order.name}${order.variantLabel ? ` · ${order.variantLabel}` : ''} (${order.code})`,
-        `ยอดชำระ ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,
-        `โอน ${payment.bankName} เลขที่ ${payment.accountNumber}${holder}`,
-        'โอนแล้วส่งสลิปในแชทนี้ได้เลย',
-      ].join('\n'),
-      null,
-    )
-  } else {
-    await dependencies.sendPrivateReply(
-      `รับออเดอร์ ${order.name} (${order.code}) ยอด ${order.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท กรุณารอแอดมินแจ้งวิธีชำระเงิน`,
-      null,
-    )
-  }
+  const [payment, total, paymentLink] = await Promise.all([
+    dependencies.getPayment(),
+    dependencies.getPendingTotal(),
+    dependencies.getPaymentLink(order.orderId),
+  ])
+  if (dependencies.sendPrivateReply && !paymentLink)
+    throw new Error('LIVE_CF_PAYMENT_LINK_UNAVAILABLE')
+  const product = `${order.name}${order.variantLabel ? ` • ${order.variantLabel}` : ''}`
+  const privateMessage = dependencies.privateTemplate?.trim()
+    ? dependencies.privateTemplate
+        .replaceAll('{product_name}', product)
+        .replaceAll('{price}', money(total))
+        .replaceAll('{payment_link}', paymentLink ?? '')
+        .trim()
+    : [
+        `รับออเดอร์ ${product} (${order.code})`,
+        `ยอดชำระ ${money(total)} บาท`,
+        payment
+          ? `บัญชี ${payment.bankName} ${payment.accountNumber}${payment.accountName ? ` (${payment.accountName})` : ''}`
+          : 'แอดมินจะแจ้งช่องทางชำระเงินให้ทางแชท',
+        paymentLink ? `ชำระเงินอย่างปลอดภัย: ${paymentLink}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+  await dependencies.sendPrivateReply?.(privateMessage)
 
-  if (dependencies.replyToComment) {
-    await dependencies.replyToComment(
-      payment?.qrImageUrl
-        ? 'รับออเดอร์แล้วค่ะ ส่งยอดชำระและ QR Code ทางข้อความแล้วนะคะ'
-        : payment
-          ? 'รับออเดอร์แล้วค่ะ ส่งรายละเอียดการชำระเงินทางข้อความแล้วนะคะ'
-          : 'รับออเดอร์แล้วค่ะ กรุณารอแอดมินแจ้งวิธีชำระเงินทางแชทนะคะ',
-    )
-  }
-
+  await dependencies.replyToComment?.(
+    dependencies.publicTemplate?.trim() ||
+      'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดและลิงก์ชำระเงินในข้อความส่วนตัว',
+  )
   return true
 }
