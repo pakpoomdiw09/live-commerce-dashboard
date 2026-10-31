@@ -73,10 +73,12 @@ export function ChatList({
     const controller = new AbortController()
     let sequence = 0
     let loading = false
+    let lastLoad = 0
     let scheduled: ReturnType<typeof setTimeout> | undefined
     const load = async () => {
       if (loading || controller.signal.aborted || document.visibilityState === 'hidden') return
       loading = true
+      lastLoad = Date.now()
       const request = ++sequence
       try {
         const response = await fetch('/api/inbox/stars?tenantId=' + encodeURIComponent(tenantId), {
@@ -106,9 +108,13 @@ export function ChatList({
         loading = false
       }
     }
-    const refresh = () => {
+    const refresh = (event?: Event) => {
       clearTimeout(scheduled)
-      scheduled = setTimeout(() => void load(), 150)
+      const localAction = event?.type === 'inbox:stars' || event?.type === 'inbox:follow-ups'
+      scheduled = setTimeout(
+        () => void load(),
+        localAction ? 150 : Math.max(500, 10000 - (Date.now() - lastLoad)),
+      )
     }
     const events = ['inbox:stars', 'inbox:follow-ups', 'inbox:payments', 'online']
     void load()

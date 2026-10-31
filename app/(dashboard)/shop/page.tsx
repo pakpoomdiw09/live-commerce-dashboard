@@ -70,7 +70,11 @@ export default async function ShopPage({
   return (
     <>
       {/* CF orders take stock in the webhook: keep the numbers live */}
-      <LiveRefresh channel="shop" tables={['products', 'orders']} />
+      <LiveRefresh
+        channel="shop"
+        tables={['products', 'orders']}
+        filter={`tenant_id=eq.${tenant.id}`}
+      />
       <ShopClient
         tenantId={tenant.id}
         pageLinked={!!tenant.page_id}

@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { inputClass } from '@/components/ui/field'
 import { apiError, baht } from '@/lib/utils'
 import { WORKFLOW_LABELS, type WorkflowKind } from '@/lib/features/follow-ups/smart-followup-types'
-import { supabaseBrowser } from '@/lib/supabase/browser'
 
 type Customer = { id: string; display_name: string | null; platform_user_id: string }
 type Options = {
@@ -38,29 +37,10 @@ export function ManualFollowUpDialog({
   }, [])
   useEffect(() => {
     if (!customerId) return
-    const db = supabaseBrowser()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let disposed = false
-    const channel = db
-      .channel(`manual-follow-up-orders:${customerId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders', filter: `customer_id=eq.${customerId}` },
-        () => {
-          clearTimeout(timer)
-          timer = setTimeout(() => {
-            if (!disposed) setRevision((value) => value + 1)
-          }, 400)
-        },
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED' && !disposed) setRevision((value) => value + 1)
-      })
-    return () => {
-      disposed = true
-      clearTimeout(timer)
-      void db.removeChannel(channel)
-    }
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') setRevision((value) => value + 1)
+    }, 120000)
+    return () => clearInterval(timer)
   }, [customerId])
   useEffect(() => {
     const controller = new AbortController()

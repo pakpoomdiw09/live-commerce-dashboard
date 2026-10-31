@@ -23,6 +23,7 @@ import { useInboxState } from '@/hooks/inbox/useInboxState'
 import { ReadMarker } from '@/components/inbox/ReadMarker'
 import { LatestInboxRequest, InboxEventDeduplicator } from '@/lib/features/inbox/inbox-request'
 import { InboxProCenter, type InboxView } from '@/components/inbox/InboxProCenter'
+import { subscribeWhileVisible } from '@/lib/realtime-visibility'
 
 export type Preview = Pick<MessageRow, 'sender' | 'body' | 'attachments' | 'created_at'>
 export type ChatSummary = {
@@ -95,6 +96,8 @@ export function InboxClient({
     chats.map((chat) => chat.customer.id),
   )
   const refreshInbox = inbox.refresh
+  const refreshMetadata = useRef(inbox.refreshSoon)
+  refreshMetadata.current = inbox.refreshSoon
   useEffect(() => {
     const refresh = () => {
       void refreshInbox()
@@ -245,337 +248,361 @@ export function InboxClient({
       console.warn('[DEBUG-REALTIME] Inbox subscription skipped: no tenant')
       return
     }
-    const db = supabaseBrowser()
-    const mine = (rowTenantId: string | null) => rowTenantId === tenantId
-    const loadThread = (customerId: string, background = false) =>
-      latestThreadLoader.current(customerId, background)
-    setConnection('connecting')
-    let disposed = false
-    let recovering = false
-    let live = false
-    let lastRecovery = 0
-    const customerRequests = new Map<string, Promise<void>>()
-    const recentMessages = new Map<string, { revision: number; message: MessageRow }>()
-    const events = new InboxEventDeduplicator()
-    const scope = `tenant_id=eq.${tenantId}`
-    const replayPreview = (chat: ChatSummary, since: number) => {
-      const event = recentMessages.get(chat.customer.id)
-      return event &&
-        event.revision > since &&
-        event.message.created_at >= (chat.preview?.created_at ?? '')
-        ? {
-            ...chat,
-            preview: event.message,
-            customer: {
-              ...chat.customer,
-              last_message_at:
-                event.message.created_at > (chat.customer.last_message_at ?? '')
-                  ? event.message.created_at
-                  : chat.customer.last_message_at,
-            },
-          }
-        : chat
-    }
-    const chatSnapshot = async (params = '') => {
-      const response = await fetch(
-        `/api/inbox/conversations?tenantId=${encodeURIComponent(tenantId)}${params}`,
-        { cache: 'no-store' },
-      )
-      const data = (await response.json().catch(() => null)) as
-        | { chats?: ChatSummary[]; comments?: CommentItem[]; error?: string }
-        | null
-      if (!response.ok || !data || !Array.isArray(data.chats))
-        throw new Error(data?.error || 'โหลดรายชื่อแชทไม่สำเร็จ')
-      return data
-    }
-    const fetchCustomer = async (id: string) => {
-      const since = revision.current
-      let data: { chats?: ChatSummary[] }
-      try {
-        data = await chatSnapshot(`&customerId=${encodeURIComponent(id)}`)
-      } catch {
-        if (!disposed) console.error('[inbox] customer refresh failed', { customerId: id })
-        return
+    return subscribeWhileVisible(() => {
+      const db = supabaseBrowser()
+      const snapshotController = new AbortController()
+      const mine = (rowTenantId: string | null) => rowTenantId === tenantId
+      const loadThread = (customerId: string, background = false) =>
+        latestThreadLoader.current(customerId, background)
+      setConnection('connecting')
+      let disposed = false
+      let recovering = false
+      let live = false
+      let lastRecovery = 0
+      const customerRequests = new Map<string, Promise<void>>()
+      const recentMessages = new Map<string, { revision: number; message: MessageRow }>()
+      const events = new InboxEventDeduplicator()
+      const scope = `tenant_id=eq.${tenantId}`
+      const replayPreview = (chat: ChatSummary, since: number) => {
+        const event = recentMessages.get(chat.customer.id)
+        return event &&
+          event.revision > since &&
+          event.message.created_at >= (chat.preview?.created_at ?? '')
+          ? {
+              ...chat,
+              preview: event.message,
+              customer: {
+                ...chat.customer,
+                last_message_at:
+                  event.message.created_at > (chat.customer.last_message_at ?? '')
+                    ? event.message.created_at
+                    : chat.customer.last_message_at,
+              },
+            }
+          : chat
       }
-      if (disposed) return
-      const refreshed = data.chats?.[0]
-      if (!refreshed) {
-        knownCustomers.current.delete(id)
-        recentMessages.delete(id)
-        setChats((prev) => prev.filter((chat) => chat.customer.id !== id))
-        return
-      }
-      const chat = replayPreview(refreshed, since)
-      knownCustomers.current.add(id)
-      setChats((prev) => [chat, ...prev.filter((item) => item.customer.id !== id)].sort(byRecent))
-      setSelectedId((prev) => prev ?? id)
-    }
-    // Customer INSERT, message INSERT and profile UPDATE can arrive together.
-    const refreshCustomer = (id: string) => {
-      const pending = customerRequests.get(id)
-      if (pending) return pending
-      const request = fetchCustomer(id).finally(() => customerRequests.delete(id))
-      customerRequests.set(id, request)
-      return request
-    }
-    const recover = async () => {
-      if (disposed || recovering) return
-      recovering = true
-      lastRecovery = Date.now()
-      const startingIds = new Set(knownCustomers.current)
-      const since = revision.current
-      try {
-        const snapshot = await chatSnapshot('&includeComments=true')
-        if (disposed) return
-        if (Array.isArray(snapshot.comments)) setComments(snapshot.comments)
-        const next = (snapshot.chats ?? []).map((chat) => replayPreview(chat, since))
-        const arrived = new Set([...knownCustomers.current].filter((id) => !startingIds.has(id)))
-        knownCustomers.current = new Set([...next.map((chat) => chat.customer.id), ...arrived])
-        setChats((previous) =>
-          [
-            ...next,
-            ...previous.filter(
-              (chat) => !next.some((item) => item.customer.id === chat.customer.id),
-            ),
-          ].sort(byRecent),
+      const chatSnapshot = async (params = '') => {
+        const response = await fetch(
+          `/api/inbox/conversations?tenantId=${encodeURIComponent(tenantId)}${params}`,
+          { cache: 'no-store', signal: snapshotController.signal },
         )
-        setSelectedId((current) => current ?? next[0]?.customer.id ?? null)
-        const selected = selectedRef.current
-        if (selected) {
-          if (!next.some((chat) => chat.customer.id === selected)) await refreshCustomer(selected)
-          if (!disposed && selectedRef.current === selected) await loadThread(selected, true)
+        const data = (await response.json().catch(() => null)) as {
+          chats?: ChatSummary[]
+          comments?: CommentItem[]
+          hasMore?: boolean
+          error?: string
+        } | null
+        if (!response.ok || !data || !Array.isArray(data.chats))
+          throw new Error(data?.error || 'โหลดรายชื่อแชทไม่สำเร็จ')
+        return data
+      }
+      const fetchCustomer = async (id: string) => {
+        const since = revision.current
+        let data: { chats?: ChatSummary[] }
+        try {
+          data = await chatSnapshot(`&customerId=${encodeURIComponent(id)}`)
+        } catch {
+          if (!disposed) console.error('[inbox] customer refresh failed', { customerId: id })
+          return
         }
-      } catch {
-        if (!disposed) console.error('[inbox] snapshot recovery failed')
-      } finally {
-        recovering = false
-      }
-    }
-    const apply = (message: MessageRow) => {
-      if (disposed || !events.accept(message.id, message)) return
-      const version = ++revision.current
-      const recent = recentMessages.get(message.customer_id)
-      if (!recent || message.created_at >= recent.message.created_at)
-        recentMessages.set(message.customer_id, { revision: version, message })
-      if (recentMessages.size > 300) recentMessages.delete(recentMessages.keys().next().value!)
-      // The selected thread may be outside the latest 150-customer snapshot.
-      // Apply its event before asynchronous customer hydration completes.
-      if (message.customer_id === selectedRef.current) {
-        changes.current.set(message.id, { revision: version, message })
-        if (changes.current.size > 1000)
-          changes.current.delete(changes.current.keys().next().value!)
-        setMessages((prev) =>
-          reconcileThread(
-            prev,
-            new Map([[message.id, { revision: 1, message }]]),
-            0,
-            message.customer_id,
-          ),
-        )
-      }
-      if (!knownCustomers.current.has(message.customer_id)) {
-        void refreshCustomer(message.customer_id)
-        return
-      }
-      setChats((prev) =>
-        prev
-          .map((chat) =>
-            chat.customer.id === message.customer_id
-              ? {
-                  ...chat,
-                  preview:
-                    !chat.preview || message.created_at >= chat.preview.created_at
-                      ? message
-                      : chat.preview,
-                  customer: {
-                    ...chat.customer,
-                    last_message_at:
-                      message.created_at > (chat.customer.last_message_at ?? '')
-                        ? message.created_at
-                        : chat.customer.last_message_at,
-                  },
-                }
-              : chat,
-          )
-          .sort(byRecent),
-      )
-    }
-    const channelName = inboxChannelName('inbox', tenantId)
-    console.log('[DEBUG-REALTIME] Creating channel:', {
-      channelName,
-      tables: ['messages', 'customers', 'comments', 'slips'],
-      messageFilter: 'RLS only; no tenant_id filter on messages',
-    })
-    const channel = db
-      // Removal is asynchronous: never reuse a channel being cleaned up by
-      // Strict Mode, navigation or another mounted Inbox for this tenant.
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        ({ new: row }) => {
-          const m = row as MessageRow
-          // Production logs identify delivery without copying customer message bodies.
-          console.log('[DEBUG-REALTIME] Message INSERT:', {
-            eventType: 'INSERT',
-            table: 'messages',
-            id: m?.id,
-            customerId: m?.customer_id,
-            selected: m?.customer_id === selectedRef.current,
-          })
-          if (process.env.NODE_ENV !== 'production')
-            console.log('[DEBUG-REALTIME] INSERT payload:', {
-              eventType: 'INSERT',
-              schema: 'public',
-              table: 'messages',
-              new: row,
-            })
-          apply(m)
-        },
-      )
-      // bot notices are rewritten when the Send API fails ("[ส่งไม่สำเร็จ] ...")
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages' },
-        ({ new: row }) => {
-          const m = row as MessageRow
-          if (process.env.NODE_ENV !== 'production')
-            console.log('[inbox/realtime] UPDATE message', {
-              id: m?.id,
-              customerId: m?.customer_id,
-            })
-          apply(m)
-        },
-      )
-      // an admin reply the Send API rejected is deleted again (see /api/messages/send)
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'messages' },
-        ({ old }) => {
-          if (disposed || !old.id || !events.accept(String(old.id), null)) return
-          for (const [customer, event] of recentMessages)
-            if (event.message.id === old.id) recentMessages.delete(customer)
-          changes.current.set(String(old.id), { revision: ++revision.current, message: null })
-          if (changes.current.size > 1000)
-            changes.current.delete(changes.current.keys().next().value!)
-          setMessages((prev) => prev.filter((message) => message.id !== old.id))
-          void recover()
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'comments', filter: scope },
-        ({ new: row }) => {
-          if (disposed) return
-          const k = row as CommentItem
-          if (mine(k.tenant_id))
-            setComments((prev) => [k, ...prev.filter((item) => item.id !== k.id)].slice(0, 100))
-        },
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, (p) => {
         if (disposed) return
-        if (p.eventType === 'DELETE') {
-          const id = String(p.old.id ?? '')
+        const refreshed = data.chats?.[0]
+        if (!refreshed) {
           knownCustomers.current.delete(id)
-          setChats((previous) => previous.filter((chat) => chat.customer.id !== id))
+          recentMessages.delete(id)
+          setChats((prev) => prev.filter((chat) => chat.customer.id !== id))
           setSelectedId((previous) => (previous === id ? null : previous))
           return
         }
-        const c = p.new as CustomerRow
-        if (process.env.NODE_ENV !== 'production')
-          console.log('[inbox/realtime] customer event', {
-            id: c?.id,
-            tenantId: c?.tenant_id,
-            isMine: mine(c?.tenant_id),
-          })
-        if (mine(c.tenant_id)) {
-          if (!knownCustomers.current.has(c.id)) void refreshCustomer(c.id)
-          knownCustomers.current.add(c.id)
-        } else knownCustomers.current.delete(c.id)
-        setChats((prev) => {
-          const existing = prev.find((x) => x.customer.id === c.id)
-          const rest = prev.filter((x) => x.customer.id !== c.id)
-          // a customer moved to another tenant leaves this list
-          if (!mine(c.tenant_id)) return rest
-          return [
-            {
-              customer: c,
-              preview: existing?.preview ?? null,
-              latestSlip: existing?.latestSlip ?? null,
-            },
-            ...rest,
-          ].sort(byRecent)
-        })
-        // the very first chat: open it so its messages show without a click
-        if (mine(c.tenant_id)) setSelectedId((prev) => prev ?? c.id)
-      })
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'slips', filter: scope },
-        (p) => {
+        const chat = replayPreview(refreshed, since)
+        knownCustomers.current.add(id)
+        setChats((prev) => [chat, ...prev.filter((item) => item.customer.id !== id)].sort(byRecent))
+        setSelectedId((prev) => prev ?? id)
+      }
+      // Customer INSERT, message INSERT and profile UPDATE can arrive together.
+      const refreshCustomer = (id: string) => {
+        const pending = customerRequests.get(id)
+        if (pending) return pending
+        const request = fetchCustomer(id).finally(() => customerRequests.delete(id))
+        customerRequests.set(id, request)
+        return request
+      }
+      const recover = async () => {
+        if (disposed || recovering || document.visibilityState === 'hidden') return
+        recovering = true
+        lastRecovery = Date.now()
+        const startingIds = new Set(knownCustomers.current)
+        const since = revision.current
+        try {
+          const snapshot = await chatSnapshot('&includeComments=true')
           if (disposed) return
-          window.dispatchEvent(new Event('inbox:payments'))
-          if (p.eventType === 'DELETE') return
-          const s = p.new as SlipRow
-          if (!s.customer_id || !mine(s.tenant_id)) return
-          setChats((prev) =>
-            prev.map((c) => (c.customer.id === s.customer_id ? { ...c, latestSlip: s.status } : c)),
+          if (Array.isArray(snapshot.comments)) setComments(snapshot.comments)
+          const next = (snapshot.chats ?? []).map((chat) => replayPreview(chat, since))
+          const arrived = new Set([...knownCustomers.current].filter((id) => !startingIds.has(id)))
+          const oldest = next.at(-1)?.customer
+          knownCustomers.current = new Set([...next.map((chat) => chat.customer.id), ...arrived])
+          setChats((previous) =>
+            [
+              ...next,
+              ...previous.filter(
+                (chat) =>
+                  !next.some((item) => item.customer.id === chat.customer.id) &&
+                  (arrived.has(chat.customer.id) ||
+                    (snapshot.hasMore === true &&
+                      oldest &&
+                      ((chat.customer.last_message_at ?? '') < (oldest.last_message_at ?? '') ||
+                        (chat.customer.last_message_at === oldest.last_message_at &&
+                          chat.customer.id < oldest.id)))),
+              ),
+            ].sort(byRecent),
           )
-          if (s.customer_id !== selectedRef.current) return
-          setSlips((prev) =>
-            [s, ...prev.filter((x) => x.id !== s.id)].sort(newestFirst).slice(0, 50),
-          )
-        },
-      )
-      .subscribe((status, err) => {
-        console.log('[DEBUG-REALTIME] Channel Status:', status, err, {
-          channelName,
-          ignored: disposed,
-        })
-        if (disposed) return
-        console.info('[inbox/realtime] status', { status, tenantId: tenantId })
-        if (status === 'SUBSCRIBED') {
-          live = true
-          setConnection('live')
-          void recover()
-        } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
-          setConnection('offline')
-          live = false
-          console.warn('[inbox/realtime] disconnected; polling continues every 30 seconds', {
-            status,
-            tenantId: tenantId,
-          })
+          setSelectedId((current) => current ?? next[0]?.customer.id ?? null)
+          const selected = selectedRef.current
+          if (selected) {
+            if (!next.some((chat) => chat.customer.id === selected)) await refreshCustomer(selected)
+            if (!disposed && selectedRef.current === selected) await loadThread(selected, true)
+          }
+        } catch {
+          if (!disposed) console.error('[inbox] snapshot recovery failed')
+        } finally {
+          recovering = false
         }
+      }
+      const apply = (message: MessageRow) => {
+        if (disposed || !events.accept(message.id, message)) return
+        void refreshMetadata.current?.()
+        const version = ++revision.current
+        const recent = recentMessages.get(message.customer_id)
+        if (!recent || message.created_at >= recent.message.created_at)
+          recentMessages.set(message.customer_id, { revision: version, message })
+        if (recentMessages.size > 300) recentMessages.delete(recentMessages.keys().next().value!)
+        // The selected thread may be outside the latest 150-customer snapshot.
+        // Apply its event before asynchronous customer hydration completes.
+        if (message.customer_id === selectedRef.current) {
+          changes.current.set(message.id, { revision: version, message })
+          if (changes.current.size > 1000)
+            changes.current.delete(changes.current.keys().next().value!)
+          setMessages((prev) =>
+            reconcileThread(
+              prev,
+              new Map([[message.id, { revision: 1, message }]]),
+              0,
+              message.customer_id,
+            ),
+          )
+        }
+        if (!knownCustomers.current.has(message.customer_id)) {
+          void refreshCustomer(message.customer_id)
+          return
+        }
+        setChats((prev) =>
+          prev
+            .map((chat) =>
+              chat.customer.id === message.customer_id
+                ? {
+                    ...chat,
+                    preview:
+                      !chat.preview || message.created_at >= chat.preview.created_at
+                        ? message
+                        : chat.preview,
+                    customer: {
+                      ...chat.customer,
+                      last_message_at:
+                        message.created_at > (chat.customer.last_message_at ?? '')
+                          ? message.created_at
+                          : chat.customer.last_message_at,
+                    },
+                  }
+                : chat,
+            )
+            .sort(byRecent),
+        )
+      }
+      const channelName = inboxChannelName('inbox', tenantId)
+      console.log('[DEBUG-REALTIME] Creating channel:', {
+        channelName,
+        tables: ['messages', 'customers', 'comments', 'slips'],
+        messageFilter: 'RLS only; no tenant_id filter on messages',
       })
-    console.log('[DEBUG-REALTIME] Subscribe invoked:', { channelName })
-    const connectionWatchdog = setTimeout(() => {
-      if (!disposed && !live)
-        console.warn('[DEBUG-REALTIME] Channel not subscribed after 15 seconds:', {
-          channelName,
-          hint: 'Check WebSocket connection, browser auth session and Realtime service; inspect Channel Status errors',
+      const channel = db
+        // Removal is asynchronous: never reuse a channel being cleaned up by
+        // Strict Mode, navigation or another mounted Inbox for this tenant.
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages' },
+          ({ new: row }) => {
+            const m = row as MessageRow
+            // Production logs identify delivery without copying customer message bodies.
+            console.log('[DEBUG-REALTIME] Message INSERT:', {
+              eventType: 'INSERT',
+              table: 'messages',
+              id: m?.id,
+              customerId: m?.customer_id,
+              selected: m?.customer_id === selectedRef.current,
+            })
+            if (process.env.NODE_ENV !== 'production')
+              console.log('[DEBUG-REALTIME] INSERT payload:', {
+                eventType: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                new: row,
+              })
+            apply(m)
+          },
+        )
+        // bot notices are rewritten when the Send API fails ("[ส่งไม่สำเร็จ] ...")
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'messages' },
+          ({ new: row }) => {
+            const m = row as MessageRow
+            if (process.env.NODE_ENV !== 'production')
+              console.log('[inbox/realtime] UPDATE message', {
+                id: m?.id,
+                customerId: m?.customer_id,
+              })
+            apply(m)
+          },
+        )
+        // an admin reply the Send API rejected is deleted again (see /api/messages/send)
+        .on(
+          'postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'messages' },
+          ({ old }) => {
+            if (disposed || !old.id || !events.accept(String(old.id), null)) return
+            for (const [customer, event] of recentMessages)
+              if (event.message.id === old.id) recentMessages.delete(customer)
+            changes.current.set(String(old.id), { revision: ++revision.current, message: null })
+            if (changes.current.size > 1000)
+              changes.current.delete(changes.current.keys().next().value!)
+            setMessages((prev) => prev.filter((message) => message.id !== old.id))
+            void recover()
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'comments', filter: scope },
+          ({ new: row }) => {
+            if (disposed) return
+            const k = row as CommentItem
+            if (mine(k.tenant_id))
+              setComments((prev) => [k, ...prev.filter((item) => item.id !== k.id)].slice(0, 100))
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'customers', filter: scope },
+          (p) => {
+            if (disposed) return
+            void refreshMetadata.current?.()
+            if (p.eventType === 'DELETE') {
+              const id = String(p.old.id ?? '')
+              knownCustomers.current.delete(id)
+              setChats((previous) => previous.filter((chat) => chat.customer.id !== id))
+              setSelectedId((previous) => (previous === id ? null : previous))
+              return
+            }
+            const c = p.new as CustomerRow
+            if (process.env.NODE_ENV !== 'production')
+              console.log('[inbox/realtime] customer event', {
+                id: c?.id,
+                tenantId: c?.tenant_id,
+                isMine: mine(c?.tenant_id),
+              })
+            if (mine(c.tenant_id)) {
+              if (!knownCustomers.current.has(c.id)) void refreshCustomer(c.id)
+              knownCustomers.current.add(c.id)
+            } else knownCustomers.current.delete(c.id)
+            setChats((prev) => {
+              const existing = prev.find((x) => x.customer.id === c.id)
+              const rest = prev.filter((x) => x.customer.id !== c.id)
+              // a customer moved to another tenant leaves this list
+              if (!mine(c.tenant_id)) return rest
+              return [
+                {
+                  customer: c,
+                  preview: existing?.preview ?? null,
+                  latestSlip: existing?.latestSlip ?? null,
+                },
+                ...rest,
+              ].sort(byRecent)
+            })
+            // the very first chat: open it so its messages show without a click
+            if (mine(c.tenant_id)) setSelectedId((prev) => prev ?? c.id)
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'slips', filter: scope },
+          (p) => {
+            if (disposed) return
+            window.dispatchEvent(new Event('inbox:payments'))
+            if (p.eventType === 'DELETE') return
+            const s = p.new as SlipRow
+            if (!s.customer_id || !mine(s.tenant_id)) return
+            setChats((prev) =>
+              prev.map((c) =>
+                c.customer.id === s.customer_id ? { ...c, latestSlip: s.status } : c,
+              ),
+            )
+            if (s.customer_id !== selectedRef.current) return
+            setSlips((prev) =>
+              [s, ...prev.filter((x) => x.id !== s.id)].sort(newestFirst).slice(0, 50),
+            )
+          },
+        )
+        .subscribe((status, err) => {
+          console.log('[DEBUG-REALTIME] Channel Status:', status, err, {
+            channelName,
+            ignored: disposed,
+          })
+          if (disposed) return
+          console.info('[inbox/realtime] status', { status, tenantId: tenantId })
+          if (status === 'SUBSCRIBED') {
+            live = true
+            setConnection('live')
+            void recover()
+          } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+            setConnection('offline')
+            live = false
+            console.warn('[inbox/realtime] disconnected; polling continues every 60 seconds', {
+              status,
+              tenantId: tenantId,
+            })
+          }
         })
-    }, 15000)
-    void recover()
-    // Keep a safety snapshot for silent replication failures, but prefer events.
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'hidden') return
-      if (live && Date.now() - lastRecovery < 120000) return
+      console.log('[DEBUG-REALTIME] Subscribe invoked:', { channelName })
+      const connectionWatchdog = setTimeout(() => {
+        if (!disposed && !live)
+          console.warn('[DEBUG-REALTIME] Channel not subscribed after 15 seconds:', {
+            channelName,
+            hint: 'Check WebSocket connection, browser auth session and Realtime service; inspect Channel Status errors',
+          })
+      }, 15000)
       void recover()
-    }, 30000)
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void recover()
-    }
-    window.addEventListener('online', recover)
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      disposed = true
-      console.log('[DEBUG-REALTIME] Cleaning up channel:', { channelName })
-      clearTimeout(connectionWatchdog)
-      clearInterval(timer)
-      window.removeEventListener('online', recover)
-      document.removeEventListener('visibilitychange', onVisible)
-      void db.removeChannel(channel)
-    }
+      // Keep a safety snapshot for silent replication failures, but prefer events.
+      const timer = setInterval(() => {
+        if (document.visibilityState === 'hidden') return
+        if (live && Date.now() - lastRecovery < 120000) return
+        void recover()
+      }, 60000)
+      const onVisible = () => {
+        if (document.visibilityState === 'visible') void recover()
+      }
+      window.addEventListener('online', recover)
+      document.addEventListener('visibilitychange', onVisible)
+      return () => {
+        disposed = true
+        snapshotController.abort()
+        console.log('[DEBUG-REALTIME] Cleaning up channel:', { channelName })
+        clearTimeout(connectionWatchdog)
+        clearInterval(timer)
+        window.removeEventListener('online', recover)
+        document.removeEventListener('visibilitychange', onVisible)
+        void db.removeChannel(channel)
+      }
+    })
   }, [tenantId])
 
   const selectedCustomer = chats.find((c) => c.customer.id === selectedId)?.customer ?? null
@@ -705,7 +732,7 @@ export function InboxClient({
         <ReadMarker
           customerId={selectedId}
           messages={messages}
-          onRead={inbox.refresh}
+          onRead={inbox.refreshSoon}
           mobileOpen={mobileChat}
         />
         {inbox.error && (

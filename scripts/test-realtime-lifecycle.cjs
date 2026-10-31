@@ -26,31 +26,36 @@ test('browser renders share one client; SSR calls are not shared', () => {
   assert.notEqual(server.supabaseBrowser(), server.supabaseBrowser())
   assert.equal(created, 3)
 })
-test('Inbox metadata rerenders and customer discovery do not restart subscriptions; tenant changes clean up', async () => {
+function metadataFixture() {
   const values = [],
     memos = [],
     effects = [],
-    pending = []
+    pending = [],
+    timers = new Map(),
+    listeners = new Map(),
+    signals = []
   let cursor = 0,
-    channels = 0,
-    removed = 0,
-    fetches = 0
+    now = 100000,
+    timerId = 0,
+    fetches = 0,
+    fail = false,
+    block = false,
+    release
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
   const react = {
-    useState(initial) {
+    useState(value) {
       const i = cursor++
-      if (!(i in values)) values[i] = initial
+      if (!(i in values)) values[i] = value
       return [
         values[i],
-        (v) => {
-          values[i] = typeof v === 'function' ? v(values[i]) : v
+        (next) => {
+          values[i] = typeof next === 'function' ? next(values[i]) : next
         },
       ]
     },
-    useRef(initial) {
+    useRef(value) {
       const i = cursor++
-      if (!(i in values)) values[i] = { current: initial }
-      return values[i]
+      return (values[i] ??= { current: value })
     },
     useCallback(fn, deps) {
       const i = cursor++
@@ -59,154 +64,159 @@ test('Inbox metadata rerenders and customer discovery do not restart subscriptio
     },
     useEffect(fn, deps) {
       const i = cursor++
-      if (!effects[i] || !same(effects[i].deps, deps)) {
+      if (!effects[i] || !same(effects[i].deps, deps))
         pending.push(() => {
           effects[i]?.cleanup?.()
           effects[i] = { deps, cleanup: fn() }
         })
-      }
     },
   }
-  const callbacks = []
-  let waitForRemoval
-  const db = {
-    channel() {
-      channels++
-      const c = {
-        on() {
-          return c
-        },
-        subscribe(callback) {
-          callbacks.push(callback)
-          return c
-        },
-      }
-      return c
-    },
-    removeChannel: async () => {
-      removed++
-      if (waitForRemoval) await waitForRemoval
-    },
+  class FakeDate extends Date {
+    static now() {
+      return now
+    }
   }
-  const listeners = new Map(),
-    timers = new Map()
-  let timerId = 0
+  const document = {
+    visibilityState: 'visible',
+    addEventListener: (k, v) => listeners.set('document:' + k, v),
+    removeEventListener: (k) => listeners.delete('document:' + k),
+  }
   const globals = {
     AbortController,
-    Map,
-    Set,
-    Date,
-    document: {
-      visibilityState: 'visible',
-      addEventListener: (k, v) => listeners.set('document:' + k, v),
-      removeEventListener: (k) => listeners.delete('document:' + k),
-    },
+    Date: FakeDate,
+    document,
     window: {
       addEventListener: (k, v) => listeners.set(k, v),
       removeEventListener: (k) => listeners.delete(k),
     },
-    setTimeout: (fn, delay) => {
-      timers.set(++timerId, { fn, delay })
+    setTimeout: (fn, ms) => {
+      timers.set(++timerId, { fn, at: now + ms })
       return timerId
     },
-    clearTimeout: (i) => timers.delete(i),
-    setInterval: (fn, delay) => {
-      timers.set(++timerId, { fn, delay })
-      return timerId
-    },
-    clearInterval: (i) => timers.delete(i),
-    fetch: async () => {
+    clearTimeout: (id) => timers.delete(id),
+    fetch: async (_url, opts) => {
       fetches++
-      return { ok: true, json: async () => ({ conversations: [] }) }
+      signals.push(opts.signal)
+      if (block) {
+        block = false
+        await new Promise((resolve) => {
+          release = resolve
+        })
+      }
+      return { ok: !fail, json: async () => ({ conversations: [] }) }
     },
-    console,
   }
-  const request = load('lib/features/inbox/inbox-request.ts', {}, { AbortController })
-  const realtime = load('lib/features/inbox/inbox-realtime.ts')
+  const background = load('lib/background-refresh.ts', {}, globals)
   const api = load(
     'hooks/inbox/useInboxState.ts',
     {
       react,
-      '@/lib/supabase/browser': { supabaseBrowser: () => db },
-      '@/lib/utils': { apiError: async () => '' },
-      '@/lib/features/inbox/inbox-request': request,
-      '@/lib/features/inbox/inbox-realtime': realtime,
+      '@/lib/background-refresh': background,
+      '@/lib/utils': { apiError: async () => 'Unavailable' },
+      '@/lib/features/inbox/inbox-request': load(
+        'lib/features/inbox/inbox-request.ts',
+        {},
+        { AbortController },
+      ),
     },
     globals,
   )
-  const render = (tenant, ids) => {
-    cursor = 0
-    api.useInboxState(tenant, ids)
-    while (pending.length) pending.shift()()
+  return {
+    render(tenant = 'tenant-a', ids = ['one']) {
+      cursor = 0
+      const state = api.useInboxState(tenant, ids)
+      while (pending.length) pending.shift()()
+      return state
+    },
+    async advance(ms) {
+      const end = now + ms
+      for (let i = 0; i < 100; i++) {
+        const next = [...timers].filter(([, v]) => v.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!next) break
+        now = next[1].at
+        timers.delete(next[0])
+        next[1].fn()
+        await flush()
+      }
+      now = end
+    },
+    document,
+    timers,
+    listeners,
+    signals,
+    count: () => fetches,
+    fail: () => {
+      fail = true
+    },
+    block: () => {
+      block = true
+    },
+    release: () => release?.(),
+    cleanup() {
+      for (const effect of effects) effect?.cleanup?.()
+    },
   }
-  render('tenant-a', ['one'])
+}
+
+test('metadata has no Realtime dependency; rerenders and read/message bursts coalesce into bounded requests', async () => {
+  const f = metadataFixture()
+  const first = f.render()
+  await f.advance(0)
+  assert.equal(f.count(), 1)
+  for (let i = 0; i < 30; i++) f.render()
+  assert.equal(f.count(), 1)
+  for (let i = 0; i < 100; i++) void first.refreshSoon()
+  await f.advance(9999)
+  assert.equal(f.count(), 1)
+  await f.advance(1)
+  assert.equal(f.count(), 2)
+  f.render('tenant-a', ['one', 'two'])
+  await f.advance(10000)
+  assert.equal(f.count(), 3)
+  f.document.visibilityState = 'hidden'
+  await f.advance(120000)
+  assert.equal(f.count(), 3)
+  f.document.visibilityState = 'visible'
+  f.listeners.get('document:visibilitychange')()
+  await f.advance(0)
+  assert.equal(f.count(), 4)
+  f.render('tenant-b', ['other'])
+  await f.advance(0)
+  assert.equal(f.count(), 5)
+  f.cleanup()
+  assert.equal(f.timers.size, 0)
+  assert.equal(f.listeners.size, 0)
+  await first.refreshSoon()
+  await f.advance(300000)
+  assert.equal(f.count(), 5)
+})
+
+test('metadata background failures back off and cleanup aborts in-flight requests without late rescheduling', async () => {
+  const f = metadataFixture()
+  f.fail()
+  const state = f.render()
+  await f.advance(0)
+  assert.equal(f.count(), 1)
+  for (let i = 0; i < 100; i++) void state.refreshSoon()
+  await f.advance(29999)
+  assert.equal(f.count(), 1)
+  await f.advance(1)
+  assert.equal(f.count(), 2)
+  await f.advance(59999)
+  assert.equal(f.count(), 2)
+  await f.advance(1)
+  assert.equal(f.count(), 3)
+  f.cleanup()
+  const g = metadataFixture()
+  g.block()
+  g.render()
+  await g.advance(0)
+  assert.equal(g.count(), 1)
+  assert.equal(g.signals[0].aborted, false)
+  g.cleanup()
+  assert.equal(g.signals[0].aborted, true)
+  g.release()
   await flush()
-  assert.equal(channels, 1)
-  assert.equal(fetches, 1)
-  for (let i = 0; i < 30; i++) render('tenant-a', ['one'])
-  render('tenant-a', ['one', 'two'])
-  await flush()
-  assert.equal(channels, 1)
-  assert.equal(removed, 0)
-  assert.equal(fetches, 1)
-  render('tenant-b', ['other'])
-  await flush()
-  assert.equal(channels, 2)
-  assert.equal(removed, 1)
-  const fire = async (delay) => {
-    const [id, timer] = [...timers].find(([, t]) => t.delay === delay)
-    timers.delete(id)
-    timer.fn()
-    await flush()
-  }
-  // Retry before enabling the fast polling fallback; duplicate statuses coalesce.
-  const before = fetches
-  callbacks[1]('CHANNEL_ERROR')
-  callbacks[1]('CLOSED')
-  timers.get([...timers].find(([, t]) => t.delay === 30000)[0]).fn()
-  await flush()
-  assert.equal(fetches, before)
-  await fire(1000)
-  assert.equal(channels, 3)
-  assert.equal(removed, 2)
-  callbacks[1]('CLOSED')
-  assert.ok(![...timers.values()].some((t) => t.delay === 2000))
-  callbacks[2]('TIMED_OUT')
-  await fire(2000)
-  callbacks[3]('CHANNEL_ERROR')
-  await fire(4000)
-  callbacks[4]('CLOSED')
-  timers.get([...timers].find(([, t]) => t.delay === 30000)[0]).fn()
-  await flush()
-  assert.equal(fetches, before + 1)
-  assert.equal(channels, 5)
-  callbacks[4]('SUBSCRIBED')
-  timers.get([...timers].find(([, t]) => t.delay === 30000)[0]).fn()
-  await flush()
-  assert.equal(fetches, before + 1)
-  // A tenant change during asynchronous retirement cannot recreate the old tenant.
-  let release
-  waitForRemoval = new Promise((resolve) => {
-    release = resolve
-  })
-  callbacks[4]('CHANNEL_ERROR')
-  await fire(1000)
-  assert.equal(channels, 5)
-  render('tenant-c', ['third'])
-  await flush()
-  assert.equal(channels, 6)
-  release()
-  waitForRemoval = undefined
-  await flush()
-  assert.equal(channels, 6)
-  for (const effect of effects) effect?.cleanup?.()
-  assert.equal(removed, 6)
-  assert.equal(listeners.size, 0)
-  assert.equal(timers.size, 0)
-  const after = fetches
-  callbacks.at(-1)('CLOSED')
-  callbacks[4]('SUBSCRIBED')
-  await flush()
-  assert.equal(timers.size, 0)
-  assert.equal(fetches, after)
+  assert.equal(g.timers.size, 0)
+  assert.equal(g.listeners.size, 0)
 })

@@ -34,7 +34,11 @@ export default async function BillingPage() {
 
   return (
     <>
-      <LiveRefresh channel="billing" tables={['billing_requests']} />
+      <LiveRefresh
+        channel="billing"
+        tables={['billing_requests']}
+        filter={`tenant_id=eq.${tenant.id}`}
+      />
       <BillingClient
         tenantId={tenant.id}
         billing={billing}

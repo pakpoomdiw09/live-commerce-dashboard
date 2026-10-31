@@ -52,7 +52,11 @@ export default async function LegacyBroadcastPage() {
 
   return (
     <>
-      <LiveRefresh channel="broadcasts" tables={['broadcasts']} />
+      <LiveRefresh
+        channel="broadcasts"
+        tables={['broadcasts']}
+        filter={`tenant_id=eq.${tenant.id}`}
+      />
       <BroadcastClient
         tenantId={tenant.id}
         pageName={tenant.page_name ?? tenant.name}

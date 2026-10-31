@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CalendarClock, Lock, Plus, RotateCw, Save, Sparkles, Trash2 } from 'lucide-react'
-import { supabaseBrowser } from '@/lib/supabase/browser'
 import { apiError, baht, customerName, when } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, PageHeader } from '@/components/ui/card'
@@ -82,52 +81,17 @@ export function SmartFollowUpsClient({
     [tenantId],
   )
   useEffect(() => {
-    const db = supabaseBrowser()
     const scheduler = createBackgroundRefresh(
       (signal) => refresh(signal),
       (error) =>
         setNotice({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'Refresh failed',
+          text: error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ',
         }),
-      { intervalMs: 120000 },
+      { intervalMs: 120000, minGapMs: 30000 },
     )
     const sync = scheduler.request
-    const channel = db
-      .channel(`smart-follow-up:${tenantId}:${crypto.randomUUID()}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'follow_up_jobs',
-          filter: `tenant_id=eq.${tenantId}`,
-        },
-        sync,
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'follow_up_workflows',
-          filter: `tenant_id=eq.${tenantId}`,
-        },
-        sync,
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'follow_up_policies',
-          filter: `tenant_id=eq.${tenantId}`,
-        },
-        sync,
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') sync()
-      })
+    sync()
     const visible = () => {
       if (document.visibilityState === 'visible') sync()
     }
@@ -138,7 +102,6 @@ export function SmartFollowUpsClient({
       scheduler.stop()
       window.removeEventListener('online', sync)
       document.removeEventListener('visibilitychange', visible)
-      void db.removeChannel(channel)
     }
   }, [tenantId, refresh, invalidate])
   async function perform(key: string, work: () => Promise<void>, refreshAfter = true) {

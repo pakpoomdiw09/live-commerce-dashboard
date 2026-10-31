@@ -27,6 +27,7 @@ test('confirmed claim updates shared metadata immediately, preserves unread coun
   }
   const { LatestInboxRequest } = load('lib/features/inbox/inbox-request.ts')
   const { useInboxState } = load('hooks/inbox/useInboxState.ts', {
+    '@/lib/background-refresh': load('lib/background-refresh.ts'),
     react,
     '@/lib/supabase/browser': {},
     '@/lib/utils': {},

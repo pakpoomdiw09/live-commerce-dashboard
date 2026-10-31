@@ -172,7 +172,7 @@ export default async function AnalyticsPage({
 
   return (
     <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
-      <LiveRefresh channel="analytics" tables={['orders']} />
+      <LiveRefresh channel="analytics" tables={['orders']} filter={`tenant_id=eq.${tenant.id}`} />
       <PageHeader
         title="วิเคราะห์"
         description={`${tenant.name} · ${days} วันล่าสุด`}

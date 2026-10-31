@@ -1,5 +1,7 @@
 'use client'
 import { createBackgroundRefresh } from '@/lib/background-refresh'
+import { subscribeWhileVisible } from '@/lib/realtime-visibility'
+import { useRouter } from 'next/navigation'
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
@@ -41,6 +43,8 @@ export function SlipsWorkspace({
   creditBypass?: boolean
   embedded?: boolean
 }) {
+  const router = useRouter()
+  const tenantId = tenant?.id
   const db = useMemo(() => supabaseBrowser(), [])
   const [rows, setRows] = useState(initial)
   const [credits, setCredits] = useState(initialCredits)
@@ -60,47 +64,66 @@ export function SlipsWorkspace({
   const [uploadOpen, setUploadOpen] = useState(false)
 
   useEffect(() => {
-    let active = true
-    const reloadCredits = async (signal: AbortSignal) => {
-      if (!tenant) return
-      const { data, error } = await db
-        .from('tenants')
-        .select('slip_quota, slip_used, slip_quota_credits')
-        .eq('id', tenant.id)
-        .abortSignal(signal)
-        .single()
-      if (error) throw error
-      if (active && data && !error)
-        setCredits({ quota: data.slip_quota + data.slip_quota_credits, used: data.slip_used })
-    }
-    const refresh = createBackgroundRefresh(reloadCredits, () => {}, { intervalMs: 120000 })
-    refresh.request()
-    const channel = db
-      .channel(`slips:${tenant?.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'slips' }, (p) => {
-        if (p.eventType === 'DELETE') {
-          setRows((prev) => prev.filter((row) => row.id !== (p.old as { id?: string }).id))
-          return
-        }
-        const row = p.new as SlipRow
-        if (!tenant || row.tenant_id !== tenant.id) return
-        refresh.request()
-        setRows((prev) => {
-          const old = prev.find((r) => r.id === row.id)
-          // Realtime rows carry no joins: keep the customer name we already have
-          const next: SlipListRow = { ...row, customers: old?.customers ?? null }
-          return (old ? prev.map((r) => (r.id === row.id ? next : r)) : [next, ...prev])
-            .sort((a, b) => b.created_at.localeCompare(a.created_at))
-            .slice(0, 200)
-        })
+    if (!tenantId) return
+    let subscribed = false
+    let lastSnapshot = 0
+    return subscribeWhileVisible(() => {
+      let active = true
+      const reloadCredits = async (signal: AbortSignal) => {
+        const { data, error } = await db
+          .from('tenants')
+          .select('slip_quota, slip_used, slip_quota_credits')
+          .eq('id', tenantId)
+          .abortSignal(signal)
+          .single()
+        if (error) throw error
+        if (active && data && !error)
+          setCredits({ quota: data.slip_quota + data.slip_quota_credits, used: data.slip_used })
+      }
+      const refresh = createBackgroundRefresh(reloadCredits, () => {}, {
+        intervalMs: 120000,
+        minGapMs: 30000,
       })
-      .subscribe()
-    return () => {
-      active = false
-      refresh.stop()
-      void db.removeChannel(channel)
-    }
-  }, [db, tenant])
+      refresh.request()
+      const channel = db
+        .channel(`slips:${tenantId}:${Math.random().toString(36).slice(2)}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'slips', filter: `tenant_id=eq.${tenantId}` },
+          (p) => {
+            if (!active) return
+            if (p.eventType === 'DELETE') {
+              setRows((prev) => prev.filter((row) => row.id !== (p.old as { id?: string }).id))
+              return
+            }
+            const row = p.new as SlipRow
+            if (row.tenant_id !== tenantId) return
+            refresh.request()
+            setRows((prev) => {
+              const old = prev.find((r) => r.id === row.id)
+              // Realtime rows carry no joins: keep the customer name we already have
+              const next: SlipListRow = { ...row, customers: old?.customers ?? null }
+              return (old ? prev.map((r) => (r.id === row.id ? next : r)) : [next, ...prev])
+                .sort((a, b) => b.created_at.localeCompare(a.created_at))
+                .slice(0, 200)
+            })
+          },
+        )
+        .subscribe((status) => {
+          if (!active || status !== 'SUBSCRIBED') return
+          if (subscribed && Date.now() - lastSnapshot >= 30000) {
+            lastSnapshot = Date.now()
+            router.refresh()
+          }
+          subscribed = true
+        })
+      return () => {
+        active = false
+        refresh.stop()
+        void db.removeChannel(channel)
+      }
+    })
+  }, [db, tenantId, router])
 
   const counts = useMemo(
     () =>

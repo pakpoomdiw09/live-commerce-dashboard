@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { MessageCircle, MessageSquare, Music2, RefreshCw, ShoppingBag } from 'lucide-react'
 import { Avatar } from '@/components/inbox/Avatar'
-import { supabaseBrowser } from '@/lib/supabase/browser'
 import {
   handoverChannel,
   handoverCustomerName,
@@ -54,6 +53,7 @@ export function AgentHandoverQueue({
       } catch (error) {
         if (sequence.current === request && !signal?.aborted)
           setError(error instanceof Error ? error.message : 'โหลดรายชื่อลูกค้าไม่สำเร็จ')
+        if (signal && !signal.aborted) throw error
       } finally {
         if (sequence.current === request) setLoading(false)
       }
@@ -61,23 +61,12 @@ export function AgentHandoverQueue({
     [tenantId],
   )
   useEffect(() => {
-    const db = supabaseBrowser()
     const scheduler = createBackgroundRefresh(
       (signal) => refresh(signal),
       () => {},
-      { intervalMs: 60000 },
+      { intervalMs: 120000, minGapMs: 15000 },
     )
     const sync = scheduler.request
-    const channel = db
-      .channel(`agent-handover:${tenantId}:${crypto.randomUUID()}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'customers', filter: `tenant_id=eq.${tenantId}` },
-        sync,
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') sync()
-      })
     window.addEventListener('online', sync)
     document.addEventListener('visibilitychange', sync)
     sync()
@@ -86,7 +75,6 @@ export function AgentHandoverQueue({
       scheduler.stop()
       window.removeEventListener('online', sync)
       document.removeEventListener('visibilitychange', sync)
-      void db.removeChannel(channel)
     }
   }, [tenantId, refresh, invalidate])
   return (

@@ -25,7 +25,7 @@ function nodes(value) {
   if (!value || typeof value !== 'object') return []
   return [value, ...nodes(value.props?.children)]
 }
-test('all eight Thai menu buttons switch content without invoking any network or mutation', () => {
+test('Thai menu buttons switch the current four panels without invoking network or mutations', () => {
   const flags = Object.fromEntries(
     [
       'agent_control_center_enabled',
@@ -37,6 +37,7 @@ test('all eight Thai menu buttons switch content without invoking any network or
     ].map((key) => [key, false]),
   )
   const data = {
+    shopInstructions: '',
     config: { flags, monthlyLimit: 0, rateLimit: 10 },
     canManage: false,
     versions: [],
@@ -63,6 +64,10 @@ test('all eight Thai menu buttons switch content without invoking any network or
   const guide = load('components/chatbot/AgentUserGuide.tsx', shared)
   const { AgentControlCenter } = load('components/chatbot/AgentControlCenter.tsx', {
     ...shared,
+    '@/components/ui/page-banner': { PageBanner: 'header' },
+    '@/components/chatbot/AgentOverview': { AgentOverview: 'overview' },
+    '@/components/chatbot/AgentHandoverQueue': { AgentHandoverQueue: 'handover' },
+    '@/components/chatbot/StoreRulesSettings': { StoreRulesSettings: 'rules' },
     '@/components/chatbot/AgentUserGuide': guide,
     './AutomationEmergencyStop': { AutomationEmergencyStop: 'section' },
     'lucide-react': { Bot: 'svg', LockKeyhole: 'svg', RefreshCw: 'svg' },
@@ -81,7 +86,7 @@ test('all eight Thai menu buttons switch content without invoking any network or
     let tree = render()
     const menu = tree.find((n) => n.type === 'nav')
     const buttons = nodes(menu.props.children).filter((n) => n.type === 'button')
-    assert.equal(buttons.length, 8)
+    assert.equal(buttons.length, 4)
     buttons[i].props.onClick()
     tree = render()
     assert.equal(
@@ -89,12 +94,16 @@ test('all eight Thai menu buttons switch content without invoking any network or
       guide.agentTabs[i][0],
     )
     assert.equal(
-      tree.filter((n) => n.type === 'h2' && n.props.children === guide.agentTabs[0][0]).length,
-      i === 0 ? 1 : 0,
+      tree.some((n) => n.type === 'overview'),
+      i === 0,
     )
     assert.equal(
-      tree.filter((n) => n.type === 'p' && n.props.children === guide.agentTabs[0][1]).length,
-      i === 0 ? 1 : 0,
+      tree.some((n) => n.type === 'rules'),
+      i === 1,
+    )
+    assert.equal(
+      tree.some((n) => n.type === 'handover'),
+      i === 3,
     )
     assert.equal(
       tree.some((n) => n.props.children === 'keyword-editor-marker'),

@@ -137,11 +137,52 @@ function fixture(errors = {}, options = {}) {
     },
   }
   const mod = {}
+  const documentState = {
+    visibilityState: 'visible',
+    addEventListener(key, fn) {
+      if (!documentListeners.has(key)) documentListeners.set(key, new Set())
+      documentListeners.get(key).add(fn)
+    },
+    removeEventListener(key, fn) {
+      documentListeners.get(key)?.delete(fn)
+      if (!documentListeners.get(key)?.size) documentListeners.delete(key)
+    },
+  }
+  const visibility = require('./helpers/load-typescript.cjs')(
+    'lib/realtime-visibility.ts',
+    {},
+    { document: documentState },
+  )
   vm.runInNewContext(compile('components/inbox/InboxClient.tsx'), {
     exports: mod,
     console,
     Map,
     Set,
+    AbortController,
+    fetch: async (url, options) => {
+      const query = new URL(url, 'https://offline.test').searchParams
+      const tenant = query.get('tenantId')
+      const id = query.get('customerId')
+      queries.push({
+        table: 'api:conversations',
+        filters: [['tenant_id', tenant]],
+        signal: options.signal,
+      })
+      return {
+        ok: true,
+        json: async () => ({
+          chats: customers
+            .filter((customer) => customer.tenant_id === tenant && (!id || customer.id === id))
+            .map((customer) => ({
+              customer,
+              preview: messages.filter((m) => m.customer_id === customer.id).at(-1) ?? null,
+              latestSlip: null,
+            })),
+          comments: [],
+          hasMore: false,
+        }),
+      }
+    },
     process: { env: { NODE_ENV: 'test' } },
     setTimeout: () => 8,
     clearTimeout: (id) => removed.push(id),
@@ -154,11 +195,7 @@ function fixture(errors = {}, options = {}) {
       addEventListener: (key, fn) => browserListeners.set(key, fn),
       removeEventListener: (key) => browserListeners.delete(key),
     },
-    document: {
-      visibilityState: 'visible',
-      addEventListener: (key, fn) => documentListeners.set(key, fn),
-      removeEventListener: (key) => documentListeners.delete(key),
-    },
+    document: documentState,
     require: (name) => {
       if (name === 'react') return react
       if (name === 'react/jsx-runtime')
@@ -173,6 +210,7 @@ function fixture(errors = {}, options = {}) {
         }
       if (name === '@/lib/features/inbox/inbox-realtime') return helpers
       if (name === '@/lib/features/inbox/inbox-request') return requests
+      if (name === '@/lib/realtime-visibility') return visibility
       if (name === '@/hooks/inbox/useInboxState')
         return { useInboxState: () => ({ data: null, error: null, refresh: async () => {} }) }
       if (name === '@/lib/utils') return { cn: (...args) => args.filter(Boolean).join(' ') }
@@ -205,6 +243,12 @@ function fixture(errors = {}, options = {}) {
     intervals,
     channelName,
     channelNames,
+    listeners,
+    async visible(value) {
+      documentState.visibilityState = value ? 'visible' : 'hidden'
+      for (const fn of [...(documentListeners.get('visibilitychange') ?? [])]) fn()
+      await flush()
+    },
     dispatch,
     restart() {
       cleanups.pop()()
@@ -352,4 +396,46 @@ test('remount uses a fresh channel and callbacks from disposed channels cannot c
   await f.emit('messages', 'INSERT', message('late'))
   await f.subscribe('CLOSED')
   assert.equal(JSON.stringify(f.states), before)
+})
+
+test('hidden Inbox releases its channel and catches missed messages after visible reconnection', async () => {
+  const f = fixture()
+  await flush()
+  assert.equal(
+    f.listeners.find(({ filter }) => filter.table === 'customers').filter.filter,
+    'tenant_id=eq.shop-a',
+  )
+  await f.visible(false)
+  const before = f.queries.length
+  f.messages.push(message('during-hidden'))
+  f.dispatch('messages', 'INSERT', message('late-hidden'))
+  await f.intervals[0]()
+  await flush()
+  assert.equal(f.queries.length, before)
+  assert.equal(
+    f.states[5].some((row) => row.id === 'late-hidden'),
+    false,
+  )
+  await f.visible(true)
+  await f.subscribe('SUBSCRIBED')
+  await flush()
+  assert.equal(new Set(f.channelNames).size, 2)
+  assert.equal(
+    f.states[5].some((row) => row.id === 'during-hidden'),
+    true,
+  )
+  assert.ok(f.cleanup())
+})
+
+test('bounded snapshots remove customers moved outside the tenant without unfiltered subscriptions', async () => {
+  const f = fixture()
+  await flush()
+  f.customers[0].tenant_id = 'shop-b'
+  await f.subscribe('SUBSCRIBED')
+  await flush()
+  assert.equal(
+    f.states[2].some((chat) => chat.customer.id === 'customer-a'),
+    false,
+  )
+  f.cleanup()
 })

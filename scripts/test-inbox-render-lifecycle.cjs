@@ -100,6 +100,12 @@ test('Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room 
     api = {}
   const request = load('lib/features/inbox/inbox-request.ts', {}, { AbortController }),
     realtime = load('lib/features/inbox/inbox-realtime.ts')
+  const documentState = {
+    visibilityState: 'visible',
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  const visibility = load('lib/realtime-visibility.ts', {}, { document: documentState })
   vm.runInNewContext(
     ts.transpileModule(fs.readFileSync('components/inbox/InboxClient.tsx', 'utf8'), {
       compilerOptions: {
@@ -110,6 +116,19 @@ test('Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room 
     }).outputText,
     {
       exports: api,
+      AbortController,
+      fetch: async (url) => ({
+        ok: true,
+        json: async () => ({
+          chats: props.initialChats.filter(
+            (chat) =>
+              chat.customer.tenant_id ===
+              new URL(url, 'https://offline.test').searchParams.get('tenantId'),
+          ),
+          comments: [],
+          hasMore: false,
+        }),
+      }),
       console: { log() {}, info() {}, warn() {}, error() {} },
       process: { env: { NODE_ENV: 'test' } },
       setTimeout: timer,
@@ -117,7 +136,7 @@ test('Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room 
       setInterval: timer,
       clearInterval: clear,
       window: { addEventListener() {}, removeEventListener() {} },
-      document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
+      document: documentState,
       require: (name) => {
         if (name === 'react') return react
         if (name === 'react/jsx-runtime')
@@ -129,6 +148,7 @@ test('Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room 
         if (name === '@/lib/types') return { isMissingCustomerAvatarColumn: () => false }
         if (name === '@/lib/features/inbox/inbox-request') return request
         if (name === '@/lib/features/inbox/inbox-realtime') return realtime
+        if (name === '@/lib/realtime-visibility') return visibility
         if (name === '@/hooks/inbox/useInboxState')
           return { useInboxState: () => ({ data: null, error: null, refresh: async () => {} }) }
         if (name === '@/lib/utils') return { cn: () => '' }
