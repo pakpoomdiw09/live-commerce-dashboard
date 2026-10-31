@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { findBank, isSupportedBank } from '@/lib/features/banking/banks'
@@ -8,6 +8,7 @@ import {
   formatBankAccount,
   type BankAccount,
 } from '@/lib/features/banking/bank-accounts'
+import { BankAccountForm } from '@/components/settings/BankAccountForm'
 import { BankLogo } from '@/components/banking/BankLogo'
 import { BankSelector } from '@/components/banking/BankSelector'
 import { Button } from '@/components/ui/button'
@@ -23,20 +24,15 @@ export function BankAccountsManager({
   tenantId,
   canManage,
   onSelectQr,
-  renderAccountQr,
+  withQrUpload = false,
 }: {
   tenantId: string
   canManage: boolean
   onSelectQr?: (account: BankAccount) => void
-  renderAccountQr?: (
-    account: BankAccount,
-    disabled: boolean,
-    onBusyChange: (busy: boolean) => void,
-  ) => ReactNode
+  withQrUpload?: boolean
 }) {
   const router = useRouter()
   const locked = useRef(false)
-  const [qrBusy, setQrBusy] = useState(false)
   const [audit, setAudit] = useState<
     { id: string; action: string; last_four: string; created_at: string }[]
   >([])
@@ -90,7 +86,7 @@ export function BankAccountsManager({
     setNotice(null)
   }
   async function save() {
-    if (!canManage || locked.current || qrBusy || !editing) return
+    if (!canManage || locked.current || !editing) return
     const error = bankAccountError(draft.bank_code, draft.account_name, draft.account_number)
     if (error) return setNotice({ tone: 'error', text: error })
     if (
@@ -119,7 +115,7 @@ export function BankAccountsManager({
         v = await r.json()
       if (!r.ok) throw Error(v.error ?? 'บันทึกบัญชีไม่ได้')
       await reload()
-      setEditing(renderAccountQr ? (editing === 'new' ? (v.id ?? null) : editing) : null)
+      setEditing(null)
       setNotice({
         tone: 'success',
         text: editing === 'new' ? 'เพิ่มบัญชีรับเงินแล้ว' : 'แก้ไขบัญชีรับเงินแล้ว',
@@ -136,7 +132,6 @@ export function BankAccountsManager({
     if (
       !canManage ||
       locked.current ||
-      qrBusy ||
       !confirm(
         primary
           ? 'ยืนยันใช้บัญชีนี้เป็นบัญชีหลักที่แสดงให้ลูกค้า?'
@@ -182,7 +177,7 @@ export function BankAccountsManager({
               size="sm"
               className="bg-orange-500 hover:bg-orange-600"
               onClick={() => open()}
-              disabled={busy || qrBusy || loading || !!editing}
+              disabled={busy || loading || !!editing}
             >
               <Plus className="h-4 w-4" />
               เพิ่มบัญชีรับเงิน
@@ -194,6 +189,7 @@ export function BankAccountsManager({
         className="space-y-4 p-5"
         onKeyDown={(event) => {
           if (
+            !withQrUpload &&
             !event.defaultPrevented &&
             editing &&
             event.key === 'Enter' &&
@@ -208,6 +204,22 @@ export function BankAccountsManager({
         }}
       >
         {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
+        {editing && withQrUpload && (
+          <BankAccountForm
+            key={editing}
+            tenantId={tenantId}
+            account={
+              editing === 'new' ? null : (accounts.find((row) => row.id === editing) ?? null)
+            }
+            onCancel={() => setEditing(null)}
+            onSaved={async () => {
+              await reload()
+              setEditing(null)
+              setNotice({ tone: 'success', text: 'บันทึกบัญชีรับเงินแล้ว' })
+              router.refresh()
+            }}
+          />
+        )}
         {loading ? (
           <p className="text-sm text-slate-500">กำลังโหลดบัญชี…</p>
         ) : accounts.length === 0 ? (
@@ -237,7 +249,6 @@ export function BankAccountsManager({
                     disabled={
                       !canManage ||
                       busy ||
-                      qrBusy ||
                       !!editing ||
                       (!account.is_active && !isSupportedBank(account.bank_code))
                     }
@@ -286,7 +297,7 @@ export function BankAccountsManager({
                           <Button
                             size="sm"
                             variant="secondary"
-                            disabled={busy || qrBusy || !!editing}
+                            disabled={busy || !!editing}
                             onClick={() => void change(account, false, true)}
                           >
                             {'ใช้เป็นบัญชีหลัก'}
@@ -295,17 +306,17 @@ export function BankAccountsManager({
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={busy || qrBusy || !!editing}
+                        disabled={busy || !!editing}
                         onClick={() => open(account)}
                       >
                         <Pencil className="h-3.5 w-3.5" />
-                        {renderAccountQr ? 'ดู / แก้ไขบัญชี' : 'แก้ไข'}
+                        {withQrUpload ? 'ดู / แก้ไขบัญชี' : 'แก้ไข'}
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
                         className="text-rose-600"
-                        disabled={busy || qrBusy || !!editing}
+                        disabled={busy || !!editing}
                         onClick={() => void change(account, true)}
                         aria-label={`ลบบัญชี ${account.account_name}`}
                       >
@@ -314,7 +325,7 @@ export function BankAccountsManager({
                     </div>
                   )}
                 </div>
-                {canManage && !renderAccountQr && account.is_active && account.qrPayload && (
+                {canManage && !withQrUpload && account.is_active && account.qrPayload && (
                   <div className="mt-4 flex justify-center rounded-xl bg-white p-2">
                     <QRCodeSVG
                       value={account.qrPayload}
@@ -329,16 +340,16 @@ export function BankAccountsManager({
             ))}
           </div>
         )}
-        {editing && (
+        {editing && !withQrUpload && (
           <div className="space-y-4 rounded-xl border border-orange-200 p-4">
             <h3 className="font-semibold">
               {editing === 'new' ? 'เพิ่มบัญชีรับเงิน' : 'แก้ไขบัญชีรับเงิน'}
             </h3>
-            <fieldset disabled={busy || qrBusy}>
+            <fieldset disabled={busy}>
               <BankSelector
                 value={draft.bank_code}
                 onChange={(bank_code) => setDraft({ ...draft, bank_code })}
-                disabled={busy || qrBusy}
+                disabled={busy}
                 label="เลือกธนาคาร"
               />
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -370,49 +381,23 @@ export function BankAccountsManager({
               <span className="text-sm">เปิดใช้งานบัญชี</span>
               <Switch
                 checked={draft.is_active}
-                disabled={busy || qrBusy}
+                disabled={busy}
                 label="เปิดใช้งานบัญชีที่กำลังแก้ไข"
                 onChange={(is_active) => setDraft({ ...draft, is_active })}
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                disabled={busy || qrBusy}
-                onClick={() => setEditing(null)}
-              >
+              <Button variant="secondary" disabled={busy} onClick={() => setEditing(null)}>
                 ยกเลิก
               </Button>
               <Button
                 loading={busy}
-                disabled={qrBusy}
                 onClick={() => void save()}
                 className="bg-orange-500 hover:bg-orange-600"
               >
                 บันทึกบัญชี
               </Button>
             </div>
-            {renderAccountQr &&
-              editing !== 'new' &&
-              (() => {
-                const account = accounts.find((row) => row.id === editing)
-                return account
-                  ? renderAccountQr(
-                      account,
-                      busy ||
-                        draft.bank_code !== account.bank_code ||
-                        draft.account_number.replace(/[\s-]/g, '') !== account.account_number ||
-                        draft.account_name.trim() !== account.account_name ||
-                        draft.is_active !== account.is_active,
-                      setQrBusy,
-                    )
-                  : null
-              })()}
-            {renderAccountQr && editing === 'new' && (
-              <p className="text-xs text-slate-500">
-                บันทึกบัญชีก่อน แล้วอัปโหลดรูป QR Code ประจำบัญชีได้ทันที
-              </p>
-            )}
           </div>
         )}
         {!loading && accounts.length > 0 && !accounts.some((a) => a.is_active) && (
@@ -420,7 +405,7 @@ export function BankAccountsManager({
             ทุกบัญชีปิดใช้งานอยู่ ระบบจะไม่ยอมรับสลิปจนกว่าจะเปิดบัญชีอย่างน้อยหนึ่งรายการ
           </p>
         )}
-        {canManage && !onSelectQr && !renderAccountQr && (
+        {canManage && !onSelectQr && !withQrUpload && (
           <section className="rounded-2xl border border-orange-100 bg-orange-50/40 p-4">
             <h3 className="font-semibold">QR Code รับเงิน</h3>
             <p className="my-2 text-xs text-slate-500">
