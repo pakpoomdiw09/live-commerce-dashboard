@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { chatReplyStrategy } from '../lib/features/agents/chatbot.ts'
+import { chatReplyStrategy } from '../lib/features/agents/chatbot'
 
 test('keyword matches take priority for free and AI-entitled tenants', () => {
   assert.equal(chatReplyStrategy(true, false), 'keyword')

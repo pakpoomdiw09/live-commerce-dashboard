@@ -7,7 +7,7 @@ import {
   inboundBroadcastEvidence,
   recipientReason,
   standardWindowReason,
-} from '../lib/features/broadcast/broadcast-policy.ts'
+} from '../lib/features/broadcast/broadcast-policy'
 
 const pageId = '123456'
 const now = Date.now()

@@ -86,13 +86,35 @@ export function recipientReason(
   return 'eligible'
 }
 export const broadcastUiEnabled = () => process.env.BROADCAST_UI_ENABLED !== 'false'
-export function broadcastReadiness(_now = Date.now()) {
+export function broadcastReadiness(now = Date.now()) {
+  const reviewed = Date.parse(process.env.BROADCAST_POLICY_REVIEWED_AT ?? '')
   if (process.env.BROADCAST_STANDARD_SEND_ENABLED !== 'true')
     return {
       ready: false,
       reason: 'sending_disabled',
       message:
-        'เซิร์ฟเวอร์ยังไม่เปิดส่งบรอดแคสต์ กรุณาตั้งค่า BROADCAST_STANDARD_SEND_ENABLED=true',
+        'ร้านนี้ยังไม่ได้เปิดส่งบรอดแคสต์ บันทึกฉบับร่างไว้ก่อนและให้เจ้าของร้านตรวจสอบการตั้งค่าการส่ง',
+    }
+  if (
+    process.env.BROADCAST_POLICY_VERSION !== BROADCAST_POLICY_VERSION ||
+    process.env.BROADCAST_POLICY_GRAPH_VERSION !== (process.env.FB_GRAPH_VERSION ?? 'v24.0')
+  )
+    return {
+      ready: false,
+      reason: 'review_version_mismatch',
+      message: 'การตั้งค่าการส่งยังไม่ตรงกับระบบปัจจุบัน กรุณาให้ผู้ดูแลตรวจสอบก่อนส่ง',
+    }
+  if (!Number.isFinite(reviewed) || reviewed > now)
+    return {
+      ready: false,
+      reason: 'review_missing',
+      message: 'ยังไม่มีบันทึกการตรวจความพร้อมที่ใช้ได้ กรุณาให้เจ้าของร้านตรวจสอบก่อนส่ง',
+    }
+  if (now - reviewed >= 30 * STANDARD_WINDOW_MS)
+    return {
+      ready: false,
+      reason: 'review_expired',
+      message: 'ถึงเวลาตรวจความพร้อมการส่งอีกครั้ง กรุณาให้เจ้าของร้านตรวจสอบก่อนส่ง',
     }
   return {
     ready: true,

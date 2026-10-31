@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { parseCustomerInput, parseTenantInput } from '../lib/validation.ts'
+import { parseCustomerInput, parseTenantInput } from '../lib/validation'
 
 test('parseTenantInput accepts valid tenant settings', () => {
   const result = parseTenantInput(

@@ -1,49 +1,37 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { findBank } from '@/lib/features/banking/banks'
+import { cfCode } from '@/lib/features/commerce/cf-code'
+
+export { cfCode } from '@/lib/features/commerce/cf-code'
 
 const baht = (n: number) =>
   n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/**
- * The product code in a CF message, or null when the message can't be one.
- * Accepts the bare code ("1", "A12") or with a CF prefix ("cf1", "CF A12", "cf: 3").
- * Longer sentences are never treated as orders.
- */
-export function cfCode(text: string | null | undefined): string | null {
-  const m = /^(?:cf\s*[:.\-]?\s*)?([\p{L}\p{N}_-]{1,20})$/iu.exec(
-    (text ?? '').normalize('NFC').trim(),
-  )
-  return m ? m[1] : null
-}
-
 export type CfResult =
-  | { status: 'created'; orderId: string; name: string; code: string; amount: number }
+  | {
+      status: 'created'
+      orderId: string
+      name: string
+      code: string
+      amount: number
+      variantLabel: string | null
+    }
   | { status: 'sold_out'; name: string; code: string }
+  | { status: 'require_variant'; name: string; code: string }
   | { status: 'no_match' }
 
-/** Place an order for the typed code (stock is taken atomically in place_cf_order, supabase/orders.sql). */
-export async function placeCfOrder(
-  db: SupabaseClient,
-  input: { tenantId: string; customerId: string; messageId: string; code: string },
-): Promise<CfResult> {
-  const { data, error } = await db.rpc('place_cf_order', {
-    p_tenant: input.tenantId,
-    p_customer: input.customerId,
-    p_message: input.messageId,
-    p_code: input.code,
-  })
-  if (error)
-    throw new Error(`place_cf_order failed (did you run supabase/orders.sql?): ${error.message}`)
-  const row = (Array.isArray(data) ? data[0] : data) as
-    | {
-        r_status: string
-        r_order_id: string | null
-        r_name: string | null
-        r_code: string | null
-        r_amount: number | null
-      }
-    | undefined
+type CfOrderRow = {
+  r_status: string
+  r_order_id: string | null
+  r_name: string | null
+  r_code: string | null
+  r_amount: number | null
+  r_variant_label: string | null
+}
+
+function cfResult(data: unknown): CfResult {
+  const row = (Array.isArray(data) ? data[0] : data) as CfOrderRow | undefined
   if (row?.r_status === 'created')
     return {
       status: 'created',
@@ -51,10 +39,49 @@ export async function placeCfOrder(
       name: row.r_name!,
       code: row.r_code!,
       amount: Number(row.r_amount),
+      variantLabel: row.r_variant_label ?? null,
     }
   if (row?.r_status === 'sold_out')
     return { status: 'sold_out', name: row.r_name!, code: row.r_code! }
+  if (row?.r_status === 'require_variant')
+    return { status: 'require_variant', name: row.r_name!, code: row.r_code! }
   return { status: 'no_match' }
+}
+
+/** Place a chat order; product or variant stock is changed atomically in the database. */
+async function callCfOrder(db: SupabaseClient, rpc: string, args: Record<string, unknown>) {
+  const { data, error } = await db.rpc(rpc, args)
+  if (error)
+    throw new Error(
+      `place_cf_order failed (did you run supabase/live-cf-variants.sql?): ${error.message}`,
+    )
+  return cfResult(data)
+}
+
+export async function placeCfOrder(
+  db: SupabaseClient,
+  input: { tenantId: string; customerId: string; messageId: string; code: string },
+): Promise<CfResult> {
+  return callCfOrder(db, 'place_cf_order', {
+    p_tenant: input.tenantId,
+    p_customer: input.customerId,
+    p_message: input.messageId,
+    p_code: input.code,
+  })
+}
+
+/** Orders from comments are keyed by comment ID and resolve the tenant's Facebook customer by PSID. */
+export async function placeCfCommentOrder(
+  db: SupabaseClient,
+  input: { tenantId: string; customerPsid: string; commentId: string; code: string },
+): Promise<CfResult> {
+  return callCfOrder(db, 'place_cf_order', {
+    p_tenant_id: input.tenantId,
+    p_code: input.code,
+    p_customer_psid: input.customerPsid,
+    p_source: 'facebook_comment',
+    p_source_id: input.commentId,
+  })
 }
 
 export type PayTo = { bank_code: string; account_number: string; account_name: string | null }

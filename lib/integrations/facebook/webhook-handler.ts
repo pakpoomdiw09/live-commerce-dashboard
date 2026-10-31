@@ -5,6 +5,7 @@ import {
   pageTokenFor,
   privateReply,
   replyToComment,
+  sendPrivateReply,
   type OutgoingMessage,
 } from '@/lib/integrations/facebook/client'
 import { RULE_COLUMNS, ruleMatches, type CommentRule } from '@/lib/features/comments/comment-rules'
@@ -13,9 +14,12 @@ import {
   cfCode,
   orderSummaryText,
   pendingOrders,
+  placeCfCommentOrder,
   placeCfOrder,
   soldOutText,
 } from '@/lib/features/commerce/orders'
+import { handleLiveCfComment } from '@/lib/features/commerce/live-cf-comment'
+import { findBank } from '@/lib/features/banking/banks'
 import { processSlip } from '@/lib/features/slips/process'
 import { deliverOnce, notifySlipResult, type Recipient } from '@/lib/features/slips/notify'
 import { downloadSlipImage, slipCandidates } from '@/lib/features/slips/image'
@@ -467,7 +471,85 @@ async function onComment(
   if (typeof v.comment_id !== 'string' || !v.comment_id) return
   const stored = await execution.persistRecord(tenant?.id ?? null)
   if (stored.duplicate || !stored.id) return
-  if (v.message && tenant) await runCommentRules(stored.id, v, pageId, tenant, execution)
+  if (typeof v.message !== 'string' || !tenant) return
+  const psid = typeof v.from?.id === 'string' ? v.from.id : null
+  if (psid && stored.customer) {
+    const db = supabaseAdmin({ timeoutMs: 15000 })
+    const token = pageTokenFor(tenant)
+    const handled = await handleLiveCfComment(
+      { text: v.message, commentId: v.comment_id },
+      {
+        placeOrder: (code) =>
+          execution.once('comment-cf-order', () =>
+            placeCfCommentOrder(db, {
+              tenantId: tenant.id,
+              customerPsid: psid,
+              commentId: v.comment_id,
+              code,
+            }),
+          ),
+        getPayment: () => primaryBankPayment(db, tenant.id),
+        getPendingTotal: async () =>
+          (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
+        sendPrivateReply: (message, qrImageUrl) =>
+          execution.once('comment-cf-private-reply', async () => {
+            await sendWithMessageCredit(db, tenant.id, () =>
+              sendPrivateReply(token, v.comment_id, message, qrImageUrl),
+            )
+            return null
+          }),
+        replyToComment: (message) =>
+          execution.once('comment-cf-public-reply', async () => {
+            await sendWithMessageCredit(db, tenant.id, () =>
+              replyToComment(token, v.comment_id, message),
+            )
+            return null
+          }),
+      },
+    )
+    if (handled) return
+  }
+  await runCommentRules(stored.id, v, pageId, tenant, execution)
+}
+
+async function primaryBankPayment(db: ReturnType<typeof supabaseAdmin>, tenantId: string) {
+  const account = await db
+    .from('bank_accounts')
+    .select('id,bank_code,account_name,account_number')
+    .eq('tenant_id', tenantId)
+    .eq('is_primary', true)
+    .eq('is_active', true)
+    .maybeSingle()
+  if (account.error) throw account.error
+  if (!account.data) return null
+
+  const current = await db
+    .from('bank_receiving_qr')
+    .select('image_path,bank_code_snapshot,account_number_snapshot')
+    .eq('tenant_id', tenantId)
+    .eq('account_id', account.data.id)
+    .maybeSingle()
+  if (current.error) throw current.error
+
+  let qrImageUrl: string | null = null
+  if (
+    current.data &&
+    current.data.bank_code_snapshot === account.data.bank_code &&
+    current.data.account_number_snapshot === account.data.account_number &&
+    current.data.image_path.startsWith(`${tenantId}/`)
+  ) {
+    const signed = await db.storage
+      .from('bank-receiving-qr')
+      .createSignedUrl(current.data.image_path, 60 * 60)
+    if (signed.error) throw signed.error
+    qrImageUrl = signed.data.signedUrl
+  }
+  return {
+    bankName: findBank(account.data.bank_code)?.name ?? account.data.bank_code,
+    accountName: account.data.account_name,
+    accountNumber: account.data.account_number,
+    qrImageUrl,
+  }
 }
 
 /** First active rule (oldest first) of this tenant, for this Page, whose keywords match the comment. */

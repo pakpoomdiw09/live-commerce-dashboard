@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { isMissingCustomerAvatarColumn, isMissingDatabaseColumn } from '../lib/types.ts'
+import { isMissingCustomerAvatarColumn, isMissingDatabaseColumn } from '../lib/types'
 
 test('recognizes a missing optional customer avatar column', () => {
   assert.equal(

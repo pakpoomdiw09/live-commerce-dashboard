@@ -266,23 +266,24 @@ export function CommerceProducts({
               </p>
               {draft.variants.map((v: any, i: number) => (
                 <div
-                  className="grid items-end gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-[2fr_1fr_1fr_auto]"
+                  className="grid items-end gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-[2fr_1.2fr_1fr_1fr_auto]"
                   key={v.id ?? i}
                 >
                   {[
                     ['label', 'ชื่อ เช่น ดำ / M'],
+                    ['variant_code', 'รหัส CF เช่น 159W'],
                     ['price', 'ราคา'],
                     ['stock', 'สต็อก'],
                   ].map(([key, title]) => (
                     <label key={key} className="text-xs">
                       {title}
                       <input
-                        type={key === 'label' ? 'text' : 'number'}
+                        type={key === 'label' || key === 'variant_code' ? 'text' : 'number'}
                         onFocus={(e) => {
-                          if (key !== 'label') e.currentTarget.select()
+                          if (key !== 'label' && key !== 'variant_code') e.currentTarget.select()
                         }}
                         className={input}
-                        value={v[key]}
+                        value={v[key] ?? ''}
                         step={key === 'price' ? '0.01' : '1'}
                         min="0"
                         onChange={(e) =>
@@ -293,7 +294,7 @@ export function CommerceProducts({
                                 ? {
                                     ...r,
                                     [key]:
-                                      key === 'label'
+                                      key === 'label' || key === 'variant_code'
                                         ? e.target.value
                                         : e.target.value.replace(/^0+(?=\d)/, ''),
                                   }
@@ -326,7 +327,7 @@ export function CommerceProducts({
                 onClick={() =>
                   change('variants', [
                     ...draft.variants,
-                    { label: '', price: draft.price, stock: 0 },
+                    { label: '', variant_code: '', price: draft.price, stock: 0 },
                   ])
                 }
               >

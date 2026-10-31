@@ -161,6 +161,7 @@ type CommercePage = {
     id: string
     product_id: string
     label: string
+    variant_code: string | null
     price: number
     stock: number
     is_active: boolean
@@ -431,7 +432,7 @@ export async function publicStore(storeSlug: string, pageSlug = 'home') {
       'products',
       'id,code,name,price,stock,description,image_url,commerce_images,commerce_category_id,commerce_compare_price,commerce_featured',
     ),
-    publicRows('commerce_variants', 'id,product_id,label,price,stock'),
+    publicRows('commerce_variants', 'id,product_id,label,variant_code,price,stock'),
     rows(db.from('commerce_categories').select('id,name').eq('tenant_id', tenantId)),
     rows(
       db

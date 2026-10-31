@@ -196,15 +196,22 @@ export function parseProduct(v: any) {
     throw new CommerceError('รูปภาพไม่เกิน 8 รูป และตัวเลือกไม่เกิน 40 รายการ')
   const variants = v.variants.map((r: any) => {
     if (!r || (r.id && !isUuid(r.id))) throw new CommerceError('ตัวเลือกสินค้าไม่ถูกต้อง')
+    const variantCode = text(r.variant_code ?? '', 20)
+    if (variantCode && !/^[\p{L}\p{N}_-]+$/u.test(variantCode))
+      throw new CommerceError('รหัสตัวเลือกใช้ตัวอักษร ตัวเลข ขีดกลาง หรือขีดล่าง')
     return {
       id: isUuid(r.id) ? r.id : undefined,
       label: text(r.label, 80, true),
+      variant_code: variantCode || null,
       price: money(r.price),
       stock: stock(r.stock),
     }
   })
   if (new Set(variants.map((r: any) => r.label.toLowerCase())).size !== variants.length)
     throw new CommerceError('ชื่อตัวเลือกสินค้าซ้ำกัน')
+  const variantCodes = variants.map((r: any) => r.variant_code?.toLocaleLowerCase()).filter(Boolean)
+  if (new Set(variantCodes).size !== variantCodes.length)
+    throw new CommerceError('รหัสตัวเลือกสินค้าซ้ำกัน')
   const price = money(v.price),
     compare = v.compare_price == null ? null : money(v.compare_price)
   if (compare != null && compare < price)

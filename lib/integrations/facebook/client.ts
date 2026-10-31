@@ -332,6 +332,15 @@ export async function replyToComment(token: string | null, commentId: string, te
 export type OutgoingMessage =
   | { text: string }
   | { attachment: { type: 'image'; payload: { url: string; is_reusable: boolean } } }
+  | {
+      attachment: {
+        type: 'template'
+        payload: {
+          template_type: 'generic'
+          elements: { title: string; subtitle: string; image_url: string }[]
+        }
+      }
+    }
 
 /**
  * Private reply: a Messenger message to a comment's author. Meta allows one per comment,
@@ -359,6 +368,32 @@ export async function privateReply(
     },
     (error) => logSendFailure(error, token, commentId, message),
   )
+}
+
+/** A single private reply that can include the order summary and its QR image. */
+export function sendPrivateReply(
+  token: string | null,
+  commentId: string,
+  message: string,
+  qrImageUrl: string | null = null,
+) {
+  if (!qrImageUrl) return privateReply(token, commentId, { text: message })
+  const [title = '', ...rest] = message.split('\n')
+  return privateReply(token, commentId, {
+    attachment: {
+      type: 'template',
+      payload: {
+        template_type: 'generic',
+        elements: [
+          {
+            title: title.slice(0, 80),
+            subtitle: rest.join(' ').slice(0, 80),
+            image_url: qrImageUrl,
+          },
+        ],
+      },
+    },
+  })
 }
 
 /** The customer's name, or null (no token, or Meta refused). Never throws. */
