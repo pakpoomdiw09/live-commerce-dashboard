@@ -5,16 +5,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMemo, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import {
-  liveRuleCode,
-  ruleMatches,
-  type CommentRule,
-  type LiveProductOption,
-} from '@/lib/features/comments/comment-rules'
-import { LiveCfFields } from './LiveCfFields'
+import { ruleMatches, type CommentRule } from '@/lib/features/comments/comment-rules'
 import type { PageProfile } from '@/lib/integrations/facebook/client'
 import { ICONS, Icon } from '@/components/ui/Icon'
 import { Switch } from '@/components/ui/Switch'
+import { Radio } from 'lucide-react'
 
 type Draft = Omit<CommentRule, 'id' | 'created_at'>
 
@@ -49,14 +44,10 @@ export function RuleEditor({
   rule,
   pages,
   tenantId,
-  products = [],
-  catalogError = null,
 }: {
   rule?: CommentRule
   pages: PageProfile[]
   tenantId: string
-  products?: LiveProductOption[]
-  catalogError?: string | null
 }) {
   const router = useRouter()
   const db = useMemo(() => supabaseBrowser(), [])
@@ -82,40 +73,18 @@ export function RuleEditor({
       .map((id) => ({ id, name: `เพจ ${id}`, picture: null })),
   ]
 
-  const live = draft.mode === 'live_cf'
-  const product = products.find((p) => p.id === draft.live_product_id)
-  const responseProblems = (
-    live
-      ? [
-          catalogError,
-          !product && 'เลือกสินค้าของร้าน',
-          !!product?.variants.length &&
-            !product.variants.some((v) => v.id === draft.live_variant_id) &&
-            'เลือกตัวเลือกสินค้า',
-          draft.keywords.some((k) => !/^[a-z0-9][a-z0-9_-]{0,39}$/i.test(k)) &&
-            'รหัสไลฟ์ใช้ตัวอักษรอังกฤษ ตัวเลข ขีดกลาง หรือขีดล่าง ไม่เกิน 40 ตัว',
-          draft.live_stock_limit != null &&
-            (!Number.isSafeInteger(draft.live_stock_limit) ||
-              draft.live_stock_limit < 1 ||
-              draft.live_stock_limit > 1000000) &&
-            'จำนวนขายในไลฟ์ต้องเป็นจำนวนเต็ม 1–1,000,000',
-          !!draft.live_post_id &&
-            !/^\d+(?:_\d+)?$/.test(draft.live_post_id.trim()) &&
-            'ระบุรหัสวิดีโอหรือโพสต์เป็นตัวเลข เช่น 123 หรือ 123_456',
-        ]
-      : [
-          !draft.reply_enabled && !draft.inbox_enabled && 'เปิดการตอบกลับอย่างน้อย 1 แบบ',
-          draft.reply_enabled && !draft.reply_text?.trim() && 'ใส่ข้อความตอบกลับใต้คอมเมนต์',
-          draft.inbox_enabled &&
-            draft.inbox_type === 'text' &&
-            !draft.inbox_text?.trim() &&
-            'ใส่ข้อความส่งเข้าอินบ็อกซ์',
-          draft.inbox_enabled &&
-            draft.inbox_type === 'image' &&
-            !draft.inbox_image_url &&
-            'อัปโหลดรูปที่จะส่งเข้าอินบ็อกซ์',
-        ]
-  ).filter((p): p is string => !!p)
+  const responseProblems = [
+    !draft.reply_enabled && !draft.inbox_enabled && 'เปิดการตอบกลับอย่างน้อย 1 แบบ',
+    draft.reply_enabled && !draft.reply_text?.trim() && 'ใส่ข้อความตอบกลับใต้คอมเมนต์',
+    draft.inbox_enabled &&
+      draft.inbox_type === 'text' &&
+      !draft.inbox_text?.trim() &&
+      'ใส่ข้อความส่งเข้าอินบ็อกซ์',
+    draft.inbox_enabled &&
+      draft.inbox_type === 'image' &&
+      !draft.inbox_image_url &&
+      'อัปโหลดรูปที่จะส่งเข้าอินบ็อกซ์',
+  ].filter((p): p is string => !!p)
   const done = [draft.page_ids.length > 0, draft.keywords.length > 0, responseProblems.length === 0]
   const problems = [
     !draft.name.trim() && 'ตั้งชื่อกฎ',
@@ -149,11 +118,11 @@ export function RuleEditor({
       name: draft.name.trim(),
       reply_text: draft.reply_text?.trim() || null,
       inbox_text: draft.inbox_text?.trim() || null,
-      mode: draft.mode ?? 'general',
-      live_product_id: live ? draft.live_product_id : null,
-      live_variant_id: live ? draft.live_variant_id : null,
-      live_stock_limit: live ? draft.live_stock_limit : null,
-      live_post_id: live ? draft.live_post_id?.trim() || null : null,
+      mode: 'general' as const,
+      live_product_id: null,
+      live_variant_id: null,
+      live_stock_limit: null,
+      live_post_id: null,
     }
     try {
       const { error: saveErr } = rule
@@ -204,6 +173,27 @@ export function RuleEditor({
         </div>
       </PageBanner>
 
+      {/* แบนเนอร์แนะนำไปหน้า /live-cf */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50/80 p-4 text-sm text-orange-950">
+        <div className="flex items-center gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-500 text-white">
+            <Radio className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="font-semibold text-orange-950">ต้องการเปิดระบบดูดออเดอร์ไลฟ์สด (Live Commerce CF)?</p>
+            <p className="text-xs text-orange-800">
+              หน้านี้สำหรับการตั้งค่าตอบคอมเมนต์ทั่วไป หากต้องการตั้งรหัส CF และตัดสต็อกอัตโนมัติ กรุณาใช้ระบบไลฟ์สด
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/live-cf"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-orange-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-600 active:scale-95"
+        >
+          ไปที่หน้าไลฟ์สด CF →
+        </Link>
+      </div>
+
       {error && (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-100">
           {error}
@@ -219,7 +209,7 @@ export function RuleEditor({
             value={draft.name}
             onChange={(e) => set('name', e.target.value)}
             maxLength={100}
-            placeholder={live ? 'เช่น ไลฟ์เสื้อสีขาว' : 'เช่น ตอบคนถามราคา'}
+            placeholder="เช่น ตอบคนถามราคา"
             className={input}
           />
         </label>
@@ -233,41 +223,9 @@ export function RuleEditor({
         </div>
       </div>
 
-      <fieldset className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-        <legend className="px-2 text-sm font-semibold">ประเภทการทำงาน</legend>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(
-            [
-              ['general', 'ตอบกลับคอมเมนต์ทั่วไป'],
-              ['live_cf', 'โหมดไลฟ์สดดูดออเดอร์ (Live CF)'],
-            ] as const
-          ).map(([value, label]) => (
-            <label
-              key={value}
-              className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 p-3 text-sm has-checked:border-orange-400 has-checked:bg-orange-50"
-            >
-              <input
-                type="radio"
-                name="rule-mode"
-                value={value}
-                checked={(draft.mode ?? 'general') === value}
-                onChange={() => {
-                  if (value === 'live_cf') {
-                    router.push('/live-cf')
-                    return
-                  }
-                  set('mode', value)
-                }}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
       {/* stepper */}
       <ol className="grid grid-cols-3 gap-2 text-sm">
-        {['เงื่อนไข', 'การเริ่มทำงาน', live ? 'สินค้าและสต็อก' : 'การตอบกลับ'].map((label, i) => (
+        {['เงื่อนไข', 'การเริ่มทำงาน', 'การตอบกลับ'].map((label, i) => (
           <li key={label} className="flex items-center gap-2">
             <StepBadge n={i + 1} done={done[i]} />
             <span
@@ -366,25 +324,19 @@ export function RuleEditor({
             <span className="mb-1.5 block text-sm font-medium">
               {draft.match_type === 'exact' ? 'ประโยคที่ลูกค้าพิมพ์' : 'คีย์เวิร์ด'}
             </span>
-            <KeywordInput
-              value={draft.keywords}
-              onChange={(v) => set('keywords', v)}
-              placeholder={live ? 'เช่น 159 หรือ A1 แล้วกด Enter' : undefined}
-            />
+            <KeywordInput value={draft.keywords} onChange={(v) => set('keywords', v)} />
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-slate-400">ตัวอย่าง:</span>
-              {(live ? ['159', 'A1', 'Z99'] : SUGGESTIONS)
-                .filter((s) => !draft.keywords.includes(s))
-                .map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => set('keywords', [...draft.keywords, s])}
-                    className="rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs text-slate-600 hover:border-red-300 hover:text-red-600"
-                  >
-                    + {s}
-                  </button>
-                ))}
+              {SUGGESTIONS.filter((s) => !draft.keywords.includes(s)).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => set('keywords', [...draft.keywords, s])}
+                  className="rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs text-slate-600 hover:border-red-300 hover:text-red-600"
+                >
+                  + {s}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -400,12 +352,10 @@ export function RuleEditor({
             />
             {sample.trim() && (
               <p
-                className={`mt-2 text-xs font-medium ${(live ? liveRuleCode(draft, sample) : ruleMatches(draft, sample)) ? 'text-emerald-600' : 'text-slate-500'}`}
+                className={`mt-2 text-xs font-medium ${ruleMatches(draft, sample) ? 'text-emerald-600' : 'text-slate-500'}`}
               >
-                {(live ? liveRuleCode(draft, sample) : ruleMatches(draft, sample))
-                  ? live
-                    ? '✓ รหัสตรงกับกฎนี้'
-                    : '✓ ตรงเงื่อนไข ระบบจะตอบคอมเมนต์นี้'
+                {ruleMatches(draft, sample)
+                  ? '✓ ตรงเงื่อนไข ระบบจะตอบคอมเมนต์นี้'
                   : '✗ ไม่ตรงเงื่อนไข'}
               </p>
             )}
@@ -413,119 +363,102 @@ export function RuleEditor({
         </StepCard>
 
         {/* 3. responses */}
-        {live && (
-          <StepCard
-            n={3}
-            done={done[2]}
-            title="สินค้าและสต็อกไลฟ์"
-            desc="สร้างออเดอร์และส่งยอดเงินพร้อม QR ของบัญชีหลักอัตโนมัติ"
-          >
-            <LiveCfFields
-              products={products}
-              error={catalogError}
-              value={draft}
-              onChange={(value) => setDraft((d) => ({ ...d, ...value }))}
-            />
-          </StepCard>
-        )}
-        {!live && (
-          <StepCard
-            n={3}
-            done={done[2]}
-            title="การตอบกลับ"
-            desc="เลือกว่าจะตอบใต้คอมเมนต์ ส่งเข้าอินบ็อกซ์ หรือทั้งสองแบบ"
-          >
-            <div className="space-y-4">
-              <ResponseBlock
-                title="ข้อความตอบกลับใต้คอมเมนต์"
-                hint="ทุกคนที่เห็นโพสต์จะเห็นข้อความนี้"
-                enabled={draft.reply_enabled}
-                onToggle={(v) => set('reply_enabled', v)}
+        <StepCard
+          n={3}
+          done={done[2]}
+          title="การตอบกลับ"
+          desc="เลือกว่าจะตอบใต้คอมเมนต์ ส่งเข้าอินบ็อกซ์ หรือทั้งสองแบบ"
+        >
+          <div className="space-y-4">
+            <ResponseBlock
+              title="ข้อความตอบกลับใต้คอมเมนต์"
+              hint="ทุกคนที่เห็นโพสต์จะเห็นข้อความนี้"
+              enabled={draft.reply_enabled}
+              onToggle={(v) => set('reply_enabled', v)}
+            >
+              <textarea
+                value={draft.reply_text ?? ''}
+                onChange={(e) => set('reply_text', e.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="เช่น ขอบคุณที่สนใจค่ะ แอดมินส่งรายละเอียดไปทางแชทแล้วนะคะ"
+                className={`${input} resize-none`}
+              />
+              <p className="mt-1 text-right text-[11px] text-slate-400">
+                {draft.reply_text?.length ?? 0}/2000
+              </p>
+            </ResponseBlock>
+
+            <ResponseBlock
+              title="ข้อความส่งเข้าอินบ็อกซ์ (Private Message)"
+              hint="Meta ให้ส่งได้ 1 ข้อความต่อคอมเมนต์ จึงเลือกได้ทีละแบบ"
+              enabled={draft.inbox_enabled}
+              onToggle={(v) => set('inbox_enabled', v)}
+            >
+              <div
+                role="tablist"
+                className="mb-3 grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-sm"
               >
+                {(['text', 'image'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="tab"
+                    aria-selected={draft.inbox_type === t}
+                    onClick={() => set('inbox_type', t)}
+                    className={`rounded-lg py-1.5 font-medium transition ${draft.inbox_type === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    {t === 'text' ? 'ข้อความ' : 'รูปภาพ'}
+                  </button>
+                ))}
+              </div>
+              {draft.inbox_type === 'text' ? (
                 <textarea
-                  value={draft.reply_text ?? ''}
-                  onChange={(e) => set('reply_text', e.target.value)}
+                  value={draft.inbox_text ?? ''}
+                  onChange={(e) => set('inbox_text', e.target.value)}
                   rows={3}
                   maxLength={2000}
-                  placeholder="เช่น ขอบคุณที่สนใจค่ะ แอดมินส่งรายละเอียดไปทางแชทแล้วนะคะ"
+                  placeholder="เช่น สวัสดีค่ะ ราคาสินค้า 590 บาท สั่งซื้อได้ที่แชทนี้เลยค่ะ"
                   className={`${input} resize-none`}
                 />
-                <p className="mt-1 text-right text-[11px] text-slate-400">
-                  {draft.reply_text?.length ?? 0}/2000
-                </p>
-              </ResponseBlock>
-
-              <ResponseBlock
-                title="ข้อความส่งเข้าอินบ็อกซ์ (Private Message)"
-                hint="Meta ให้ส่งได้ 1 ข้อความต่อคอมเมนต์ จึงเลือกได้ทีละแบบ"
-                enabled={draft.inbox_enabled}
-                onToggle={(v) => set('inbox_enabled', v)}
-              >
-                <div
-                  role="tablist"
-                  className="mb-3 grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-sm"
-                >
-                  {(['text', 'image'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      role="tab"
-                      aria-selected={draft.inbox_type === t}
-                      onClick={() => set('inbox_type', t)}
-                      className={`rounded-lg py-1.5 font-medium transition ${draft.inbox_type === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                    >
-                      {t === 'text' ? 'ข้อความ' : 'รูปภาพ'}
-                    </button>
-                  ))}
-                </div>
-                {draft.inbox_type === 'text' ? (
-                  <textarea
-                    value={draft.inbox_text ?? ''}
-                    onChange={(e) => set('inbox_text', e.target.value)}
-                    rows={3}
-                    maxLength={2000}
-                    placeholder="เช่น สวัสดีค่ะ ราคาสินค้า 590 บาท สั่งซื้อได้ที่แชทนี้เลยค่ะ"
-                    className={`${input} resize-none`}
+              ) : draft.inbox_image_url ? (
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={draft.inbox_image_url}
+                    alt="รูปที่จะส่งเข้าอินบ็อกซ์"
+                    className="max-h-56 w-full rounded-xl object-contain ring-1 ring-slate-200"
                   />
-                ) : draft.inbox_image_url ? (
-                  <div className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={draft.inbox_image_url}
-                      alt="รูปที่จะส่งเข้าอินบ็อกซ์"
-                      className="max-h-56 w-full rounded-xl object-contain ring-1 ring-slate-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => set('inbox_image_url', null)}
-                      aria-label="ลบรูป"
-                      className="absolute top-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-white/90 text-slate-600 shadow hover:text-red-600"
-                    >
-                      <Icon d={ICONS.close} className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 transition hover:border-red-300 hover:bg-red-50/40">
-                    <Icon d={ICONS.image} className="h-8 w-8 text-slate-400" />
-                    {uploading ? 'กำลังอัปโหลด...' : 'คลิกเพื่ออัปโหลดรูปภาพ'}
-                    <span className="text-xs text-slate-400">JPG, PNG, GIF ไม่เกิน 8 MB</span>
-                    <input
-                      type="file"
-                      accept={IMAGE_TYPES.join(',')}
-                      disabled={uploading}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        e.target.value = ''
-                        if (file) void upload(file)
-                      }}
-                      className="sr-only"
-                    />
-                  </label>
-                )}
-              </ResponseBlock>
-            </div>
-          </StepCard>
-        )}
+                  <button
+                    type="button"
+                    onClick={() => set('inbox_image_url', null)}
+                    aria-label="ลบรูป"
+                    className="absolute top-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-white/90 text-slate-600 shadow hover:text-red-600"
+                  >
+                    <Icon d={ICONS.close} className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 transition hover:border-red-300 hover:bg-red-50/40">
+                  <Icon d={ICONS.image} className="h-8 w-8 text-slate-400" />
+                  {uploading ? 'กำลังอัปโหลด...' : 'คลิกเพื่ออัปโหลดรูปภาพ'}
+                  <span className="text-xs text-slate-400">JPG, PNG, GIF ไม่เกิน 8 MB</span>
+                  <input
+                    type="file"
+                    accept={IMAGE_TYPES.join(',')}
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''
+                      if (file) void upload(file)
+                    }}
+                    className="sr-only"
+                  />
+                </label>
+              )}
+            </ResponseBlock>
+          </div>
+        </StepCard>
       </div>
     </div>
   )

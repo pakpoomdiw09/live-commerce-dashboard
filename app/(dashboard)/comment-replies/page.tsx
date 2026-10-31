@@ -23,6 +23,7 @@ export default async function CommentRepliesPage() {
       .from('comment_rules')
       .select(`${RULE_COLUMNS}, comments(count)`)
       .eq('tenant_id', tenant.id)
+      .neq('mode', 'live_cf')
       .order('created_at', { ascending: false }),
     tenantPages(tenant),
   ])

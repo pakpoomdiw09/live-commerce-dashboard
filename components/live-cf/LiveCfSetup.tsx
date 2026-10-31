@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   BadgeCheck,
@@ -254,6 +255,7 @@ export function LiveCfSetup({
                 สินค้าในร้าน
                 <div className="relative">
                   <select
+                    aria-label="สินค้าจากร้านค้า / เซลเพจ"
                     className={`${field} appearance-none pr-10`}
                     value={productId}
                     onChange={(event) => chooseProduct(event.target.value)}
@@ -269,6 +271,15 @@ export function LiveCfSetup({
                   <ChevronDown className="pointer-events-none absolute right-3 top-5 h-4 w-4 text-slate-400" />
                 </div>
               </label>
+              {!products.length && (
+                <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800 ring-1 ring-amber-200">
+                  ยังไม่มีสินค้าในร้านค้า กรุณาเพิ่มสินค้าที่หน้า{' '}
+                  <Link href="/shop" className="font-semibold text-orange-600 underline hover:text-orange-700">
+                    ร้านค้า / เซลเพจ
+                  </Link>{' '}
+                  ก่อน
+                </p>
+              )}
               {product && (
                 <div className="flex items-center gap-4 rounded-xl border border-slate-200 p-3">
                   <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-100">

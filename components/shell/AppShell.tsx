@@ -27,14 +27,12 @@ import { PageTransition } from '@/components/shell/PageTransition'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
 import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
-import { LIVE_CF_ENABLED } from '@/lib/feature-flags'
 
 type NavLink = { href: string; label: string }
 type NavItem = NavLink & { icon: LucideIcon; children?: NavLink[] }
 
 const NAV: NavItem[] = [
   { href: '/overview', label: 'หน้าหลัก', icon: House },
-  { href: '/slips', label: 'ตรวจสอบสลิป', icon: CreditCard },
   {
     href: '/chatbot',
     label: 'แชทบอท / AI Agents',
@@ -51,7 +49,8 @@ const NAV: NavItem[] = [
   },
   { href: '/broadcast', label: 'บรอดแคสต์', icon: Megaphone },
   { href: '/shop', label: 'ร้านค้า / เซลเพจ', icon: Store },
-  ...(LIVE_CF_ENABLED ? [{ href: '/live-cf', label: 'ไลฟ์สด CF', icon: Radio }] : []),
+  { href: '/live-cf', label: 'ไลฟ์สด CF', icon: Radio },
+  { href: '/slips', label: 'ระบบตรวจสอบสลิป', icon: CreditCard },
   { href: '/inbox', label: 'รวมแชท', icon: MessagesSquare },
   { href: '/analytics', label: 'วิเคราะห์', icon: BarChart3 },
   { href: '/billing', label: 'แพ็กเกจ & เครดิต', icon: CreditCard },
