@@ -25,6 +25,7 @@ import {
 import { PageTransition } from '@/components/shell/PageTransition'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
+import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
 
 type NavLink = { href: string; label: string }
 type NavItem = NavLink & { icon: LucideIcon; children?: NavLink[] }
@@ -40,7 +41,9 @@ const NAV: NavItem[] = [
       { href: '/chatbot/conversations', label: 'ผู้ช่วยตอบบทสนทนา' },
       { href: '/comment-replies', label: 'ตอบกลับคอมเมนต์' },
       { href: '/chatbot/images', label: 'ผู้ช่วยตอบรูปภาพ' },
-      { href: '/chatbot/follow-ups', label: 'ผู้ช่วยติดตามลูกค้า' },
+      ...(SMART_FOLLOW_UP_ENABLED
+        ? [{ href: '/chatbot/follow-ups', label: 'ผู้ช่วยติดตามลูกค้า' }]
+        : []),
       { href: '/customers', label: 'รายชื่อลูกค้า' },
     ],
   },

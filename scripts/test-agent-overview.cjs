@@ -23,6 +23,8 @@ function load(file, deps = {}, env = {}) {
       process: { env },
       require: (name) => {
         if (name in deps) return deps[name]
+        if (name === '@/lib/features/follow-ups/availability')
+          return { SMART_FOLLOW_UP_ENABLED: true }
         if (name === '@/lib/features/agents/tenant-ai-quota-types')
           return load('lib/features/agents/tenant-ai-quota-types.ts')
         if (name === '@/lib/features/agents/tenant-ai-quota')

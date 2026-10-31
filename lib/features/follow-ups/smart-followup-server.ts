@@ -12,7 +12,13 @@ import type {
 import { DEFAULT_POLICY, DEFAULT_STEPS } from '@/lib/features/follow-ups/smart-followup-types'
 import { UUID } from '@/lib/utils'
 import { getBilling } from '@/lib/features/billing/billing'
+import {
+  SMART_FOLLOW_UP_ENABLED,
+  FOLLOW_UPS_PAUSED_MESSAGE,
+} from '@/lib/features/follow-ups/availability'
 export async function followUpTenant(req: NextRequest, tenantId: string) {
+  if (!SMART_FOLLOW_UP_ENABLED)
+    throw new InboxError(FOLLOW_UPS_PAUSED_MESSAGE, 503, 'FOLLOW_UPS_PAUSED')
   const scope = await inboxTenant(req, tenantId)
   if (!(await hasFeature(scope.db, tenantId, 'customer_follow_up')))
     throw new InboxError('อัปเกรดแพ็กเกจเพื่อใช้ผู้ช่วยติดตามลูกค้า', 403, 'FEATURE_LOCKED')

@@ -19,6 +19,8 @@ function load(file, deps = {}, env = {}) {
       process: { env },
       require: (name) => {
         if (name in deps) return deps[name]
+        if (name === '@/lib/features/follow-ups/availability')
+          return { SMART_FOLLOW_UP_ENABLED: true }
         throw Error('Unexpected dependency ' + name)
       },
     },

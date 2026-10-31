@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { apiError } from '@/lib/utils'
+import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
 type State = { followup_opted_out: boolean; contact_suspended: boolean }
 export function FollowUpContactControl({
   customerId,
@@ -20,6 +21,7 @@ export function FollowUpContactControl({
     setState(await res.json())
   }
   useEffect(() => {
+    if (!SMART_FOLLOW_UP_ENABLED) return
     let alive = true
     setState(null)
     setError('')
@@ -54,7 +56,7 @@ export function FollowUpContactControl({
       setBusy(false)
     }
   }
-  if (!state) return null
+  if (!SMART_FOLLOW_UP_ENABLED || !state) return null
   return (
     <section className="rounded-xl border border-orange-100 bg-orange-50/40 p-3 text-xs">
       <h3 className="mb-2 font-medium text-slate-700">การติดตามลูกค้า</h3>

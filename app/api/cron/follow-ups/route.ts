@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { runFollowUps } from '@/lib/features/follow-ups/follow-ups'
+import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -25,6 +26,13 @@ async function handle(req: NextRequest) {
       { status: 401, headers: { 'Cache-Control': 'no-store' } },
     )
   }
+
+  // Preserve authentication, but do not inspect/claim the queue or invoke the worker while paused.
+  if (!SMART_FOLLOW_UP_ENABLED)
+    return NextResponse.json(
+      { success: true, disabled: true, reason: 'FOLLOW_UPS_PAUSED', sent: 0, sendEnabled: false },
+      { headers: { 'Cache-Control': 'no-store' } },
+    )
 
   console.info('[FOLLOW-UP CRON] invoked', {
     method: req.method,

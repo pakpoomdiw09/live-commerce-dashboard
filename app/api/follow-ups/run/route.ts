@@ -6,12 +6,21 @@ import { runFollowUps } from '@/lib/features/follow-ups/follow-ups'
 import { UUID } from '@/lib/utils'
 import { getBilling } from '@/lib/features/billing/billing'
 import { canUseFollowUps } from '@/lib/features/billing/plans'
+import {
+  SMART_FOLLOW_UP_ENABLED,
+  FOLLOW_UPS_PAUSED_MESSAGE,
+} from '@/lib/features/follow-ups/availability'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
 /** "ประมวลผลตอนนี้" on the follow-ups page: send the due reminders of one tenant. Body: { tenantId } */
 export async function POST(req: NextRequest) {
+  if (!SMART_FOLLOW_UP_ENABLED)
+    return NextResponse.json(
+      { error: FOLLOW_UPS_PAUSED_MESSAGE, code: 'FOLLOW_UPS_PAUSED' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    )
   const actor = await getActor(req)
   if (!actor) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   const body = await req.json().catch(() => null)

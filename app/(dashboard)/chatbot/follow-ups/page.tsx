@@ -5,8 +5,11 @@ import { getActiveTenant } from '@/lib/tenant'
 import { followUpDashboard } from '@/lib/features/follow-ups/smart-followup-server'
 import { SetupNotice } from '@/components/shared/SetupNotice'
 import { FollowUpsClient } from '@/components/chatbot/FollowUpsClient'
+import { redirect } from 'next/navigation'
+import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
 export const metadata = { title: 'Smart Follow-up Assistant' }
 export default async function FollowUpsPage() {
+  if (!SMART_FOLLOW_UP_ENABLED) redirect('/overview')
   const [tenant, db] = await Promise.all([getActiveTenant(), supabaseServer()])
   if (!tenant) return <SetupNotice kind="no-tenant" />
   if (!(await hasFeature(db, tenant.id, 'customer_follow_up'))) return <FeatureLocked />

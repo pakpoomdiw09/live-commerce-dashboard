@@ -1,5 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
 import {
   pageTokenFor,
   sendMessageWithReceipt,
@@ -71,10 +72,12 @@ export async function runFollowUps(
     review: 0,
     skipped: 0,
     remaining: false,
-    sendEnabled: true,
+    sendEnabled: SMART_FOLLOW_UP_ENABLED,
     errors: 0,
     jobs: [],
   }
+  // Covers cron, manual runs, and any future direct worker callers before DB/API work.
+  if (!SMART_FOLLOW_UP_ENABLED) return result
   const started = Date.now()
   let claimedCount = 0
   console.info('[FOLLOW-UP WORKER] started', {

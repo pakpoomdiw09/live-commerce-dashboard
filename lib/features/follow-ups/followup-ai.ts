@@ -3,6 +3,7 @@ import { GoogleGenAI } from '@google/genai'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { aiModel } from '@/lib/features/agents/ai-agent'
 import { hasFeature } from '@/lib/feature-access'
+import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
 export type FollowUpAnalysis = {
   intent: 'interested' | 'complaint' | 'none'
   productId: string | null
@@ -15,6 +16,7 @@ export async function analyzeFollowUp(
   customerId: string,
   messageId: string,
 ): Promise<FollowUpAnalysis | null> {
+  if (!SMART_FOLLOW_UP_ENABLED) return null
   if (process.env.AGENT_CONTROL_KILL_SWITCH === 'true') return null
   if (
     process.env.SNAPBOT_SAFETY_ENABLED === 'true' &&
@@ -138,6 +140,7 @@ export async function observeFollowUpMessage(
   customerId: string,
   messageId: string,
 ) {
+  if (!SMART_FOLLOW_UP_ENABLED) return
   if (!(await hasFeature(db, tenantId, 'customer_follow_up'))) return
   const [workflows, customer] = await Promise.all([
     db

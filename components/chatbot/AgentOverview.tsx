@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AgentUpgradeDialog } from '@/components/chatbot/AgentUpgradeDialog'
+import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
 import {
   Activity,
   ArrowRight,
@@ -45,6 +46,9 @@ const capabilities: { key: AgentCapability; label: string; description: string; 
     href: '/inbox',
   },
 ]
+const visibleCapabilities = capabilities.filter(
+  (item) => SMART_FOLLOW_UP_ENABLED || item.key !== 'followup',
+)
 
 function CapabilityHelp({
   label,
@@ -320,7 +324,7 @@ export function AgentOverview({
       <section className={panel} aria-label="ความสามารถหลักของผู้ช่วย">
         <h2 className="text-lg font-bold">ความสามารถของผู้ช่วย</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {capabilities.map((item) => {
+          {visibleCapabilities.map((item) => {
             const entitlement = data.entitlements[item.key]
             const status = !entitlement.allowed
               ? entitlement.message

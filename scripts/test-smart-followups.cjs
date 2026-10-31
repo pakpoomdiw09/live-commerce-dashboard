@@ -14,6 +14,8 @@ function load(file, deps = {}, globals = {}) {
     process: { env: {} },
     require: (n) => {
       if (n in deps) return deps[n]
+      // Exercise the retained implementation in its restored state; pause coverage is separate.
+      if (n === '@/lib/features/follow-ups/availability') return { SMART_FOLLOW_UP_ENABLED: true }
       throw Error('Unexpected dependency ' + n)
     },
     ...globals,
@@ -217,7 +219,7 @@ function workerFixture({
   )
   return { api, db, calls, settled, logs, sends, writes, network: () => network }
 }
-test('follow-up is live by default even with the obsolete paused flag', async () => {
+test('restoring availability preserves the worker behavior regardless of the obsolete env flag', async () => {
   const f = workerFixture({ enabled: false })
   const result = await f.api.runFollowUps(f.db, tenant)
   assert.equal(result.sendEnabled, true)

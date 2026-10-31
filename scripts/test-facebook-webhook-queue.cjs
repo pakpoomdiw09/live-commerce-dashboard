@@ -1212,7 +1212,9 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
     }
     const deferred = [],
       imageKeys = [],
-      profileWrites = []
+      profileWrites = [],
+      slipChecks = [],
+      slipReplies = []
     let autoVerify = false
     const db = {
       rpc: f.db.rpc,
@@ -1326,9 +1328,24 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
         },
       },
       '@/lib/features/commerce/orders': { cfCode: () => null },
-      '@/lib/features/slips/process': {},
-      '@/lib/features/slips/notify': {},
+      '@/lib/features/slips/process': {
+        processSlip: async (_db, input) => {
+          slipChecks.push(input)
+          return {
+            id: 'slip-' + input.messageId,
+            status: 'valid',
+            amount: 100,
+            transRef: 'test-ref',
+          }
+        },
+      },
+      '@/lib/features/slips/notify': {
+        notifySlipResult: async (_db, slip, customer) => {
+          slipReplies.push({ slip, customer })
+        },
+      },
       '@/lib/features/slips/image': {
+        downloadSlipImage: async () => new File(['mock-image'], 'slip.png', { type: 'image/png' }),
         slipCandidates: (attachments) =>
           (attachments ?? [])
             .filter((item) => item.type === 'image')
@@ -1469,12 +1486,56 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
       'an explicitly disabled Vision center cannot fall back to image chat',
     )
     assert.equal(counts.images, 1)
+    assert.equal(slipChecks.length, 1, 'Slip Auto-Pilot is independent of the Vision switch')
+    assert.equal(slipReplies.length, 1)
+    assert.equal(slipChecks[0].tenant.id, tenantId)
+    assert.equal(slipReplies[0].customer.psid, senderId)
+    assert.equal(slipReplies[0].customer.token, 'fake-test-token')
     assert.equal(
       (await f.one("select count(*)::int n from facebook_webhook_events where status='completed'"))
         .n,
       5,
-      'disabled images persist without calling the legacy slip verifier',
+      'images still complete through the independent Slip Auto-Pilot',
     )
+    const visionSlip = payload('slip-with-vision-enabled')
+    visionSlip.entry[0].messaging[0].message = {
+      mid: 'slip-with-vision-enabled',
+      attachments: [{ type: 'image', payload: { url: 'https://example.test/slip.png' } }],
+    }
+    await deliverBoth(visionSlip)
+    assert.equal(
+      slipChecks.length,
+      2,
+      'Slip Auto-Pilot also takes priority over an enabled Vision center',
+    )
+    assert.equal(slipReplies.length, 2)
+    assert.equal(counts.images, 1)
+
+    // A human-owned conversation still verifies the next payment image, without restarting AI
+    // or sending a bot confirmation over the human agent's conversation.
+    await f.pg.query('update customers set bot_enabled=false')
+    const humanSlip = payload('human-owned-slip')
+    humanSlip.entry[0].messaging[0].message = {
+      mid: 'human-owned-slip',
+      attachments: [{ type: 'image', payload: { url: 'https://example.test/slip.png' } }],
+    }
+    await deliverBoth(humanSlip)
+    assert.equal(slipChecks.length, 3, 'human takeover must not bypass verification')
+    assert.equal(slipReplies.length, 2, 'human takeover still pauses automatic chat replies')
+    assert.equal(counts.images, 1, 'the payment image does not enter a blocked Vision job')
+    assert.equal(counts.ai, 2)
+    await deliverBoth(humanSlip)
+    assert.equal(slipChecks.length, 3, 'replayed webhook images are not verified or charged twice')
+    assert.equal((await f.one('select bot_enabled from customers limit 1')).bot_enabled, false)
+
+    autoVerify = false
+    const disabledAutoPilot = payload('slip-autopilot-off')
+    disabledAutoPilot.entry[0].messaging[0].message = {
+      mid: 'slip-autopilot-off',
+      attachments: [{ type: 'image', payload: { url: 'https://example.test/disabled.png' } }],
+    }
+    await deliverBoth(disabledAutoPilot)
+    assert.equal(slipChecks.length, 3, 'an explicit Slip Auto-Pilot opt-out is still respected')
   } finally {
     await f.pg.close()
   }

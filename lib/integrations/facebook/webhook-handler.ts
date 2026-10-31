@@ -228,12 +228,12 @@ async function onMessage(
           { onConflict: 'tenant_id,event_id', ignoreDuplicates: true },
         )
       if (saved.error) throw saved.error
-        console.info('[fb webhook] inbound message evidence saved', {
-          tenantId: tenant.id,
-          pageId,
-          eventId: evidence.event_id,
-          interactedAt: evidence.interacted_at,
-        })
+      console.info('[fb webhook] inbound message evidence saved', {
+        tenantId: tenant.id,
+        pageId,
+        eventId: evidence.event_id,
+        interactedAt: evidence.interacted_at,
+      })
     }
   }
 
@@ -296,7 +296,13 @@ async function onMessage(
   // With Auto-Pilot off the images stay in the chat and an admin can verify them from the dashboard.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
-  const visionRoute = await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
+  // Slip verification has its own tenant opt-in. Human takeover only pauses chat replies;
+  // it must not route payment evidence into a Vision job that cannot run during handover.
+  // A photo is still untrusted: only the shared SlipOK/receiver/amount checks can accept it.
+  const verifySlipImages = tenant.auto_verify_enabled && images.length > 0
+  const visionRoute = verifySlipImages
+    ? false
+    : await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
   const visionQueued = visionRoute === true
   const imageAssistantDisabled = visionRoute === 'disabled'
   if (visionQueued) {
@@ -313,6 +319,7 @@ async function onMessage(
       throw new Error('VISION_INGESTION_INCOMPLETE')
   }
   const imageChat =
+    !verifySlipImages &&
     !visionQueued &&
     !imageAssistantDisabled &&
     autoReply &&
@@ -326,11 +333,12 @@ async function onMessage(
       attachmentTypes: m.attachments.map((a: any) => a?.type ?? 'invalid'),
       sticker: !!m.sticker_id,
       autoReply,
+      slipVerification: verifySlipImages,
       dedicatedVision: visionQueued,
       imageAssistantDisabled,
       chatVision: imageChat,
     })
-  if (tenant.auto_verify_enabled && !visionQueued && !imageAssistantDisabled && !imageChat) {
+  if (verifySlipImages) {
     for (const url of images) {
       await onSlipImage(
         url,

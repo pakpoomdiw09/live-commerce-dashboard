@@ -6,6 +6,10 @@ import { loadAgentOverview } from '@/lib/features/agents/agent-overview-server'
 import { CAPABILITY_KEYS, type AgentOverviewRange } from '@/lib/features/agents/agent-overview-core'
 import { inboxError, InboxError, checkRpc } from '@/lib/features/inbox/inbox-server'
 import { isSupportedBank, UNSUPPORTED_BANK_MESSAGE } from '@/lib/features/banking/banks'
+import {
+  SMART_FOLLOW_UP_ENABLED,
+  FOLLOW_UPS_PAUSED_MESSAGE,
+} from '@/lib/features/follow-ups/availability'
 
 function upgradeResponse(code: 'FEATURE_LOCKED' | 'AI_QUOTA_EXHAUSTED' | 'SLIP_QUOTA_EXHAUSTED') {
   if (temporaryFullAccess)
@@ -68,6 +72,8 @@ export async function PATCH(req: NextRequest) {
       !['master', ...CAPABILITY_KEYS].includes(input.capability)
     )
       throw new InboxError('ข้อมูลการตั้งค่าไม่ถูกต้อง')
+    if (input.capability === 'followup' && !SMART_FOLLOW_UP_ENABLED)
+      throw new InboxError(FOLLOW_UPS_PAUSED_MESSAGE, 503, 'FOLLOW_UPS_PAUSED')
     if (input.capability === 'slips' && input.enabled) {
       if (!temporaryFullAccess) {
         // Give entitlement/quota errors priority over bank setup errors. RPC rechecks atomically.

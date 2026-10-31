@@ -2,7 +2,7 @@
 const fs = require('node:fs')
 const vm = require('node:vm')
 const ts = require('typescript')
-function fixture(workerResult = { sent: 1 }) {
+function fixture(workerResult = { sent: 1 }, enabled = true) {
   let calls = 0,
     queries = 0
   const exports = {}
@@ -31,6 +31,7 @@ function fixture(workerResult = { sent: 1 }) {
     },
   }
   const modules = {
+    '@/lib/features/follow-ups/availability': { SMART_FOLLOW_UP_ENABLED: enabled },
     '@/lib/single-flight': { singleFlight: (_key, work) => work() },
     'node:crypto': require('node:crypto'),
     'next/server': {
@@ -75,6 +76,26 @@ function fixture(workerResult = { sent: 1 }) {
   return { api: exports, calls: () => calls, queries: () => queries }
 }
 ;(async () => {
+  for (const method of ['GET', 'POST']) {
+    const f = fixture({ sent: 1 }, false)
+    for (const search of ['', '?dryRun=1']) {
+      const req = {
+        method,
+        headers: new Headers({ Authorization: 'Bearer test-secret' }),
+        nextUrl: new URL('https://example.test/api/cron/follow-ups' + search),
+      }
+      const response = await f.api[method](req)
+      assert.equal(response.status, 200)
+      assert.equal(response.body.disabled, true)
+      assert.equal(response.body.reason, 'FOLLOW_UPS_PAUSED')
+      assert.equal(response.body.sendEnabled, false)
+      assert.equal(response.headers['Cache-Control'], 'no-store')
+      assert.equal(f.queries(), 0)
+      assert.equal(f.calls(), 0)
+      req.headers.delete('Authorization')
+      assert.equal((await f.api[method](req)).status, 401)
+    }
+  }
   for (const method of ['GET', 'POST']) {
     const f = fixture()
     const req = {
@@ -136,6 +157,8 @@ function fixture(workerResult = { sent: 1 }) {
     ['GET', 'POST'],
   )
   const workflow = fs.readFileSync('.github/workflows/cron.yml', 'utf8')
+  assert.doesNotMatch(workflow, /^  schedule:/m)
+  assert.match(workflow, /^  #   - cron: '\*\/5 \* \* \* \*'/m)
   assert.match(workflow, /workflow_dispatch:/)
   assert.match(
     workflow,

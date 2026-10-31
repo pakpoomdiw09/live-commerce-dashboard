@@ -5,6 +5,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { aiModel, AiAgentError } from '@/lib/features/agents/ai-agent'
 import { assertAutomationWindow } from '@/lib/features/inbox/inbox-automation-window'
 import {
+  SMART_FOLLOW_UP_ENABLED,
+  FOLLOW_UPS_PAUSED_MESSAGE,
+} from '@/lib/features/follow-ups/availability'
+import {
   followUpChatDraft,
   type ChatEvidence,
 } from '@/lib/features/follow-ups/manual-followup-context'
@@ -15,6 +19,8 @@ export async function draftManualFollowUp(
   customerId: string,
   kind: string,
 ) {
+  if (!SMART_FOLLOW_UP_ENABLED)
+    throw new AiAgentError('FOLLOW_UPS_PAUSED', FOLLOW_UPS_PAUSED_MESSAGE, 503)
   if (process.env.AGENT_CONTROL_KILL_SWITCH === 'true')
     throw new AiAgentError('AI_EMERGENCY_STOP', 'ระบบ AI ถูกพักไว้', 503)
   if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
