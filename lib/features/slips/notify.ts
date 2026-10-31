@@ -13,19 +13,16 @@ import {
 import type { Attachment } from '@/lib/types'
 import type { ProcessedSlip } from '@/lib/features/slips/process'
 import { sendWithMessageCredit } from '@/lib/message-quota'
-
-const baht = (n: number) =>
-  n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+import { renderSlipConfirmationTemplate } from '@/lib/features/slips/slip-confirmation-template'
+import { customerSlipConfirmationTemplate } from '@/lib/features/slips/slip-confirmation-settings'
 
 /** The exact same plain-text receipt is stored in chat and sent to Messenger. */
-export function slipConfirmationText(amount: number | null, pageName?: string | null): string {
-  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0)
-    throw new Error('SLIP_CONFIRMATION_AMOUNT_INVALID')
-  return [
-    `✅ ชำระเงินสำเร็จ · ${pageName?.trim() || 'ร้านค้า'}`,
-    `ทางร้านได้รับยอดชำระเงินเรียบร้อยแล้วครับ จำนวน ${baht(amount)} บาท 💸✨`,
-    'ขอขอบพระคุณที่ไว้วางใจครับผม 🙏📦 ทางร้านจะรีบดำเนินการจัดส่งสินค้าให้โดยเร็วที่สุดครับ 🚚💨',
-  ].join('\n')
+export function slipConfirmationText(
+  amount: number | null,
+  pageName?: string | null,
+  template?: string | null,
+): string {
+  return renderSlipConfirmationTemplate(amount, pageName, template)
 }
 
 /** The message the customer gets for each verdict. Edit the wording here. */
@@ -273,14 +270,14 @@ export async function notifySlipResult(
     // Share the durable receipt key with the admin's confirmation button. Neither a webhook
     // replay nor clicking the button afterwards may deliver/charge for the same receipt twice.
     const externalId = verified ? `slip-confirm:${slip.id}` : `slip:${slip.id}`
-    const sent = await deliverTextOnce(
-      db,
-      customer,
-      externalId,
-      slipReplyText(slip, shopName),
-      undefined,
-      verified,
-    )
+    const body = verified
+      ? slipConfirmationText(
+          slip.amount,
+          shopName,
+          await customerSlipConfirmationTemplate(db, customer.id),
+        )
+      : slipReplyText(slip, shopName)
+    const sent = await deliverTextOnce(db, customer, externalId, body, undefined, verified)
     if (sent && verified)
       await db.from('slips').update({ confirmed_at: new Date().toISOString() }).eq('id', slip.id)
     console.info(sent ? '[slip/confirmation] sent' : '[slip/confirmation] skipped', {
@@ -376,7 +373,11 @@ export async function sendSlipConfirmation(
   customer: Recipient,
   shopName?: string | null,
 ) {
-  const body = slipConfirmationText(slip.amount, shopName)
+  const body = slipConfirmationText(
+    slip.amount,
+    shopName,
+    await customerSlipConfirmationTemplate(db, customer.id),
+  )
   const sent = await deliverOnce(db, customer, `slip-confirm:${slip.id}`, body)
   if (sent)
     await db.from('slips').update({ confirmed_at: new Date().toISOString() }).eq('id', slip.id)

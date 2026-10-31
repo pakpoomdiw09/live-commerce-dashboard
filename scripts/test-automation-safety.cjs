@@ -198,6 +198,7 @@ test('automatic delivery rechecks stop before network and releases its lease wit
   const notify = load(
     'lib/features/slips/notify.ts',
     {
+      ...require('./helpers/slip-confirmation-dependencies.cjs'),
       'server-only': {},
       '@/lib/features/inbox/inbox-automation-window': { assertAutomationWindow: async () => {} },
       '@/lib/integrations/facebook/client': {

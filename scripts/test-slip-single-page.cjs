@@ -340,6 +340,12 @@ test('both panels share one Pro header; flag-off retains legacy overview and set
     'react/jsx-runtime': jsx,
     'next/link': link,
     'lucide-react': icons,
+    '@/components/ui/page-banner': {
+      PageBanner: ({ children }) => React.createElement('header', {}, children),
+    },
+    '@/components/ui/card': {
+      PageHeader: ({ title }) => React.createElement('h1', {}, title),
+    },
     '@/components/slips/SlipsWorkspace': {
       SlipsWorkspace: () => React.createElement('div', { 'data-panel': 'legacy' }),
     },

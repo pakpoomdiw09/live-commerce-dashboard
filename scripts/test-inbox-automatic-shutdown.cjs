@@ -290,6 +290,7 @@ function deliveryFixture(allowParts = 0) {
   const api = load(
     'lib/features/slips/notify.ts',
     {
+      ...require('./helpers/slip-confirmation-dependencies.cjs'),
       'server-only': {},
       '@/lib/features/inbox/inbox-automation-window': guard,
       '@/lib/utils': {},

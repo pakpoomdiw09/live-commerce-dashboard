@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { Switch } from '@/components/ui/Switch'
 import { Button } from '@/components/ui/button'
 import { ErrorMessage, SuccessToast } from '@/components/ui/feedback'
+import { SlipConfirmationTemplateSettings } from '@/components/slips/SlipConfirmationTemplateSettings'
 export function PaymentAutomationSettings({
   tenantId,
   autoVerify,
@@ -77,6 +78,7 @@ export function PaymentAutomationSettings({
         >
           บันทึกสวิตช์ระบบ
         </Button>
+        <SlipConfirmationTemplateSettings key={tenantId} tenantId={tenantId} />
       </section>
       <section className="space-y-3 rounded-2xl border border-orange-100 bg-orange-50/40 p-5">
         <h2 className="font-bold">หลังได้รับผลยืนยันจากผู้ให้บริการ</h2>
@@ -93,7 +95,7 @@ export function PaymentAutomationSettings({
         </ol>
         <p className="text-xs text-slate-500">
           การสร้าง QR และการเปิดหน้านี้จะไม่หักเครดิต ไม่เปลี่ยนสถานะออเดอร์ และไม่ส่งข้อความจริง
-          ส่วนการกำหนดข้อความยืนยันแยกตามช่องทางยังไม่เปิดใช้งานในหน้านี้
+          สามารถแก้ไขข้อความยืนยันสลิปสำหรับเพจของร้านได้ในช่องข้อความยืนยันยอดเงิน
         </p>
       </section>
     </div>

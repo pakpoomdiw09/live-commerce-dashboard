@@ -37,6 +37,8 @@ function fixture({
   safetyEnabled = false,
   safetyStopped = false,
   pageName = 'Actual Facebook Page',
+  templates = {},
+  settingsError = null,
 } = {}) {
   const requests = []
   const confirms = []
@@ -81,6 +83,7 @@ function fixture({
   const notify = load(
     'lib/features/slips/notify.ts',
     {
+      ...require('./helpers/slip-confirmation-dependencies.cjs'),
       '@/lib/integrations/facebook/client': client,
       '@/lib/message-quota': {
         sendWithMessageCredit: async (_db, tenantId, send) => {
@@ -122,6 +125,7 @@ function fixture({
     },
     from(table) {
       let inserted
+      const filters = {}
       const q = {
         select() {
           return q
@@ -135,7 +139,8 @@ function fixture({
           if (table === 'messages') statuses.push(values.delivery_status)
           return q
         },
-        eq() {
+        eq(key, value) {
+          filters[key] = value
           return q
         },
         single: async () => {
@@ -149,20 +154,22 @@ function fixture({
         },
         maybeSingle: async () => ({
           data:
-            table === 'customers'
-              ? {
-                  id: 'customer-uuid',
-                  tenant_id: activeTenant,
-                  platform: 'facebook',
-                  platform_user_id: '123456789',
-                }
-              : {
-                  name: 'Test shop',
-                  page_name: pageName,
-                  page_id: '11111',
-                  page_access_token: 'mock-token-a',
-                },
-          error: null,
+            table === 'slip_settings'
+              ? { slip_confirmation_template: templates[filters.tenant_id] ?? null }
+              : table === 'customers'
+                ? {
+                    id: 'customer-uuid',
+                    tenant_id: activeTenant,
+                    platform: 'facebook',
+                    platform_user_id: '123456789',
+                  }
+                : {
+                    name: 'Test shop',
+                    page_name: pageName,
+                    page_id: '11111',
+                    page_access_token: 'mock-token-a',
+                  },
+          error: table === 'slip_settings' ? settingsError : null,
         }),
         then(resolve, reject) {
           return Promise.resolve({ data: null, error: null }).then(resolve, reject)
@@ -248,6 +255,46 @@ const verifiedSlip = {
   transRef: 'mock-transfer',
 }
 const recipient = { id: 'customer-uuid', psid: '123456789', token: 'mock-token-a' }
+
+test('tenant templates apply immediately to automatic/manual receipts and match stored text during takeover', async () => {
+  const templates = {
+    'tenant-a': 'เพจ {pageName}\nรับยอด {amount} บาท ขอบคุณครับ',
+    'tenant-b': 'B: {amount}',
+  }
+  const f = fixture({ handover: true, templates })
+  await f.notify.notifySlipResult(f.db, { ...verifiedSlip, amount: 1 }, recipient, 'เพจ เอ')
+  assert.equal(f.requests[0].body.message.text, 'เพจ เพจ เอ\nรับยอด 1.00 บาท ขอบคุณครับ')
+  templates['tenant-a'] = 'แก้ไขแล้ว {amount} / {pageName}'
+  await f.notify.sendSlipConfirmation(
+    f.db,
+    { id: 'manual-new', amount: 2, trans_ref: null },
+    recipient,
+    'เพจ เอ',
+  )
+  assert.equal(f.requests[1].body.message.text, 'แก้ไขแล้ว 2.00 / เพจ เอ')
+  f.tenant('tenant-b')
+  await f.notify.notifySlipResult(f.db, { ...verifiedSlip, id: 'slip-b' }, recipient, 'เพจ บี')
+  assert.equal(f.requests[2].body.message.text, 'B: 250.00')
+  for (let i = 0; i < f.requests.length; i++) {
+    assert.equal(f.rows[i].body, f.requests[i].body.message.text)
+    assert.equal(f.requests[i].body.recipient.id, recipient.psid)
+    assert.equal(f.requests[i].body.messaging_type, 'RESPONSE')
+  }
+  assert.deepEqual(f.rpcCalls, [])
+})
+
+test('missing migration retains default receipts; other lookup failures never send a wrong template', async () => {
+  const missing = fixture({ settingsError: { code: '42P01' } })
+  await missing.notify.notifySlipResult(missing.db, verifiedSlip, recipient)
+  assert.equal(missing.requests[0].body.message.text, expectedReceipt('ร้านค้า', '250.00'))
+  const failure = fixture({ settingsError: { code: '57014' } })
+  await assert.rejects(
+    failure.notify.notifySlipResult(failure.db, verifiedSlip, recipient),
+    /TEMPLATE_LOOKUP_FAILED/,
+  )
+  assert.equal(failure.requests.length, 0)
+  assert.equal(failure.rows.length, 0)
+})
 
 test('verified receipts bypass takeover without resuming the bot, and deduplicate automatic/manual confirmation', async () => {
   const f = fixture({ handover: true, safetyEnabled: true })

@@ -382,6 +382,7 @@ test('Pro customer automation requires production and explicit separate live-sen
 })
 test('unverified Pro results still stop before sends or mutations when general automation is disabled', async () => {
   const notify = load('lib/features/slips/notify.ts', {
+    ...require('./helpers/slip-confirmation-dependencies.cjs'),
     'server-only': {},
     '@/lib/integrations/facebook/client': {},
     '@/lib/message-quota': {},
