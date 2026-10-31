@@ -419,7 +419,7 @@ async function onCfOrder(
   return true
 }
 
-/** notify: reply with the verdict in Messenger (off when auto-reply is off for the tenant or this chat) */
+/** Verified receipts always notify; other verdicts still require the chat's normal auto-reply opt-in. */
 async function onSlipImage(
   url: string,
   customer: Recipient & { messageId: string; notify: boolean },
@@ -440,7 +440,8 @@ async function onSlipImage(
         tenant,
       })
       if (r.failure) throw new Error('SLIP_PERSISTENCE_FAILED')
-      if (customer.notify) await notifySlipResult(db, r, customer, tenant.name)
+      if (r.status === 'valid' || customer.notify)
+        await notifySlipResult(db, r, customer, tenant.name)
       return null
     },
   )

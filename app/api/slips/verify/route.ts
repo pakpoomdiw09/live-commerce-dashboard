@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor, isPlatformAdmin } from '@/lib/auth'
 import { processSlip, type Tenant } from '@/lib/features/slips/process'
+import { notifyVerifiedSlipForCustomer } from '@/lib/features/slips/notify'
 import { UUID } from '@/lib/utils'
 import {
   acquireUploadSlot,
@@ -106,12 +107,14 @@ export async function POST(req: NextRequest) {
     }
     if (r.failure) return NextResponse.json({ error: r.failure }, { status: 500 })
     if (r.crashed) return NextResponse.json({ id: r.id, status: 'error' }, { status: 500 })
+    const confirmation = await notifyVerifiedSlipForCustomer(db, r, customerId, tenantId)
     return NextResponse.json({
       id: r.id,
       status: r.status,
       amount: r.amount,
       transRef: r.transRef,
       note: r.note,
+      confirmation,
     })
   } catch (error) {
     if (error instanceof UploadError)

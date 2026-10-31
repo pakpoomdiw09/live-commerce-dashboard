@@ -289,6 +289,12 @@ function slipRoute({ allowed = true } = {}) {
     reads = 0
   class FeatureLockedError extends Error {}
   const deps = {
+    '@/lib/features/slips/notify': {
+      notifyVerifiedSlipForCustomer: async (_db, _slip, customerId) => {
+        assert.equal(customerId, null)
+        return 'not_applicable'
+      },
+    },
     '@/lib/upload-security': security,
     'next/server': {
       NextResponse: {

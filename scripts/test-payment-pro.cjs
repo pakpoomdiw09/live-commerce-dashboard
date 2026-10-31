@@ -380,7 +380,7 @@ test('Pro customer automation requires production and explicit separate live-sen
     assert.equal((await f.run()).automationAllowed, expected)
   }
 })
-test('existing Messenger notifier stops Pro results before any send or database mutation when not allowed', async () => {
+test('unverified Pro results still stop before sends or mutations when general automation is disabled', async () => {
   const notify = load('lib/features/slips/notify.ts', {
     'server-only': {},
     '@/lib/integrations/facebook/client': {},
@@ -395,7 +395,7 @@ test('existing Messenger notifier stops Pro results before any send or database 
         throw Error('No sends')
       },
     },
-    { id, paymentPro: true, automationAllowed: false, status: 'valid', amount: 100 },
+    { id, paymentPro: true, automationAllowed: false, status: 'error', amount: 100 },
     { id: 'customer', psid: 'psid', token: 'fake' },
   )
 })

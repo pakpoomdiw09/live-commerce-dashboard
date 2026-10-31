@@ -1215,7 +1215,8 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
       profileWrites = [],
       slipChecks = [],
       slipReplies = []
-    let autoVerify = false
+    let autoVerify = false,
+      slipStatus = 'valid'
     const db = {
       rpc: f.db.rpc,
       from(table) {
@@ -1333,7 +1334,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
           slipChecks.push(input)
           return {
             id: 'slip-' + input.messageId,
-            status: 'valid',
+            status: slipStatus,
             amount: 100,
             transRef: 'test-ref',
           }
@@ -1511,8 +1512,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
     assert.equal(slipReplies.length, 2)
     assert.equal(counts.images, 1)
 
-    // A human-owned conversation still verifies the next payment image, without restarting AI
-    // or sending a bot confirmation over the human agent's conversation.
+    // Verified receipts are the only auto-replies allowed over a human-owned conversation.
     await f.pg.query('update customers set bot_enabled=false')
     const humanSlip = payload('human-owned-slip')
     humanSlip.entry[0].messaging[0].message = {
@@ -1521,12 +1521,27 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
     }
     await deliverBoth(humanSlip)
     assert.equal(slipChecks.length, 3, 'human takeover must not bypass verification')
-    assert.equal(slipReplies.length, 2, 'human takeover still pauses automatic chat replies')
+    assert.equal(slipReplies.length, 3, 'verified receipts bypass human takeover')
+    assert.equal(slipReplies[2].customer.psid, senderId)
+    assert.equal(slipReplies[2].customer.token, 'fake-test-token')
     assert.equal(counts.images, 1, 'the payment image does not enter a blocked Vision job')
     assert.equal(counts.ai, 2)
     await deliverBoth(humanSlip)
     assert.equal(slipChecks.length, 3, 'replayed webhook images are not verified or charged twice')
+    assert.equal(slipReplies.length, 3, 'replayed webhook images do not resend their receipt')
     assert.equal((await f.one('select bot_enabled from customers limit 1')).bot_enabled, false)
+
+    slipStatus = 'fake'
+    const invalidHumanSlip = payload('human-owned-invalid-slip')
+    invalidHumanSlip.entry[0].messaging[0].message = {
+      mid: 'human-owned-invalid-slip',
+      attachments: [{ type: 'image', payload: { url: 'https://example.test/not-a-slip.png' } }],
+    }
+    await deliverBoth(invalidHumanSlip)
+    assert.equal(slipChecks.length, 4)
+    assert.equal(slipReplies.length, 3, 'unverified slips cannot use the receipt exception')
+    await deliverBoth(payload('human-owned-text'))
+    assert.equal(counts.ai, 2, 'ordinary AI replies remain paused during handover')
 
     autoVerify = false
     const disabledAutoPilot = payload('slip-autopilot-off')
@@ -1535,7 +1550,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
       attachments: [{ type: 'image', payload: { url: 'https://example.test/disabled.png' } }],
     }
     await deliverBoth(disabledAutoPilot)
-    assert.equal(slipChecks.length, 3, 'an explicit Slip Auto-Pilot opt-out is still respected')
+    assert.equal(slipChecks.length, 4, 'an explicit Slip Auto-Pilot opt-out is still respected')
   } finally {
     await f.pg.close()
   }

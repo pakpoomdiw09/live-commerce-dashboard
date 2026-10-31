@@ -108,7 +108,18 @@ test('text AI does not start while stopped and discards a response when stop occ
       'lib/features/agents/ai-agent.ts',
       {
         'server-only': {},
+        '@/lib/features/agents/ai-errors': load('lib/features/agents/ai-errors.ts'),
         '@/lib/feature-access': { hasFeature: async () => true },
+        '@/lib/features/inbox/inbox-automation-window': { assertAutomationWindow: async () => {} },
+        '@/lib/features/agents/agent-control-ai': {
+          prepareAgentGeneration: async () => ({
+            systemInstruction: 'Test instructions',
+            products: [],
+          }),
+          sanitizeAgentHistory: (text) => text,
+          failAgentGeneration: async () => {},
+          finishAgentGeneration: () => assert.fail('Stopped AI output must not reach finalization'),
+        },
         '@/lib/automation-safety': safety,
         '@google/genai': {
           ApiError,
@@ -188,6 +199,7 @@ test('automatic delivery rechecks stop before network and releases its lease wit
     'lib/features/slips/notify.ts',
     {
       'server-only': {},
+      '@/lib/features/inbox/inbox-automation-window': { assertAutomationWindow: async () => {} },
       '@/lib/integrations/facebook/client': {
         SendApiError: class extends Error {},
         isWindowOrTagError: () => false,

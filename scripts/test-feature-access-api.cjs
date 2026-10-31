@@ -81,6 +81,10 @@ test('slip API rejects missing package or exhausted quota before provider/storag
       }),
     }
     const api = load('app/api/slips/verify/route.ts', {
+      '@/lib/features/slips/notify': {
+        notifyVerifiedSlipForCustomer: () =>
+          assert.fail('Locked verification cannot send receipts'),
+      },
       '@/lib/upload-security': require('./helpers/load-upload-security.cjs')(),
       'next/server': next,
       '@/lib/feature-access': features,

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
 import { processSlip } from '@/lib/features/slips/process'
+import { notifyVerifiedSlipForCustomer } from '@/lib/features/slips/notify'
 import { downloadSlipImage, slipCandidates } from '@/lib/features/slips/image'
 import { STALE_PENDING_MS } from '@/lib/status'
 import type { Attachment } from '@/lib/types'
@@ -18,7 +19,7 @@ const bad = (error: string, status = 400) => NextResponse.json({ error }, { stat
 /**
  * POST: verify the slip images of one chat message by hand (Auto-Pilot was off, or the admin wants
  * a re-check after a failed one). Refused while a check is running or once a slip of it passed.
- * No message is sent to the customer: the admin decides what to reply.
+ * A successful verification sends the shared, idempotent payment receipt to the customer.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await getActor(req)
@@ -96,7 +97,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })
       continue
     }
-    results.push({ id: r.id, status: r.status, note: r.note, failure: r.failure })
+    const confirmation = await notifyVerifiedSlipForCustomer(
+      db,
+      r,
+      message.customer_id,
+      customer.tenant_id,
+    )
+    results.push({ id: r.id, status: r.status, note: r.note, failure: r.failure, confirmation })
   }
   return NextResponse.json({ results })
 }

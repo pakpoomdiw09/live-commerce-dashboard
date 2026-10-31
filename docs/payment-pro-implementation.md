@@ -51,10 +51,11 @@ No production migration, deployment, real verification or Messenger message was 
 - Owners can explicitly retry an image only if no provider request ever started and no credit
   was charged, at most three local attempts. QR-only and uncertain provider calls cannot be
   replayed. The saved image is reused; no new image or payment is invented.
-- Automatic Pro notifications require all of: production environment, server live-send switch,
-  tenant `messengerAutomation`, and a verified payment. Development/tests cannot send Pro
-  notifications. Duplicate requests cannot notify again. Existing Messenger idempotency,
-  message credits and delivery leases are reused.
+- Verified payment receipts are transactional: webhook and customer-linked verification APIs
+  notify even during human takeover, independently of the general Pro automation opt-in.
+  They reuse the `slip-confirm:<slipId>` idempotency key, check the Messenger window and message
+  credits, and respect the configured automation emergency stop. General bot replies remain
+  paused during takeover. Other Pro notifications retain the general automation gate.
 - Reviewing/approving/rejecting/cancelling in the Pro dashboard does **not** send a message.
   The existing explicitly requested manual confirmation remains a separate legacy operation.
 
@@ -83,14 +84,15 @@ Server environment examples are in `.env.example`; `.env.local` was not edited:
 | --- | --- | --- |
 | PAYMENT_PRO_ENABLED | false | Master gate; off keeps legacy verification |
 | PAYMENT_PRO_KILL_SWITCH | false | Emergency disables Pro entry points and automatic Pro approvals |
-| PAYMENT_PRO_SEND_ENABLED | false | Additional production-only gate for Pro automatic messages |
+| PAYMENT_PRO_SEND_ENABLED | false | General Pro automation gate; verified payment receipts are exempt |
 
 `payment_pro_settings` is backend-owned and has no browser write grants or public flag-setting
 API. Missing flags are false. Tenant `enabled` defaults false, with no opt-in rows seeded.
 
 - `riskEngine`: opt in to the new transaction-based verifier.
 - `orderMatching` + `autoConfirmation`: both required for automatic confirmation.
-- `messengerAutomation`: production notification opt-in, also subject to server live-send gate.
+- `messengerAutomation`: general production notification opt-in, subject to the server live-send
+  gate. It does not suppress the transactional receipt for an already verified payment.
 - `advancedDashboard`: access to Pro dashboard/API/CSV/review.
 - `analytics`: enable the aggregate analytics query and cards.
 - `duplicateDetection` / `followUpIntegration`: compatibility configuration names retained from

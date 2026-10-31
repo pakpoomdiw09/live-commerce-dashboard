@@ -6,6 +6,7 @@ import {
   sendMessage,
   sendPaymentCard,
   sendText,
+  pageTokenFor,
   type MessagingType,
   type PaymentCard,
 } from '@/lib/integrations/facebook/client'
@@ -74,20 +75,39 @@ export async function deliverOnce(
   body: string,
   card?: PaymentCard,
 ) {
-  return claimAndSend(db, customer, externalId, body, async (meter) =>
-    meter(async () => {
-      if (card) {
-        // the card is nicer, but plain text works on every client and in more Page setups
-        await sendPaymentCard(customer.token, customer.psid, card).catch((e) => {
-          // A timeout may have delivered the card. Fall back only after an explicit rejection.
-          if (!(e instanceof SendApiError) || e.status >= 500) throw e
-          console.warn('[notify] payment card rejected, falling back to text', e)
-          return sendText(customer.token, customer.psid, body)
-        })
-      } else {
-        await sendText(customer.token, customer.psid, body)
-      }
-    }),
+  return deliverTextOnce(db, customer, externalId, body, card)
+}
+
+/** Only notifySlipResult may grant the verified receipt exception; generic bot sends cannot. */
+async function deliverTextOnce(
+  db: SupabaseClient,
+  customer: Recipient,
+  externalId: string,
+  body: string,
+  card?: PaymentCard,
+  verifiedSlipConfirmation = false,
+) {
+  return claimAndSend(
+    db,
+    customer,
+    externalId,
+    body,
+    async (meter) =>
+      meter(async () => {
+        if (card) {
+          // the card is nicer, but plain text works on every client and in more Page setups
+          await sendPaymentCard(customer.token, customer.psid, card).catch((e) => {
+            // A timeout may have delivered the card. Fall back only after an explicit rejection.
+            if (!(e instanceof SendApiError) || e.status >= 500) throw e
+            console.warn('[notify] payment card rejected, falling back to text', e)
+            return sendText(customer.token, customer.psid, body)
+          })
+        } else {
+          await sendText(customer.token, customer.psid, body)
+        }
+      }),
+    [],
+    verifiedSlipConfirmation,
   )
 }
 
@@ -125,9 +145,14 @@ async function claimAndSend(
   body: string,
   send: (meter: (work: () => Promise<void>) => Promise<void>) => Promise<void>,
   attachments: Attachment[] = [],
+  verifiedSlipConfirmation = false,
 ) {
   let lease: string | null = null
-  if (!externalId.startsWith('bc:') && !externalId.startsWith('slip-confirm:')) {
+  if (
+    !verifiedSlipConfirmation &&
+    !externalId.startsWith('bc:') &&
+    !externalId.startsWith('slip-confirm:')
+  ) {
     const started = await db.rpc(
       externalId.startsWith('handover:') ? 'start_inbox_handover' : 'start_inbox_delivery',
       { p_customer: customer.id },
@@ -166,7 +191,7 @@ async function claimAndSend(
         if (
           process.env.SNAPBOT_SAFETY_ENABLED === 'true' &&
           !externalId.startsWith('bc:') &&
-          !externalId.startsWith('slip-confirm:')
+          (!externalId.startsWith('slip-confirm:') || verifiedSlipConfirmation)
         ) {
           const scope = await db
             .from('customers')
@@ -232,12 +257,119 @@ export async function notifySlipResult(
   customer: Recipient,
   shopName?: string | null,
 ) {
-  if (slip.paymentPro && !slip.automationAllowed) return
-  if (!slip.id) return
-  const card = slip.status === 'valid' ? paymentCard(slip, shopName) : undefined
-  const sent = await deliverOnce(db, customer, `slip:${slip.id}`, slipReplyText(slip), card)
-  if (sent && slip.status === 'valid')
-    await db.from('slips').update({ confirmed_at: new Date().toISOString() }).eq('id', slip.id)
+  // A verified payment receipt is transactional, independent of chat takeover and the
+  // Pro flag for general automation. Other Pro verdicts retain their original opt-in.
+  if (slip.paymentPro && !slip.automationAllowed && slip.status !== 'valid') {
+    console.info('[slip/confirmation] skipped', {
+      slipId: slip.id,
+      reason: 'pro_automation_disabled',
+    })
+    return
+  }
+  if (!slip.id) {
+    console.error('[slip/confirmation] skipped', { reason: 'missing_slip_id' })
+    return
+  }
+  try {
+    const verified = slip.status === 'valid'
+    console.info('[slip/confirmation] started', { slipId: slip.id, verdict: slip.status })
+    // Share the durable receipt key with the admin's confirmation button. Neither a webhook
+    // replay nor clicking the button afterwards may deliver/charge for the same receipt twice.
+    const externalId = verified ? `slip-confirm:${slip.id}` : `slip:${slip.id}`
+    const sent = await deliverTextOnce(
+      db,
+      customer,
+      externalId,
+      slipReplyText(slip),
+      verified ? paymentCard(slip, shopName) : undefined,
+      verified,
+    )
+    if (sent && verified)
+      await db.from('slips').update({ confirmed_at: new Date().toISOString() }).eq('id', slip.id)
+    console.info(sent ? '[slip/confirmation] sent' : '[slip/confirmation] skipped', {
+      slipId: slip.id,
+      verdict: slip.status,
+      reason: sent ? 'meta_accepted' : 'already_processed',
+    })
+    return sent
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code
+    const internalCode =
+      typeof code === 'string' &&
+      [
+        'BOT_DELIVERY_BLOCKED',
+        'MESSAGING_WINDOW_CLOSED',
+        'AUTOMATION_STOPPED',
+        'MESSAGE_QUOTA_EXHAUSTED',
+      ].includes(code)
+        ? code
+        : undefined
+    console.error('[slip/confirmation] delivery failed', {
+      slipId: slip.id,
+      verdict: slip.status,
+      httpStatus: error instanceof SendApiError ? error.status : undefined,
+      errorCode: error instanceof SendApiError ? error.code : internalCode,
+      errorSubcode: error instanceof SendApiError ? error.subcode : undefined,
+      message:
+        error instanceof SendApiError
+          ? (error.providerMessage ?? error.message)
+          : internalCode && error instanceof Error
+            ? error.message
+            : 'unknown_or_network_failure',
+    })
+    // Verification is already persisted. Propagate only delivery failure to the webhook's
+    // durable side-effect checkpoint; an ambiguous send must never be automatically retried.
+    throw error
+  }
+}
+
+export type SlipConfirmationStatus = 'sent' | 'already_processed' | 'not_applicable' | 'failed'
+
+/** Run after verification commits. A failed notification must not invalidate payment evidence. */
+export async function notifyVerifiedSlipForCustomer(
+  db: SupabaseClient,
+  slip: ProcessedSlip,
+  customerId: string | null,
+  tenantId: string,
+): Promise<SlipConfirmationStatus> {
+  if (slip.status !== 'valid' || !slip.id || !customerId) return 'not_applicable'
+  try {
+    const customer = await db
+      .from('customers')
+      .select('id,platform,platform_user_id')
+      .eq('id', customerId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+    if (customer.error) throw new Error('SLIP_CONFIRMATION_CUSTOMER_LOOKUP_FAILED')
+    if (!customer.data) throw new Error('SLIP_CONFIRMATION_CUSTOMER_NOT_FOUND')
+    if (customer.data.platform !== 'facebook') return 'not_applicable'
+    if (!/^\d+$/.test(customer.data.platform_user_id ?? ''))
+      throw new Error('SLIP_CONFIRMATION_PSID_INVALID')
+    const tenant = await db
+      .from('tenants')
+      .select('name,page_id,page_access_token')
+      .eq('id', tenantId)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (tenant.error) throw new Error('SLIP_CONFIRMATION_PAGE_LOOKUP_FAILED')
+    if (!tenant.data?.page_id) throw new Error('SLIP_CONFIRMATION_PAGE_NOT_FOUND')
+    const token = pageTokenFor(tenant.data)
+    if (!token) throw new Error('SLIP_CONFIRMATION_PAGE_TOKEN_MISSING')
+    const sent = await notifySlipResult(
+      db,
+      slip,
+      { id: customer.data.id, psid: customer.data.platform_user_id, token },
+      tenant.data.name,
+    )
+    return sent ? 'sent' : 'already_processed'
+  } catch (error) {
+    const reason =
+      error instanceof Error && /^SLIP_CONFIRMATION_[A-Z_]+$/.test(error.message)
+        ? error.message
+        : 'SLIP_CONFIRMATION_DELIVERY_FAILED'
+    console.error('[slip/confirmation] post-verification failed', { slipId: slip.id, reason })
+    return 'failed'
+  }
 }
 
 /** Admin's "send payment confirmation" button. Returns false if a confirmation already went out. */
