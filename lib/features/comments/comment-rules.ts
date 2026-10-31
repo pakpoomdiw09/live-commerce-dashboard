@@ -1,5 +1,5 @@
 // Shared by the webhook (matching) and the dashboard (editor preview).
-import { matchesCfCode, normalizeCfCode, normalizeCfText } from '@/lib/features/commerce/cf-code'
+import { matchesCfCode, matchOrderCode, normalizeCfCode, normalizeCfText } from '@/lib/features/commerce/cf-code'
 
 export type MatchType = 'exact' | 'keyword'
 
@@ -10,6 +10,7 @@ export type CommentRule = {
   name: string
   page_ids: string[]
   match_type: MatchType
+  match_mode?: 'flexible' | 'strict'
   keywords: string[]
   reply_enabled: boolean
   reply_text: string | null
@@ -52,12 +53,15 @@ export type LiveProductOption = {
 }
 
 /** Alias boundaries are stricter than general Thai keyword matching: A1 must not match BA1/A12. */
-export function liveRuleCode(rule: Pick<CommentRule, 'match_type' | 'keywords'>, comment: string) {
+export function liveRuleCode(
+  rule: Pick<CommentRule, 'match_type' | 'keywords'> & { match_mode?: 'flexible' | 'strict' },
+  comment: string,
+) {
+  const mode = rule.match_mode ?? (rule.match_type === 'exact' ? 'strict' : 'flexible')
   for (const raw of rule.keywords) {
     const code = normalizeCfCode(raw)
     if (!code) continue
-    const exact = normalizeCfText(comment).replace(/^cf\s*[:.\-]?\s*/u, '') === code
-    if (rule.match_type === 'exact' ? exact : matchesCfCode(comment, code)) return code
+    if (matchOrderCode(comment, code, mode)) return code
   }
   return null
 }

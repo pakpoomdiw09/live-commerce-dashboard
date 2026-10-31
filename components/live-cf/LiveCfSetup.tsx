@@ -23,7 +23,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { CommentRule, LiveProductOption } from '@/lib/features/comments/comment-rules'
-import { matchesCfCode, normalizeCfCode } from '@/lib/features/commerce/cf-code'
+import { matchesCfCode, matchOrderCode, normalizeCfCode } from '@/lib/features/commerce/cf-code'
 
 function generateDefaultPrivateText(
   productName?: string,
@@ -118,6 +118,10 @@ export function LiveCfSetup({
     initialRule?.live_variant_id ?? initialProduct?.variants[0]?.id ?? '',
   )
   const [code, setCode] = useState(initialRule?.keywords[0] ?? '159')
+  const [matchMode, setMatchMode] = useState<'flexible' | 'strict'>(
+    (initialRule as (CommentRule & { match_mode?: 'flexible' | 'strict' }))?.match_mode ??
+      (initialRule?.match_type === 'exact' ? 'strict' : 'flexible'),
+  )
   const [stockLimit, setStockLimit] = useState(
     initialRule?.live_stock_limit ?? Math.max(1, Math.min(initialProduct?.stock ?? 5, 5)),
   )
@@ -150,7 +154,7 @@ export function LiveCfSetup({
     ? Math.min(product?.stock ?? 0, variant.stock)
     : (product?.stock ?? 0)
   const selectedPrice = variant?.price ?? product?.price ?? 0
-  const parserMatch = !!normalizeCfCode(code) && matchesCfCode(testText, code)
+  const parserMatch = !!normalizeCfCode(code) && matchOrderCode(testText, code, matchMode)
   const selectedBank = bankAccounts.find((item) => item.id === bankAccountId)
 
   const examples = useMemo(() => {
@@ -228,6 +232,7 @@ export function LiveCfSetup({
           productId,
           variantId: variant?.id ?? null,
           code,
+          matchMode,
           stockLimit,
           deductStock,
           privateReply,
@@ -267,6 +272,7 @@ export function LiveCfSetup({
           productId,
           variantId: variant?.id ?? null,
           code,
+          matchMode,
           stockLimit,
           deductStock,
           privateReply,
@@ -480,26 +486,95 @@ export function LiveCfSetup({
           {/* สเต็ป 2: กำหนดรหัส CF */}
           <div className="space-y-4 p-5 md:p-6">
             <StepTitle number={2}>กำหนดรหัส CF</StepTitle>
+
+            {/* โหมดการตรวจจับรหัส (Match Mode) */}
+            <div className="space-y-2">
+              <span className="block text-sm font-semibold text-slate-800">
+                โหมดการตรวจจับรหัส (Match Mode)
+              </span>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition ${
+                    matchMode === 'flexible'
+                      ? 'border-orange-500 bg-orange-50/60 ring-2 ring-orange-500/20'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="matchMode"
+                    value="flexible"
+                    checked={matchMode === 'flexible'}
+                    onChange={() => setMatchMode('flexible')}
+                    className="mt-1 h-4 w-4 accent-orange-500"
+                  />
+                  <div>
+                    <span className="block text-sm font-semibold text-slate-900">
+                      โหมดอัจฉริยะ (ยืดหยุ่น)
+                      <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-700">
+                        แนะนำ
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                      จับคู่รหัสอัตโนมัติ แม้ลูกค้าพิมพ์ CF, FC, จอง, เอา, สนใจ นำหน้า หรือพิมพ์เฉพาะรหัส
+                    </span>
+                  </div>
+                </label>
+
+                <label
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition ${
+                    matchMode === 'strict'
+                      ? 'border-orange-500 bg-orange-50/60 ring-2 ring-orange-500/20'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="matchMode"
+                    value="strict"
+                    checked={matchMode === 'strict'}
+                    onChange={() => setMatchMode('strict')}
+                    className="mt-1 h-4 w-4 accent-orange-500"
+                  />
+                  <div>
+                    <span className="block text-sm font-semibold text-slate-900">
+                      ตรงคำเป๊ะ 100% (Strict)
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                      ลูกค้าต้องพิมพ์ข้อความตรงกับรหัสที่ตั้งไว้ทุกตัวอักษรเท่านั้น ห้ามมีคำอื่นปะปน
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
             <label className="block text-sm font-semibold text-slate-800">
-              รหัส CF สำหรับพิมพ์จอง
+              รหัส CF สำหรับพิมพ์จอง (รองรับตัวเลข ตัวอักษร หรือข้อความภาษาไทย)
               <input
                 aria-label="รหัส CF สำหรับพิมพ์จอง"
                 className={`${field} text-base font-bold text-orange-600`}
                 value={code}
-                maxLength={40}
+                maxLength={60}
                 onChange={(event) => {
                   setCode(event.target.value)
                   if (testText.startsWith('CF ')) setTestText(`CF ${event.target.value}`)
                 }}
-                placeholder="เช่น 159, A1, Z99, แดง"
+                placeholder="เช่น 159, A1, Z99, แดง, ชุดเดรส"
               />
             </label>
             <div>
               <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                ตัวอย่างข้อความที่ลูกค้าพิมพ์:
+                ตัวอย่างข้อความที่ลูกค้าพิมพ์ (คลิกเพื่อทดสอบ):
               </span>
               <div className="flex flex-wrap gap-2">
-                {examples.map((example) => (
+                {[
+                  code.trim() || '159',
+                  `CF ${code.trim() || '159'}`,
+                  `cf ${code.trim() || '159'}`,
+                  `FC ${code.trim() || '159'}`,
+                  `เอา ${code.trim() || '159'}`,
+                  `จอง ${code.trim() || '159'}`,
+                ].map((example) => (
                   <button
                     key={example}
                     type="button"
@@ -719,6 +794,10 @@ export function LiveCfSetup({
                 <dl className="mt-4 divide-y divide-slate-100 border-t border-slate-200 text-sm">
                   {[
                     ['รหัส CF', code || '—'],
+                    [
+                      'โหมดการตรวจจับ',
+                      matchMode === 'strict' ? 'ตรงคำเป๊ะ 100%' : 'โหมดอัจฉริยะ (ยืดหยุ่น)',
+                    ],
                     ['เปิดจอง', `${stockLimit} ชิ้น`],
                     ['ตัดสต็อกอัตโนมัติ', deductStock ? 'เปิด' : 'ปิด'],
                     ['ส่งแชทส่วนตัว', privateReply ? 'เปิด' : 'ปิด'],
@@ -748,18 +827,31 @@ export function LiveCfSetup({
           </section>
 
           <section className={`${card} p-5 md:p-6`}>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-950">
-              <FlaskConical className="h-5 w-5 text-orange-500" /> ทดลองพิมพ์คอมเมนต์
-            </h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-lg font-bold text-slate-950">
+                <FlaskConical className="h-5 w-5 text-orange-500" /> ทดลองพิมพ์คอมเมนต์
+              </h2>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  matchMode === 'strict'
+                    ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+                    : 'bg-orange-50 text-orange-700 ring-1 ring-orange-200'
+                }`}
+              >
+                โหมด: {matchMode === 'strict' ? 'ตรงคำเป๊ะ 100%' : 'ยืดหยุ่น'}
+              </span>
+            </div>
             <p className="mt-1 text-xs text-slate-500">
-              จำลองการพิมพ์คอมเมนต์เพื่อทดสอบรหัส CF โดยไม่กระทบเพจจริง
+              {matchMode === 'strict'
+                ? 'โหมดตรงคำเป๊ะ: ต้องพิมพ์ตรงกับรหัสทุกตัวอักษรเท่านั้น ห้ามมีคำอื่นปน'
+                : 'โหมดยืดหยุ่น: พิมพ์รหัสล้วน หรือมี CF, FC, จอง, เอา, สนใจ นำหน้า ระบบจะดูดให้'}
             </p>
             <input
               aria-label="ทดลองพิมพ์คอมเมนต์"
               className={`${field} mt-4`}
               value={testText}
               onChange={(event) => setTestText(event.target.value)}
-              placeholder="ลองพิมพ์ CF 159"
+              placeholder={matchMode === 'strict' ? `พิมพ์ ${code || '159'}` : `ลองพิมพ์ CF ${code || '159'}`}
             />
             <div
               className={`mt-3 flex items-center gap-2.5 rounded-xl border p-3 text-sm font-medium transition ${

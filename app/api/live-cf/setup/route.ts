@@ -99,11 +99,13 @@ export async function POST(req: NextRequest) {
         { error: 'กรุณาตั้งค่า LIVE_CF_APP_URL และ LIVE_CF_PAYMENT_LINK_SECRET ก่อนเปิด Private Reply' },
         { status: 503 },
       )
+    const matchMode = input.matchMode === 'strict' ? 'strict' : 'flexible'
+    const matchType = matchMode === 'strict' ? 'exact' : 'keyword'
     const row = {
       tenant_id: tenantId,
       name: `Live CF ${code}`,
       page_ids: [pageId],
-      match_type: 'keyword',
+      match_type: matchType,
       keywords: [code],
       reply_enabled: publicReply,
       reply_text: text(input.publicText, 2000),

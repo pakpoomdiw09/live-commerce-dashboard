@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { PGlite } from '@electric-sql/pglite'
-import { matchesCfCode } from '../../../lib/features/commerce/cf-code'
+import { matchesCfCode, matchOrderCode } from '../../../lib/features/commerce/cf-code'
 import { createMockLiveCfMetaAdapter } from '../../../lib/integrations/facebook/live-cf-adapter'
 
 const tenant = '11111111-1111-4111-8111-111111111111'
@@ -74,6 +74,33 @@ test('parser matches 159 as an exact token but never 1590', () => {
   assert.equal(matchesCfCode('CF 1590', '159'), false)
   assert.equal(matchesCfCode('cf a1', 'A1'), true)
   assert.equal(matchesCfCode('CF แดง', 'แดง'), true)
+})
+
+test('matchOrderCode supports flexible and strict match modes', () => {
+  // Flexible mode: allows bare code, prefix (CF, FC, เอา, จอง, สนใจ, รับ, ขอ) or distinct token
+  assert.equal(matchOrderCode('159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('CF 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('cf 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('FC 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('fc 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('จอง 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('เอา 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('สนใจ 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('รับ 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('ขอ 159', '159', 'flexible'), true)
+  assert.equal(matchOrderCode('CF แดง', 'แดง', 'flexible'), true)
+  assert.equal(matchOrderCode('เอา แดง', 'แดง', 'flexible'), true)
+  assert.equal(matchOrderCode('CF 1590', '159', 'flexible'), false)
+
+  // Strict mode: requires exact 100% match, no other words/prefixes allowed
+  assert.equal(matchOrderCode('159', '159', 'strict'), true)
+  assert.equal(matchOrderCode(' 159 ', '159', 'strict'), true)
+  assert.equal(matchOrderCode('A1', 'a1', 'strict'), true)
+  assert.equal(matchOrderCode('แดง', 'แดง', 'strict'), true)
+  assert.equal(matchOrderCode('CF 159', '159', 'strict'), false)
+  assert.equal(matchOrderCode('เอา 159', '159', 'strict'), false)
+  assert.equal(matchOrderCode('จอง 159', '159', 'strict'), false)
+  assert.equal(matchOrderCode('159 ครับ', '159', 'strict'), false)
 })
 
 test('durable source idempotency returns one order for the same Facebook comment', async () => {
