@@ -9,7 +9,6 @@ import { ruleMatches, type CommentRule } from '@/lib/features/comments/comment-r
 import type { PageProfile } from '@/lib/integrations/facebook/client'
 import { ICONS, Icon } from '@/components/ui/Icon'
 import { Switch } from '@/components/ui/Switch'
-import { Radio } from 'lucide-react'
 
 type Draft = Omit<CommentRule, 'id' | 'created_at'>
 
@@ -172,27 +171,6 @@ export function RuleEditor({
           </button>
         </div>
       </PageBanner>
-
-      {/* แบนเนอร์แนะนำไปหน้า /live-cf */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50/80 p-4 text-sm text-orange-950">
-        <div className="flex items-center gap-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-orange-500 text-white">
-            <Radio className="h-4 w-4" />
-          </span>
-          <div>
-            <p className="font-semibold text-orange-950">ต้องการเปิดระบบดูดออเดอร์ไลฟ์สด (Live Commerce CF)?</p>
-            <p className="text-xs text-orange-800">
-              หน้านี้สำหรับการตั้งค่าตอบคอมเมนต์ทั่วไป หากต้องการตั้งรหัส CF และตัดสต็อกอัตโนมัติ กรุณาใช้ระบบไลฟ์สด
-            </p>
-          </div>
-        </div>
-        <Link
-          href="/live-cf"
-          className="inline-flex items-center gap-1.5 rounded-xl bg-orange-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-orange-600 active:scale-95"
-        >
-          ไปที่หน้าไลฟ์สด CF →
-        </Link>
-      </div>
 
       {error && (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-100">
