@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { PageBanner } from '@/components/ui/page-banner'
@@ -9,6 +9,8 @@ import {
   ChevronDown,
   CircleStop,
   CreditCard,
+  ExternalLink,
+  Eye,
   FlaskConical,
   Link2,
   Minus,
@@ -18,9 +20,27 @@ import {
   Radio,
   Send,
   ShoppingCart,
+  Sparkles,
 } from 'lucide-react'
 import type { CommentRule, LiveProductOption } from '@/lib/features/comments/comment-rules'
 import { matchesCfCode, normalizeCfCode } from '@/lib/features/commerce/cf-code'
+
+function generateDefaultPrivateText(
+  productName?: string,
+  price?: number,
+  variantLabel?: string | null,
+) {
+  const variantPart = variantLabel ? ' {variant_name}' : ''
+  return `ยินดีด้วยครับ! คุณได้รับสินค้า {product_name}${variantPart}\nราคา: {price} บาท (ยอดชำระ: {total} บาท)\nชำระเงินและแนบสลิปเซลเพจได้ที่ลิงก์นี้: {payment_link}`
+}
+
+const VARIABLE_CHIPS = [
+  { tag: '{product_name}', label: 'ชื่อสินค้า' },
+  { tag: '{price}', label: 'ราคา' },
+  { tag: '{variant_name}', label: 'ตัวเลือกสินค้า' },
+  { tag: '{total}', label: 'ยอดชำระ' },
+  { tag: '{payment_link}', label: 'ลิงก์ชำระเงิน/แนบสลิปเซลเพจ' },
+]
 
 type Page = { id: string; name: string; picture: string | null }
 type Bank = {
@@ -106,7 +126,11 @@ export function LiveCfSetup({
   const [publicReply, setPublicReply] = useState(initialRule?.reply_enabled ?? true)
   const [privateText, setPrivateText] = useState(
     initialRule?.inbox_text ??
-      'ยินดีด้วยครับ! คุณได้รับสินค้า {product_name}\nยอดชำระทั้งหมด {price} บาท\nชำระเงินอย่างปลอดภัย: {payment_link}',
+      generateDefaultPrivateText(
+        initialProduct?.name,
+        initialProduct?.variants[0]?.price ?? initialProduct?.price,
+        initialProduct?.variants[0]?.label,
+      ),
   )
   const [publicText, setPublicText] = useState(
     initialRule?.reply_text ?? 'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดในข้อความส่วนตัว',
@@ -118,6 +142,7 @@ export function LiveCfSetup({
   const [active, setActive] = useState(initialRule?.is_active ?? false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(setupError)
+  const privateTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const product = products.find((item) => item.id === productId)
   const variant = product?.variants.find((item) => item.id === variantId) ?? null
@@ -136,9 +161,54 @@ export function LiveCfSetup({
   function chooseProduct(nextId: string) {
     setProductId(nextId)
     const next = products.find((item) => item.id === nextId)
-    setVariantId(next?.variants[0]?.id ?? '')
-    setStockLimit(Math.max(1, Math.min(next?.variants[0]?.stock ?? next?.stock ?? 1, 5)))
+    const firstVariant = next?.variants[0] ?? null
+    setVariantId(firstVariant?.id ?? '')
+    setStockLimit(Math.max(1, Math.min(firstVariant?.stock ?? next?.stock ?? 1, 5)))
+    if (next?.code) setCode(next.code)
+    // เติมข้อความเริ่มต้น (Default Template) ที่มีข้อมูลของสินค้านั้นให้อัตโนมัติทันที
+    if (next) {
+      setPrivateText(
+        generateDefaultPrivateText(
+          next.name,
+          firstVariant?.price ?? next.price,
+          firstVariant?.label,
+        ),
+      )
+    }
   }
+
+  function insertVariable(tag: string) {
+    const textarea = privateTextareaRef.current
+    if (!textarea) {
+      setPrivateText((prev) => (prev ? `${prev} ${tag}` : tag))
+      return
+    }
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const text = privateText
+    const nextText = text.substring(0, start) + tag + text.substring(end)
+    setPrivateText(nextText)
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start + tag.length, start + tag.length)
+    }, 0)
+  }
+
+  const previewMessage = useMemo(() => {
+    if (!product) return privateText
+    const priceFormatted = Number(selectedPrice).toLocaleString('th-TH', {
+      minimumFractionDigits: 2,
+    })
+    const sampleLink = product.sales_page_url
+      ? `${typeof window !== 'undefined' ? window.location.origin : ''}${product.sales_page_url}`
+      : 'https://snapbot.app/pay/live/sample.order123'
+    return privateText
+      .replaceAll('{product_name}', product.name)
+      .replaceAll('{variant_name}', variant?.label ?? 'มาตรฐาน')
+      .replaceAll('{price}', priceFormatted)
+      .replaceAll('{total}', priceFormatted)
+      .replaceAll('{payment_link}', sampleLink)
+  }, [privateText, product, selectedPrice, variant])
 
   async function save() {
     setNotice(null)
@@ -342,24 +412,50 @@ export function LiveCfSetup({
               </p>
             )}
             {product && (
-              <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3.5">
-                <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  {product.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- tenant-owned dynamic product URL
-                    <img src={product.image_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <Package className="h-7 w-7 text-slate-300" />
-                  )}
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                <div className="flex items-start gap-4">
+                  <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    {product.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- tenant-owned dynamic product URL
+                      <img src={product.image_url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <Package className="h-7 w-7 text-slate-300" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="truncate font-semibold text-slate-900">{product.name}</p>
+                      <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                        คงเหลือ {selectedStock} ชิ้น
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-sm font-semibold text-orange-600">
+                      ฿{Number(selectedPrice).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    </p>
+                    {product.description && (
+                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">
+                        {product.description}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-slate-900">{product.name}</p>
-                  <p className="text-sm font-medium text-slate-600">
-                    ฿{Number(selectedPrice).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                  คงเหลือ {selectedStock} ชิ้น
-                </span>
+
+                {/* ลิงก์เซลเพจของสินค้านี้ */}
+                {product.sales_page_url && (
+                  <div className="flex items-center justify-between border-t border-slate-200/70 pt-2.5 text-xs text-slate-600">
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" /> หน้าร้านค้า / เซลเพจที่เชื่อมต่อ:
+                    </span>
+                    <a
+                      href={product.sales_page_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      เปิดดูหน้าเซลเพจ <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
               </div>
             )}
             {!!product?.variants.length && (
@@ -475,15 +571,78 @@ export function LiveCfSetup({
                 </span>
               </div>
               {privateReply && (
-                <>
-                  <textarea
-                    aria-label="ข้อความส่งแชทส่วนตัว"
-                    className={field}
-                    rows={4}
-                    value={privateText}
-                    onChange={(event) => setPrivateText(event.target.value)}
-                  />
-                  <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-3">
+                  <div className="relative">
+                    <textarea
+                      ref={privateTextareaRef}
+                      aria-label="ข้อความส่งแชทส่วนตัว"
+                      className={`${field} min-h-[110px] resize-y font-sans`}
+                      rows={4}
+                      value={privateText}
+                      onChange={(event) => setPrivateText(event.target.value)}
+                    />
+                    <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                      <span>คลิกปุ่มด้านล่างเพื่อแทรกตัวแปรลงในข้อความ</span>
+                      {product && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPrivateText(
+                              generateDefaultPrivateText(
+                                product.name,
+                                variant?.price ?? product.price,
+                                variant?.label,
+                              ),
+                            )
+                          }
+                          className="inline-flex items-center gap-1 font-semibold text-orange-600 hover:text-orange-700 hover:underline"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" /> รีเซ็ตเป็นข้อความเริ่มต้นของสินค้านี้
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ปุ่มแทรกตัวแปรอัตโนมัติ (Chip Buttons) */}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                    <p className="mb-2 text-xs font-semibold text-slate-700">
+                      แทรกตัวแปรอัตโนมัติ (จะแทนที่ด้วยข้อมูลจริงของออเดอร์เมื่อลูกค้า CF):
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {VARIABLE_CHIPS.map((chip) => (
+                        <button
+                          key={chip.tag}
+                          type="button"
+                          onClick={() => insertVariable(chip.tag)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-white px-2.5 py-1 text-xs font-semibold text-orange-700 shadow-2xs transition hover:bg-orange-50 active:scale-95"
+                          title={`แทรก ${chip.tag}`}
+                        >
+                          <span className="font-mono font-bold text-orange-600">+</span>
+                          <span>{chip.tag}</span>
+                          <span className="font-normal text-[11px] text-slate-400">({chip.label})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* กล่อง Live Preview จำลองข้อความจริง */}
+                  {product && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                          <Eye className="h-3.5 w-3.5 text-orange-500" /> ตัวอย่างข้อความจริงที่ลูกค้าจะได้รับใน Messenger
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                          พรีวิวจำลอง
+                        </span>
+                      </div>
+                      <div className="mt-2.5 whitespace-pre-wrap rounded-lg border border-slate-100 bg-slate-50 p-3 font-sans text-xs leading-relaxed text-slate-800">
+                        {previewMessage}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid gap-3 pt-1 sm:grid-cols-2">
                     <label className="text-sm font-semibold text-slate-800">
                       บัญชีรับเงิน
                       <select
@@ -506,7 +665,7 @@ export function LiveCfSetup({
                       ระบบจะส่งข้อความสรุปยอดพร้อมลิงก์ชำระเงินที่ปลอดภัย (Payment Link) ผ่าน Messenger ให้ลูกค้าโดยอัตโนมัติ
                     </div>
                   </div>
-                </>
+                </div>
               )}
             </div>
             <div className="space-y-3 border-t border-slate-100 pt-5">

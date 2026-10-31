@@ -66,15 +66,25 @@ export async function handleLiveCfComment(
   ])
   if (dependencies.sendPrivateReply && !paymentLink)
     throw new Error('LIVE_CF_PAYMENT_LINK_UNAVAILABLE')
-  const product = `${order.name}${order.variantLabel ? ` • ${order.variantLabel}` : ''}`
+  const variantLabel = order.variantLabel ?? ''
+  const hasVariantTag = dependencies.privateTemplate?.includes('{variant_name}')
+  const product = hasVariantTag
+    ? order.name
+    : `${order.name}${variantLabel ? ` • ${variantLabel}` : ''}`
+  const priceText = dependencies.privateTemplate?.includes('{total}')
+    ? money(order.amount)
+    : money(total)
+
   const privateMessage = dependencies.privateTemplate?.trim()
     ? dependencies.privateTemplate
         .replaceAll('{product_name}', product)
-        .replaceAll('{price}', money(total))
+        .replaceAll('{variant_name}', variantLabel)
+        .replaceAll('{price}', priceText)
+        .replaceAll('{total}', money(total))
         .replaceAll('{payment_link}', paymentLink ?? '')
         .trim()
     : [
-        `รับออเดอร์ ${product} (${order.code})`,
+        `รับออเดอร์ ${order.name}${variantLabel ? ` • ${variantLabel}` : ''} (${order.code})`,
         `ยอดชำระ ${money(total)} บาท`,
         payment
           ? `บัญชี ${payment.bankName} ${payment.accountNumber}${payment.accountName ? ` (${payment.accountName})` : ''}`

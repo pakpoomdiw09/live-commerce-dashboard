@@ -292,3 +292,32 @@ test('live comment CF orders match codes, protect stock, and send one secure pay
     await db.close()
   }
 })
+
+test('private reply template replaces all variables: product_name, variant_name, price, total, payment_link', async () => {
+  let sent = ''
+  await handleLiveCfComment(
+    { text: 'CF 100', commentId: 'c-1', code: '100' },
+    {
+      placeOrder: async () => ({
+        status: 'created',
+        orderId: '00000000-0000-4000-8000-000000000001',
+        name: 'เสื้อยืดแขนสั้น',
+        code: '100',
+        amount: 250,
+        variantLabel: 'สีขาว XL',
+      }),
+      getPayment: async () => null,
+      getPendingTotal: async () => 500,
+      getPaymentLink: () => 'https://pay.example/live/token123',
+      privateTemplate:
+        'ยินดีด้วยค่ะ! {product_name} ({variant_name}) ราคา {price} บาท ยอดสุทธิ {total} บาท ลิงก์: {payment_link}',
+      sendPrivateReply: async (m) => {
+        sent = m
+      },
+    },
+  )
+  assert.equal(
+    sent,
+    'ยินดีด้วยค่ะ! เสื้อยืดแขนสั้น (สีขาว XL) ราคา 250.00 บาท ยอดสุทธิ 500.00 บาท ลิงก์: https://pay.example/live/token123',
+  )
+})

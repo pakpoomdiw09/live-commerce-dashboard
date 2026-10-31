@@ -40,6 +40,8 @@ export type LiveProductOption = {
   price: number
   stock: number
   image_url?: string | null
+  description?: string | null
+  sales_page_url?: string | null
   variants: {
     id: string
     label: string

@@ -8,10 +8,10 @@ import type { LiveProductOption } from './comment-rules'
  * products table is a supported fallback instead of an empty/error state.
  */
 export async function liveProducts(db: SupabaseClient, tenantId: string) {
-  const [commerceProducts, variants] = await Promise.all([
+  const [commerceProducts, variants, store] = await Promise.all([
     db
       .from('products')
-      .select('id,name,code,price,stock,image_url')
+      .select('id,name,code,price,stock,image_url,description')
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .eq('commerce_archived', false)
@@ -24,12 +24,17 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
       .eq('is_active', true)
       .order('label')
       .limit(5000),
+    db
+      .from('commerce_stores')
+      .select('slug')
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
   ])
 
   const fallbackProducts = commerceProducts.error
     ? await db
         .from('products')
-        .select('id,name,code,price,stock,image_url')
+        .select('id,name,code,price,stock,image_url,description')
         .eq('tenant_id', tenantId)
         .eq('is_active', true)
         .order('name')
@@ -43,9 +48,13 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
       fallback: true,
     }
 
+  const storeSlug = store?.data?.slug ?? null
+
   return {
     products: productRows.map((product) => ({
       ...product,
+      description: (product as { description?: string | null }).description ?? null,
+      sales_page_url: storeSlug ? `/s/${storeSlug}` : null,
       variants: variants.error
         ? []
         : (variants.data ?? []).filter((variant) => variant.product_id === product.id),
