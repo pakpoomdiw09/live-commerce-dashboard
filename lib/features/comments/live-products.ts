@@ -2,9 +2,13 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LiveProductOption } from './comment-rules'
 
-/** Both queries are bounded to the active shop and use the signed-in user's RLS. */
+/**
+ * Load the active tenant's real product catalog. Tenants created before commerce-v2
+ * may not have store metadata, commerce_archived or variants yet, so the legacy
+ * products table is a supported fallback instead of an empty/error state.
+ */
 export async function liveProducts(db: SupabaseClient, tenantId: string) {
-  const [products, variants] = await Promise.all([
+  const [commerceProducts, variants] = await Promise.all([
     db
       .from('products')
       .select('id,name,code,price,stock,image_url')
@@ -21,16 +25,32 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
       .order('label')
       .limit(5000),
   ])
-  if (products.error || variants.error)
+
+  const fallbackProducts = commerceProducts.error
+    ? await db
+        .from('products')
+        .select('id,name,code,price,stock,image_url')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .order('name')
+        .limit(1000)
+    : null
+  const productRows = commerceProducts.data ?? fallbackProducts?.data ?? []
+  if (commerceProducts.error && fallbackProducts?.error)
     return {
       products: [] as LiveProductOption[],
-      error: 'โหลดสินค้าร้านค้าไม่ได้ กรุณาตรวจการติดตั้งระบบร้านค้าหรือลองใหม่',
+      error: 'โหลดรายการสินค้าไม่สำเร็จ กรุณาตรวจสอบสิทธิ์ของร้านค้าแล้วลองใหม่',
+      fallback: true,
     }
+
   return {
-    products: (products.data ?? []).map((p) => ({
-      ...p,
-      variants: (variants.data ?? []).filter((v) => v.product_id === p.id),
+    products: productRows.map((product) => ({
+      ...product,
+      variants: variants.error
+        ? []
+        : (variants.data ?? []).filter((variant) => variant.product_id === product.id),
     })) as LiveProductOption[],
     error: null,
+    fallback: !!commerceProducts.error || !!variants.error,
   }
 }

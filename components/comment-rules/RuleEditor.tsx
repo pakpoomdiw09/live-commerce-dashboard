@@ -251,7 +251,13 @@ export function RuleEditor({
                 name="rule-mode"
                 value={value}
                 checked={(draft.mode ?? 'general') === value}
-                onChange={() => set('mode', value)}
+                onChange={() => {
+                  if (value === 'live_cf') {
+                    router.push('/live-cf')
+                    return
+                  }
+                  set('mode', value)
+                }}
               />
               {label}
             </label>

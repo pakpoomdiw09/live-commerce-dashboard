@@ -33,7 +33,6 @@ type NavLink = { href: string; label: string }
 type NavItem = NavLink & { icon: LucideIcon; children?: NavLink[] }
 
 const NAV: NavItem[] = [
-  ...(LIVE_CF_ENABLED ? [{ href: '/live-cf', label: 'ไลฟ์สด CF', icon: Radio }] : []),
   { href: '/overview', label: 'หน้าหลัก', icon: House },
   { href: '/slips', label: 'ตรวจสอบสลิป', icon: CreditCard },
   {
@@ -52,6 +51,7 @@ const NAV: NavItem[] = [
   },
   { href: '/broadcast', label: 'บรอดแคสต์', icon: Megaphone },
   { href: '/shop', label: 'ร้านค้า / เซลเพจ', icon: Store },
+  ...(LIVE_CF_ENABLED ? [{ href: '/live-cf', label: 'ไลฟ์สด CF', icon: Radio }] : []),
   { href: '/inbox', label: 'รวมแชท', icon: MessagesSquare },
   { href: '/analytics', label: 'วิเคราะห์', icon: BarChart3 },
   { href: '/billing', label: 'แพ็กเกจ & เครดิต', icon: CreditCard },
