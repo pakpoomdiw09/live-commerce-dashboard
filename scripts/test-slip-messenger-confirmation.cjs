@@ -36,6 +36,7 @@ function fixture({
   expired = false,
   safetyEnabled = false,
   safetyStopped = false,
+  pageName = 'Actual Facebook Page',
 } = {}) {
   const requests = []
   const confirms = []
@@ -155,7 +156,12 @@ function fixture({
                   platform: 'facebook',
                   platform_user_id: '123456789',
                 }
-              : { name: 'Test shop', page_id: '11111', page_access_token: 'mock-token-a' },
+              : {
+                  name: 'Test shop',
+                  page_name: pageName,
+                  page_id: '11111',
+                  page_access_token: 'mock-token-a',
+                },
           error: null,
         }),
         then(resolve, reject) {
@@ -182,11 +188,15 @@ function fixture({
   }
 }
 
-test('verified slip cards use each tenant Page token, customer PSID and RESPONSE without a tag', async () => {
+function expectedReceipt(pageName, amount) {
+  return `✅ ชำระเงินสำเร็จ · ${pageName}\nทางร้านได้รับยอดชำระเงินเรียบร้อยแล้วครับ จำนวน ${amount} บาท 💸✨\nขอขอบพระคุณที่ไว้วางใจครับผม 🙏📦 ทางร้านจะรีบดำเนินการจัดส่งสินค้าให้โดยเร็วที่สุดครับ 🚚💨`
+}
+
+test('plain-text receipts use each Page token/PSID and exactly match the stored chat body', async () => {
   const f = fixture()
-  for (const [tenant, page, psid, token] of [
-    ['tenant-a', '11111', '123456789', 'mock-token-a'],
-    ['tenant-b', '22222', '987654321', 'mock-token-b'],
+  for (const [tenant, page, psid, token, pageName] of [
+    ['tenant-a', '11111', '123456789', 'mock-token-a', 'เพจ เอ'],
+    ['tenant-b', '22222', '987654321', 'mock-token-b', 'เพจ บี'],
   ]) {
     f.tenant(tenant)
     await f.notify.notifySlipResult(
@@ -197,7 +207,7 @@ test('verified slip cards use each tenant Page token, customer PSID and RESPONSE
         psid,
         token: f.client.pageTokenFor({ page_id: page, page_access_token: token }),
       },
-      'Test shop',
+      pageName,
     )
     const request = f.requests.at(-1)
     assert.equal(request.url, 'https://graph.facebook.com/v24.0/me/messages')
@@ -205,23 +215,28 @@ test('verified slip cards use each tenant Page token, customer PSID and RESPONSE
     assert.equal(request.body.recipient.id, psid)
     assert.equal(request.body.messaging_type, 'RESPONSE')
     assert.equal(Object.hasOwn(request.body, 'tag'), false)
-    assert.ok(request.body.message.attachment.payload.elements[0].subtitle.includes('123.45'))
+    assert.deepEqual(request.body.message, { text: expectedReceipt(pageName, '123.45') })
+    assert.equal(f.rows.at(-1).body, request.body.message.text)
+    assert.equal(request.body.message.text.includes('mock-transfer'), false)
+    assert.equal(request.body.message.text.includes('อ้างอิง'), false)
   }
   assert.equal(f.confirms.length, 2)
 })
 
-test('explicitly rejected payment cards fall back to a RESPONSE text with the verified amount', async () => {
+test('slip confirmations send one plain-text message and never attempt a payment template', async () => {
   const f = fixture({ rejectCard: true, handover: true })
   await f.notify.notifySlipResult(
     f.db,
     { id: 'slip-test', status: 'valid', amount: 250, transRef: 'mock-transfer' },
     { id: 'customer-uuid', psid: '123456789', token: 'mock-token-a' },
   )
-  assert.equal(f.requests.length, 2)
-  const text = f.requests[1].body
+  assert.equal(f.requests.length, 1)
+  const text = f.requests[0].body
   assert.equal(text.recipient.id, '123456789')
   assert.equal(text.messaging_type, 'RESPONSE')
   assert.ok(text.message.text.includes('250.00'))
+  assert.equal(Object.hasOwn(text.message, 'attachment'), false)
+  assert.equal(f.rows[0].body, text.message.text)
   assert.equal(Object.hasOwn(text, 'tag'), false)
   assert.equal(f.confirms.length, 1)
 })
@@ -328,7 +343,8 @@ test('a verified Pro payment sends its receipt even when general Pro automation 
     recipient,
   )
   assert.equal(f.requests.length, 1)
-  assert.ok(f.requests[0].body.message.attachment.payload.elements[0].subtitle.includes('1.00'))
+  assert.equal(f.requests[0].body.message.text, expectedReceipt('ร้านค้า', '1.00'))
+  assert.equal(f.rows[0].body, f.requests[0].body.message.text)
   assert.ok(f.logs.some(([label]) => label === '[slip/confirmation] sent'))
 })
 
@@ -344,6 +360,8 @@ test('manual verification resolves the tenant Page token and customer PSID befor
   assert.equal(f.requests[0].headers.Authorization, 'Bearer mock-token-a')
   assert.equal(f.requests[0].body.recipient.id, '123456789')
   assert.equal(f.requests[0].body.messaging_type, 'RESPONSE')
+  assert.equal(f.requests[0].body.message.text, expectedReceipt('Actual Facebook Page', '1.00'))
+  assert.equal(f.rows[0].body, f.requests[0].body.message.text)
   assert.equal(
     await f.notify.notifyVerifiedSlipForCustomer(f.db, verifiedSlip, 'customer-uuid', 'tenant-a'),
     'already_processed',
@@ -380,6 +398,115 @@ test('unlinked or unverified slips cannot trigger the post-verification notifica
     'not_applicable',
   )
   assert.equal(f.requests.length, 0)
+})
+
+test('manual confirmation uses the same exact three-line text with two-decimal amounts and no reference', async () => {
+  for (const [amount, formatted] of [
+    [1, '1.00'],
+    [1234.5, '1,234.50'],
+    [0.01, '0.01'],
+  ]) {
+    const f = fixture({ handover: true })
+    await f.notify.sendSlipConfirmation(
+      f.db,
+      { id: 'manual-slip', amount, trans_ref: 'DO_NOT_INCLUDE_REFERENCE' },
+      recipient,
+      'เพจตัวอย่าง',
+    )
+    const message = f.requests[0].body.message
+    assert.deepEqual(message, { text: expectedReceipt('เพจตัวอย่าง', formatted) })
+    assert.equal(message.text.split('\n').length, 3)
+    assert.equal(f.rows[0].body, message.text)
+    assert.equal(message.text.includes('DO_NOT_INCLUDE_REFERENCE'), false)
+  }
+})
+
+test('receipt uses the configured tenant name when no Facebook page_name is stored', async () => {
+  const f = fixture({ pageName: null })
+  assert.equal(
+    await f.notify.notifyVerifiedSlipForCustomer(
+      f.db,
+      { ...verifiedSlip, amount: 1 },
+      'customer-uuid',
+      'tenant-a',
+    ),
+    'sent',
+  )
+  assert.equal(f.requests[0].body.message.text, expectedReceipt('Test shop', '1.00'))
+  assert.equal(f.rows[0].body, f.requests[0].body.message.text)
+})
+
+test('an unavailable or invalid amount cannot generate a fabricated payment receipt', async () => {
+  for (const amount of [null, NaN, Infinity, 0, -1]) {
+    const f = fixture()
+    await assert.rejects(
+      f.notify.notifySlipResult(f.db, { ...verifiedSlip, amount }, recipient, 'Test page'),
+      /SLIP_CONFIRMATION_AMOUNT_INVALID/,
+    )
+    assert.equal(f.requests.length, 0)
+    assert.equal(f.rows.length, 0)
+  }
+})
+
+test('the admin confirmation API selects the real page name and stores exactly the text sent to its PSID', async () => {
+  for (const pageName of ['ชื่อเพจจริง', null]) {
+    const f = fixture({ handover: true })
+    const slipId = '11111111-1111-4111-8111-111111111111'
+    const stored = {
+      id: slipId,
+      tenant_id: 'tenant-a',
+      status: 'valid',
+      amount: 1,
+      trans_ref: 'DO_NOT_INCLUDE_REFERENCE',
+      approved_at: null,
+      customers: { id: recipient.id, platform_user_id: recipient.psid },
+      tenants: {
+        name: 'ชื่อร้าน',
+        page_name: pageName,
+        page_id: '11111',
+        page_access_token: recipient.token,
+      },
+    }
+    const lookupDb = {
+      from(table) {
+        assert.equal(table, 'slips')
+        const q = {
+          select(columns) {
+            assert.ok(columns.includes('page_name'))
+            return q
+          },
+          eq() {
+            return q
+          },
+          maybeSingle: async () => ({ data: stored, error: null }),
+        }
+        return q
+      },
+    }
+    const api = load('app/api/slips/[id]/confirm/route.ts', {
+      'next/server': {
+        NextResponse: { json: (body, options = {}) => ({ body, status: options.status ?? 200 }) },
+      },
+      '@/lib/feature-access': { hasFeature: async () => true },
+      '@/lib/supabase/server': { supabaseAdmin: () => lookupDb },
+      '@/lib/auth': {
+        getActor: async () => ({ kind: 'user', id: 'owner' }),
+        canAccessTenant: async () => true,
+      },
+      '@/lib/integrations/facebook/client': f.client,
+      '@/lib/features/slips/notify': {
+        sendSlipConfirmation: (_db, slip, customer, name) =>
+          f.notify.sendSlipConfirmation(f.db, slip, customer, name),
+      },
+      '@/lib/utils': { UUID: /^[a-f0-9-]{36}$/ },
+    })
+    const response = await api.POST({}, { params: Promise.resolve({ id: slipId }) })
+    assert.equal(response.status, 200)
+    assert.equal(response.body.ok, true)
+    assert.equal(f.requests[0].body.recipient.id, recipient.psid)
+    assert.equal(f.requests[0].body.message.text, expectedReceipt(pageName || 'ชื่อร้าน', '1.00'))
+    assert.equal(f.rows[0].body, f.requests[0].body.message.text)
+  }
 })
 
 function verificationRoute(kind, confirmationStatus) {

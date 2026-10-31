@@ -1229,6 +1229,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
                 id: tenantId,
                 page_id: pageId,
                 name: 'Shop',
+                page_name: 'Test Facebook Page',
                 auto_reply_enabled: true,
                 auto_verify_enabled: autoVerify,
                 page_access_token: 'fake-test-token',
@@ -1341,8 +1342,8 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
         },
       },
       '@/lib/features/slips/notify': {
-        notifySlipResult: async (_db, slip, customer) => {
-          slipReplies.push({ slip, customer })
+        notifySlipResult: async (_db, slip, customer, pageName) => {
+          slipReplies.push({ slip, customer, pageName })
         },
       },
       '@/lib/features/slips/image': {
@@ -1492,6 +1493,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
     assert.equal(slipChecks[0].tenant.id, tenantId)
     assert.equal(slipReplies[0].customer.psid, senderId)
     assert.equal(slipReplies[0].customer.token, 'fake-test-token')
+    assert.equal(slipReplies[0].pageName, 'Test Facebook Page')
     assert.equal(
       (await f.one("select count(*)::int n from facebook_webhook_events where status='completed'"))
         .n,

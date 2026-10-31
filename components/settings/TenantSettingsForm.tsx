@@ -45,7 +45,6 @@ export function TenantSettingsForm({
   section = 'create',
   connectionStatus = 'unverified',
   embedded = false,
-  automationOnly = false,
   slipAccess,
 }: {
   tenant: TenantRow | null
@@ -59,7 +58,6 @@ export function TenantSettingsForm({
   section?: 'facebook' | 'bank-slip' | 'create'
   connectionStatus?: PageConnectionStatus
   embedded?: boolean
-  automationOnly?: boolean
   slipAccess?: boolean
 }) {
   const router = useRouter()
@@ -402,7 +400,7 @@ export function TenantSettingsForm({
             )}
           </Card>
         )}
-        {showBankSlip && !automationOnly && (
+        {showBankSlip && (
           <>
             {tenant ? (
               <BankAccountsManager key={tenant.id} tenantId={tenant.id} canManage={isOwner} />
@@ -505,33 +503,31 @@ export function TenantSettingsForm({
             </div>
           </Card>
 
-          {!automationOnly && (
-            <Card id="credits">
-              <CardHeader
-                title={<Title icon={Coins}>เครดิตตรวจสลิป</Title>}
-                description={`ตรวจ 1 สลิป ใช้ 1 เครดิต (คืนให้อัตโนมัติถ้าระบบตรวจสอบสลิปขัดข้อง) เมื่อเครดิตหมดระบบจะหยุดตรวจสอบสลิป${isAdmin ? '' : ' · เติมเครดิตได้โดยติดต่อผู้ดูแลแพลตฟอร์ม'}`}
-              />
-              <div className="grid gap-4 p-5 sm:grid-cols-3">
-                {isAdmin ? (
-                  <Field label="โควตาทั้งหมด">
-                    <input
-                      className={input}
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={quota}
-                      onChange={(e) => setQuota(e.target.value)}
-                      required
-                    />
-                  </Field>
-                ) : (
-                  <Stat label="โควตาทั้งหมด" value={slipCredits.quota} />
-                )}
-                <Stat label="ใช้ไปแล้ว" value={slipCredits.used} />
-                <Stat label="คงเหลือ" value={creditsLeft} />
-              </div>
-            </Card>
-          )}
+          <Card id="credits">
+            <CardHeader
+              title={<Title icon={Coins}>เครดิตตรวจสลิป</Title>}
+              description={`ตรวจ 1 สลิป ใช้ 1 เครดิต (คืนให้อัตโนมัติถ้าระบบตรวจสอบสลิปขัดข้อง) เมื่อเครดิตหมดระบบจะหยุดตรวจสอบสลิป${isAdmin ? '' : ' · เติมเครดิตได้โดยติดต่อผู้ดูแลแพลตฟอร์ม'}`}
+            />
+            <div className="grid gap-4 p-5 sm:grid-cols-3">
+              {isAdmin ? (
+                <Field label="โควตาทั้งหมด">
+                  <input
+                    className={input}
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={quota}
+                    onChange={(e) => setQuota(e.target.value)}
+                    required
+                  />
+                </Field>
+              ) : (
+                <Stat label="โควตาทั้งหมด" value={slipCredits.quota} />
+              )}
+              <Stat label="ใช้ไปแล้ว" value={slipCredits.used} />
+              <Stat label="คงเหลือ" value={creditsLeft} />
+            </div>
+          </Card>
         </>
       )}
       {/* sticky save bar */}

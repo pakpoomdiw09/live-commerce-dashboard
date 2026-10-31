@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status })
 
-/** POST: send the "payment received" card to the customer in Messenger. Once per slip. */
+/** POST: send the shared plain-text payment receipt to Messenger. Once per slip. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await getActor(req)
   if (!actor) return bad('unauthorized', 401)
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data, error } = await db
     .from('slips')
     .select(
-      'id, tenant_id, status, amount, trans_ref, approved_at, customers(id, platform_user_id), tenants(name, page_id, page_access_token)',
+      'id, tenant_id, status, amount, trans_ref, approved_at, customers(id, platform_user_id), tenants(name, page_name, page_id, page_access_token)',
     )
     .eq('id', id)
     .maybeSingle()
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const customer = data.customers as unknown as { id: string; platform_user_id: string } | null
   const tenant = data.tenants as unknown as {
     name: string
+    page_name: string | null
     page_id: string | null
     page_access_token: string | null
   } | null
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       db,
       data,
       { id: customer.id, psid: customer.platform_user_id, token },
-      tenant?.name,
+      tenant?.page_name?.trim() || tenant?.name,
     )
     return NextResponse.json({ ok: true, alreadySent: !sent })
   } catch (e) {

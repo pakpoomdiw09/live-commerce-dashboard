@@ -32,6 +32,7 @@ import type { WebhookExecution } from '@/lib/integrations/facebook/webhook-worke
 type PageTenant = {
   id: string
   name: string
+  page_name: string | null
   account_name: string | null
   account_number: string
   bank_code: string
@@ -45,7 +46,7 @@ async function tenantForPage(pageId: string): Promise<PageTenant | null> {
   const { data, error } = await supabaseAdmin({ timeoutMs: 15000 })
     .from('tenants')
     .select(
-      'id, name, account_name, account_number, bank_code, page_id, page_access_token, auto_reply_enabled, auto_verify_enabled',
+      'id, name, page_name, account_name, account_number, bank_code, page_id, page_access_token, auto_reply_enabled, auto_verify_enabled',
     )
     .eq('page_id', pageId)
     .eq('is_active', true)
@@ -441,7 +442,7 @@ async function onSlipImage(
       })
       if (r.failure) throw new Error('SLIP_PERSISTENCE_FAILED')
       if (r.status === 'valid' || customer.notify)
-        await notifySlipResult(db, r, customer, tenant.name)
+        await notifySlipResult(db, r, customer, tenant.page_name?.trim() || tenant.name)
       return null
     },
   )

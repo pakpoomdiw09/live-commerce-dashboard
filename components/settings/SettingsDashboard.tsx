@@ -4,15 +4,11 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  Bell,
-  Bot,
   Check,
   ChevronRight,
-  Globe,
   MessageCircle,
   RefreshCw,
   Send,
-  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   Store,
@@ -26,14 +22,12 @@ import type { PageProfile } from '@/lib/integrations/facebook/client'
 import type { Billing } from '@/lib/features/billing/plans'
 import type { PageConnectionStatus, TenantRole, TenantRow } from '@/lib/types'
 
-type TabId = 'overview' | 'facebook' | 'notifications' | 'usage' | 'security'
+type TabId = 'overview' | 'facebook' | 'security'
 type Readiness = 'ready' | 'setup' | 'unknown'
 
 const tabs: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: 'overview', label: 'ภาพรวม', icon: SlidersHorizontal },
   { id: 'facebook', label: 'Facebook Page', icon: Store },
-  { id: 'notifications', label: 'การแจ้งเตือน', icon: Bell },
-  { id: 'usage', label: 'การใช้งาน', icon: Settings2 },
   { id: 'security', label: 'ความปลอดภัย', icon: ShieldCheck },
 ]
 
@@ -150,7 +144,7 @@ export function SettingsDashboard({
 }) {
   const router = useRouter()
   const [tab, setTab] = useState<TabId>(
-    tabs.some((item) => item.id === initialTab) ? (initialTab as TabId) : 'overview',
+    tabs.some((item) => item.id === initialTab) ? (initialTab as TabId) : tabs[0].id,
   )
   const [checking, startChecking] = useTransition()
   const page = pages.find((item) => item.id === tenant.page_id)
@@ -342,7 +336,7 @@ export function SettingsDashboard({
               />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-2">
+            <div className="grid gap-4">
               <Card className="p-5 sm:p-6">
                 <div className="flex items-center gap-3">
                   {page?.picture ? (
@@ -382,27 +376,6 @@ export function SettingsDashboard({
                   </span>
                 </div>
               </Card>
-              <Card className="p-5 sm:p-6">
-                <div className="flex items-start gap-3">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-600">
-                    <Bot className="h-5 w-5" aria-hidden />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-slate-900">การตั้งค่าทั่วไป</h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-500">
-                      การแจ้งเตือน ภาษา และเขตเวลายังไม่มีการจัดเก็บแยกตามร้าน
-                      จึงยังไม่แสดงตัวเลือกที่กดแล้วไม่มีผล
-                    </p>
-                    <Link
-                      href="/settings?tab=usage"
-                      className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-orange-700 hover:text-orange-800"
-                    >
-                      ดูการใช้งานที่ตั้งค่าได้
-                      <ChevronRight className="h-4 w-4" aria-hidden />
-                    </Link>
-                  </div>
-                </div>
-              </Card>
             </div>
           </div>
         )}
@@ -427,67 +400,6 @@ export function SettingsDashboard({
               connectionStatus={connectionStatus}
               embedded
             />
-          </div>
-        )}
-
-        {tab === 'notifications' && (
-          <Card className="p-5 sm:p-7">
-            <div className="flex items-start gap-4">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-600">
-                <Bell className="h-5 w-5" aria-hidden />
-              </span>
-              <div>
-                <h2 className="font-semibold text-slate-900">การแจ้งเตือน</h2>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  ขณะนี้ยังไม่มีการตั้งค่าการแจ้งเตือนที่บันทึกและนำไปใช้งานจริงในระบบ
-                  จึงยังไม่มีสวิตช์ให้เปิดหรือปิด
-                </p>
-                <p className="mt-3 text-xs text-slate-500">
-                  เมื่อมีช่องทางแจ้งเตือนรองรับ ระบบจะแสดงตัวเลือกพร้อมสถานะการบันทึกในส่วนนี้
-                </p>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {tab === 'usage' && (
-          <div className="space-y-5">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">การใช้งาน</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                เปิดหรือปิดระบบอัตโนมัติที่บันทึกกับร้านนี้ได้จริง
-              </p>
-            </div>
-            <TenantSettingsForm
-              key={`${tenant.id}-usage`}
-              tenant={tenant}
-              billing={billing}
-              slipCredits={slipCredits}
-              pages={[]}
-              isFirst={isFirst}
-              role={role}
-              section="bank-slip"
-              embedded
-              automationOnly
-              slipAccess={slipAccess}
-            />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <InfoSetting
-                icon={Globe}
-                title="ภาษา"
-                value="ภาษาไทย"
-                note="ภาษาที่แสดงในหน้าจอระบบ"
-              />
-              <InfoSetting
-                icon={Globe}
-                title="เขตเวลา"
-                value="กรุงเทพฯ (UTC+7)"
-                note="ใช้กับเวลาที่แสดงในแดชบอร์ด"
-              />
-            </div>
-            <p className="text-xs leading-5 text-slate-500">
-              ภาษาและเขตเวลายังเป็นค่าพื้นฐานของระบบ ไม่ได้บันทึกแยกตามร้าน
-            </p>
           </div>
         )}
 
@@ -567,30 +479,5 @@ export function SettingsDashboard({
         )}
       </section>
     </div>
-  )
-}
-
-function InfoSetting({
-  icon: Icon,
-  title,
-  value,
-  note,
-}: {
-  icon: LucideIcon
-  title: string
-  value: string
-  note: string
-}) {
-  return (
-    <Card className="flex items-center gap-3 p-4">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">
-        <Icon className="h-4 w-4" aria-hidden />
-      </span>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500">{title}</p>
-        <p className="mt-0.5 text-sm font-medium text-slate-900">{value}</p>
-        <p className="mt-0.5 text-xs text-slate-500">{note}</p>
-      </div>
-    </Card>
   )
 }

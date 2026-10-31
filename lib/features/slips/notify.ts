@@ -17,13 +17,25 @@ import { sendWithMessageCredit } from '@/lib/message-quota'
 const baht = (n: number) =>
   n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+/** The exact same plain-text receipt is stored in chat and sent to Messenger. */
+export function slipConfirmationText(amount: number | null, pageName?: string | null): string {
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0)
+    throw new Error('SLIP_CONFIRMATION_AMOUNT_INVALID')
+  return [
+    `✅ ชำระเงินสำเร็จ · ${pageName?.trim() || 'ร้านค้า'}`,
+    `ทางร้านได้รับยอดชำระเงินเรียบร้อยแล้วครับ จำนวน ${baht(amount)} บาท 💸✨`,
+    'ขอขอบพระคุณที่ไว้วางใจครับผม 🙏📦 ทางร้านจะรีบดำเนินการจัดส่งสินค้าให้โดยเร็วที่สุดครับ 🚚💨',
+  ].join('\n')
+}
+
 /** The message the customer gets for each verdict. Edit the wording here. */
-export function slipReplyText(r: Pick<ProcessedSlip, 'status' | 'amount'>): string {
+export function slipReplyText(
+  r: Pick<ProcessedSlip, 'status' | 'amount'>,
+  pageName?: string | null,
+): string {
   switch (r.status) {
     case 'valid':
-      return r.amount != null
-        ? `ได้รับยอดโอน ${baht(r.amount)} บาทเรียบร้อยแล้วค่ะ ขอบคุณค่ะ 🙏`
-        : 'ตรวจสลิปเรียบร้อย ได้รับยอดโอนแล้วค่ะ ขอบคุณค่ะ 🙏'
+      return slipConfirmationText(r.amount, pageName)
     case 'amount_mismatch':
       return 'ยอดเงินในสลิปไม่ตรงกับยอดที่ต้องชำระค่ะ แอดมินจะติดต่อกลับเพื่อตรวจสอบอีกครั้งนะคะ'
     case 'duplicate':
@@ -35,21 +47,6 @@ export function slipReplyText(r: Pick<ProcessedSlip, 'status' | 'amount'>): stri
     default:
       // also covers photos that are not slips at all
       return 'ระบบยังอ่านสลิปจากรูปนี้ไม่ได้ค่ะ หากเป็นสลิปโอนเงิน รบกวนส่งรูปที่ชัดขึ้น หรือรอแอดมินตรวจสอบให้นะคะ'
-  }
-}
-
-/** Card shown in Messenger for an accepted payment. */
-export function paymentCard(
-  slip: { amount: number | null; transRef: string | null },
-  shopName?: string | null,
-): PaymentCard {
-  const parts = [
-    slip.amount != null ? `ยอด ${baht(slip.amount)} บาท` : null,
-    slip.transRef ? `อ้างอิง ${slip.transRef}` : null,
-  ]
-  return {
-    title: `✅ ชำระเงินสำเร็จ${shopName ? ` · ${shopName}` : ''}`,
-    subtitle: parts.filter(Boolean).join(' · ') || 'ได้รับยอดโอนเรียบร้อยแล้ว ขอบคุณค่ะ',
   }
 }
 
@@ -280,8 +277,8 @@ export async function notifySlipResult(
       db,
       customer,
       externalId,
-      slipReplyText(slip),
-      verified ? paymentCard(slip, shopName) : undefined,
+      slipReplyText(slip, shopName),
+      undefined,
       verified,
     )
     if (sent && verified)
@@ -347,7 +344,7 @@ export async function notifyVerifiedSlipForCustomer(
       throw new Error('SLIP_CONFIRMATION_PSID_INVALID')
     const tenant = await db
       .from('tenants')
-      .select('name,page_id,page_access_token')
+      .select('name,page_name,page_id,page_access_token')
       .eq('id', tenantId)
       .eq('is_active', true)
       .maybeSingle()
@@ -359,7 +356,7 @@ export async function notifyVerifiedSlipForCustomer(
       db,
       slip,
       { id: customer.data.id, psid: customer.data.platform_user_id, token },
-      tenant.data.name,
+      tenant.data.page_name?.trim() || tenant.data.name,
     )
     return sent ? 'sent' : 'already_processed'
   } catch (error) {
@@ -379,14 +376,8 @@ export async function sendSlipConfirmation(
   customer: Recipient,
   shopName?: string | null,
 ) {
-  const s = { amount: slip.amount, transRef: slip.trans_ref }
-  const sent = await deliverOnce(
-    db,
-    customer,
-    `slip-confirm:${slip.id}`,
-    slipReplyText({ status: 'valid', amount: s.amount }),
-    paymentCard(s, shopName),
-  )
+  const body = slipConfirmationText(slip.amount, shopName)
+  const sent = await deliverOnce(db, customer, `slip-confirm:${slip.id}`, body)
   if (sent)
     await db.from('slips').update({ confirmed_at: new Date().toISOString() }).eq('id', slip.id)
   return sent
