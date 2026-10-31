@@ -244,21 +244,22 @@ async function claimAndSend(
   }
 }
 
-/** Automatic reply with the verdict, right after a slip from chat was checked. */
+/** Automatic receipts only. Failed/unclear images remain visible to admins without bot replies. */
 export async function notifySlipResult(
   db: SupabaseClient,
   slip: ProcessedSlip,
   customer: Recipient,
   shopName?: string | null,
 ) {
-  // A verified payment receipt is transactional, independent of chat takeover and the
-  // Pro flag for general automation. Other Pro verdicts retain their original opt-in.
-  if (slip.paymentPro && !slip.automationAllowed && slip.status !== 'valid') {
+  // An ordinary photo or a provider failure must never trigger an unsolicited failure message.
+  // Verified receipts keep their transactional exception to human takeover.
+  if (slip.status !== 'valid') {
     console.info('[slip/confirmation] skipped', {
       slipId: slip.id,
-      reason: 'pro_automation_disabled',
+      verdict: slip.status,
+      reason: 'unverified_silent',
     })
-    return
+    return false
   }
   if (!slip.id) {
     console.error('[slip/confirmation] skipped', { reason: 'missing_slip_id' })

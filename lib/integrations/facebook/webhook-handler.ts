@@ -301,10 +301,16 @@ async function onMessage(
   // With Auto-Pilot off the images stay in the chat and an admin can verify them from the dashboard.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
-  // Slip verification has its own tenant opt-in. Human takeover only pauses chat replies;
-  // it must not route payment evidence into a Vision job that cannot run during handover.
-  // A photo is still untrusted: only the shared SlipOK/receiver/amount checks can accept it.
-  const verifySlipImages = tenant.auto_verify_enabled && images.length > 0
+  // Only actual pending orders of this customer/shop authorize automatic slip checking.
+  // Product/general images without an outstanding payment keep their ordinary image route.
+  const verifySlipImages =
+    tenant.auto_verify_enabled &&
+    images.length > 0 &&
+    (await execution.once('slip-route', async () => {
+      const pending = await pendingOrders(db, customer.id, tenant.id)
+      // Keep the route stable if this webhook is resumed after its order was paid.
+      return pending.ids.length > 0 && Number.isFinite(pending.total) && pending.total > 0
+    }))
   const visionRoute = verifySlipImages
     ? false
     : await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
@@ -345,12 +351,7 @@ async function onMessage(
     })
   if (verifySlipImages) {
     for (const url of images) {
-      await onSlipImage(
-        url,
-        { ...recipient, messageId: message.id, notify: autoReply },
-        tenant,
-        execution,
-      )
+      await onSlipImage(url, { ...recipient, messageId: message.id }, tenant, execution)
     }
   }
 
@@ -424,19 +425,28 @@ async function onCfOrder(
   return true
 }
 
-/** Verified receipts always notify; other verdicts still require the chat's normal auto-reply opt-in. */
+/** Automatic verification is pending-order-only; only verified receipts may notify the customer. */
 async function onSlipImage(
   url: string,
-  customer: Recipient & { messageId: string; notify: boolean },
+  customer: Recipient & { messageId: string },
   tenant: PageTenant,
   execution: WebhookExecution,
 ) {
-  const file = await downloadSlipImage(url)
-  if (!file) throw new Error('SLIP_DOWNLOAD_UNAVAILABLE')
   const db = supabaseAdmin({ timeoutMs: 15000 })
   await execution.once(
     `slip:${(await import('node:crypto')).createHash('sha256').update(url).digest('hex')}`,
     async () => {
+      // Recheck each image: the previous image in an album may already have paid the order.
+      const pending = await pendingOrders(db, customer.id, tenant.id)
+      if (!pending.ids.length || !Number.isFinite(pending.total) || pending.total <= 0) {
+        console.info('[slip/automatic] skipped', {
+          messageId: customer.messageId,
+          reason: 'no_pending_payment',
+        })
+        return null
+      }
+      const file = await downloadSlipImage(url)
+      if (!file) throw new Error('SLIP_DOWNLOAD_UNAVAILABLE')
       // Shared verification loads this customer's outstanding order total from the database.
       const r = await processSlip(db, {
         file,
@@ -445,8 +455,9 @@ async function onSlipImage(
         tenant,
       })
       if (r.failure) throw new Error('SLIP_PERSISTENCE_FAILED')
-      if (r.status === 'valid' || customer.notify)
+      if (r.status === 'valid')
         await notifySlipResult(db, r, customer, tenant.page_name?.trim() || tenant.name)
+      else console.info('[slip/automatic] silent result', { slipId: r.id, verdict: r.status })
       return null
     },
   )

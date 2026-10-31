@@ -216,7 +216,7 @@ export function BankAccountForm({
         <p className="text-xs text-orange-700">เปลี่ยนบัญชีแล้ว กรุณาแนบรูป QR ใหม่</p>
       )}
       <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
-        {!ready && !loading && (
+        {accountId && error && !loading && (
           <Button variant="secondary" onClick={() => setAttempt((value) => value + 1)}>
             โหลดใหม่
           </Button>

@@ -318,16 +318,18 @@ test('verified receipts bypass takeover without resuming the bot, and deduplicat
   assert.equal(f.confirms.length, 1)
 })
 
-test('ordinary bot replies and all unverified verdicts remain blocked during takeover', async () => {
+test('unverified verdicts are silent and ordinary bot replies remain blocked during takeover', async () => {
   for (const status of ['fake', 'duplicate', 'wrong_receiver', 'amount_mismatch', 'error']) {
-    const f = fixture({ handover: true })
-    await assert.rejects(
-      f.notify.notifySlipResult(f.db, { ...verifiedSlip, status }, recipient),
-      (error) => error.code === 'BOT_DELIVERY_BLOCKED',
-    )
-    assert.equal(f.requests.length, 0)
-    assert.equal(f.rows.length, 0)
-    assert.equal(f.metrics().credits, 0)
+    for (const handover of [false, true]) {
+      const f = fixture({ handover })
+      assert.equal(
+        await f.notify.notifySlipResult(f.db, { ...verifiedSlip, status }, recipient),
+        false,
+      )
+      assert.equal(f.requests.length, 0)
+      assert.equal(f.rows.length, 0)
+      assert.equal(f.metrics().credits, 0)
+    }
   }
   const f = fixture({ handover: true })
   await assert.rejects(

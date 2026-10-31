@@ -8,6 +8,8 @@ const { PGlite } = require('@electric-sql/pglite')
 
 function load(file, dependencies = {}, globals = {}) {
   dependencies = {
+    '@/lib/features/commerce/live-cf-comment': { handleLiveCfComment: async () => false },
+    '@/lib/features/banking/banks': {},
     '@/lib/features/inbox/inbox-automation-window': {
       InboxAutomationWindowError: class InboxAutomationWindowError extends Error {},
     },
@@ -1329,7 +1331,10 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
           }
         },
       },
-      '@/lib/features/commerce/orders': { cfCode: () => null },
+      '@/lib/features/commerce/orders': {
+        cfCode: () => null,
+        pendingOrders: async () => ({ ids: ['pending-order'], total: 100 }),
+      },
       '@/lib/features/slips/process': {
         processSlip: async (_db, input) => {
           slipChecks.push(input)

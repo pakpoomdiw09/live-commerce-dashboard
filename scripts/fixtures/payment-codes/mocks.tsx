@@ -102,6 +102,8 @@ export function PaymentChannelStatus() {
   )
 }
 export function installFetch() {
+  const restored = JSON.parse(localStorage.getItem('bank-account-fixture-list') ?? 'null')
+  if (Array.isArray(restored)) bankAccounts.splice(0, bankAccounts.length, ...restored)
   Object.defineProperty(navigator, 'clipboard', {
     value: {
       writeText: async (value: string) => {
@@ -118,6 +120,45 @@ export function installFetch() {
       Promise.resolve(
         new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } }),
       )
+    if (url.startsWith('/api/bank-accounts/save') && options?.method === 'POST') {
+      metrics.bankQrSaves++
+      const form = options.body as FormData
+      const accountId = String(form.get('id') || crypto.randomUUID())
+      const selected = bankAccounts.find((row) => row.id === accountId)
+      const saved = {
+        ...account,
+        id: accountId,
+        bank_code: String(form.get('bank_code')),
+        account_name: String(form.get('account_name')),
+        account_number: String(form.get('account_number')),
+        is_active: form.get('is_active') === 'true',
+        qrPayload: null,
+      }
+      if (selected) Object.assign(selected, saved)
+      else bankAccounts.push(saved)
+      const key = `bank-qr-upload:${accountId}`
+      const previous = JSON.parse(localStorage.getItem(key) ?? 'null')
+      const file = form.get('file')
+      if (file instanceof File) {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.readAsDataURL(file)
+        })
+        localStorage.setItem(`bank-qr-upload-image:${accountId}`, dataUrl)
+      }
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          account: saved,
+          hasQr: file instanceof File || previous?.hasQr === true,
+          version: (previous?.version ?? 0) + (file instanceof File ? 1 : 0),
+        }),
+      )
+      localStorage.setItem('bank-account-fixture-list', JSON.stringify(bankAccounts))
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return json({ ok: true, id: accountId })
+    }
     if (url.startsWith('/api/bank-accounts/qr')) {
       const accountId = new URL(url, 'https://offline.test').searchParams.get('accountId')
       const selected = bankAccounts.find((row) => row.id === accountId)
