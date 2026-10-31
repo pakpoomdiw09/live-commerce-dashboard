@@ -98,13 +98,29 @@ export function parseWebhook(bytes: Uint8Array): {
     ] as const) {
       if (entry[field] !== undefined && !Array.isArray(entry[field]))
         throw new WebhookInputError('Invalid event collection', 400)
-      for (const event of entry[field] ?? []) {
+      for (const original of entry[field] ?? []) {
+        let event = original
         if (!object(event)) throw new WebhookInputError('Invalid event', 400)
+        // Canonical shape is also persisted by the durable worker. feed/live_comments
+        // deliveries of the same comment must share one idempotency key.
+        if (kind === 'change' && event.field === 'live_comments' && object(event.value)) {
+          const v = event.value
+          event = {
+            ...event,
+            value: {
+              ...v,
+              comment_id: v.comment_id ?? v.id,
+              post_id: v.post_id ?? v.video_id ?? v.video?.id,
+              item: v.item ?? 'comment',
+              verb: v.verb ?? 'add',
+            },
+          }
+        }
         if (events.length >= WEBHOOK_MAX_EVENTS) throw new WebhookInputError('Too many events', 413)
         const externalId =
           kind === 'message'
             ? event.message?.mid
-            : event.field === 'feed'
+            : event.field === 'feed' || event.field === 'live_comments'
               ? event.value?.comment_id
               : undefined
         if (

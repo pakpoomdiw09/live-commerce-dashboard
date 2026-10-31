@@ -228,6 +228,12 @@ function orchestratorFixture({
         select() {
           return q
         },
+        order() {
+          return q
+        },
+        limit() {
+          return q
+        },
         eq() {
           return q
         },

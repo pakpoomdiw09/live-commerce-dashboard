@@ -139,6 +139,14 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
                 >
                   <td className="max-w-56 px-4 py-4">
                     <p className="font-medium text-slate-900">{r.name}</p>
+                    {r.mode === 'live_cf' && (
+                      <p className="mt-1 text-xs font-semibold text-orange-700">
+                        ไลฟ์สด CF ·{' '}
+                        {r.live_stock_limit == null
+                          ? 'สต็อกหลัก'
+                          : `สูงสุด ${r.live_stock_limit} ชิ้น`}
+                      </p>
+                    )}
                     <p className="mt-0.5 text-xs text-slate-400">
                       ตอบไปแล้ว {r.comments[0]?.count ?? 0} ครั้ง
                     </p>
@@ -176,14 +184,18 @@ export function RulesTable({ initial, pages }: { initial: RuleRow[]; pages: Page
                     </div>
                   </td>
                   <td className="max-w-64 px-4 py-4">
-                    {r.reply_enabled ? (
+                    {r.mode === 'live_cf' ? (
+                      <p className="text-slate-700">ยืนยันออเดอร์อัตโนมัติ</p>
+                    ) : r.reply_enabled ? (
                       <p className="line-clamp-2 text-slate-700">{r.reply_text}</p>
                     ) : (
                       off
                     )}
                   </td>
                   <td className="max-w-64 px-4 py-4">
-                    {!r.inbox_enabled ? (
+                    {r.mode === 'live_cf' ? (
+                      <p className="text-slate-700">ยอดชำระ + QR บัญชีหลัก</p>
+                    ) : !r.inbox_enabled ? (
                       off
                     ) : r.inbox_type === 'image' && r.inbox_image_url ? (
                       <div className="flex items-center gap-2">

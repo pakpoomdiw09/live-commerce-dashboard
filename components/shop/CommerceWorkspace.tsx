@@ -2,7 +2,10 @@
 import { PageBanner } from '@/components/ui/page-banner'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { supabaseBrowser } from '@/lib/supabase/browser'
+import { subscribeWhileVisible } from '@/lib/realtime-visibility'
+import { subscribeCommerceStock } from '@/lib/features/commerce/stock-subscription'
 import {
   BarChart3,
   Boxes,
@@ -47,6 +50,29 @@ export function CommerceWorkspace({
   const lock = useRef(false),
     tenantId = data.tenant.id,
     router = useRouter()
+  const stockIds = data.products
+    .map((p) => p.id)
+    .sort()
+    .join(',')
+  useEffect(() => {
+    if (tab !== 'products' || !stockIds) return
+    return subscribeWhileVisible(() =>
+      subscribeCommerceStock(supabaseBrowser(), tenantId, stockIds.split(','), (value) => {
+        const products = new Map(value.products.map((p) => [p.id, p]))
+        const variants = new Map(value.variants.map((v) => [v.id, v]))
+        setData((current) => ({
+          ...current,
+          products: current.products.map((p) => {
+            const next = products.get(p.id)
+            return next && next.commerce_version >= p.commerce_version ? { ...p, ...next } : p
+          }),
+          variants: current.variants.map((v) =>
+            variants.has(v.id) ? { ...v, ...variants.get(v.id)! } : v,
+          ),
+        }))
+      }),
+    )
+  }, [tenantId, stockIds, tab])
   const parameters = (patch: Record<string, string | number> = {}) =>
     new URLSearchParams({
       ...Object.fromEntries(

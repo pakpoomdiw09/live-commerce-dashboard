@@ -8,6 +8,14 @@ const { PGlite } = require('@electric-sql/pglite')
 
 function load(file, dependencies = {}, globals = {}) {
   dependencies = {
+    '@/lib/features/comments/live-comment-routing': require('./helpers/load-typescript.cjs')(
+      'lib/features/comments/live-comment-routing.ts',
+      {
+        './comment-rules': require('./helpers/load-typescript.cjs')(
+          'lib/features/comments/comment-rules.ts',
+        ),
+      },
+    ),
     '@/lib/features/commerce/live-cf-comment': { handleLiveCfComment: async () => false },
     '@/lib/features/banking/banks': {},
     '@/lib/features/inbox/inbox-automation-window': {

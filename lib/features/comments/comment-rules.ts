@@ -18,10 +18,41 @@ export type CommentRule = {
   inbox_image_url: string | null
   is_active: boolean
   created_at: string
+  mode?: 'general' | 'live_cf'
+  live_product_id?: string | null
+  live_variant_id?: string | null
+  /** null = shared stock; otherwise a sales cap, still deducted from shared stock. */
+  live_stock_limit?: number | null
+  live_post_id?: string | null
 }
 
 export const RULE_COLUMNS =
-  'id, tenant_id, name, page_ids, match_type, keywords, reply_enabled, reply_text, inbox_enabled, inbox_type, inbox_text, inbox_image_url, is_active, created_at'
+  'id, tenant_id, name, page_ids, match_type, keywords, reply_enabled, reply_text, inbox_enabled, inbox_type, inbox_text, inbox_image_url, is_active, created_at, mode, live_product_id, live_variant_id, live_stock_limit, live_post_id'
+
+export type LiveProductOption = {
+  id: string
+  name: string
+  code: string
+  price: number
+  stock: number
+  variants: { id: string; label: string; price: number; stock: number }[]
+}
+
+/** Alias boundaries are stricter than general Thai keyword matching: A1 must not match BA1/A12. */
+export function liveRuleCode(rule: Pick<CommentRule, 'match_type' | 'keywords'>, comment: string) {
+  const text = norm(comment)
+  for (const raw of rule.keywords) {
+    const code = norm(raw)
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(code)) continue
+    if (
+      rule.match_type === 'exact'
+        ? text === code
+        : new RegExp(`(^|[^a-z0-9_-])${code}(?=$|[^a-z0-9_-])`, 'u').test(text)
+    )
+      return code
+  }
+  return null
+}
 
 // case- and whitespace-insensitive; NFC so the same Thai text typed on different keyboards compares equal
 const norm = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim()

@@ -60,8 +60,27 @@ async function callCfOrder(db: SupabaseClient, rpc: string, args: Record<string,
 
 export async function placeCfOrder(
   db: SupabaseClient,
-  input: { tenantId: string; customerId: string; messageId: string; code: string },
+  input: { tenantId: string; customerId: string; code: string } & (
+    | { messageId: string; source?: undefined }
+    | {
+        source: 'live_comment'
+        commentId: string
+        ruleId: string
+        postId: string | null
+        pageId: string
+      }
+  ),
 ): Promise<CfResult> {
+  if (input.source === 'live_comment')
+    return callCfOrder(db, 'place_live_cf_order', {
+      p_tenant: input.tenantId,
+      p_customer: input.customerId,
+      p_rule: input.ruleId,
+      p_code: input.code,
+      p_comment: input.commentId,
+      p_post: input.postId,
+      p_page: input.pageId,
+    })
   return callCfOrder(db, 'place_cf_order', {
     p_tenant: input.tenantId,
     p_customer: input.customerId,

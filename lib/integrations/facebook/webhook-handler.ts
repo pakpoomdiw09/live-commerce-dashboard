@@ -2,19 +2,25 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import {
   getCustomerProfile,
   getPageTokenStatus,
+  isLiveVideoComment,
   pageTokenFor,
   privateReply,
   replyToComment,
   sendPrivateReply,
   type OutgoingMessage,
 } from '@/lib/integrations/facebook/client'
-import { RULE_COLUMNS, ruleMatches, type CommentRule } from '@/lib/features/comments/comment-rules'
+import {
+  RULE_COLUMNS,
+  liveRuleCode,
+  ruleMatches,
+  type CommentRule,
+} from '@/lib/features/comments/comment-rules'
+import { commentPostIds, liveRuleCandidates } from '@/lib/features/comments/live-comment-routing'
 import { answerChat, loadBotSettings } from '@/lib/features/agents/chatbot-server'
 import {
   cfCode,
   orderSummaryText,
   pendingOrders,
-  placeCfCommentOrder,
   placeCfOrder,
   soldOutText,
 } from '@/lib/features/commerce/orders'
@@ -70,7 +76,7 @@ export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
     )
   if (kind === 'message') await onMessage(payload, pageId, tenant, execution)
   else if (
-    payload.field === 'feed' &&
+    (payload.field === 'feed' || payload.field === 'live_comments') &&
     payload.value?.item === 'comment' &&
     payload.value?.verb === 'add'
   ) {
@@ -483,44 +489,93 @@ async function onComment(
   const stored = await execution.persistRecord(tenant?.id ?? null)
   if (stored.duplicate || !stored.id) return
   if (typeof v.message !== 'string' || !tenant) return
+  const db = supabaseAdmin({ timeoutMs: 15000 })
+  const rules = await loadCommentRules(db, tenant.id, pageId)
   const psid = typeof v.from?.id === 'string' ? v.from.id : null
+  const possibleLive = rules.filter((r) => r.mode === 'live_cf' && liveRuleCode(r, v.message))
   if (psid && stored.customer) {
-    const db = supabaseAdmin({ timeoutMs: 15000 })
     const token = pageTokenFor(tenant)
-    const handled = await handleLiveCfComment(
-      { text: v.message, commentId: v.comment_id },
-      {
-        placeOrder: (code) =>
-          execution.once('comment-cf-order', () =>
-            placeCfCommentOrder(db, {
-              tenantId: tenant.id,
-              customerPsid: psid,
-              commentId: v.comment_id,
-              code,
+    const selection = await execution.once('comment-live-selection', async () => {
+      const ids = commentPostIds(v)
+      let live = execution.event.payload.field === 'live_comments'
+      let candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
+      if (!live && candidates.length) {
+        // A shop explicitly scoped this post as its live sale.
+        live = true
+        candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
+      }
+      if (
+        !live &&
+        !candidates.length &&
+        possibleLive.some((r) => !r.live_post_id) &&
+        typeof v.post_id === 'string'
+      ) {
+        live = await isLiveVideoComment(token, v.post_id)
+        candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
+      }
+      if (candidates.length > 1) return { ambiguous: true, ruleId: '', code: '' }
+      return candidates.length
+        ? { ambiguous: false, ruleId: candidates[0].rule.id, code: candidates[0].code }
+        : null
+    })
+    if (selection?.ambiguous) {
+      console.warn('[live-cf] ambiguous rules; no order created', { commentId: v.comment_id })
+      return
+    }
+    if (selection) {
+      const saved = await db
+        .from('comments')
+        .update({ rule_id: selection.ruleId })
+        .eq('id', stored.id)
+        .eq('tenant_id', tenant.id)
+      if (saved.error) throw saved.error
+      const handled = await handleLiveCfComment(
+        { text: v.message, commentId: v.comment_id, code: selection.code },
+        {
+          placeOrder: (code) =>
+            execution.once('comment-cf-order', () =>
+              placeCfOrder(db, {
+                tenantId: tenant.id,
+                customerId: stored.customer!.id,
+                commentId: v.comment_id,
+                source: 'live_comment',
+                ruleId: selection.ruleId,
+                pageId,
+                postId: v.post_id ?? v.video_id ?? null,
+                code,
+              }),
+            ),
+          getPayment: () => primaryBankPayment(db, tenant.id),
+          getPendingTotal: async () =>
+            (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
+          sendPrivateReply: (message, qrImageUrl) =>
+            execution.once('comment-cf-private-reply', async () => {
+              await sendWithMessageCredit(db, tenant.id, () =>
+                sendPrivateReply(token, v.comment_id, message, qrImageUrl),
+              )
+              return null
             }),
-          ),
-        getPayment: () => primaryBankPayment(db, tenant.id),
-        getPendingTotal: async () =>
-          (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
-        sendPrivateReply: (message, qrImageUrl) =>
-          execution.once('comment-cf-private-reply', async () => {
-            await sendWithMessageCredit(db, tenant.id, () =>
-              sendPrivateReply(token, v.comment_id, message, qrImageUrl),
-            )
-            return null
-          }),
-        replyToComment: (message) =>
-          execution.once('comment-cf-public-reply', async () => {
-            await sendWithMessageCredit(db, tenant.id, () =>
-              replyToComment(token, v.comment_id, message),
-            )
-            return null
-          }),
-      },
-    )
-    if (handled) return
+          replyToComment: (message) =>
+            execution.once('comment-cf-public-reply', async () => {
+              await sendWithMessageCredit(db, tenant.id, () =>
+                replyToComment(token, v.comment_id, message),
+              )
+              return null
+            }),
+        },
+      )
+      if (handled) return
+      // A selected live rule that was disabled/changed must not fall through to another bot.
+      return
+    }
   }
-  await runCommentRules(stored.id, v, pageId, tenant, execution)
+  await runCommentRules(
+    stored.id,
+    v,
+    tenant,
+    execution,
+    rules.filter((r) => r.mode !== 'live_cf'),
+  )
 }
 
 async function primaryBankPayment(db: ReturnType<typeof supabaseAdmin>, tenantId: string) {
@@ -563,19 +618,15 @@ async function primaryBankPayment(db: ReturnType<typeof supabaseAdmin>, tenantId
   }
 }
 
-/** First active rule (oldest first) of this tenant, for this Page, whose keywords match the comment. */
-async function runCommentRules(
-  commentRowId: string,
-  v: any,
+async function loadCommentRules(
+  db: ReturnType<typeof supabaseAdmin>,
+  tenantId: string,
   pageId: string,
-  tenant: PageTenant,
-  execution: WebhookExecution,
 ) {
-  const db = supabaseAdmin({ timeoutMs: 15000 })
   const { data, error } = await db
     .from('comment_rules')
     .select(RULE_COLUMNS)
-    .eq('tenant_id', tenant.id)
+    .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .contains('page_ids', [pageId])
     .order('created_at')
@@ -583,7 +634,18 @@ async function runCommentRules(
     throw new Error(
       `comment rules: ${error.message} (did you run supabase/comment-rules.sql and platform.sql?)`,
     )
-  const rules = data as CommentRule[]
+  return (data ?? []) as CommentRule[]
+}
+
+/** General replies never create orders. Live rules have their own explicit execution path. */
+async function runCommentRules(
+  commentRowId: string,
+  v: any,
+  tenant: PageTenant,
+  execution: WebhookExecution,
+  rules: CommentRule[],
+) {
+  const db = supabaseAdmin({ timeoutMs: 15000 })
   // without `from` the Page's own auto-replies can't be recognised above: don't answer our own reply text
   if (!v.from && rules.some((r) => r.reply_text?.trim() === v.message.trim())) return
   const rule = rules.find((r) => ruleMatches(r, v.message))

@@ -20,7 +20,7 @@ export type LiveCfPayment = {
 }
 
 export async function handleLiveCfComment(
-  input: { text: string; commentId: string },
+  input: { text: string; commentId: string; code?: string },
   dependencies: {
     placeOrder: (code: string) => Promise<LiveCfOrder>
     getPayment: () => Promise<LiveCfPayment | null>
@@ -29,7 +29,7 @@ export async function handleLiveCfComment(
     replyToComment?: (message: string) => Promise<unknown>
   },
 ): Promise<boolean> {
-  const code = cfCode(input.text)
+  const code = input.code ?? cfCode(input.text)
   if (!code) return false
 
   const order = await dependencies.placeOrder(code)
@@ -37,7 +37,7 @@ export async function handleLiveCfComment(
 
   if (order.status === 'require_variant') {
     await dependencies.sendPrivateReply(
-      `${order.name} มีตัวเลือกสินค้า กรุณาคอมเมนต์รหัสตัวเลือก เช่น CF ${order.code}W`,
+      `${order.name} มีตัวเลือกสินค้า กรุณาติดต่อแอดมินเพื่อเลือกรหัสสีหรือขนาดก่อนสั่งซื้อ`,
       null,
     )
     if (dependencies.replyToComment) {
@@ -59,7 +59,7 @@ export async function handleLiveCfComment(
   const payment = await dependencies.getPayment()
   const total = await dependencies.getPendingTotal()
   if (payment?.qrImageUrl) {
-    const title = `ยอดชำระ ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท · ${order.name} (${order.code})`
+    const title = `ยอดชำระ ${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท · ${order.name}${order.variantLabel ? ` · ${order.variantLabel}` : ''} (${order.code})`
     const subtitle = `โอน ${payment.bankName} ${payment.accountNumber} · สแกน QR และส่งสลิป`
     await dependencies.sendPrivateReply(`${title}\n${subtitle}`, payment.qrImageUrl)
   } else if (payment) {
@@ -81,7 +81,13 @@ export async function handleLiveCfComment(
   }
 
   if (dependencies.replyToComment) {
-    await dependencies.replyToComment('รับออเดอร์แล้วค่ะ ส่งรายละเอียดและ QR Code ทางข้อความแล้วนะคะ')
+    await dependencies.replyToComment(
+      payment?.qrImageUrl
+        ? 'รับออเดอร์แล้วค่ะ ส่งยอดชำระและ QR Code ทางข้อความแล้วนะคะ'
+        : payment
+          ? 'รับออเดอร์แล้วค่ะ ส่งรายละเอียดการชำระเงินทางข้อความแล้วนะคะ'
+          : 'รับออเดอร์แล้วค่ะ กรุณารอแอดมินแจ้งวิธีชำระเงินทางแชทนะคะ',
+    )
   }
 
   return true

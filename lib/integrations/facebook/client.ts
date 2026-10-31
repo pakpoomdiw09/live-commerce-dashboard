@@ -396,6 +396,45 @@ export function sendPrivateReply(
   })
 }
 
+/** Resolve a feed post to a video only when a Live CF keyword already matched. No polling. */
+export async function isLiveVideoComment(token: string | null, postId: string): Promise<boolean> {
+  if (!/^\d+(?:_\d+)?$/.test(postId)) return false
+  async function read(id: string, fields: string) {
+    const res = await fetch(
+      graph(`${encodeURIComponent(id)}?fields=${encodeURIComponent(fields)}`),
+      {
+        headers: auth(token),
+        signal: AbortSignal.timeout(10000),
+        cache: 'no-store',
+      },
+    )
+    const data = await res.json()
+    if (!res.ok) {
+      logSendFailure(
+        new SendApiError(
+          res.status,
+          data?.error?.code ?? null,
+          data?.error?.error_subcode ?? null,
+          providerErrorMessage(data?.error?.message, token, postId, {}),
+          providerErrorDetails(data, token, postId, {}),
+        ),
+        token,
+        postId,
+        {},
+      )
+      throw new Error('LIVE_COMMENT_LOOKUP_FAILED')
+    }
+    return data
+  }
+  const post = await read(postId, 'attachments{media_type,target}')
+  const videos = (post.attachments?.data ?? []).filter(
+    (a: any) => String(a.media_type).toLowerCase() === 'video' && /^\d+$/.test(a.target?.id ?? ''),
+  )
+  if (videos.length !== 1) return false
+  const video = await read(videos[0].target.id, 'live_status')
+  return video.live_status === 'LIVE'
+}
+
 /** The customer's name, or null (no token, or Meta refused). Never throws. */
 export async function getName(token: string | null, psid: string): Promise<string | null> {
   if (!token) return null

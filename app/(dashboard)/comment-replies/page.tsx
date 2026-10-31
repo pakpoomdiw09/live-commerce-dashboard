@@ -32,8 +32,8 @@ export default async function CommentRepliesPage() {
         <div className="rounded-2xl bg-amber-50 p-5 text-sm text-amber-800 ring-1 ring-amber-200">
           <p className="font-semibold">โหลดกฎตอบกลับคอมเมนต์ไม่ได้</p>
           <p className="mt-1">
-            ถ้ายังไม่ได้สร้างตาราง ให้รันไฟล์ supabase/comment-rules.sql, platform.sql และ
-            security.sql ใน Supabase SQL editor
+            กรุณาตรวจการติดตั้ง supabase/comment-rules.sql, platform.sql, security.sql และ
+            live-cf-mode.sql ใน Supabase SQL editor
           </p>
           <p className="mt-2 font-mono text-xs opacity-80">{error.message}</p>
         </div>

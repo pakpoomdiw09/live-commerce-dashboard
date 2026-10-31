@@ -76,6 +76,7 @@ function fixture({
         pageTokenFor: () => 'fake',
       },
       '@/lib/features/comments/comment-rules': {},
+      '@/lib/features/comments/live-comment-routing': {},
       '@/lib/features/agents/chatbot-server': {
         loadBotSettings: async () => ({ reply_mode: 'ai' }),
         answerChat: async () => {
