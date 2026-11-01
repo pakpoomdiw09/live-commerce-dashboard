@@ -137,6 +137,16 @@ test('switching Exact to Contains persists the selected mode and reloaded rules 
   assert.equal(liveRuleCode(state.writes[2] as typeof exactRule, 'เอา cf 159?!'), null)
 })
 
+test('the picked video ID is saved in the existing live post scope for comment routing', async () => {
+  const { state, send } = fixture()
+  assert.equal(
+    (await send({ codes: ['159'], livePostId: '789', matchMode: 'flexible' })).status,
+    200,
+  )
+  assert.equal(state.writes[0].live_post_id, '789')
+  assert.deepEqual([...state.writes[0].page_ids], ['100'])
+})
+
 test('Live CF setup rejects empty, duplicate and excessive tags before database writes and preserves owner checks', async () => {
   const { state, send } = fixture()
   for (const value of [

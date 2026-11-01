@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { PageBanner } from '@/components/ui/page-banner'
 import { QuickProductModal } from './QuickProductModal'
+import { LiveVideoPickerModal, liveVideoTime } from './LiveVideoPickerModal'
+import type { FacebookLiveVideo } from '@/lib/integrations/facebook/live-videos'
 import {
   BadgeCheck,
   ChevronDown,
@@ -138,6 +140,10 @@ export function LiveCfSetup({
   const [id, setId] = useState(initialRule?.id ?? null)
   const [pageId, setPageId] = useState(initialRule?.page_ids[0] ?? pages[0]?.id ?? '')
   const [livePostId, setLivePostId] = useState(initialRule?.live_post_id ?? '')
+  const [showLivePicker, setShowLivePicker] = useState(false)
+  const [selectedLive, setSelectedLive] = useState<FacebookLiveVideo | null>(null)
+  const [manualLiveInput, setManualLiveInput] = useState(!!initialRule?.live_post_id)
+  const liveInputRef = useRef<HTMLInputElement>(null)
   const [liveLinkTouched, setLiveLinkTouched] = useState(false)
   const parsedLiveId = extractFacebookLiveId(livePostId)
   const liveLinkError = liveLinkTouched && parsedLiveId === null
@@ -182,6 +188,28 @@ export function LiveCfSetup({
     [previewCodes, matchMode],
   )
   const selectedBank = bankAccounts.find((item) => item.id === bankAccountId)
+
+  function choosePage(nextId: string) {
+    setPageId(nextId)
+    setLivePostId('')
+    setSelectedLive(null)
+    setManualLiveInput(false)
+    setLiveLinkTouched(false)
+    setShowLivePicker(false)
+  }
+
+  function chooseLive(video: FacebookLiveVideo) {
+    setLivePostId(video.id)
+    setSelectedLive(video)
+    setManualLiveInput(false)
+    setLiveLinkTouched(false)
+    setShowLivePicker(false)
+  }
+
+  function changeLiveInput(value: string) {
+    setSelectedLive(null)
+    setLivePostId(value)
+  }
 
   function selectProduct(next: LiveProductOption | undefined, useEnteredProductCode = false) {
     setProductId(next?.id ?? '')
@@ -431,7 +459,7 @@ export function LiveCfSetup({
             aria-label="เลือกเพจ Facebook"
             className={field}
             value={pageId}
-            onChange={(event) => setPageId(event.target.value)}
+            onChange={(event) => choosePage(event.target.value)}
           >
             <option value="">เลือกเพจที่ใช้ไลฟ์สด</option>
             {pages.map((page) => (
@@ -441,29 +469,60 @@ export function LiveCfSetup({
             ))}
           </select>
         </label>
-        <label className="text-sm font-semibold text-slate-800">
-          ลิงก์หรือรหัสไลฟ์สด Facebook
-          <input
-            aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"
-            aria-invalid={liveLinkError}
-            aria-describedby="live-link-help"
-            className={field}
-            value={livePostId}
-            onChange={(event) => setLivePostId(event.target.value)}
-            onPaste={(event) => {
-              const extracted = extractFacebookLiveId(event.clipboardData.getData('text'))
-              if (extracted) {
-                event.preventDefault()
-                setLivePostId(extracted)
+        <div className="min-w-0 text-sm text-slate-800">
+          <label htmlFor="facebook-live-id" className="font-semibold">
+            ไลฟ์สด Facebook
+          </label>
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-start">
+            <input
+              ref={liveInputRef}
+              id="facebook-live-id"
+              aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"
+              aria-invalid={liveLinkError}
+              aria-describedby="live-link-help"
+              className={`${field} min-w-0 flex-1 read-only:bg-slate-50 read-only:text-slate-500`}
+              readOnly={!manualLiveInput}
+              value={livePostId}
+              onChange={(event) => changeLiveInput(event.target.value)}
+              onPaste={(event) => {
+                if (!manualLiveInput) return
+                const extracted = extractFacebookLiveId(event.clipboardData.getData('text'))
+                if (extracted) {
+                  event.preventDefault()
+                  changeLiveInput(extracted)
+                  setLiveLinkTouched(true)
+                }
+              }}
+              onBlur={() => {
+                if (!manualLiveInput) return
                 setLiveLinkTouched(true)
+                if (parsedLiveId !== null) setLivePostId(parsedLiveId)
+              }}
+              placeholder={
+                manualLiveInput ? 'วางลิงก์ Facebook หรือกรอกรหัสไลฟ์' : 'คลิกเลือกไลฟ์สดจากเพจ'
               }
+            />
+            <button
+              type="button"
+              disabled={!pageId || saving}
+              onClick={() => setShowLivePicker(true)}
+              className="mt-1.5 inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-50 px-3.5 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-100 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="h-2 w-2 rounded-full bg-red-500" /> เลือกจากไลฟ์สดปัจจุบัน
+            </button>
+          </div>
+          <button
+            type="button"
+            aria-controls="facebook-live-id"
+            aria-pressed={manualLiveInput}
+            onClick={() => {
+              setManualLiveInput(true)
+              setTimeout(() => liveInputRef.current?.focus(), 0)
             }}
-            onBlur={() => {
-              setLiveLinkTouched(true)
-              if (parsedLiveId !== null) setLivePostId(parsedLiveId)
-            }}
-            placeholder="วางลิงก์ไลฟ์ Facebook หรือใส่รหัส เช่น 123456789"
-          />
+            className="mt-2 text-xs font-medium text-slate-500 underline decoration-slate-300 underline-offset-4 hover:text-orange-600"
+          >
+            กรอกรหัสด้วยตนเอง
+          </button>
           <span
             id="live-link-help"
             className={`mt-1.5 flex items-center gap-1.5 text-xs font-normal ${liveLinkError ? 'text-red-600' : 'text-slate-500'}`}
@@ -471,9 +530,33 @@ export function LiveCfSetup({
             <Link2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
             {liveLinkError
               ? 'อ่านรหัสจากลิงก์นี้ไม่ได้ กรุณาคัดลอกลิงก์วิดีโอแบบเต็มจาก Facebook'
-              : 'วางลิงก์แล้วระบบจะดึงรหัสให้อัตโนมัติ เว้นว่างเพื่อรับทุกไลฟ์ของเพจ'}
+              : 'เลือกไลฟ์จากรายการ หรือกรอกรหัสเอง เว้นว่างเพื่อรับทุกไลฟ์ของเพจ'}
           </span>
-        </label>
+          {selectedLive && (
+            <div
+              aria-label="ไลฟ์สดที่เลือก"
+              className="mt-3 flex items-center gap-3 rounded-xl border border-red-100 bg-red-50/40 p-3"
+            >
+              <div className="grid h-16 w-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-white text-red-300">
+                {selectedLive.thumbnail ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- Meta returns temporary video thumbnails.
+                  <img src={selectedLive.thumbnail} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <Radio className="h-6 w-6" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-red-600">เลือกไลฟ์แล้ว</p>
+                <p className="mt-0.5 line-clamp-2 break-words font-semibold text-slate-800">
+                  {selectedLive.title}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  รหัส {selectedLive.id} · {liveVideoTime(selectedLive.createdAt)}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Responsive Layout 2 คอลัมน์บน Desktop */}
@@ -1117,6 +1200,15 @@ export function LiveCfSetup({
           </button>
         </div>
       </div>
+      {showLivePicker && pageId && (
+        <LiveVideoPickerModal
+          key={pageId}
+          pageId={pageId}
+          pageName={pages.find((page) => page.id === pageId)?.name ?? 'เพจ Facebook'}
+          onSelect={chooseLive}
+          onDismiss={() => setShowLivePicker(false)}
+        />
+      )}
       {showProductModal && (
         <QuickProductModal
           tenantId={tenantId}

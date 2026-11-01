@@ -163,7 +163,7 @@ compiler.init()
     }
     const click = async (text) => {
       await evaluate(
-        `[...document.querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(text)})).click()`,
+        `(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent.includes(${JSON.stringify(text)}));button.focus();button.click()})()`,
       )
       await pause()
     }
@@ -260,13 +260,97 @@ compiler.init()
     await assertNoProductSelected()
     await fill(productSelect, '33333333-3333-4333-8333-333333333333')
     const link = 'input[aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"]'
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).readOnly`), true)
+    await evaluate('liveCfTest.liveFailure=true')
+    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await wait(`!!document.querySelector('dialog[open] [role="alert"]')`)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('dialog').textContent.includes('กรุณาเชื่อมต่อเพจใหม่')`,
+      ),
+      true,
+    )
+    await evaluate('liveCfTest.liveFailure=false;liveCfTest.liveEmpty=true')
+    await click('รีเฟรชรายการ')
+    await wait(`document.querySelector('dialog').textContent.includes('เพจนี้ยังไม่ได้เปิดไลฟ์สด')`)
+    await evaluate('liveCfTest.liveEmpty=false')
+    await click('ลองค้นหาอีกครั้ง')
+    await wait(`document.querySelector('dialog')?.textContent.includes('เลือกไลฟ์นี้')`)
+    for (const width of [375, 768, 1440]) {
+      await resize(width)
+      await pause()
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true)
+      assert.equal(
+        await evaluate(
+          `document.querySelector('dialog').getBoundingClientRect().width<=innerWidth`,
+        ),
+        true,
+      )
+      await screenshot('live-picker-' + width)
+    }
+    await click('เลือกไลฟ์นี้')
+    await wait(`!document.querySelector('dialog')`)
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).value`), '456')
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="ไลฟ์สดที่เลือก"]').textContent.includes('ไลฟ์เสื้อผ้าวันนี้')`,
+      ),
+      true,
+    )
+    assert.equal(
+      await evaluate(`document.activeElement.textContent.includes('เลือกจากไลฟ์สดปัจจุบัน')`),
+      true,
+    )
+    await fill('select[aria-label="เลือกเพจ Facebook"]', '200')
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).value`), '')
+    assert.equal(
+      await evaluate(`document.querySelector('[aria-label="ไลฟ์สดที่เลือก"]')===null`),
+      true,
+    )
+    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await wait(`document.querySelector('dialog')?.textContent.includes('ไลฟ์สดเพจที่สอง')`)
+    await click('เลือกไลฟ์นี้')
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).value`), '654')
+    await fill('select[aria-label="เลือกเพจ Facebook"]', '')
+    assert.equal(
+      await evaluate(
+        `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('เลือกจากไลฟ์สดปัจจุบัน')).disabled`,
+      ),
+      true,
+    )
+    await fill('select[aria-label="เลือกเพจ Facebook"]', '100')
+    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await wait(`!!document.querySelector('dialog[open]')`)
+    await call('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+    })
+    await call('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+    })
+    await wait(`!document.querySelector('dialog')`)
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(link)}).value`),
+      '',
+      'Closing picker never selects a live automatically',
+    )
+    await click('กรอกรหัสด้วยตนเอง')
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).readOnly`), false)
     await evaluate(
       `(()=>{const data=new DataTransfer();data.setData('text','https://www.facebook.com/shop/videos/123456789012345678/');document.querySelector(${JSON.stringify(link)}).dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));})()`,
     )
     await wait(`document.querySelector(${JSON.stringify(link)}).value==='123456789012345678'`)
     await fill(link, 'https://wrong.example/videos/123')
     await click('เริ่มเปิดระบบดูดออเดอร์')
-    assert.equal(await evaluate('liveCfTest.requests.length'), 0)
+    assert.equal(
+      await evaluate(`liveCfTest.requests.filter(r=>r.url==='/api/live-cf/setup').length`),
+      0,
+    )
     await fill(link, 'https://facebook.com/watch/live/?v=456')
     await evaluate(`document.querySelector(${JSON.stringify(link)}).blur()`)
     await wait(`document.querySelector(${JSON.stringify(link)}).value==='456'`)
@@ -618,12 +702,20 @@ compiler.init()
       3,
     )
     await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', 'B2')
+    await evaluate("liveCfTest.liveId='789'")
+    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await wait(`document.querySelector('dialog')?.textContent.includes('รหัส 789')`)
+    await click('เลือกไลฟ์นี้')
     await click('เริ่มเปิดระบบดูดออเดอร์')
     await wait(
       `liveCfTest.requests.some(r=>r.url==='/api/live-cf/setup')&&liveCfTest.refreshes===1`,
     )
     const setup = await evaluate('liveCfTest.requests.find(r=>r.url==="/api/live-cf/setup").body')
-    assert.equal(setup.livePostId, '456')
+    assert.equal(
+      setup.livePostId,
+      '789',
+      'The picked video ID replaces the old manually entered scope',
+    )
     assert.equal(setup.productId, await evaluate('liveCfTest.newProductId'))
     assert.equal(setup.matchMode, 'strict')
     assert.deepEqual(

@@ -11,6 +11,9 @@ const state = Object.assign(liveCfTest, {
   failure: false,
   categoryFailure: false,
   uploadFailure: false,
+  liveFailure: false,
+  liveEmpty: false,
+  liveId: '456',
   newProductId,
 })
 ;(window as any).liveCfTest = state
@@ -22,6 +25,23 @@ window.fetch = async (input, init) => {
         : JSON.parse(String(init?.body ?? '{}'))
   state.requests.push({ url, body })
   await new Promise((resolve) => setTimeout(resolve, 150))
+  if (url.startsWith('/api/facebook/live-videos')) {
+    if (state.liveFailure) return Response.json({ error: 'กรุณาเชื่อมต่อเพจใหม่' }, { status: 409 })
+    const pageId = new URL(url, location.origin).searchParams.get('page_id')
+    return Response.json({
+      pageId,
+      videos: state.liveEmpty
+        ? []
+        : [
+            {
+              id: pageId === '200' ? '654' : state.liveId,
+              title: pageId === '200' ? 'ไลฟ์สดเพจที่สอง' : 'ไลฟ์เสื้อผ้าวันนี้',
+              thumbnail: 'https://storage.example/live.webp',
+              createdAt: '2026-11-01T04:00:00.000Z',
+            },
+          ],
+    })
+  }
   if (url.startsWith('/api/commerce/product-options')) {
     if (state.categoryFailure)
       return Response.json({ error: 'โหลดหมวดหมู่ไม่สำเร็จ กรุณาลองใหม่' }, { status: 503 })
@@ -94,7 +114,10 @@ createRoot(document.getElementById('root')!).render(
     ) : (
       <LiveCfSetup
         tenantId="11111111-1111-4111-8111-111111111111"
-        pages={[{ id: '100', name: 'เพจร้านทดสอบ', picture: null }]}
+        pages={[
+          { id: '100', name: 'เพจร้านทดสอบ', picture: null },
+          { id: '200', name: 'เพจที่สอง', picture: null },
+        ]}
         products={
           empty
             ? []
