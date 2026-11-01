@@ -1,0 +1,101 @@
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { LiveAuctionPanel } from '@/components/live-cf/LiveAuctionPanel'
+import { AuctionSlipUpload } from '@/components/live-cf/AuctionSlipUpload'
+import type { Auction, AuctionBid } from '@/lib/features/commerce/auction-types'
+
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const bank = {
+  id: '22222222-2222-4222-8222-222222222222',
+  bank_code: 'KBANK',
+  account_number: '1234567890',
+}
+const initial: Auction = {
+  id: '33333333-3333-4333-8333-333333333333',
+  tenant_id: tenantId,
+  page_id: '100',
+  live_post_id: '456',
+  item_name: 'เหรียญรุ่น 1',
+  start_price: 200,
+  min_step: 20,
+  current_price: 200,
+  shipping_fee: 50,
+  leading_bidder_id: '900',
+  leading_bidder_name: 'สมชาย ใจดี',
+  leading_comment_id: '456_789',
+  host_ids: [],
+  host_count: '2',
+  status: 'active',
+  closed_at: null,
+  order_id: null,
+  created_at: '2026-11-02T10:00:00Z',
+}
+const state = {
+  auctions: [initial],
+  failOpen: false,
+  requests: [] as { path: string; body: Record<string, unknown> }[],
+  bids: [
+    {
+      id: 'bid',
+      bidder_name: 'สมชาย ใจดี',
+      comment_text: 'เปิดให้ 10 ลุ้น',
+      bid_amount: 200,
+      is_opening: true,
+      status: 'accepted',
+      created_at: '2026-11-02T10:00:01Z',
+    },
+  ] as AuctionBid[],
+}
+declare global {
+  interface Window {
+    auctionQA: typeof state
+  }
+}
+window.auctionQA = state
+window.fetch = async (input, init) => {
+  const path = String(input)
+  if (init?.method === 'POST') {
+    if (path.endsWith('/slip')) return Response.json({ submitted: true })
+    const body = JSON.parse(String(init.body))
+    state.requests.push({ path, body })
+    if (path.endsWith('/close')) {
+      const row = state.auctions.find((a) => a.id === body.auctionId)!
+      row.status = body.cancel ? 'cancelled' : 'closed'
+      return Response.json({ status: row.status, orderId: 'order' })
+    }
+    if (state.failOpen)
+      return Response.json({ error: 'ไลฟ์นี้มีรายการประมูลที่กำลังเปิดอยู่แล้ว' }, { status: 409 })
+    const row: Auction = {
+      ...initial,
+      id: '44444444-4444-4444-8444-444444444444',
+      item_name: body.itemName,
+      live_post_id: body.livePostId,
+      current_price: 0,
+      leading_bidder_name: null,
+      leading_bidder_id: null,
+      host_count: null,
+    }
+    state.auctions.unshift(row)
+    return Response.json({ id: row.id }, { status: 201 })
+  }
+  const params = new URL(path, 'https://test.invalid').searchParams
+  const selected = state.auctions.find((a) => a.id === params.get('id')) ?? state.auctions[0]
+  return Response.json({
+    auctions: state.auctions,
+    bids: state.bids,
+    deliveries:
+      selected.status === 'closed'
+        ? [{ channel: 'private', status: 'sent', error_code: null }]
+        : [],
+  })
+}
+createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <main className="mx-auto max-w-6xl p-4">
+      <LiveAuctionPanel tenantId={tenantId} bankAccounts={[bank]} />
+      <section className="mx-auto max-w-lg">
+        <AuctionSlipUpload token="test-signed-token" initiallySubmitted={false} />
+      </section>
+    </main>
+  </React.StrictMode>,
+)

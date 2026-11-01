@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
 import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
+import { deliverAuctionNotifications } from '@/lib/features/commerce/auction-server'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -19,9 +20,15 @@ async function run(req: NextRequest) {
   }
   try {
     return NextResponse.json(
-      await singleFlight('cron:facebook-webhooks', () =>
-        runFacebookWebhookWorker(supabaseAdmin(), handleFacebookWebhookEvent),
-      ),
+      await singleFlight('cron:facebook-webhooks', async () => {
+        const summary = await runFacebookWebhookWorker(supabaseAdmin(), handleFacebookWebhookEvent)
+        try {
+          await deliverAuctionNotifications()
+        } catch {
+          console.warn('[auction/delivery] outbox unavailable or not installed')
+        }
+        return summary
+      }),
       { headers: { 'Cache-Control': 'no-store' } },
     )
   } catch {

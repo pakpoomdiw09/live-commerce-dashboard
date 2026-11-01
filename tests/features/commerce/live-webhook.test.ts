@@ -219,6 +219,7 @@ function handlerFixture(
     resolved?: string[]
     mode?: string
     keywords?: string[]
+    auctionHandled?: boolean
   } = {},
 ) {
   const traces: { label: string; data: any }[] = []
@@ -297,6 +298,12 @@ function handlerFixture(
       },
       '@/lib/features/commerce/messenger-product-server': {},
       '@/lib/features/commerce/live-cf-comment': { handleLiveCfComment },
+      '@/lib/features/commerce/auction-server': {
+        handleAuctionComment: async (input: any) => {
+          traces.push({ label: 'auction-route', data: input.value })
+          return options.auctionHandled ?? false
+        },
+      },
       '@/lib/features/commerce/live-cf-payment-link': {
         createLiveCfPaymentLink: () => 'https://shop.example/pay/live/signed',
       },
@@ -395,6 +402,19 @@ test('signed comment pipeline matches literal SKUs case-insensitively, passes th
   const attached = handlerFixture({ resolved: ['456'] })
   await attached.receive('CF fc159', { video_id: undefined })
   assert.equal(attached.orders[0].postId, '456')
+})
+
+test('auction host commands route before the Page-own-comment filter and consume the CF path', async () => {
+  const host = handlerFixture({ auctionHandled: true })
+  await host.receive('ปิด', { from: { id: '100' } })
+  assert.ok(
+    host.traces.some((trace) => trace.label === 'auction-route' && trace.data.message === 'ปิด'),
+  )
+  assert.equal(host.orders.length, 0)
+  assert.equal(host.sends.length, 0)
+  const customer = handlerFixture({ auctionHandled: true })
+  await customer.receive('fc159')
+  assert.equal(customer.orders.length, 0, 'auction-scoped comments cannot also place a CF order')
 })
 
 test('diagnostics distinguish a configured keyword mismatch from a session mismatch', async () => {

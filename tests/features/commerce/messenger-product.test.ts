@@ -399,6 +399,7 @@ function webhookHarness(
         },
       },
       '@/lib/features/commerce/live-cf-comment': {},
+      '@/lib/features/commerce/auction-server': { handleAuctionComment: async () => false },
       '@/lib/features/commerce/live-cf-payment-link': {},
       '@/lib/integrations/facebook/live-cf-adapter': {},
       '@/lib/feature-flags': {},

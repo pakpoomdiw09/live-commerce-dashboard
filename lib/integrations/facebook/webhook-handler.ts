@@ -25,6 +25,7 @@ import { answerChat, loadBotSettings } from '@/lib/features/agents/chatbot-serve
 import { pendingOrders, placeCfOrder } from '@/lib/features/commerce/orders'
 import { replyToMessengerProduct } from '@/lib/features/commerce/messenger-product-server'
 import { handleLiveCfComment } from '@/lib/features/commerce/live-cf-comment'
+import { handleAuctionComment } from '@/lib/features/commerce/auction-server'
 import { createLiveCfPaymentLink } from '@/lib/features/commerce/live-cf-payment-link'
 import { createLiveCfMetaAdapter } from '@/lib/integrations/facebook/live-cf-adapter'
 import { isFeatureEnabled } from '@/lib/feature-flags'
@@ -518,6 +519,19 @@ async function onComment(
   tenant: PageTenant | null,
   execution: WebhookExecution,
 ) {
+  // Auction host commands must be routed before filtering the Page's own replies.
+  if (
+    tenant &&
+    isFeatureEnabled('live_cf') &&
+    (await handleAuctionComment({
+      value: v,
+      tenantId: tenant.id,
+      pageId,
+      token: pageTokenFor(tenant),
+      execution,
+    }))
+  )
+    return
   // the Page's own replies (including the auto-replies below): never answer them, or rules would loop
   if (v.from?.id === pageId) {
     console.info('[live-cf/comment] skipped', {

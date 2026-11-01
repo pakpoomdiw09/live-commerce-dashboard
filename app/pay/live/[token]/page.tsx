@@ -4,6 +4,7 @@ import { verifyLiveCfPaymentToken } from '@/lib/features/commerce/live-cf-paymen
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { findBank } from '@/lib/features/banking/banks'
 import { LiveCfVariantPayment } from '@/components/live-cf/LiveCfVariantPayment'
+import { AuctionSlipUpload } from '@/components/live-cf/AuctionSlipUpload'
 
 export const metadata = { title: 'ชำระเงินออเดอร์ Live CF | SnapBot' }
 export const dynamic = 'force-dynamic'
@@ -20,12 +21,20 @@ export default async function LiveCfPaymentPage({
   const order = await db
     .from('orders')
     .select(
-      'id,tenant_id,customer_id,product_id,product_name,variant_id,variant_label,amount,status,live_bank_account_id,created_at,live_variant_selection_required,live_variant_confirmed_at',
+      'id,tenant_id,customer_id,product_id,product_name,variant_id,variant_label,amount,status,live_bank_account_id,created_at,live_variant_selection_required,live_variant_confirmed_at,source',
     )
     .eq('id', verified.orderId)
     .maybeSingle()
   if (order.error || !order.data) notFound()
   const orderData = order.data
+  const proof =
+    orderData.source === 'live_auction'
+      ? await db
+          .from('auction_payment_proofs')
+          .select('order_id')
+          .eq('order_id', orderData.id)
+          .maybeSingle()
+      : null
 
   const baseAccount = () =>
     db
@@ -116,7 +125,9 @@ export default async function LiveCfPaymentPage({
           <p className="flex items-center gap-2 text-sm font-medium text-white/90">
             <LockKeyhole className="h-4 w-4" /> ลิงก์ชำระเงินที่ปลอดภัย
           </p>
-          <h1 className="mt-2 text-2xl font-bold">ออเดอร์ Live Commerce CF</h1>
+          <h1 className="mt-2 text-2xl font-bold">
+            {orderData.source === 'live_auction' ? 'ชำระเงินประมูลสด' : 'ออเดอร์ Live Commerce CF'}
+          </h1>
         </header>
         <div className="space-y-5 p-6">
           <div className="flex gap-3 rounded-2xl bg-slate-50 p-4">
@@ -159,6 +170,9 @@ export default async function LiveCfPaymentPage({
           <p className="flex items-center justify-center gap-2 text-xs text-slate-400">
             <Clock3 className="h-3.5 w-3.5" /> ลิงก์นี้หมดอายุอัตโนมัติภายใน 24 ชั่วโมง
           </p>
+          {orderData.source === 'live_auction' && !paid && !proof?.error && (
+            <AuctionSlipUpload token={token} initiallySubmitted={!!proof?.data} />
+          )}
         </div>
       </section>
     </main>

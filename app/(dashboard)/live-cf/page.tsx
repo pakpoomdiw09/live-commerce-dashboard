@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { LiveCfSetup } from '@/components/live-cf/LiveCfSetup'
+import { LiveAuctionPanel } from '@/components/live-cf/LiveAuctionPanel'
 import { getActiveTenant, tenantPages } from '@/lib/tenant'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { liveProducts } from '@/lib/features/comments/live-products'
@@ -33,15 +34,22 @@ export default async function LiveCfPage() {
   ])
   const setupError = rule.error?.message ?? accounts.error?.message ?? catalog.error
   return (
-    <LiveCfSetup
-      key={tenant.id}
-      tenantId={tenant.id}
-      pages={pages}
-      products={catalog.products}
-      bankAccounts={accounts.data ?? []}
-      initialRule={(rule.data as CommentRule | null) ?? null}
-      setupError={setupError}
-      salesPageUrl={catalog.salesPageUrl}
-    />
+    <>
+      <LiveAuctionPanel
+        key={`auction-${tenant.id}`}
+        tenantId={tenant.id}
+        bankAccounts={accounts.data ?? []}
+      />
+      <LiveCfSetup
+        key={tenant.id}
+        tenantId={tenant.id}
+        pages={pages}
+        products={catalog.products}
+        bankAccounts={accounts.data ?? []}
+        initialRule={(rule.data as CommentRule | null) ?? null}
+        setupError={setupError}
+        salesPageUrl={catalog.salesPageUrl}
+      />
+    </>
   )
 }

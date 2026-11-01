@@ -169,7 +169,11 @@ export function parseWebhook(bytes: Uint8Array): {
           : hash(`${kind}:${canonical(event)}`)
         const sender = kind === 'message' ? event.sender?.id : event.value?.from?.id
         const orderingKey =
-          typeof sender === 'string' && /^\d{1,64}$/.test(sender) ? sender : pageId
+          kind === 'change' && event.value?.item === 'comment'
+            ? `comments:${pageId}`
+            : typeof sender === 'string' && /^\d{1,64}$/.test(sender)
+              ? sender
+              : pageId
         events.push({ pageId, eventKey, orderingKey, kind, payload: event })
       }
     }

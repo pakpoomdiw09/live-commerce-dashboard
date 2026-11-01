@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 104 ไฟล์: รวมตาม dependencies 87 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 106 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 105 ไฟล์: รวมตาม dependencies 88 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 107 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (727502 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (743069 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (625054 bytes, 10480 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (639126 bytes, 10734 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -124,6 +124,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 85. [tenant-ai-quota.sql](tenant-ai-quota.sql) — 28 statements retained
 86. [vision-master-switch.sql](vision-master-switch.sql) — 6 statements retained
 87. [live-cf-customer-variants.sql](live-cf-customer-variants.sql) — 16 statements retained
+88. [live-auctions.sql](live-auctions.sql) — 28 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -151,6 +152,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 
 | Migration | ต้องอยู่หลัง |
 | --- | --- |
+| live-auctions.sql | live-cf-customer-variants.sql, facebook-webhook-nonblocking.sql |
 | live-cf-customer-variants.sql | live-cf-setup.sql, payments.sql, payment-pro.sql |
 | schema.sql |  |
 | tenants.sql | schema.sql |
@@ -284,6 +286,7 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | standalone-slips.sql | 17: `lock table public.standalone_slips in share row exclusive mode…` | Explicit table lock for historical migration removed (fresh database only). |
 | standalone-slips.sql | 18: `insert into public.payment_transfer_ledger(trans_ref,source,source_id) select …` | Historical business-data/settings/ledger backfill removed. |
 | tenant-ai-quota.sql | 6: `update public.tenants set ai_quota_limit=coalesce(ai_quota_limit,1000),ai_quota_…` | Historical business-data backfill/repair removed. |
+| live-auctions.sql | 22: `update public.facebook_webhook_events set ordering_key='comments:'//page_id whe…` | Historical business-data backfill/repair removed. |
 
 ## วิธีใช้ไฟล์ bootstrap เดิม
 
@@ -394,3 +397,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - tenant-ai-quota.sql: `a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3`
 - vision-master-switch.sql: `137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6`
 - live-cf-customer-variants.sql: `c620b8852bf6067a70bc0cb265a285e3d9fddd0d05d55e9ed5a8a6c72fa6df29`
+- live-auctions.sql: `910202f12dfb75ce136dc66fe2d95ea645f9de96b03a69ef8e1b92b0fa89eeec`

@@ -53,6 +53,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!APPROVABLE.includes(slip.status))
     return bad(slip.status === 'duplicate' ? 'สลิปซ้ำ อนุมัติไม่ได้' : 'สลิปยังตรวจไม่เสร็จ', 409)
 
+  // Resolve the payment scope before making any approval write.
+  const auctionProof = await db
+    .from('auction_payment_proofs')
+    .select('order_id')
+    .eq('slip_id', slip.id)
+    .eq('tenant_id', slip.tenant_id)
+    .maybeSingle()
+  if (auctionProof.error && !['42P01', 'PGRST205'].includes(auctionProof.error.code))
+    return bad('ตรวจสอบรายการชำระเงินไม่ได้ กรุณาลองอีกครั้ง', 503)
+  if (auctionProof.data) {
+    const approved = await db.rpc('approve_auction_payment_proof', {
+      p_slip: slip.id,
+      p_tenant: slip.tenant_id,
+      p_actor: actor.kind === 'user' ? actor.id : null,
+    })
+    if (approved.error)
+      return bad('อนุมัติรายการประมูลไม่สำเร็จ กรุณาตรวจสอบออเดอร์แล้วลองใหม่', 409)
+    return NextResponse.json({ ok: true, approvedAt: approved.data })
+  }
+
   const approvedAt = slip.approved_at ?? new Date().toISOString()
   if (!slip.approved_at) {
     const { error: updateError } = await db
