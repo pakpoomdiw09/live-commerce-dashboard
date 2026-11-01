@@ -169,14 +169,61 @@ async function checkInterface() {
     await resize(1440)
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}` })
 
-    await wait(
-      'window.auctionQA && document.body.textContent.includes(window.auctionQA.auctions[0].leading_bidder_name)',
+    await wait("window.auctionQA && document.querySelector('#live-mode-auction') !== null")
+    assert.equal(
+      await evaluate("document.querySelector('#live-mode-cf').getAttribute('aria-selected')"),
+      'true',
     )
+    assert.equal(await evaluate('window.auctionQA.reads'), 0, 'hidden auction tab does not poll')
+    await evaluate("document.querySelector('#live-mode-auction').click()")
+    await wait(
+      "document.querySelector('[data-auction-leader]')?.textContent.includes(window.auctionQA.auctions[0].leading_bidder_name)",
+    )
+    assert.equal(
+      await evaluate("document.querySelector('#live-mode-auction').getAttribute('aria-selected')"),
+      'true',
+    )
+    assert.equal(await evaluate("new URL(location.href).searchParams.get('mode')"), 'auction')
+    assert.equal(await evaluate("document.querySelector('#live-panel-cf').hidden"), true)
+    assert.ok(
+      await evaluate('document.querySelector(\'input[maxlength="200"]\') !== null'),
+      'opening form is visible on entry',
+    )
+    assert.deepEqual(
+      await evaluate("[...document.querySelectorAll('input[type=number]')].map(i=>i.value)"),
+      ['200', '20', '50'],
+    )
+    assert.ok(
+      await evaluate(
+        "document.querySelector('section[aria-label]').getBoundingClientRect().height > 400",
+      ),
+      'auction controls cannot collapse inside the fixed dashboard flex layout',
+    )
+    const flexRegression = await evaluate(`(() => {
+      const frame=document.createElement('div');frame.style.cssText='position:fixed;visibility:hidden;display:flex;flex-direction:column;width:600px;height:400px';
+      const content=document.createElement('div');content.style.cssText='display:flex;flex:1;min-height:0;flex-direction:column';
+      const panel=document.querySelector('section[aria-label]').cloneNode(true);panel.style.flexShrink='1';
+      const cf=document.createElement('div');cf.style.cssText='height:1800px;flex-shrink:0';
+      content.append(panel,cf);frame.append(content);document.body.append(frame);
+      const before=panel.getBoundingClientRect().height;panel.style.flexShrink='0';const after=panel.getBoundingClientRect().height;frame.remove();return {before,after};
+    })()`)
+    assert.ok(
+      flexRegression.before < 1 && flexRegression.after > 400,
+      'reproduce the original flex collapse and verify its fix',
+    )
+    // Hide the form to inspect the leader, count and history at each viewport size.
+    await evaluate("document.querySelector('section[aria-label] header button').click()")
     for (const width of [375, 768, 1440]) {
       await resize(width)
       assert.ok(
         await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'),
         'No horizontal page overflow at ' + width,
+      )
+      assert.ok(
+        await evaluate(
+          "document.querySelector('[data-live-cf-workspace]').getBoundingClientRect().height > 400",
+        ),
+        'dashboard content stays expanded at ' + width,
       )
       const screenshot = await call('Page.captureScreenshot', { format: 'png' })
       fs.writeFileSync(
@@ -184,6 +231,41 @@ async function checkInterface() {
         Buffer.from(screenshot.data, 'base64'),
       )
     }
+    await evaluate(
+      "window.auctionQA.auctions[0].current_price = 220; window.auctionQA.auctions[0].leading_bidder_name = 'New bidder'",
+    )
+    await wait(
+      "document.querySelector('[data-auction-price]')?.textContent.includes('220') && document.querySelector('[data-auction-leader]')?.textContent.includes('New bidder')",
+    )
+    for (const count of ['3', '2', '1']) {
+      await evaluate(`document.querySelector('[data-auction-action="${count}"]').click()`)
+      await wait(`document.querySelector('[data-auction-count]')?.textContent === '${count}'`)
+      assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.action'), count)
+      assert.ok(await evaluate(`document.querySelector('table').textContent.includes('${count}')`))
+    }
+    await evaluate('window.auctionQA.loadFailure = true')
+    await wait(
+      "document.querySelector('[role=alert]')?.textContent.includes('temporarily unavailable')",
+    )
+    assert.ok(
+      await evaluate(
+        "document.querySelector('#live-mode-auction') !== null && !document.querySelector('#live-panel-auction').hidden",
+      ),
+      'API errors never hide the auction tab',
+    )
+    await evaluate('window.auctionQA.loadFailure = false')
+    await wait("document.querySelector('[role=alert]') === null")
+    await evaluate("document.querySelector('#live-mode-cf').click()")
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const inactiveReads = await evaluate('window.auctionQA.reads')
+    await new Promise((resolve) => setTimeout(resolve, 3200))
+    assert.equal(
+      await evaluate('window.auctionQA.reads'),
+      inactiveReads,
+      'switching to CF stops auction polling',
+    )
+    assert.equal(await evaluate("document.querySelector('#live-panel-cf').hidden"), false)
+    await evaluate("document.querySelector('#live-mode-auction').click()")
     await evaluate("document.querySelector('section[aria-label] header button').click()")
     await wait('document.querySelector(\'input[maxlength="200"]\') !== null')
     await evaluate(`(() => {
@@ -195,21 +277,21 @@ async function checkInterface() {
     await wait(
       'window.auctionQA.requests.length > 0 && document.querySelector(\'input[maxlength="200"]\') === null',
     )
-    assert.equal(await evaluate('window.auctionQA.requests[0].body.startPrice'), 200)
-    assert.equal(await evaluate('window.auctionQA.requests[0].body.minStep'), 20)
-    await evaluate("document.querySelector('section[aria-label] button.bg-orange-500').click()")
+    assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.startPrice'), 200)
+    assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.minStep'), 20)
+    await evaluate("document.querySelector('[data-auction-action=close]').click()")
     await wait("document.querySelector('section[aria-label] .space-y-1') !== null")
     assert.equal(
-      await evaluate("document.querySelector('section[aria-label] button.bg-orange-500') === null"),
+      await evaluate("document.querySelector('[data-auction-action=close]') === null"),
       true,
     )
     await evaluate(
       `(() => {const input=document.querySelector('input[type=file]');const transfer=new DataTransfer();transfer.items.add(new File([new Uint8Array([255,216,255,224])],'slip.jpg',{type:'image/jpeg'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));input.closest('form').requestSubmit()})()`,
     )
-    await wait("document.querySelector('[role=status]') !== null")
+    await wait("document.querySelector('input[type=file]') === null")
     assert.deepEqual(errors, [])
     console.log(
-      'PASS: auction UI at 375/768/1440px, open form, numeric payload, close, delivery status and signed-link slip form; no browser exceptions.',
+      'PASS: CF/auction tabs, visible opening form, 375/768/1440px layouts, polled leader updates, 3/2/1/close shortcuts, API error visibility, inactive polling, numeric payload and slip form; no browser exceptions.',
     )
     console.log('Screenshots: .tmp/auction-ui-preview/')
   } finally {

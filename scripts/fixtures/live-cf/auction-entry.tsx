@@ -1,6 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { LiveAuctionPanel } from '@/components/live-cf/LiveAuctionPanel'
+import { LiveCfWorkspace } from '@/components/live-cf/LiveCfWorkspace'
 import { AuctionSlipUpload } from '@/components/live-cf/AuctionSlipUpload'
 import type { Auction, AuctionBid } from '@/lib/features/commerce/auction-types'
 
@@ -33,6 +33,8 @@ const initial: Auction = {
 const state = {
   auctions: [initial],
   failOpen: false,
+  loadFailure: false,
+  reads: 0,
   requests: [] as { path: string; body: Record<string, unknown> }[],
   bids: [
     {
@@ -58,6 +60,24 @@ window.fetch = async (input, init) => {
     if (path.endsWith('/slip')) return Response.json({ submitted: true })
     const body = JSON.parse(String(init.body))
     state.requests.push({ path, body })
+    if (path.endsWith('/host-action')) {
+      const row = state.auctions.find((a) => a.id === body.auctionId)!
+      if (body.action === 'close') row.status = 'closed'
+      else row.host_count = body.action
+      state.bids.unshift({
+        id: `host-${state.requests.length}`,
+        bidder_name: 'Host',
+        comment_text: body.action === 'close' ? '❌' : body.action,
+        bid_amount: null,
+        is_opening: false,
+        status: body.action === 'close' ? 'closed' : 'count',
+        created_at: new Date().toISOString(),
+      })
+      return Response.json(
+        { posted: true, queued: true, message: 'Comment posted; awaiting queue' },
+        { status: 202 },
+      )
+    }
     if (path.endsWith('/close')) {
       const row = state.auctions.find((a) => a.id === body.auctionId)!
       row.status = body.cancel ? 'cancelled' : 'closed'
@@ -78,6 +98,9 @@ window.fetch = async (input, init) => {
     state.auctions.unshift(row)
     return Response.json({ id: row.id }, { status: 201 })
   }
+  state.reads++
+  if (state.loadFailure)
+    return Response.json({ error: 'Auction API temporarily unavailable' }, { status: 503 })
   const params = new URL(path, 'https://test.invalid').searchParams
   const selected = state.auctions.find((a) => a.id === params.get('id')) ?? state.auctions[0]
   return Response.json({
@@ -91,11 +114,19 @@ window.fetch = async (input, init) => {
 }
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <main className="mx-auto max-w-6xl p-4">
-      <LiveAuctionPanel tenantId={tenantId} bankAccounts={[bank]} />
-      <section className="mx-auto max-w-lg">
-        <AuctionSlipUpload token="test-signed-token" initiallySubmitted={false} />
-      </section>
-    </main>
+    <div className="fixed inset-x-0 top-0 flex h-dvh w-full overflow-hidden bg-slate-50">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto" data-dashboard-main>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <LiveCfWorkspace tenantId={tenantId} bankAccounts={[bank]}>
+            <section className="min-h-[1800px] p-8" data-cf-setup>
+              CF order setup
+            </section>
+          </LiveCfWorkspace>
+          <section className="mx-auto w-full max-w-lg shrink-0 p-4">
+            <AuctionSlipUpload token="test-signed-token" initiallySubmitted={false} />
+          </section>
+        </div>
+      </main>
+    </div>
   </React.StrictMode>,
 )

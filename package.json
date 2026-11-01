@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test:auctions": "node --test scripts/test-live-auctions.cjs scripts/test-auction-server.cjs",
+    "test:auctions": "node --test scripts/test-live-auctions.cjs scripts/test-auction-server.cjs scripts/test-auction-host-actions.cjs",
     "test:auctions:ui": "node scripts/check-auction-browser.cjs",
     "db:schema:build": "node scripts/build-full-database-setup.cjs",
     "db:schema:check": "node scripts/build-full-database-setup.cjs --check",

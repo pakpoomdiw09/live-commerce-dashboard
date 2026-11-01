@@ -1,18 +1,24 @@
 import { notFound } from 'next/navigation'
 import { LiveCfSetup } from '@/components/live-cf/LiveCfSetup'
-import { LiveAuctionPanel } from '@/components/live-cf/LiveAuctionPanel'
+import { LiveCfWorkspace } from '@/components/live-cf/LiveCfWorkspace'
 import { getActiveTenant, tenantPages } from '@/lib/tenant'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { liveProducts } from '@/lib/features/comments/live-products'
 import { LIVE_CF_RULE_COLUMNS, type CommentRule } from '@/lib/features/comments/comment-rules'
 import { isFeatureEnabled } from '@/lib/feature-flags'
 
-export const metadata = { title: 'ตั้งค่าระบบดูดออเดอร์ไลฟ์สด | SnapBot' }
+export const metadata = { title: 'ระบบไลฟ์สด CF และประมูล | SnapBot' }
+export const dynamic = 'force-dynamic'
 
-export default async function LiveCfPage() {
+export default async function LiveCfPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string }>
+}) {
   if (!isFeatureEnabled('live_cf')) notFound()
   const tenant = await getActiveTenant()
   if (!tenant) notFound()
+  const mode = (await searchParams).mode === 'auction' ? 'auction' : 'cf'
   const db = supabaseAdmin()
   const [pages, catalog, rule, accounts] = await Promise.all([
     tenantPages(tenant),
@@ -34,12 +40,12 @@ export default async function LiveCfPage() {
   ])
   const setupError = rule.error?.message ?? accounts.error?.message ?? catalog.error
   return (
-    <>
-      <LiveAuctionPanel
-        key={`auction-${tenant.id}`}
-        tenantId={tenant.id}
-        bankAccounts={accounts.data ?? []}
-      />
+    <LiveCfWorkspace
+      key={tenant.id}
+      tenantId={tenant.id}
+      bankAccounts={accounts.data ?? []}
+      initialMode={mode}
+    >
       <LiveCfSetup
         key={tenant.id}
         tenantId={tenant.id}
@@ -50,6 +56,6 @@ export default async function LiveCfPage() {
         setupError={setupError}
         salesPageUrl={catalog.salesPageUrl}
       />
-    </>
+    </LiveCfWorkspace>
   )
 }

@@ -1,0 +1,149 @@
+import { after, NextRequest } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase/server'
+import { authorizeAuction, auctionReply, auctionFailure } from '@/lib/features/commerce/auction-api'
+import { pageTokenFor, replyToComment } from '@/lib/integrations/facebook/client'
+import { parseWebhook } from '@/lib/integrations/facebook/webhook-envelope'
+import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
+import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
+import { UUID } from '@/lib/utils'
+
+export const runtime = 'nodejs'
+export const maxDuration = 60
+
+/** Publish as the owning Page; feed the confirmed comment through the same ordered queue. */
+export async function POST(req: NextRequest) {
+  let posted = false
+  let commentId: string | null = null
+  try {
+    const input = await req.json()
+    if (!input || typeof input !== 'object') return auctionReply({ error: 'ข้อมูลไม่ถูกต้อง' }, 400)
+    const denied = await authorizeAuction(req, input.tenantId, true)
+    if (denied) return denied
+    if (
+      typeof input.auctionId !== 'string' ||
+      !UUID.test(input.auctionId) ||
+      !['3', '2', '1', 'close'].includes(input.action)
+    )
+      return auctionReply({ error: 'คำสั่งประมูลไม่ถูกต้อง' }, 400)
+    const db = supabaseAdmin({ timeoutMs: 15000 })
+    const auction = await db
+      .from('auctions')
+      .select('id,page_id,live_post_id,status')
+      .eq('id', input.auctionId)
+      .eq('tenant_id', input.tenantId)
+      .maybeSingle()
+    if (auction.error) throw auction.error
+    if (!auction.data) return auctionReply({ error: 'ไม่พบรายการประมูลของร้านนี้' }, 404)
+    if (auction.data.status !== 'active')
+      return auctionReply({ error: 'รายการนี้ปิดหรือยกเลิกแล้ว' }, 409)
+    const tenant = await db
+      .from('tenants')
+      .select('page_id,page_access_token')
+      .eq('id', input.tenantId)
+      .eq('page_id', auction.data.page_id)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (tenant.error) throw tenant.error
+    if (!tenant.data)
+      return auctionReply({ error: 'เพจของรายการนี้ไม่ได้เชื่อมต่อกับร้านแล้ว' }, 409)
+    const token = pageTokenFor(tenant.data)
+    if (!token)
+      return auctionReply({ error: 'กรุณาเชื่อมต่อ Facebook Page ใหม่ก่อนส่งคอมเมนต์' }, 409)
+    const command = input.action === 'close' ? '❌' : input.action
+    let receipt: { id?: unknown }
+    try {
+      receipt = await replyToComment(token, auction.data.live_post_id, command)
+    } catch {
+      return auctionReply(
+        {
+          error:
+            'ยังยืนยันการส่งคอมเมนต์ไม่ได้ กรุณาตรวจไลฟ์ก่อนลองอีกครั้ง หากไม่มีคอมเมนต์ให้ตรวจสิทธิ์เพจและเชื่อมต่อ Facebook ใหม่',
+        },
+        502,
+      )
+    }
+    posted = true
+    commentId = typeof receipt.id === 'string' ? receipt.id : null
+    if (!commentId) throw new Error('AUCTION_COMMENT_RECEIPT_MISSING')
+    const raw = JSON.stringify({
+      object: 'page',
+      entry: [
+        {
+          id: auction.data.page_id,
+          changes: [
+            {
+              field: 'feed',
+              value: {
+                item: 'comment',
+                verb: 'add',
+                comment_id: commentId,
+                post_id: auction.data.live_post_id,
+                from: { id: auction.data.page_id },
+                message: command,
+                created_time: Math.floor(Date.now() / 1000),
+              },
+            },
+          ],
+        },
+      ],
+    })
+    const envelope = parseWebhook(new TextEncoder().encode(raw))
+    const saved = await db.rpc('enqueue_facebook_webhook', {
+      p_raw: envelope.raw,
+      p_hash: envelope.hash,
+      p_events: envelope.events,
+    })
+    if (saved.error) throw saved.error
+    if (!saved.data?.id || !Number.isInteger(saved.data.accepted))
+      throw new Error('AUCTION_QUEUE_RECEIPT_INVALID')
+    try {
+      after(async () => {
+        try {
+          await runFacebookWebhookWorker(db, handleFacebookWebhookEvent, {
+            deadline: Date.now() + 45_000,
+            maxEvents: 30,
+          })
+        } catch {
+          console.error('[auction/host-action] deferred worker failed', {
+            auctionId: input.auctionId,
+            commentId,
+          })
+        }
+      })
+    } catch {
+      console.warn('[auction/host-action] queued for cron', {
+        auctionId: input.auctionId,
+        commentId,
+      })
+    }
+    console.info('[auction/host-action] comment queued', {
+      auctionId: input.auctionId,
+      action: input.action,
+      commentId,
+    })
+    return auctionReply(
+      {
+        posted: true,
+        queued: true,
+        commentId,
+        message: `ส่งคอมเมนต์ “${command}” เข้าไลฟ์แล้ว กำลังประมวลผลตามลำดับคอมเมนต์`,
+      },
+      202,
+    )
+  } catch (error) {
+    if (posted) {
+      // Graph may already have delivered its webhook. Never publish again on an uncertain enqueue.
+      console.error('[auction/host-action] posted; awaiting Meta webhook', { commentId })
+      return auctionReply(
+        {
+          posted: true,
+          queued: false,
+          commentId,
+          message: 'ส่งคอมเมนต์เข้าไลฟ์แล้ว กำลังรอ Webhook ยืนยันสถานะ กรุณาอย่าส่งคำสั่งเดิมซ้ำ',
+        },
+        202,
+      )
+    }
+    return auctionFailure(error)
+  }
+}

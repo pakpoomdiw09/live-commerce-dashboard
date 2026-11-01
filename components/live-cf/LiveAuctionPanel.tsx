@@ -21,18 +21,22 @@ const statusLabel: Record<string, string> = {
 export function LiveAuctionPanel({
   tenantId,
   bankAccounts,
+  active = true,
 }: {
   tenantId: string
   bankAccounts: { id: string; bank_code: string; account_number: string }[]
+  active?: boolean
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ auctions: [], bids: [], deliveries: [] })
   const [selectedId, setSelectedId] = useState('')
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const requestVersion = useRef(0)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(true)
   const [draft, setDraft] = useState({
     itemName: '',
     livePostId: '',
@@ -57,6 +61,7 @@ export function LiveAuctionPanel({
         if (!signal?.aborted && version === requestVersion.current) {
           setSnapshot(data)
           setLoadError('')
+          setLastUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }))
         }
       } catch (cause) {
         if (!signal?.aborted && version === requestVersion.current)
@@ -69,23 +74,37 @@ export function LiveAuctionPanel({
   )
 
   useEffect(() => {
+    if (!active) return
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout>
+    let polling = false
     const poll = async () => {
+      if (polling) return
+      polling = true
       if (!document.hidden) await refresh(controller.signal)
+      polling = false
       if (!controller.signal.aborted) timer = setTimeout(poll, 3000)
     }
     void poll()
+    const onVisible = () => {
+      if (!document.hidden) {
+        clearTimeout(timer)
+        void poll()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       controller.abort()
       clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [refresh])
+  }, [refresh, active])
 
   const auction = snapshot.auctions.find((a) => a.id === selectedId) ?? snapshot.auctions[0]
   async function mutate(path: string, input: Record<string, unknown>) {
     setBusy(true)
     setError('')
+    setNotice('')
     try {
       const response = await fetch(path, {
         method: 'POST',
@@ -94,6 +113,7 @@ export function LiveAuctionPanel({
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'ดำเนินการไม่สำเร็จ')
+      if (typeof data.message === 'string') setNotice(data.message)
       if (data.id) {
         setSelectedId(data.id)
         setShowForm(false)
@@ -107,7 +127,7 @@ export function LiveAuctionPanel({
 
   return (
     <section
-      className="mb-8 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
+      className="mb-8 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
       aria-label="ระบบประมูลสด"
     >
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 bg-orange-50/60 p-5">
@@ -116,7 +136,7 @@ export function LiveAuctionPanel({
             <Gavel className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="text-lg font-bold text-slate-900">ประมูลสด</h2>
+            <h1 className="text-lg font-bold text-slate-900">ประมูลสด</h1>
             <p className="text-sm text-slate-500">
               ผู้ขายคุมจังหวะผ่านคอมเมนต์ • ไม่มีเวลานับถอยหลัง
             </p>
@@ -131,9 +151,17 @@ export function LiveAuctionPanel({
         </button>
       </header>
       <div className="space-y-5 p-5">
+        <p className="text-xs text-slate-500" aria-live="polite">
+          อัปเดตอัตโนมัติทุก 3 วินาที{lastUpdated ? ` • ล่าสุด ${lastUpdated}` : ''}
+        </p>
         {(error || loadError) && (
           <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
             {error || loadError}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
+            {notice}
           </p>
         )}
         {showForm && (
@@ -228,7 +256,7 @@ export function LiveAuctionPanel({
               disabled={busy}
               className="rounded-xl bg-orange-500 px-4 py-3 font-semibold text-white disabled:opacity-50"
             >
-              {busy ? 'กำลังบันทึก…' : 'เริ่มประมูลรายการนี้'}
+              {busy ? 'กำลังบันทึก…' : 'เริ่มเปิดประมูลรายการนี้'}
             </button>
           </form>
         )}
@@ -280,17 +308,32 @@ export function LiveAuctionPanel({
                   <Trophy className="h-4 w-4" />
                   {auction.status === 'closed' ? 'ผู้ชนะ' : 'ผู้นำปัจจุบัน'}
                 </p>
-                <p className="mt-2 font-bold">
+                <p className="mt-2 text-xl font-bold" data-auction-leader>
                   {auction.leading_bidder_name ||
                     (auction.leading_bidder_id ? 'ลูกค้า Facebook' : 'รอผู้เปิดประมูล')}
                 </p>
-                <p className="mt-1 text-2xl font-bold text-orange-600">
+                <p
+                  className="mt-2 text-4xl font-bold tabular-nums text-orange-600 md:text-5xl"
+                  data-auction-price
+                >
                   {money(auction.current_price)} <span className="text-sm">บาท</span>
                 </p>
               </div>
               <div className="rounded-xl bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">ผู้ขายนับเคาะ</p>
-                <p className="mt-2 text-3xl font-bold">{auction.host_count || '—'}</p>
+                <p className="mt-2 text-3xl font-bold" data-auction-count>
+                  {auction.host_count || '—'}
+                </p>
+                <div className="mt-3 flex gap-2" aria-label="สถานะนับเคาะ 3 2 1">
+                  {['3', '2', '1'].map((count) => (
+                    <span
+                      key={count}
+                      className={`grid h-9 w-9 place-items-center rounded-lg text-sm font-bold ${auction.host_count === count ? 'bg-orange-500 text-white' : 'bg-white text-slate-400 ring-1 ring-slate-200'}`}
+                    >
+                      {count}
+                    </span>
+                  ))}
+                </div>
                 <p className="mt-2 text-xs text-slate-500">
                   พิมพ์ 3, 2, 1 หรือ เคาะ 1–3 เพื่อนับ
                   <br />
@@ -299,28 +342,56 @@ export function LiveAuctionPanel({
               </div>
             </div>
             {auction.status === 'active' && (
-              <div className="flex flex-wrap gap-3">
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void mutate('/api/live-cf/auction/close', { auctionId: auction.id })
-                  }
-                  className="rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  ปิดประมูลและออกบิล
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void mutate('/api/live-cf/auction/close', {
-                      auctionId: auction.id,
-                      cancel: true,
-                    })
-                  }
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 disabled:opacity-50"
-                >
-                  ยกเลิกรายการนี้
-                </button>
+              <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+                <p className="text-sm font-semibold">คำสั่งผู้ขาย • ส่งคอมเมนต์เข้าไลฟ์โดยตรง</p>
+                <div className="flex flex-wrap gap-3">
+                  {(['3', '2', '1'] as const).map((action) => (
+                    <button
+                      key={action}
+                      data-auction-action={action}
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void mutate('/api/live-cf/auction/host-action', {
+                          auctionId: auction.id,
+                          action,
+                        })
+                      }
+                      className="rounded-xl border border-orange-200 bg-orange-50 px-5 py-2.5 text-sm font-semibold text-orange-700 disabled:opacity-50"
+                    >
+                      นับ {action}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    data-auction-action="close"
+                    disabled={busy}
+                    onClick={() =>
+                      void mutate('/api/live-cf/auction/host-action', {
+                        auctionId: auction.id,
+                        action: 'close',
+                      })
+                    }
+                    className="rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    ปิดประมูล (❌)
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      void mutate('/api/live-cf/auction/close', {
+                        auctionId: auction.id,
+                        cancel: true,
+                      })
+                    }
+                    className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 disabled:opacity-50"
+                  >
+                    ยกเลิกรายการนี้
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  สถานะการนับและผลปิดจะอัปเดตเมื่อระบบประมวลผลคอมเมนต์ตามลำดับในคิว
+                </p>
               </div>
             )}
             {snapshot.deliveries.length > 0 && (
@@ -342,7 +413,7 @@ export function LiveAuctionPanel({
               </div>
             )}
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full min-w-[560px] text-left text-sm">
                 <caption className="mb-3 text-left font-semibold">ประวัติการเคาะล่าสุด</caption>
                 <thead>
                   <tr className="border-b text-xs text-slate-400">

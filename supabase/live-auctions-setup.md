@@ -11,6 +11,19 @@ The existing Facebook webhook worker cron also drains pending auction bills.
 
 Only the linked Page and the Facebook IDs explicitly entered by the owner can
 control an auction through comments. Dashboard access requires tenant owner access.
+At `/live-cf`, use the visible CF/Auction tabs; `/live-cf?mode=auction` opens the
+auction controls directly. The opening form remains visible even when the auction
+API reports missing setup or insufficient permissions. Live prices, leaders,
+host counts and comment history poll every three seconds while the auction tab is
+active, and refresh when returning to the browser tab.
+
+Dashboard shortcuts send `3`, `2`, `1` or `❌` to the configured live video's
+comments using the connected Page token. The server enqueues the confirmed Meta
+comment in the same ordered queue as customer bids, and deduplicates Meta's later
+webhook by comment ID. The shortcut cannot close the auction when publication
+cannot be confirmed. For a send timeout, check the live video before trying again.
+This UI update uses the existing auction and Facebook queue schema.
+
 `เคาะ 3` records the count; only an explicit close command (`ปิด`, `x`, `❌`, etc.)
 or the dashboard close button finalizes the sale. There is no countdown timer.
 
