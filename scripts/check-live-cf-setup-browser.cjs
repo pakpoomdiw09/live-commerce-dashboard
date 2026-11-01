@@ -205,11 +205,60 @@ compiler.init()
     await resize(1440)
     await call('Page.navigate', { url: address })
     await wait(`!!document.querySelector('input[aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"]')`)
+    const productSelect = 'select[aria-label="สินค้าจากร้านค้า / เซลเพจ"]'
+    const assertNoProductSelected = async () => {
+      assert.equal(
+        await evaluate(`document.querySelector(${JSON.stringify(productSelect)}).value`),
+        '',
+      )
+      assert.equal(
+        await evaluate(
+          `document.querySelector(${JSON.stringify(productSelect)}).selectedOptions[0].textContent`,
+        ),
+        'เลือกสินค้า',
+      )
+      assert.equal(
+        await evaluate(
+          `document.querySelector(${JSON.stringify(productSelect)}).closest('section').querySelector('img') === null`,
+        ),
+        true,
+      )
+      assert.equal(await evaluate(`document.querySelector('aside img') === null`), true)
+      assert.equal(
+        await evaluate(
+          `document.querySelector('aside').textContent.includes('กรุณาเลือกสินค้าเพื่อดูสรุป')`,
+        ),
+        true,
+      )
+    }
+    await assertNoProductSelected()
+    assert.equal(
+      await evaluate(
+        `Array.from(document.querySelectorAll('h2')).some(h=>h.textContent.includes('กำหนดคีย์เวิร์ดดูดออเดอร์ (Keywords)'))`,
+      ),
+      true,
+    )
+    await fill(productSelect, '33333333-3333-4333-8333-333333333333')
     assert.equal(
       await evaluate(`document.querySelector('aside').textContent.includes('159.00')`),
       true,
     )
     assert.equal(await evaluate(`document.querySelector('aside img').complete`), true)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('aside dl').textContent.includes('คีย์เวิร์ดคำสั่งซื้อ')`,
+      ),
+      true,
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('aside dl').textContent.includes('ตรวจจับที่มีคีย์เวิร์ด (Contains)')`,
+      ),
+      true,
+    )
+    await fill(productSelect, '')
+    await assertNoProductSelected()
+    await fill(productSelect, '33333333-3333-4333-8333-333333333333')
     const link = 'input[aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"]'
     await evaluate(
       `(()=>{const data=new DataTransfer();data.setData('text','https://www.facebook.com/shop/videos/123456789012345678/');document.querySelector(${JSON.stringify(link)}).dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));})()`,
@@ -339,6 +388,16 @@ compiler.init()
     await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', 'รับ 159')
     await evaluate(`document.querySelector('input[name="matchMode"][value="strict"]').click()`)
     await pause()
+    assert.equal(
+      await evaluate(
+        `document.querySelector('aside dl').textContent.includes('ตรงตามคีย์เวิร์ด (Exact Match)')`,
+      ),
+      true,
+    )
+    assert.equal(
+      await evaluate(`document.body.textContent.includes('พิมพ์ติดคำอื่นก็ดูดได้')`),
+      false,
+    )
     assert.equal(
       await evaluate(`document.body.textContent.includes('ไม่สร้างออเดอร์ — ข้อความไม่ตรง')`),
       true,
@@ -563,6 +622,13 @@ compiler.init()
     await call('Page.navigate', { url: address + '/?aliases=1' })
     await wait(
       `document.querySelectorAll('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"] button').length===3`,
+    )
+    await assertNoProductSelected()
+    await click('หยุดชั่วคราว')
+    assert.equal(await evaluate(`liveCfTest.requests.some(r=>r.url==='/api/live-cf/setup')`), false)
+    assert.equal(
+      await evaluate(`document.body.textContent.includes('กรุณาเลือกสินค้าก่อนเปลี่ยนสถานะระบบ')`),
+      true,
     )
     for (const code of ['a1', '159', 'จอง'])
       assert.equal(

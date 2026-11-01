@@ -141,10 +141,7 @@ export function LiveCfSetup({
   const [liveLinkTouched, setLiveLinkTouched] = useState(false)
   const parsedLiveId = extractFacebookLiveId(livePostId)
   const liveLinkError = liveLinkTouched && parsedLiveId === null
-  const [productId, setProductId] = useState(initialRule?.live_product_id ?? products[0]?.id ?? '')
-  const initialProduct = products.find(
-    (item) => item.id === (initialRule?.live_product_id ?? products[0]?.id),
-  )
+  const [productId, setProductId] = useState('')
   const [codes, setCodes] = useState<string[]>(() => [...(initialRule?.keywords ?? [])])
   const [codeDraft, setCodeDraft] = useState('')
   const [codeError, setCodeError] = useState<string | null>(null)
@@ -153,21 +150,14 @@ export function LiveCfSetup({
     (initialRule as CommentRule & { match_mode?: 'flexible' | 'strict' })?.match_mode ??
       (initialRule?.match_type === 'exact' ? 'strict' : 'flexible'),
   )
-  const [stockLimit, setStockLimit] = useState(
-    initialRule?.live_stock_limit ?? Math.max(1, Math.min(initialProduct?.stock ?? 5, 5)),
-  )
+  const [stockLimit, setStockLimit] = useState(initialRule?.live_stock_limit ?? 5)
   const [deductStock, setDeductStock] = useState(initialRule?.live_deduct_stock ?? true)
   const [privateReply, setPrivateReply] = useState(initialRule?.inbox_enabled ?? true)
   const [publicReply, setPublicReply] = useState(initialRule?.reply_enabled ?? true)
   const [privateText, setPrivateText] = useState(
     initialRule?.inbox_text != null
       ? displayLiveReplyTemplate(initialRule.inbox_text)
-      : generateDefaultPrivateText(
-          initialProduct?.name,
-          initialProduct?.price,
-          null,
-          !!initialProduct?.variants.length,
-        ),
+      : generateDefaultPrivateText(),
   )
   const [publicText, setPublicText] = useState(
     initialRule?.reply_text ?? 'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดในข้อความส่วนตัว',
@@ -332,6 +322,7 @@ export function LiveCfSetup({
 
   async function toggleActive(nextActive: boolean) {
     if (!id) return
+    if (!product) return setNotice('กรุณาเลือกสินค้าก่อนเปลี่ยนสถานะระบบ')
     if (nextActive && product?.is_active === false)
       return setNotice('สินค้านี้ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์')
     setLiveLinkTouched(true)
@@ -590,9 +581,9 @@ export function LiveCfSetup({
             )}
           </div>
 
-          {/* สเต็ป 2: กำหนดรหัส CF */}
+          {/* สเต็ป 2: กำหนดคีย์เวิร์ด */}
           <div className="space-y-4 p-5 md:p-6">
-            <StepTitle number={2}>ตั้งรหัสสั่งซื้อ / รหัสจองสินค้า</StepTitle>
+            <StepTitle number={2}>กำหนดคีย์เวิร์ดดูดออเดอร์ (Keywords)</StepTitle>
 
             {/* โหมดการตรวจจับรหัส (Match Mode) */}
             <div className="space-y-2">
@@ -986,13 +977,13 @@ export function LiveCfSetup({
                 </div>
                 <dl className="mt-4 divide-y divide-slate-100 border-t border-slate-200 text-sm">
                   {[
-                    ['รหัสสั่งซื้อ / รหัสจอง', previewCodes.join(', ') || '—'],
+                    ['คีย์เวิร์ดคำสั่งซื้อ', previewCodes.join(', ') || '—'],
                     ['สต็อกคงเหลือ', `${selectedStock} ชิ้น`],
                     [
-                      'รูปแบบการพิมพ์จอง',
+                      'รูปแบบการตรวจจับ',
                       matchMode === 'strict'
-                        ? 'ต้องพิมพ์รหัสเป๊ะๆ เท่านั้น'
-                        : 'พิมพ์ติดคำอื่นก็ดูดได้',
+                        ? 'ตรงตามคีย์เวิร์ด (Exact Match)'
+                        : 'ตรวจจับที่มีคีย์เวิร์ด (Contains)',
                     ],
                     ['เปิดจอง', `${stockLimit} ชิ้น`],
                     ['ตัดสต็อกอัตโนมัติ', deductStock ? 'เปิด' : 'ปิด'],
