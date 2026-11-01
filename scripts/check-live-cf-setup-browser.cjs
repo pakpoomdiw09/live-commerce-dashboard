@@ -234,6 +234,12 @@ compiler.init()
     await assertNoProductSelected()
     assert.equal(
       await evaluate(
+        `document.querySelectorAll('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"] button').length`,
+      ),
+      0,
+    )
+    assert.equal(
+      await evaluate(
         `Array.from(document.querySelectorAll('h2')).some(h=>h.textContent.includes('กำหนดคีย์เวิร์ดดูดออเดอร์ (Keywords)'))`,
       ),
       true,
@@ -260,6 +266,18 @@ compiler.init()
     await assertNoProductSelected()
     await fill(productSelect, '33333333-3333-4333-8333-333333333333')
     const link = 'input[aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"]'
+    assert.equal(
+      await evaluate(`!!document.querySelector('button[aria-label="ลบรหัส 159"]')`),
+      true,
+      'Selecting a product automatically supplies its SKU',
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="ตัวอย่างคำสั่งซื้อ"]').textContent.includes('รับ 159')`,
+      ),
+      true,
+    )
+    await evaluate(`document.querySelector('button[aria-label="ลบรหัส 159"]').click()`)
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).readOnly`), true)
     await evaluate('liveCfTest.liveFailure=true')
     await click('เลือกจากไลฟ์สดปัจจุบัน')
@@ -843,6 +861,158 @@ compiler.init()
       assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true)
       await screenshot('payment-' + width)
     }
+    await call('Page.navigate', { url: address + '/?editing=1' })
+    await wait('!!document.querySelector(' + JSON.stringify(productSelect) + ')')
+    await assertNoProductSelected()
+    await fill(productSelect, '33333333-3333-4333-8333-333333333333')
+    await enterCode('CUSTOM')
+    await fill(productSelect, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"]').textContent.trim()`,
+      ),
+      '01',
+      'SKU takes precedence over code and replaces prior aliases',
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="ตัวอย่างคำสั่งซื้อ"]').textContent.includes('รับ 01')`,
+      ),
+      true,
+    )
+    await fill(productSelect, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+    assert.equal(
+      await evaluate(
+        `document.querySelectorAll('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"] button').length`,
+      ),
+      0,
+      'Products without a code leave keywords empty',
+    )
+    await fill(productSelect, '33333333-3333-4333-8333-333333333333')
+    await evaluate('liveCfTest.detailFailure=true')
+    await click('แก้ไขสินค้านี้')
+    await wait(`document.querySelector('dialog')?.textContent.includes('ลองโหลดสินค้าใหม่')`)
+    assert.equal(
+      await evaluate(`document.querySelector('dialog button[type="submit"]').disabled`),
+      true,
+    )
+    await evaluate('liveCfTest.detailFailure=false')
+    await click('ลองโหลดสินค้าใหม่')
+    await wait(`document.querySelector('dialog input[name="variant_stock_0"]')?.value==='3'`)
+    assert.equal(
+      await evaluate(`document.querySelector('dialog h2').textContent.trim()`),
+      'แก้ไขข้อมูลสินค้า',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="cf_code"]').value`),
+      '159',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog select[name="category_id"]').value`),
+      '77777777-7777-4777-8777-777777777777',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog textarea[name="description"]').value`),
+      'รายละเอียดเดิม',
+    )
+    assert.equal(await evaluate(`document.querySelectorAll('dialog img').length`), 2)
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="option_name_0"]').value`),
+      'สี',
+    )
+    const fillEdit = async () => {
+      await fill('dialog input[name="cf_code"]', 'EDIT1')
+      await fill('dialog input[name="name"]', 'เสื้อยืดแก้ไขแล้ว')
+      await fill('dialog input[name="price"]', '189.50')
+      await fill('dialog input[name="variant_price_0"]', '219.50')
+      await fill('dialog input[name="variant_stock_0"]', '4')
+    }
+    await fillEdit()
+    await evaluate('liveCfTest.editStale=true')
+    await click('บันทึกการแก้ไข')
+    await wait(`document.querySelector('dialog')?.textContent.includes('โหลดข้อมูลสินค้าล่าสุด')`)
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="name"]').value`),
+      'เสื้อยืดแก้ไขแล้ว',
+    )
+    await evaluate('liveCfTest.editStale=false')
+    await click('โหลดข้อมูลสินค้าล่าสุด')
+    await wait(`document.querySelector('dialog input[name="cf_code"]')?.value==='159'`)
+    await fillEdit()
+    for (const width of [375, 768, 1440]) {
+      await resize(width)
+      await pause()
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true)
+      await screenshot('edit-modal-' + width)
+    }
+    await click('บันทึกการแก้ไข')
+    await wait(`!document.querySelector('dialog')`)
+    const edited = await evaluate(
+      `liveCfTest.requests.filter(r=>r.url==='/api/commerce'&&r.body.id).at(-1).body`,
+    )
+    assert.equal(edited.id, '33333333-3333-4333-8333-333333333333')
+    assert.equal(edited.version, 8, 'Reload uses the current version after a stock conflict')
+    assert.equal(edited.value.cost, 65)
+    assert.equal(edited.value.compare_price, 399)
+    assert.equal(edited.value.featured, true)
+    assert.equal(edited.value.stock, 9)
+    assert.deepEqual(edited.value.images, [
+      'https://storage.example/one.webp',
+      'https://storage.example/two.webp',
+    ])
+    assert.deepEqual(
+      edited.value.variants.map((v) => v.id),
+      ['88888888-8888-4888-8888-888888888888', '99999999-9999-4999-8999-999999999999'],
+    )
+    assert.deepEqual(
+      edited.value.variants.map((v) => v.variant_code),
+      ['WHITE', 'BLACK'],
+    )
+    assert.equal(await evaluate('liveCfTest.refreshes'), 0)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('aside').textContent.includes('เสื้อยืดแก้ไขแล้ว')&&document.querySelector('aside').textContent.includes('189.50')`,
+      ),
+      true,
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelectorAll('select[aria-label="สินค้าจากร้านค้า / เซลเพจ"] option[value="33333333-3333-4333-8333-333333333333"]').length`,
+      ),
+      1,
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('button[aria-label="ลบรหัส EDIT1"]')!==null`),
+      true,
+    )
+    await fill(productSelect, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+    await fill(productSelect, '33333333-3333-4333-8333-333333333333')
+    assert.equal(
+      await evaluate(`document.querySelector('button[aria-label="ลบรหัส EDIT1"]')!==null`),
+      true,
+      'Switching back uses the edited SKU',
+    )
+    await evaluate(`document.querySelector('button[aria-label="ลบรหัส EDIT1"]').click()`)
+    await enterCode('CUSTOM')
+    await click('แก้ไขสินค้านี้')
+    await wait(
+      `document.querySelector('dialog input[name="cf_code"]')?.value==='EDIT1'&&!document.querySelector('dialog button[type="submit"]').disabled`,
+    )
+    await fill('dialog input[name="name"]', 'สินค้าแก้ไขรอบสอง')
+    await click('บันทึกการแก้ไข')
+    await wait(`!document.querySelector('dialog')`)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"]').textContent.trim()`,
+      ),
+      'CUSTOM',
+      'Editing an unchanged SKU preserves manual aliases',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('aside').textContent.includes('สินค้าแก้ไขรอบสอง')`),
+      true,
+    )
+    assert.equal(await evaluate('liveCfTest.refreshes'), 0)
     assert.deepEqual(errors, [])
     console.log(
       'PASS: Minimal product modal, option groups, optional prices/stock, compact images, automatic flags, Live CF tags, and customer variant confirmation before payment at 375/768/1440px. Offline APIs only.',

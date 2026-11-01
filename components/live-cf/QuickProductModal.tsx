@@ -7,9 +7,14 @@ import type { LiveProductOption } from '@/lib/features/comments/comment-rules'
 import { categoryOptions, isUuid, safeImage } from '@/lib/features/commerce/commerce-core'
 import { quickLiveProduct } from '@/lib/features/commerce/live-cf-setup'
 import {
+  restoreProductOptions,
+  type QuickProductDetails,
+} from '@/lib/features/commerce/quick-product'
+import {
   productCombinations,
   resolveProductVariants,
   type ProductOptionGroup,
+  type ProductCombination,
   type ProductVariantOverride,
 } from '@/lib/features/commerce/product-options'
 
@@ -47,12 +52,14 @@ function appendValues(group: ProductOptionGroup): ProductOptionGroup {
 export function QuickProductModal({
   tenantId,
   salesPageUrl,
-  onCreated,
+  initialData = null,
+  onSaved,
   onDismiss,
 }: {
   tenantId: string
   salesPageUrl: string | null
-  onCreated: (product: LiveProductOption) => void
+  initialData?: LiveProductOption | null
+  onSaved: (product: LiveProductOption) => void
   onDismiss: () => void
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -60,6 +67,11 @@ export function QuickProductModal({
   const savingRef = useRef(false),
     uploadingRef = useRef(false)
   const variantIds = useRef(new Map<string, string>())
+  const [loaded, setLoaded] = useState<QuickProductDetails | null>(null)
+  const [detailsReady, setDetailsReady] = useState(!initialData)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [detailAttempt, setDetailAttempt] = useState(0)
+  const [needsReload, setNeedsReload] = useState(false)
   const [saving, setSaving] = useState(false),
     [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -68,25 +80,27 @@ export function QuickProductModal({
   const [categoryError, setCategoryError] = useState<string | null>(null)
   const [categoryAttempt, setCategoryAttempt] = useState(0)
   const [draft, setDraft] = useState<Draft>({
-    name: '',
-    cf_code: '',
+    name: initialData?.name ?? '',
+    cf_code: initialData?.code ?? '',
     category_id: '',
-    price: '',
-    stock: '0',
-    description: '',
-    images: [],
+    price: initialData ? String(initialData.price) : '',
+    stock: String(initialData?.stock ?? 0),
+    description: initialData?.description ?? '',
+    images: initialData?.images ?? (initialData?.image_url ? [initialData.image_url] : []),
   })
   const [groups, setGroups] = useState<ProductOptionGroup[]>([])
+  const [legacyVariants, setLegacyVariants] = useState<ProductCombination[]>([])
   const [overrides, setOverrides] = useState<Record<string, ProductVariantOverride>>({})
   const busy = saving || uploading
+  const formDisabled = busy || !detailsReady
   const options = categoryOptions(categories)
   const combinations = useMemo(() => {
     try {
-      return productCombinations(groups)
+      return legacyVariants.length ? legacyVariants : productCombinations(groups)
     } catch {
       return []
     }
-  }, [groups])
+  }, [groups, legacyVariants])
   const preview = useMemo(() => {
     try {
       return resolveProductVariants(
@@ -125,6 +139,56 @@ export function QuickProductModal({
       document.body.style.overflow = previousOverflow
     }
   }, [])
+
+  useEffect(() => {
+    if (!initialData) return
+    const controller = new AbortController()
+    setDetailsReady(false)
+    setDetailError(null)
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/commerce/products/${encodeURIComponent(initialData.id)}?tenantId=${encodeURIComponent(tenantId)}`,
+          { signal: controller.signal, cache: 'no-store' },
+        )
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error ?? 'โหลดข้อมูลสินค้าไม่สำเร็จ')
+        const product = result.product as QuickProductDetails
+        if (
+          !product ||
+          product.id !== initialData.id ||
+          !Number.isSafeInteger(product.version) ||
+          !Array.isArray(product.variants) ||
+          !Array.isArray(product.images)
+        )
+          throw new Error('ข้อมูลสินค้าไม่สมบูรณ์ กรุณาลองใหม่')
+        const restored = restoreProductOptions(product.variants)
+        if (!controller.signal.aborted) {
+          setLoaded(product)
+          setDraft({
+            name: product.name,
+            cf_code: product.code,
+            category_id: product.category_id ?? '',
+            price: String(product.price),
+            stock: String(product.stock),
+            description: product.description,
+            images: product.images,
+          })
+          setGroups(restored.groups)
+          setLegacyVariants(restored.legacy)
+          setOverrides(restored.overrides)
+          variantIds.current = new Map(restored.ids)
+          setDetailsReady(true)
+          setNeedsReload(false)
+          setError(null)
+        }
+      } catch (failure) {
+        if (!controller.signal.aborted)
+          setDetailError(failure instanceof Error ? failure.message : 'โหลดข้อมูลสินค้าไม่สำเร็จ')
+      }
+    })()
+    return () => controller.abort()
+  }, [initialData, tenantId, detailAttempt])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -210,11 +274,11 @@ export function QuickProductModal({
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (savingRef.current || uploadingRef.current || !categoriesReady) return
+    if (savingRef.current || uploadingRef.current || !categoriesReady || !detailsReady) return
     setError(null)
     try {
       const finalGroups = groups.map((group) => (group.draft.trim() ? appendValues(group) : group))
-      const rows = productCombinations(finalGroups)
+      const rows = legacyVariants.length ? legacyVariants : productCombinations(finalGroups)
       const supplied = Object.fromEntries(
         rows.map((row) => {
           if (!variantIds.current.has(row.key)) variantIds.current.set(row.key, crypto.randomUUID())
@@ -230,9 +294,18 @@ export function QuickProductModal({
       )
       const value = quickLiveProduct({
         ...draft,
-        variants: resolveProductVariants(draft.price, draft.stock, rows, supplied),
-        is_active: true,
-        featured: false,
+        variants: resolveProductVariants(draft.price, draft.stock, rows, supplied).map(
+          (variant) => ({
+            ...variant,
+            variant_code:
+              loaded?.variants.find((old) => old.id === variant.id)?.variant_code ??
+              variant.variant_code,
+          }),
+        ),
+        is_active: loaded?.is_active ?? true,
+        featured: loaded?.featured ?? false,
+        cost: loaded?.cost,
+        compare_price: loaded?.compare_price,
       })
       setGroups(finalGroups)
       savingRef.current = true
@@ -240,26 +313,42 @@ export function QuickProductModal({
       const response = await fetch('/api/commerce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, action: 'product', value }),
+        body: JSON.stringify({
+          tenantId,
+          action: 'product',
+          value,
+          ...(initialData ? { id: initialData.id, version: loaded!.version } : {}),
+        }),
       })
       const result = await response.json()
-      if (!response.ok) throw new Error(result.error ?? 'เพิ่มสินค้าไม่สำเร็จ กรุณาลองใหม่')
+      if (!response.ok) {
+        setNeedsReload(
+          !!initialData &&
+            response.status === 409 &&
+            String(result.error).includes('ข้อมูลเปลี่ยน'),
+        )
+        throw new Error(result.error ?? 'บันทึกสินค้าไม่สำเร็จ กรุณาลองใหม่')
+      }
       if (!isUuid(result.id))
         throw new Error('ไม่ได้รับรหัสสินค้าที่บันทึก กรุณาตรวจสอบรายการในหน้าร้านค้า')
-      onCreated({
+      if (initialData && result.id !== initialData.id)
+        throw new Error('รหัสสินค้าที่บันทึกไม่ตรงกัน กรุณาโหลดข้อมูลใหม่')
+      onSaved({
         id: result.id,
         name: value.name,
         code: value.code,
+        sku: value.code,
         price: value.price,
         stock: value.stock,
         image_url: value.images[0] ?? null,
+        images: value.images,
         description: value.description || null,
-        is_active: true,
-        sales_page_url: salesPageUrl,
+        is_active: value.is_active,
+        sales_page_url: initialData?.sales_page_url ?? salesPageUrl,
         variants: value.variants,
       })
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'เพิ่มสินค้าไม่สำเร็จ กรุณาลองใหม่')
+      setError(failure instanceof Error ? failure.message : 'บันทึกสินค้าไม่สำเร็จ กรุณาลองใหม่')
     } finally {
       savingRef.current = false
       setSaving(false)
@@ -281,24 +370,43 @@ export function QuickProductModal({
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:px-7">
           <div>
             <h2 id="quick-product-title" className="text-xl font-semibold tracking-tight">
-              เพิ่มสินค้า
+              {initialData ? 'แก้ไขข้อมูลสินค้า' : 'เพิ่มสินค้า'}
             </h2>
             <p id="quick-product-description" className="mt-1 text-sm text-slate-500">
-              เพิ่มข้อมูลสินค้า รูปภาพ และตัวเลือกสำหรับร้านค้า
+              {initialData
+                ? 'ปรับปรุงข้อมูล รูปภาพ และตัวเลือกสินค้า'
+                : 'เพิ่มข้อมูลสินค้า รูปภาพ และตัวเลือกสำหรับร้านค้า'}
             </p>
           </div>
           <button
             type="button"
             disabled={busy}
             onClick={onDismiss}
-            aria-label="ปิดหน้าต่างเพิ่มสินค้า"
+            aria-label={initialData ? 'ปิดหน้าต่างแก้ไขสินค้า' : 'ปิดหน้าต่างเพิ่มสินค้า'}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-40"
           >
             <X className="h-5 w-5" />
           </button>
         </header>
         <div className="min-h-0 space-y-7 overflow-y-auto px-5 py-6 sm:px-7">
-          <fieldset disabled={busy} className="grid min-w-0 gap-x-5 gap-y-5 sm:grid-cols-2">
+          {!detailsReady && (
+            <div
+              role={detailError ? 'alert' : 'status'}
+              className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600"
+            >
+              {detailError ?? 'กำลังโหลดข้อมูลสินค้าล่าสุด...'}
+              {detailError && (
+                <button
+                  type="button"
+                  onClick={() => setDetailAttempt((attempt) => attempt + 1)}
+                  className="ml-2 font-semibold text-orange-600 underline"
+                >
+                  ลองโหลดสินค้าใหม่
+                </button>
+              )}
+            </div>
+          )}
+          <fieldset disabled={formDisabled} className="grid min-w-0 gap-x-5 gap-y-5 sm:grid-cols-2">
             <label className="block text-sm font-medium sm:col-span-2">
               ชื่อสินค้า <span className="text-red-500">*</span>
               <input
@@ -417,27 +525,37 @@ export function QuickProductModal({
           <ProductImageGrid
             compact
             images={draft.images}
-            disabled={busy}
+            disabled={formDisabled}
             upload={upload}
             onChange={(images) => change('images', images)}
           />
 
-          <fieldset disabled={busy} className="min-w-0 space-y-4 border-t border-slate-100 pt-6">
+          <fieldset
+            disabled={formDisabled}
+            className="min-w-0 space-y-4 border-t border-slate-100 pt-6"
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold">ตัวเลือกสินค้า</h3>
                 <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                  เช่น สี ขนาด ไซส์ เพิ่มได้ 2 กลุ่ม และรวมไม่เกิน 40 แบบ
+                  {legacyVariants.length
+                    ? 'แก้ไขชื่อ ราคา และสต็อกของตัวเลือกเดิม'
+                    : 'เช่น สี ขนาด ไซส์ เพิ่มได้ 2 กลุ่ม และรวมไม่เกิน 40 แบบ'}
                 </p>
               </div>
               <button
                 type="button"
-                disabled={groups.length >= 2}
+                disabled={legacyVariants.length ? legacyVariants.length >= 40 : groups.length >= 2}
                 onClick={() =>
-                  setGroups((current) => [
-                    ...current,
-                    { id: crypto.randomUUID(), name: '', values: [], draft: '' },
-                  ])
+                  legacyVariants.length
+                    ? setLegacyVariants((current) => [
+                        ...current,
+                        { key: crypto.randomUUID(), label: '' },
+                      ])
+                    : setGroups((current) => [
+                        ...current,
+                        { id: crypto.randomUUID(), name: '', values: [], draft: '' },
+                      ])
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-40"
               >
@@ -558,7 +676,43 @@ export function QuickProductModal({
                       key={row.key}
                       className="grid min-w-0 gap-3 p-3 sm:grid-cols-[1.3fr_1fr_1fr] sm:items-center"
                     >
-                      <p className="break-words text-sm text-slate-700">{row.label}</p>
+                      {legacyVariants.length ? (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <label className="min-w-0 flex-1 text-xs text-slate-500">
+                            ชื่อตัวเลือก
+                            <input
+                              name={`variant_label_${index}`}
+                              required
+                              maxLength={80}
+                              value={row.label}
+                              onChange={(event) =>
+                                setLegacyVariants((current) =>
+                                  current.map((item) =>
+                                    item.key === row.key
+                                      ? { ...item, label: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              className={field}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            aria-label={`ลบตัวเลือกที่ ${index + 1}`}
+                            onClick={() =>
+                              setLegacyVariants((current) =>
+                                current.filter((item) => item.key !== row.key),
+                              )
+                            }
+                            className="rounded p-2 text-slate-400 hover:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="break-words text-sm text-slate-700">{row.label}</p>
+                      )}
                       <label className="min-w-0 text-xs text-slate-500">
                         ราคา (บาท)
                         <input
@@ -607,6 +761,16 @@ export function QuickProductModal({
               {error}
             </p>
           )}
+          {needsReload && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setDetailAttempt((attempt) => attempt + 1)}
+              className="text-sm font-semibold text-orange-600 underline"
+            >
+              โหลดข้อมูลสินค้าล่าสุด
+            </button>
+          )}
           <button
             type="button"
             disabled={busy}
@@ -617,11 +781,17 @@ export function QuickProductModal({
           </button>
           <button
             type="submit"
-            disabled={busy || !categoriesReady}
+            disabled={formDisabled || !categoriesReady}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy && <LoaderCircle className="h-4 w-4 animate-spin" />}
-            {saving ? 'กำลังบันทึก...' : uploading ? 'กำลังอัปโหลด...' : 'บันทึกและเลือกสินค้านี้'}
+            {saving
+              ? 'กำลังบันทึก...'
+              : uploading
+                ? 'กำลังอัปโหลด...'
+                : initialData
+                  ? 'บันทึกการแก้ไข'
+                  : 'บันทึกและเลือกสินค้านี้'}
           </button>
         </footer>
       </form>

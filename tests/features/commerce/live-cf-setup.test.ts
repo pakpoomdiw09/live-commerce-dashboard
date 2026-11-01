@@ -250,6 +250,90 @@ test('all saved aliases route real live comments to the same product and retain 
   }
 })
 
+test('quick product edits update the existing row and variants and reject inventory changes made after loading', async () => {
+  const db = await database()
+  try {
+    const variantId = '88888888-8888-4888-8888-888888888888'
+    const value = quickLiveProduct({
+      name: 'เสื้อ',
+      cf_code: 'EDIT1',
+      price: '159',
+      stock: '3',
+      images: ['https://cdn.example/one.webp', 'https://cdn.example/two.webp'],
+      cost: 50,
+      compare_price: 299,
+      featured: true,
+      variants: [
+        { id: variantId, label: 'สี: ขาว', variant_code: 'WHITE', price: '199', stock: '3' },
+      ],
+    })
+    const created = (
+      await db.query<{ id: string }>('select commerce_save_product($1,$2,null,$3::jsonb) id', [
+        tenant,
+        actor,
+        JSON.stringify(value),
+      ])
+    ).rows[0].id
+    const version = (
+      await db.query<{ commerce_version: number }>(
+        'select commerce_version from products where id=$1',
+        [created],
+      )
+    ).rows[0].commerce_version
+    const updated = {
+      ...value,
+      name: 'เสื้อแก้ไข',
+      code: 'EDIT2',
+      stock: 4,
+      variants: [{ ...value.variants[0], stock: 4, price: 219 }],
+    }
+    const saved = await db.query<{ id: string }>(
+      'select commerce_save_product($1,$2,$3,$4::jsonb,$5) id',
+      [tenant, actor, created, JSON.stringify(updated), version],
+    )
+    assert.equal(saved.rows[0].id, created)
+    assert.equal(
+      (
+        await db.query<{ n: number }>(
+          "select count(*)::int n from products where code in ('EDIT1','EDIT2')",
+        )
+      ).rows[0].n,
+      1,
+    )
+    const row = (await db.query<any>('select * from products where id=$1', [created])).rows[0]
+    assert.equal(row.name, 'เสื้อแก้ไข')
+    assert.equal(Number(row.commerce_cost), 50)
+    assert.equal(Number(row.commerce_compare_price), 299)
+    assert.equal(row.commerce_featured, true)
+    assert.deepEqual(row.commerce_images, value.images)
+    const variant = (
+      await db.query<any>('select * from commerce_variants where product_id=$1 and is_active', [
+        created,
+      ])
+    ).rows[0]
+    assert.equal(variant.id, variantId)
+    assert.equal(variant.variant_code, 'WHITE')
+    assert.equal(variant.stock, 4)
+    await db.query('update products set stock=stock-1 where id=$1', [created])
+    await assert.rejects(
+      db.query('select commerce_save_product($1,$2,$3,$4::jsonb,$5)', [
+        tenant,
+        actor,
+        created,
+        JSON.stringify(updated),
+        row.commerce_version,
+      ]),
+      /COMMERCE_CHANGED/,
+    )
+    assert.equal(
+      (await db.query<any>('select stock from products where id=$1', [created])).rows[0].stock,
+      3,
+    )
+  } finally {
+    await db.close()
+  }
+})
+
 async function deferredFixture(db: PGlite) {
   const product = (await db.query<{ id: string }>('select id from products limit 1')).rows[0].id
   const variants = (

@@ -18,6 +18,7 @@ import {
   Link2,
   Minus,
   Package,
+  Pencil,
   Play,
   Plus,
   Radio,
@@ -128,14 +129,15 @@ export function LiveCfSetup({
   salesPageUrl?: string | null
 }) {
   const router = useRouter()
-  const [createdProducts, setCreatedProducts] = useState<LiveProductOption[]>([])
+  const [savedProducts, setSavedProducts] = useState<LiveProductOption[]>([])
   const [showProductModal, setShowProductModal] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<LiveProductOption | null>(null)
   const productOptions = useMemo(
     () => [
-      ...products,
-      ...createdProducts.filter((item) => !products.some((row) => row.id === item.id)),
+      ...products.map((item) => savedProducts.find((saved) => saved.id === item.id) ?? item),
+      ...savedProducts.filter((item) => !products.some((row) => row.id === item.id)),
     ],
-    [products, createdProducts],
+    [products, savedProducts],
   )
   const [id, setId] = useState(initialRule?.id ?? null)
   const [pageId, setPageId] = useState(initialRule?.page_ids[0] ?? pages[0]?.id ?? '')
@@ -211,13 +213,23 @@ export function LiveCfSetup({
     setLivePostId(value)
   }
 
-  function selectProduct(next: LiveProductOption | undefined, useEnteredProductCode = false) {
+  function syncProductKeywords(next: LiveProductOption | undefined) {
+    const sku = next?.sku?.trim() || next?.code?.trim()
+    try {
+      setCodes(sku ? parseLiveCfCodes([sku]) : [])
+      setCodeError(null)
+    } catch {
+      setCodes([])
+      setCodeError('รหัสสินค้านี้ใช้เป็นคีย์เวิร์ดไม่ได้ กรุณากำหนดคีย์เวิร์ดด้วยตนเอง')
+    }
+    setCodeDraft('')
+    setTestText('')
+  }
+
+  function selectProduct(next: LiveProductOption | undefined) {
     setProductId(next?.id ?? '')
     setStockLimit(Math.max(1, Math.min(next?.stock ?? 1, 5)))
-    setCodes(useEnteredProductCode && next?.code ? [next.code] : [])
-    setCodeDraft('')
-    setCodeError(null)
-    setTestText('')
+    syncProductKeywords(next)
     // เติมข้อความเริ่มต้น (Default Template) ที่มีข้อมูลของสินค้านั้นให้อัตโนมัติทันที
     if (next) {
       setPrivateText(
@@ -230,14 +242,25 @@ export function LiveCfSetup({
     selectProduct(productOptions.find((item) => item.id === nextId))
   }
 
-  function onProductCreated(next: LiveProductOption) {
-    setCreatedProducts((current) => [...current, next])
-    selectProduct(next, true)
+  function onProductSaved(next: LiveProductOption) {
+    const editing = editingProduct?.id === next.id
+    setSavedProducts((current) => [...current.filter((item) => item.id !== next.id), next])
+    if (editing) {
+      setProductId(next.id)
+      setStockLimit((current) => Math.max(1, Math.min(current, next.stock || 1)))
+      if (
+        (product?.sku?.trim() || product?.code?.trim()) !== (next.sku?.trim() || next.code?.trim())
+      )
+        syncProductKeywords(next)
+    } else selectProduct(next)
     setShowProductModal(false)
+    setEditingProduct(null)
     setNotice(
-      next.is_active === false
-        ? `บันทึกสินค้าแล้ว: ${next.name} ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์`
-        : `เพิ่มสินค้าแล้ว: ${next.name} พร้อมใช้ในไลฟ์นี้`,
+      editing
+        ? `บันทึกแล้ว: แก้ไขข้อมูล ${next.name} เรียบร้อย`
+        : next.is_active === false
+          ? `บันทึกสินค้าแล้ว: ${next.name} ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์`
+          : `เพิ่มสินค้าแล้ว: ${next.name} พร้อมใช้ในไลฟ์นี้`,
     )
   }
 
@@ -595,7 +618,10 @@ export function LiveCfSetup({
               </label>
               <button
                 type="button"
-                onClick={() => setShowProductModal(true)}
+                onClick={() => {
+                  setEditingProduct(null)
+                  setShowProductModal(true)
+                }}
                 className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-2 focus-visible:outline-orange-500"
               >
                 <Plus className="h-4 w-4" /> เพิ่มสินค้าใหม่เข้าเซลล์เพจ
@@ -626,9 +652,23 @@ export function LiveCfSetup({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <p className="truncate font-semibold text-slate-900">{product.name}</p>
-                      <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                        คงเหลือ {selectedStock} ชิ้น
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                          คงเหลือ {selectedStock} ชิ้น
+                        </span>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => {
+                            setEditingProduct(product)
+                            setShowProductModal(true)
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-orange-200 hover:text-orange-600 disabled:opacity-50"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          แก้ไขสินค้านี้
+                        </button>
+                      </div>
                     </div>
                     <p className="mt-0.5 text-sm font-semibold text-orange-600">
                       ฿{Number(selectedPrice).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
@@ -1215,10 +1255,15 @@ export function LiveCfSetup({
       )}
       {showProductModal && (
         <QuickProductModal
+          key={editingProduct?.id ?? 'create'}
           tenantId={tenantId}
+          initialData={editingProduct}
           salesPageUrl={salesPageUrl ?? product?.sales_page_url ?? null}
-          onCreated={onProductCreated}
-          onDismiss={() => setShowProductModal(false)}
+          onSaved={onProductSaved}
+          onDismiss={() => {
+            setShowProductModal(false)
+            setEditingProduct(null)
+          }}
         />
       )}
     </div>

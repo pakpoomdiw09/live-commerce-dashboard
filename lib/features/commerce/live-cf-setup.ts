@@ -54,6 +54,8 @@ export type QuickLiveProductDraft = {
   images?: string[]
   is_active?: boolean
   featured?: boolean
+  cost?: number | null
+  compare_price?: number | null
   variants?: {
     id: string
     label: string
@@ -81,5 +83,7 @@ export function quickLiveProduct(draft: QuickLiveProductDraft) {
     }),
     is_active: draft.is_active ?? true,
     featured: draft.featured ?? false,
+    cost: draft.cost,
+    compare_price: draft.compare_price,
   })
 }

@@ -11,6 +11,41 @@ const state = Object.assign(liveCfTest, {
   failure: false,
   categoryFailure: false,
   uploadFailure: false,
+  detailFailure: false,
+  editStale: false,
+  details: {
+    [productId]: {
+      id: productId,
+      code: '159',
+      name: 'เสื้อยืดผ้าฝ้ายสำหรับไลฟ์สด',
+      description: 'รายละเอียดเดิม',
+      price: 159,
+      stock: 8,
+      images: ['https://storage.example/one.webp', 'https://storage.example/two.webp'],
+      category_id: '77777777-7777-4777-8777-777777777777',
+      cost: 65,
+      compare_price: 399,
+      featured: true,
+      is_active: true,
+      version: 7,
+      variants: [
+        {
+          id: '88888888-8888-4888-8888-888888888888',
+          label: 'สี: ขาว',
+          price: 199,
+          stock: 3,
+          variant_code: 'WHITE',
+        },
+        {
+          id: '99999999-9999-4999-8999-999999999999',
+          label: 'สี: ดำ',
+          price: 259,
+          stock: 5,
+          variant_code: 'BLACK',
+        },
+      ],
+    },
+  } as Record<string, any>,
   liveFailure: false,
   liveEmpty: false,
   liveFallback: false,
@@ -26,6 +61,14 @@ window.fetch = async (input, init) => {
         : JSON.parse(String(init?.body ?? '{}'))
   state.requests.push({ url, body })
   await new Promise((resolve) => setTimeout(resolve, 150))
+  if (url.startsWith('/api/commerce/products/')) {
+    if (state.detailFailure)
+      return Response.json({ error: 'โหลดข้อมูลสินค้าไม่สำเร็จ' }, { status: 503 })
+    const id = new URL(url, location.origin).pathname.split('/').at(-1)!
+    return state.details[id]
+      ? Response.json({ product: state.details[id] })
+      : Response.json({ error: 'ไม่พบสินค้า' }, { status: 404 })
+  }
   if (url.startsWith('/api/facebook/live-videos')) {
     if (state.liveFailure) return Response.json({ error: 'กรุณาเชื่อมต่อเพจใหม่' }, { status: 409 })
     const pageId = new URL(url, location.origin).searchParams.get('page_id')
@@ -62,7 +105,13 @@ window.fetch = async (input, init) => {
   if (url === '/api/commerce') {
     if (state.failure)
       return Response.json({ error: 'รหัสสินค้านี้ถูกใช้แล้ว กรุณาเลือกรหัสอื่น' }, { status: 409 })
-    return Response.json({ id: newProductId })
+    if (body.id && state.editStale) {
+      state.details[body.id].version++
+      return Response.json({ error: 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดใหม่ก่อนบันทึก' }, { status: 409 })
+    }
+    const id = body.id ?? newProductId
+    state.details[id] = { ...body.value, id, version: (state.details[id]?.version ?? 0) + 1 }
+    return Response.json({ id })
   }
   if (url === '/api/live-cf/setup')
     return Response.json({ id: '55555555-5555-4555-8555-555555555555' })
@@ -134,6 +183,23 @@ createRoot(document.getElementById('root')!).render(
                   image_url: '/sample-product.svg',
                   description: 'เนื้อผ้านุ่ม ใส่สบาย',
                   sales_page_url: '/s/test-shop',
+                  variants: [],
+                },
+                {
+                  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                  name: 'สินค้าใช้ SKU',
+                  code: 'OTHER',
+                  sku: ' 01 ',
+                  price: 100,
+                  stock: 5,
+                  variants: [],
+                },
+                {
+                  id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                  name: 'สินค้าไม่มีรหัส',
+                  code: '',
+                  price: 100,
+                  stock: 5,
                   variants: [],
                 },
               ]
