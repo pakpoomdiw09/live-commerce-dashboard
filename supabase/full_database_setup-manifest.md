@@ -1,9 +1,17 @@
-# Fresh Supabase database setup inventory
+# Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 88 ไฟล์: รวมตาม dependencies 71 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 89 ไฟล์ รวม full_database_setup.sql ด้วย
+พบ SQL ต้นฉบับ 103 ไฟล์: รวมตาม dependencies 86 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 105 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (495482 bytes, 8264 lines)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (709615 bytes)
+ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
+ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
+หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
+ดู [วิธีใช้งานและข้อจำกัด](MIGRATIONS.md)
+
+## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
+
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (608823 bytes, 10252 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -75,31 +83,46 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 47. [payment-pro-dashboard.sql](payment-pro-dashboard.sql) — 4 statements retained
 48. [slip-bank-controls.sql](slip-bank-controls.sql) — 19 statements retained
 49. [bank-registry.sql](bank-registry.sql) — 7 statements retained
-50. [payment-receiving-codes.sql](payment-receiving-codes.sql) — 13 statements retained
-51. [qr-payment-designer.sql](qr-payment-designer.sql) — 11 statements retained
-52. [store-rules.sql](store-rules.sql) — 7 statements retained
-53. [store-rule-items.sql](store-rule-items.sql) — 4 statements retained
-54. [store-rules-validation.sql](store-rules-validation.sql) — 11 statements retained
+50. [bank-qr-upload.sql](bank-qr-upload.sql) — 11 statements retained
+51. [bank-qr-per-account.sql](bank-qr-per-account.sql) — 5 statements retained
+52. [bank-account-combined-save.sql](bank-account-combined-save.sql) — 8 statements retained
+53. [payment-receiving-codes.sql](payment-receiving-codes.sql) — 13 statements retained
+54. [qr-payment-designer.sql](qr-payment-designer.sql) — 11 statements retained
+55. [store-rules.sql](store-rules.sql) — 7 statements retained
+56. [store-rule-items.sql](store-rule-items.sql) — 4 statements retained
+57. [store-rules-validation.sql](store-rules-validation.sql) — 11 statements retained
 
 ### Latest delivery safety, reporting and index patches
 
-55. [facebook-webhook-queue.sql](facebook-webhook-queue.sql) — 29 statements retained
-56. [facebook-webhook-nonblocking.sql](facebook-webhook-nonblocking.sql) — 2 statements retained
-57. [facebook-message-window.sql](facebook-message-window.sql) — 9 statements retained
-58. [broadcast-policy.sql](broadcast-policy.sql) — 21 statements retained
-59. [broadcast-recipient-eligibility.sql](broadcast-recipient-eligibility.sql) — 3 statements retained
-60. [broadcast-recipient-selection.sql](broadcast-recipient-selection.sql) — 5 statements retained
-61. [broadcast-inbound-sync.sql](broadcast-inbound-sync.sql) — 5 statements retained
-62. [inbox-messenger-window.sql](inbox-messenger-window.sql) — 17 statements retained
-63. [smart-follow-up-presend.sql](smart-follow-up-presend.sql) — 14 statements retained
-64. [manual-follow-ups.sql](manual-follow-ups.sql) — 6 statements retained
-65. [follow-up-simplified.sql](follow-up-simplified.sql) — 7 statements retained
-66. [follow-up-step-settings.sql](follow-up-step-settings.sql) — 3 statements retained
-67. [dashboard-performance.sql](dashboard-performance.sql) — 21 statements retained
-68. [dashboard-read-models.sql](dashboard-read-models.sql) — 10 statements retained
-69. [premium-overview.sql](premium-overview.sql) — 6 statements retained
-70. [inbox-realtime.sql](inbox-realtime.sql) — 1 statements retained
-71. [inbox-load-indexes.sql](inbox-load-indexes.sql) — 9 statements retained
+58. [facebook-webhook-queue.sql](facebook-webhook-queue.sql) — 30 statements retained
+59. [facebook-webhook-nonblocking.sql](facebook-webhook-nonblocking.sql) — 2 statements retained
+60. [facebook-message-window.sql](facebook-message-window.sql) — 10 statements retained
+61. [broadcast-policy.sql](broadcast-policy.sql) — 21 statements retained
+62. [broadcast-recipient-eligibility.sql](broadcast-recipient-eligibility.sql) — 3 statements retained
+63. [broadcast-recipient-selection.sql](broadcast-recipient-selection.sql) — 5 statements retained
+64. [broadcast-inbound-sync.sql](broadcast-inbound-sync.sql) — 5 statements retained
+65. [inbox-messenger-window.sql](inbox-messenger-window.sql) — 17 statements retained
+66. [smart-follow-up-presend.sql](smart-follow-up-presend.sql) — 14 statements retained
+67. [manual-follow-ups.sql](manual-follow-ups.sql) — 6 statements retained
+68. [follow-up-simplified.sql](follow-up-simplified.sql) — 7 statements retained
+69. [follow-up-step-settings.sql](follow-up-step-settings.sql) — 3 statements retained
+70. [follow-up-manual-dispatch-fix.sql](follow-up-manual-dispatch-fix.sql) — 8 statements retained
+71. [follow-up-24h-window.sql](follow-up-24h-window.sql) — 20 statements retained
+72. [follow-up-approval-mode.sql](follow-up-approval-mode.sql) — 10 statements retained
+73. [dashboard-performance.sql](dashboard-performance.sql) — 21 statements retained
+74. [dashboard-read-models.sql](dashboard-read-models.sql) — 10 statements retained
+75. [premium-overview.sql](premium-overview.sql) — 6 statements retained
+76. [inbox-realtime.sql](inbox-realtime.sql) — 1 statements retained
+77. [inbox-load-indexes.sql](inbox-load-indexes.sql) — 9 statements retained
+78. [facebook-inbox-recovery.sql](facebook-inbox-recovery.sql) — 10 statements retained
+79. [live-cf-variants.sql](live-cf-variants.sql) — 22 statements retained
+80. [live-cf-mode.sql](live-cf-mode.sql) — 18 statements retained
+81. [live-cf-setup.sql](live-cf-setup.sql) — 21 statements retained
+82. [messenger-product-lookup.sql](messenger-product-lookup.sql) — 3 statements retained
+83. [slip-confirmation-template.sql](slip-confirmation-template.sql) — 8 statements retained
+84. [standalone-slips.sql](standalone-slips.sql) — 21 statements retained
+85. [tenant-ai-quota.sql](tenant-ai-quota.sql) — 28 statements retained
+86. [vision-master-switch.sql](vision-master-switch.sql) — 6 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -123,7 +146,100 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | [follow-up-worker-diagnostics.sql](follow-up-worker-diagnostics.sql) | Read-only runtime/scheduler diagnostics, not schema. |
 | [realtime-cpu-diagnostics.sql](realtime-cpu-diagnostics.sql) | Read-only runtime performance diagnostics, not schema. |
 
-## ท่อนที่ตัดจากไฟล์ต้นฉบับ
+## Dependencies ที่ตรวจอัตโนมัติ
+
+| Migration | ต้องอยู่หลัง |
+| --- | --- |
+| schema.sql |  |
+| tenants.sql | schema.sql |
+| comment-rules.sql | schema.sql |
+| platform.sql | tenants.sql, comment-rules.sql |
+| schema_patch.sql | platform.sql |
+| orders.sql | platform.sql |
+| automation.sql | orders.sql |
+| billing.sql | platform.sql |
+| security.sql | schema.sql, tenants.sql, comment-rules.sql, platform.sql, orders.sql, automation.sql, billing.sql |
+| facebook-connect.sql | security.sql |
+| facebook-tenants.sql | facebook-connect.sql |
+| facebook-multi-admin.sql | facebook-tenants.sql |
+| customer-profiles.sql | security.sql |
+| customer-gender.sql | customer-profiles.sql |
+| payments.sql | security.sql, billing.sql |
+| ai-agent-gate.sql | billing.sql, automation.sql |
+| admin-feature-bypass.sql | security.sql, payments.sql, ai-agent-gate.sql |
+| billing-slip-topups.sql | billing.sql, payments.sql, admin-feature-bypass.sql |
+| platform-dashboard.sql | security.sql, billing-slip-topups.sql, admin-feature-bypass.sql |
+| platform-admin-db-only.sql | platform-dashboard.sql |
+| billing-auto-approval.sql | payments.sql, billing-slip-topups.sql |
+| bank-accounts.sql | platform-dashboard.sql |
+| image-response-rules.sql | security.sql, platform-dashboard.sql |
+| followup-plan-gate.sql | automation.sql, billing.sql, security.sql, admin-feature-bypass.sql |
+| package-access.sql | billing-auto-approval.sql, ai-agent-gate.sql |
+| feature-access.sql | package-access.sql, admin-feature-bypass.sql |
+| free-message-quota.sql | feature-access.sql |
+| keyword-reply-limits.sql | automation.sql, billing.sql, security.sql |
+| fallback-messages.sql | automation.sql |
+| handover-messages.sql | automation.sql |
+| followup-message-defaults.sql | automation.sql |
+| smart-inbox.sql | free-message-quota.sql |
+| smart-inbox-pro.sql | smart-inbox.sql |
+| smart-inbox-v2.sql | smart-inbox-pro.sql |
+| inbox-follow-up-flags.sql | smart-inbox-v2.sql |
+| inbox-quick-replies.sql | smart-inbox.sql |
+| inbox-actions.sql | smart-inbox-v2.sql |
+| automation-safety.sql | inbox-actions.sql |
+| smart-follow-ups.sql | smart-inbox.sql, free-message-quota.sql, automation.sql |
+| agent-control.sql | automation-safety.sql |
+| agent-overview.sql | agent-control.sql |
+| ai-paid-access.sql | agent-control.sql, feature-access.sql |
+| ai-vision.sql | ai-paid-access.sql |
+| commerce-v2.sql | orders.sql, automation.sql, security.sql |
+| product-sku-reuse.sql | commerce-v2.sql |
+| payment-pro.sql | payments.sql, billing-auto-approval.sql, bank-accounts.sql, smart-follow-ups.sql |
+| payment-pro-dashboard.sql | payment-pro.sql |
+| slip-bank-controls.sql | bank-accounts.sql, security.sql, smart-inbox.sql, payment-pro.sql |
+| bank-registry.sql | slip-bank-controls.sql |
+| bank-qr-upload.sql | bank-accounts.sql, slip-bank-controls.sql, bank-registry.sql |
+| bank-qr-per-account.sql | bank-qr-upload.sql |
+| bank-account-combined-save.sql | bank-qr-per-account.sql |
+| payment-receiving-codes.sql | bank-registry.sql |
+| qr-payment-designer.sql | payment-receiving-codes.sql |
+| store-rules.sql | automation.sql, agent-control.sql, ai-paid-access.sql |
+| store-rule-items.sql | store-rules.sql |
+| store-rules-validation.sql | store-rule-items.sql |
+| facebook-webhook-queue.sql | security.sql, smart-inbox.sql |
+| facebook-webhook-nonblocking.sql | facebook-webhook-queue.sql |
+| facebook-message-window.sql | facebook-webhook-nonblocking.sql |
+| broadcast-policy.sql | facebook-message-window.sql |
+| broadcast-recipient-eligibility.sql | broadcast-policy.sql |
+| broadcast-recipient-selection.sql | broadcast-recipient-eligibility.sql |
+| broadcast-inbound-sync.sql | broadcast-policy.sql |
+| inbox-messenger-window.sql | broadcast-policy.sql, inbox-actions.sql |
+| smart-follow-up-presend.sql | smart-follow-ups.sql, broadcast-policy.sql |
+| manual-follow-ups.sql | smart-follow-up-presend.sql |
+| follow-up-simplified.sql | manual-follow-ups.sql |
+| follow-up-step-settings.sql | follow-up-simplified.sql |
+| follow-up-manual-dispatch-fix.sql | follow-up-simplified.sql, smart-follow-up-presend.sql, manual-follow-ups.sql |
+| follow-up-24h-window.sql | follow-up-manual-dispatch-fix.sql, facebook-message-window.sql |
+| follow-up-approval-mode.sql | follow-up-24h-window.sql, follow-up-step-settings.sql |
+| dashboard-performance.sql | commerce-v2.sql |
+| dashboard-read-models.sql | dashboard-performance.sql |
+| premium-overview.sql | dashboard-read-models.sql |
+| inbox-realtime.sql | schema.sql, security.sql |
+| inbox-load-indexes.sql | inbox-realtime.sql |
+| facebook-inbox-recovery.sql | facebook-webhook-queue.sql, smart-inbox.sql |
+| live-cf-variants.sql | commerce-v2.sql, facebook-webhook-queue.sql |
+| live-cf-mode.sql | live-cf-variants.sql, comment-rules.sql |
+| live-cf-setup.sql | live-cf-mode.sql, bank-accounts.sql, facebook-webhook-queue.sql |
+| messenger-product-lookup.sql | commerce-v2.sql, live-cf-variants.sql |
+| slip-confirmation-template.sql | platform-dashboard.sql |
+| standalone-slips.sql | security.sql, payments.sql, billing-auto-approval.sql, bank-accounts.sql, facebook-webhook-queue.sql |
+| tenant-ai-quota.sql | smart-inbox.sql, agent-control.sql |
+| vision-master-switch.sql | ai-vision.sql, tenant-ai-quota.sql |
+
+## ท่อนที่ตัดจากไฟล์ bootstrap เดิม
+
+ตารางนี้อธิบาย full_database_setup.sql เท่านั้น; complete_schema.sql คง integrity scans และ backfills ของ proof ledger และ null quota repair เพิ่มเติมตาม scripts/lib/complete-schema.cjs
 
 เลข statement นับจาก SQL parser (ไม่นับ comment; DO/function body นับเป็นหนึ่ง statement)
 BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแทนด้วย transaction รายไฟล์และ SET LOCAL lock_timeout='2s'
@@ -161,8 +277,15 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | slip-bank-controls.sql | 3: `update public.bank_accounts b set is_primary=true where b.id in(select distinct …` | Historical business-data backfill/repair removed. |
 | broadcast-inbound-sync.sql | 7: `insert into public.broadcast_messaging_events(tenant_id,customer_id,event_id,pag…` | Historical business-data/settings/ledger backfill removed. |
 | smart-follow-up-presend.sql | 7: `update public.follow_up_workflows w set enabled=p.enabled,version=w.version+1 fr…` | Historical business-data backfill/repair removed. |
+| follow-up-24h-window.sql | 10: `update public.customers c set last_interaction_at=(select max(e.interacted_at) …` | Historical business-data backfill/repair removed. |
+| facebook-inbox-recovery.sql | 6: `update public.customers set display_name='ลูกค้า Facebook (' // right(platform_u…` | Historical business-data backfill/repair removed. |
+| standalone-slips.sql | 17: `lock table public.standalone_slips in share row exclusive mode…` | Explicit table lock for historical migration removed (fresh database only). |
+| standalone-slips.sql | 18: `insert into public.payment_transfer_ledger(trans_ref,source,source_id) select …` | Historical business-data/settings/ledger backfill removed. |
+| tenant-ai-quota.sql | 6: `update public.tenants set ai_quota_limit=coalesce(ai_quota_limit,1000),ai_quota_…` | Historical business-data backfill/repair removed. |
 
-## วิธีใช้งานและขอบเขต
+## วิธีใช้ไฟล์ bootstrap เดิม
+
+สำหรับ complete_schema.sql ให้ใช้ [คู่มือหลัก](MIGRATIONS.md) ด้านล่างนี้เฉพาะ full_database_setup.sql เท่านั้น
 
 1. สร้าง Supabase project ใหม่; ตรวจว่า auth/storage และ publication supabase_realtime มีอยู่แล้ว
 2. เปิด full_database_setup.sql **ทั้งไฟล์** ใน SQL Editor และรันด้วย postgres ก่อนเชื่อม Dashboard/Webhook
@@ -178,7 +301,7 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 
 สร้างใหม่: node scripts/build-full-database-setup.cjs
 ตรวจสอบโดยไม่เขียน: node scripts/build-full-database-setup.cjs --check
-ทดสอบ isolated database: node --test scripts/test-full-database-setup.cjs
+ทดสอบ isolated database ทั้งสองรูปแบบ: npm run test:schema
 
 ## Source hashes
 
@@ -225,20 +348,23 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - agent-overview.sql: `bbd87d3b0f164c778eb52983b7862d8d8cd61dfd1bf029bc68be6af164bac819`
 - ai-paid-access.sql: `42f6eb4cf373dca787fecb745fb5089f19c610c519768fc6c63e2994dc88ade2`
 - ai-vision.sql: `ea63d4c520548a1f13923b62491f7eff31ac55ebef4e1f51e63ae64ee7309301`
-- commerce-v2.sql: `40a75be6ce40169b82de51925d8b2fa5232cba8bc4fe1a985a5f2e9ec32b409a`
+- commerce-v2.sql: `43b4aa77038376bec249d3dfd1c9c53c08fa2094ba24fe40b35afcbcfc94f9f7`
 - product-sku-reuse.sql: `158567cbd1962b8e6c75c72a9f5aaa52aceb26c84b9fc2c7bb4a7f24c41c41f4`
 - payment-pro.sql: `aa6343641fb6d1c026a0913c81d79d990c295c23e9de63e41bfd42d3cdb7e148`
 - payment-pro-dashboard.sql: `8d4e52e0d834ca8ce7cab97c2b78209535263726b7c5d1796ba4398b7ae54b7b`
 - slip-bank-controls.sql: `08d19ff46fa0d05b9a42f710ea11f212756e4a95fea9440d221bce1b808f98e3`
 - bank-registry.sql: `9552aa3856ddf0c584f98f7ac722bc877e9a1a89617d0dd0c2dd5a1d7914b4d0`
+- bank-qr-upload.sql: `6f115a66a303c4cdffce869df158f47c6090542411f674fdede0c28f9c6f539c`
+- bank-qr-per-account.sql: `32f1910876783a4661555a71c8144e1923d9548611ef0cbd5c6927681aecee27`
+- bank-account-combined-save.sql: `ba5776e10e9d121d7d374238c8031330a1ac43c18ccfe055a2dafc1551bc1128`
 - payment-receiving-codes.sql: `69d202f61858dbf27aaffa6a93e201b0fe43cb15e22fc579fbe82d1bca342826`
 - qr-payment-designer.sql: `791010165b6065afb641c311106260bb7f574a3624530ee8d9df966d2bee8cd3`
 - store-rules.sql: `ea6f24e091470f5d88369563d5f012c9500370aaa7536d84d3bf33c986daaee9`
 - store-rule-items.sql: `7f10a22e7c4ad118a193af3e28a5105070e4eeff33b9fee5d95d836fc9664a41`
 - store-rules-validation.sql: `f8cbdf12cd3851025951edbf50d831548032211d73e43f12b011c1aa51df4883`
-- facebook-webhook-queue.sql: `f860709ad67ac9cebdaaf4ac9e6307b31f70cbf20b2289ec99ba36ec9755a374`
+- facebook-webhook-queue.sql: `7e67011b3489c011639ea3f4f800fa6ac4825670f76f04fca4e0f7fddb3c641e`
 - facebook-webhook-nonblocking.sql: `0cfe5319ef9b061c353b80a57463e06e1a97ff1424be84ecefb4a7ecb10baf4d`
-- facebook-message-window.sql: `78ed4b175f56e2a324553f4cdc8c23e6b1aa526fd7112fbda778cb2fc32c11de`
+- facebook-message-window.sql: `d2581ef71797895f11e05f0dfc74302cd202b9c278c9ecbb4c2968418baa9d5e`
 - broadcast-policy.sql: `a45cf7c24ef5f6d31ef31868029bd3e9216370bc5c582b911b80a4ed74071233`
 - broadcast-recipient-eligibility.sql: `6ea5e1f9044db876fc8d0f07d8da52668f9897fa684851092eab347710e4a74c`
 - broadcast-recipient-selection.sql: `bdd1581c239a6ebc20048d32d342e6697d98ada245dd01260feacde8fe44278f`
@@ -246,10 +372,22 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - inbox-messenger-window.sql: `4ebe59d252e016e5d62eb28617e9a08d27847550f925f0273d18cc456c43e77e`
 - smart-follow-up-presend.sql: `978fd4adf4cb9e1f16c8a1f21783ab4c7c43dedb66d7c11c7df20fe6ad36f9e4`
 - manual-follow-ups.sql: `34d34f06c0a32579c6dc4a80583c4c15040b1919b8f2bd7e6638848adb06e165`
-- follow-up-simplified.sql: `d425f213aab29a30c164cf201815925add5d76840f82fecb89cfae2aefb679fa`
+- follow-up-simplified.sql: `c1463162272b2eb3b5248a42dd663baf9bc2371c23f300c70916df0921f4b86b`
 - follow-up-step-settings.sql: `96bedcb1959a8d864b018de761fb35e8d989b42450060ca784c2f7143af13a0e`
+- follow-up-manual-dispatch-fix.sql: `c05b6fe3c8261f43a521871557de3f2436712570afbbfd6d536340e403de1bc5`
+- follow-up-24h-window.sql: `18871aeb28c2b8fd9fac9a16588904281380c733721168135fa49d3733eaaacd`
+- follow-up-approval-mode.sql: `53f81f07be504e99d4afbe8fab1f25c6f859f218470b280ceea2dc44760f74a4`
 - dashboard-performance.sql: `87871cb3623b3153a08fd585394dda0fbd296c4fb670e50791ee09527b2c29c5`
 - dashboard-read-models.sql: `daca680061c44493d8ec6c139716a5a7e58aca1c20cddab9231ce59f94cf72cf`
 - premium-overview.sql: `19d97393eda4ebd1de925886ce3add41af56164a2541e8e4e0b6f377f861f273`
 - inbox-realtime.sql: `a7dc1d4c93f7995e27731bd59a078c4430650c0b627c9f4c14a80c5357d607f7`
 - inbox-load-indexes.sql: `cee506871122e657bfbf6b2a12533272fee5b44607176d4c29298b0aaf404e42`
+- facebook-inbox-recovery.sql: `1eb9f1832583ddae48cd6adda766c7c3828e48d5c9401f2b0b96442977e6a1ad`
+- live-cf-variants.sql: `76d033c8d7df54314df3ec983143fa1194d4fbf29c3f261507c29fedbdec00f1`
+- live-cf-mode.sql: `91f67f49d0e22fcdba1f1a77d9fb169c5a66b14ac83d53eb8e001f6580cd966c`
+- live-cf-setup.sql: `05dfcefd0d101569a99dd462230fc8fd87ce2a43476027432e201410644b4ad0`
+- messenger-product-lookup.sql: `d7dc47ee4ae0c13a90593a213044a0f6dd4f99075e09726bfab58b1ccb9140c0`
+- slip-confirmation-template.sql: `591e7c6185b3c102ecc0e7045ffaeb6f0b3b7bf4b7fd1f0e19247995b1b8778f`
+- standalone-slips.sql: `96608fd194cf79cae1e2972b7bb8e8e93dc199b75029eb8305dc2576f9a2227b`
+- tenant-ai-quota.sql: `a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3`
+- vision-master-switch.sql: `137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6`

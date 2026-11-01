@@ -37,7 +37,7 @@ create policy member_read on public.standalone_slips for select to authenticated
 
 alter table public.payment_transfer_ledger drop constraint if exists payment_transfer_ledger_source_check;
 alter table public.payment_transfer_ledger add constraint payment_transfer_ledger_source_check
-  check(source in ('package','sale','standalone'));
+  check(source in ('package','sale','billing','standalone'));
 
 -- Preserve replay protection if the minimal standalone table already contains accepted proofs.
 lock table public.standalone_slips in share row exclusive mode;

@@ -5,6 +5,7 @@ import { isFeatureEnabled } from '@/lib/feature-flags'
 import { normalizeCfCode } from '@/lib/features/commerce/cf-code'
 import { liveCfPaymentLinksReady } from '@/lib/features/commerce/live-cf-payment-link'
 import { UUID } from '@/lib/utils'
+import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
 
 const text = (value: unknown, max: number) =>
   typeof value === 'string' && value.trim().length <= max ? value.trim() : null
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ไม่มีสิทธิ์จัดการร้านค้านี้' }, { status: 403 })
 
     const pageId = text(input.pageId, 100)
-    const postId = text(input.livePostId, 140)
+    const postId = extractFacebookLiveId(input.livePostId ?? '')
     const productId = text(input.productId, 36)
     const variantId = text(input.variantId, 36)
     const bankAccountId = text(input.bankAccountId, 36)
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
       !Number.isSafeInteger(stockLimit) ||
       stockLimit < 1 ||
       stockLimit > 1_000_000 ||
-      (postId && !/^\d+(?:_\d+)?$/.test(postId))
+      postId === null
     )
       return NextResponse.json({ error: 'ข้อมูลตั้งค่าไม่ถูกต้อง' }, { status: 400 })
 
@@ -93,10 +94,16 @@ export async function POST(req: NextRequest) {
     const privateReply = input.privateReply === true
     const publicReply = input.publicReply === true
     if (privateReply && !bankAccountId)
-      return NextResponse.json({ error: 'กรุณาเลือกบัญชีรับเงินสำหรับ Private Reply' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'กรุณาเลือกบัญชีรับเงินสำหรับส่งลิงก์ชำระเงินให้ลูกค้า' },
+        { status: 400 },
+      )
     if (privateReply && !liveCfPaymentLinksReady())
       return NextResponse.json(
-        { error: 'กรุณาตั้งค่า LIVE_CF_APP_URL และ LIVE_CF_PAYMENT_LINK_SECRET ก่อนเปิด Private Reply' },
+        {
+          error:
+            'ระบบลิงก์ชำระเงินยังไม่พร้อม กรุณาให้ผู้ดูแลตั้งค่าที่อยู่เว็บไซต์และกุญแจลิงก์ชำระเงินก่อนเปิดส่งข้อความส่วนตัว',
+        },
         { status: 503 },
       )
     const matchMode = input.matchMode === 'strict' ? 'strict' : 'flexible'
@@ -118,7 +125,7 @@ export async function POST(req: NextRequest) {
       live_product_id: productId,
       live_variant_id: variantId,
       live_stock_limit: stockLimit,
-      live_post_id: postId,
+      live_post_id: postId || null,
       live_bank_account_id: bankAccountId,
       live_deduct_stock: input.deductStock !== false,
     }
@@ -142,7 +149,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('[live-cf/setup] save failed', { code: (error as { code?: string }).code })
     return NextResponse.json(
-      { error: 'บันทึกการตั้งค่าไม่สำเร็จ กรุณาตรวจสอบ migration แล้วลองใหม่' },
+      { error: 'บันทึกการตั้งค่าไม่สำเร็จ กรุณาให้ผู้ดูแลตรวจสอบการติดตั้งฐานข้อมูลแล้วลองใหม่' },
       { status: 500 },
     )
   }

@@ -24,11 +24,7 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
       .eq('is_active', true)
       .order('label')
       .limit(5000),
-    db
-      .from('commerce_stores')
-      .select('slug')
-      .eq('tenant_id', tenantId)
-      .maybeSingle(),
+    db.from('commerce_stores').select('slug').eq('tenant_id', tenantId).maybeSingle(),
   ])
 
   const fallbackProducts = commerceProducts.error
@@ -46,6 +42,7 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
       products: [] as LiveProductOption[],
       error: 'โหลดรายการสินค้าไม่สำเร็จ กรุณาตรวจสอบสิทธิ์ของร้านค้าแล้วลองใหม่',
       fallback: true,
+      salesPageUrl: null,
     }
 
   const storeSlug = store?.data?.slug ?? null
@@ -60,6 +57,7 @@ export async function liveProducts(db: SupabaseClient, tenantId: string) {
         : (variants.data ?? []).filter((variant) => variant.product_id === product.id),
     })) as LiveProductOption[],
     error: null,
+    salesPageUrl: storeSlug ? `/s/${storeSlug}` : null,
     fallback: !!commerceProducts.error || !!variants.error,
   }
 }

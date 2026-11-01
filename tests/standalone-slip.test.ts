@@ -394,7 +394,7 @@ test('standalone transfers cannot be replayed across shops or sale/package flows
       insert(otherTenant, 'standalone-first'),
       (e: unknown) => (e as { code: string }).code === '23505',
     )
-    for (const source of ['sale', 'package']) {
+    for (const source of ['sale', 'package', 'billing']) {
       await assert.rejects(
         db.query('select claim_payment_transfer($1,$2,gen_random_uuid())', [
           'standalone-first',

@@ -4,7 +4,7 @@
 
 ## ติดตั้งก่อนนำโค้ดขึ้นใช้งาน
 
-1. รัน [standalone-slips.sql](../supabase/standalone-slips.sql) ใน Supabase SQL Editor หลัง `security.sql`, `payments.sql`, `bank-accounts.sql` และ `facebook-webhook-queue.sql` ไฟล์รันซ้ำได้ และรองรับการเพิ่มคอลัมน์ให้ตารางตัวอย่างเดิมที่มีอยู่แล้ว ให้รันแยกหลัง full setup ด้วยสำหรับฐานข้อมูลใหม่
+1. รัน [complete_schema.sql](../supabase/complete_schema.sql) ทั้งไฟล์ใน Supabase SQL Editor ตาม [คู่มือ migrations](../supabase/MIGRATIONS.md) ไฟล์รวมมี `standalone-slips.sql` แล้ว ไม่ต้องรันแยกอีก หากเลือกอัปเดตเฉพาะฟีเจอร์ ให้รัน [standalone-slips.sql](../supabase/standalone-slips.sql) หลัง `security.sql`, `payments.sql`, `billing-auto-approval.sql`, `bank-accounts.sql` และ `facebook-webhook-queue.sql` พร้อม dependencies ของไฟล์เหล่านั้น
 2. ใช้ `SLIPOK_BRANCH_ID` และ `SLIPOK_API_KEY` ฝั่งเซิร์ฟเวอร์ชุดเดิม ร้านต้องมีสิทธิ์ `slip_auto_pilot` และเครดิตตรวจสลิปตามระบบเดิม
 3. เปิดการตรวจสลิปอัตโนมัติ `tenants.auto_verify_enabled` พร้อมการตอบอัตโนมัติ `tenants.auto_reply_enabled` และ `customers.bot_enabled` ของแชทนั้น ระบบยังใช้ Page Access Token และ Webhook `messages` เดิม
 4. บัญชีรับเงินที่เปิดใช้งานใน `bank_accounts` ใช้ตรวจปลายทางตามธนาคารและเลขบัญชีที่ถูก mask หากไม่มีรายการบัญชีเลยจะสำรองจาก `tenants.account_number/bank_code` หากมีแต่บัญชีที่ปิดใช้งานจะไม่ตรวจผ่านด้วยบัญชีเก่า

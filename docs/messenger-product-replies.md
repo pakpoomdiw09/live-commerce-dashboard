@@ -6,7 +6,7 @@
 
 ## ติดตั้ง
 
-1. รัน `supabase/messenger-product-lookup.sql` ใน Supabase SQL Editor หลัง `commerce-v2.sql` และ migration ตัวเลือกสินค้าที่ร้านใช้งานอยู่ ไฟล์รันซ้ำได้ ไม่แก้ข้อมูลสินค้า และให้สิทธิ์เรียก RPC เฉพาะ `service_role` ให้รันไฟล์นี้แยกสำหรับฐานข้อมูลเดิมและหลัง full setup สำหรับฐานข้อมูลใหม่
+1. รัน [complete_schema.sql](../supabase/complete_schema.sql) ทั้งไฟล์ใน Supabase SQL Editor ตาม [คู่มือ migrations](../supabase/MIGRATIONS.md) ไฟล์รวมมี `messenger-product-lookup.sql` แล้ว ไม่ต้องรันแยกอีก หากเลือกอัปเดตเฉพาะ RPC ให้รัน `supabase/messenger-product-lookup.sql` หลัง `commerce-v2.sql` และ `live-cf-variants.sql` พร้อม dependencies ของไฟล์เหล่านั้น RPC ไม่แก้ข้อมูลสินค้าและให้สิทธิ์เรียกเฉพาะ `service_role`
 2. ตั้ง `NEXT_PUBLIC_APP_URL` เป็น URL สาธารณะของระบบ เช่น `https://shop.example` (หรือใช้ `VERCEL_PROJECT_PRODUCTION_URL` บน Vercel)
 3. เปิด `NEXT_PUBLIC_SALES_PAGE_V2_ENABLED=true` และอย่าตั้ง `STOREFRONT_V2_ENABLED=false` เปิดร้านใน `commerce_stores.is_open` และเปิดการตอบอัตโนมัติของร้าน/ลูกค้า ต้องตั้ง Page Access Token ของเพจและสมัคร webhook `messages` ตามระบบ Messenger เดิม
 

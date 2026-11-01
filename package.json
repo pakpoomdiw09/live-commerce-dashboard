@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "db:schema:build": "node scripts/build-full-database-setup.cjs",
+    "db:schema:check": "node scripts/build-full-database-setup.cjs --check",
+    "test:schema": "node --test --test-concurrency=1 scripts/test-full-database-setup.cjs scripts/test-complete-schema.cjs",
     "db:migrate:safe": "node scripts/run-safe-db-migration.cjs",
     "db:migrate:sql": "node scripts/run-safe-db-migration.cjs --write-sql",
     "facebook:diagnose": "node scripts/diagnose-facebook-send.cjs",

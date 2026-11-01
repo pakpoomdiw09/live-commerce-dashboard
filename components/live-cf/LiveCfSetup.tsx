@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { PageBanner } from '@/components/ui/page-banner'
+import { QuickProductModal } from './QuickProductModal'
 import {
   BadgeCheck,
   ChevronDown,
@@ -23,7 +24,12 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { CommentRule, LiveProductOption } from '@/lib/features/comments/comment-rules'
-import { matchesCfCode, matchOrderCode, normalizeCfCode } from '@/lib/features/commerce/cf-code'
+import { matchOrderCode, normalizeCfCode } from '@/lib/features/commerce/cf-code'
+import {
+  extractFacebookLiveId,
+  displayLiveReplyTemplate,
+  storedLiveReplyTemplate,
+} from '@/lib/features/commerce/live-cf-setup'
 
 function generateDefaultPrivateText(
   productName?: string,
@@ -31,7 +37,9 @@ function generateDefaultPrivateText(
   variantLabel?: string | null,
 ) {
   const variantPart = variantLabel ? ' {variant_name}' : ''
-  return `ยินดีด้วยครับ! คุณได้รับสินค้า {product_name}${variantPart}\nราคา: {price} บาท (ยอดชำระ: {total} บาท)\nชำระเงินและแนบสลิปเซลเพจได้ที่ลิงก์นี้: {payment_link}`
+  return displayLiveReplyTemplate(
+    `ยินดีด้วยครับ! คุณได้รับสินค้า {product_name}${variantPart}\nราคา: {price} บาท (ยอดชำระ: {total} บาท)\nชำระเงินและแนบสลิปเซลเพจได้ที่ลิงก์นี้: {payment_link}`,
+  )
 }
 
 const VARIABLE_CHIPS = [
@@ -98,6 +106,7 @@ export function LiveCfSetup({
   bankAccounts,
   initialRule,
   setupError,
+  salesPageUrl = null,
 }: {
   tenantId: string
   pages: Page[]
@@ -105,11 +114,24 @@ export function LiveCfSetup({
   bankAccounts: Bank[]
   initialRule: CommentRule | null
   setupError: string | null
+  salesPageUrl?: string | null
 }) {
   const router = useRouter()
+  const [createdProducts, setCreatedProducts] = useState<LiveProductOption[]>([])
+  const [showProductModal, setShowProductModal] = useState(false)
+  const productOptions = useMemo(
+    () => [
+      ...products,
+      ...createdProducts.filter((item) => !products.some((row) => row.id === item.id)),
+    ],
+    [products, createdProducts],
+  )
   const [id, setId] = useState(initialRule?.id ?? null)
   const [pageId, setPageId] = useState(initialRule?.page_ids[0] ?? pages[0]?.id ?? '')
   const [livePostId, setLivePostId] = useState(initialRule?.live_post_id ?? '')
+  const [liveLinkTouched, setLiveLinkTouched] = useState(false)
+  const parsedLiveId = extractFacebookLiveId(livePostId)
+  const liveLinkError = liveLinkTouched && parsedLiveId === null
   const [productId, setProductId] = useState(initialRule?.live_product_id ?? products[0]?.id ?? '')
   const initialProduct = products.find(
     (item) => item.id === (initialRule?.live_product_id ?? products[0]?.id),
@@ -117,9 +139,9 @@ export function LiveCfSetup({
   const [variantId, setVariantId] = useState(
     initialRule?.live_variant_id ?? initialProduct?.variants[0]?.id ?? '',
   )
-  const [code, setCode] = useState(initialRule?.keywords[0] ?? '159')
+  const [code, setCode] = useState(initialRule?.keywords[0] ?? initialProduct?.code ?? '159')
   const [matchMode, setMatchMode] = useState<'flexible' | 'strict'>(
-    (initialRule as (CommentRule & { match_mode?: 'flexible' | 'strict' }))?.match_mode ??
+    (initialRule as CommentRule & { match_mode?: 'flexible' | 'strict' })?.match_mode ??
       (initialRule?.match_type === 'exact' ? 'strict' : 'flexible'),
   )
   const [stockLimit, setStockLimit] = useState(
@@ -129,12 +151,13 @@ export function LiveCfSetup({
   const [privateReply, setPrivateReply] = useState(initialRule?.inbox_enabled ?? true)
   const [publicReply, setPublicReply] = useState(initialRule?.reply_enabled ?? true)
   const [privateText, setPrivateText] = useState(
-    initialRule?.inbox_text ??
-      generateDefaultPrivateText(
-        initialProduct?.name,
-        initialProduct?.variants[0]?.price ?? initialProduct?.price,
-        initialProduct?.variants[0]?.label,
-      ),
+    initialRule?.inbox_text != null
+      ? displayLiveReplyTemplate(initialRule.inbox_text)
+      : generateDefaultPrivateText(
+          initialProduct?.name,
+          initialProduct?.variants[0]?.price ?? initialProduct?.price,
+          initialProduct?.variants[0]?.label,
+        ),
   )
   const [publicText, setPublicText] = useState(
     initialRule?.reply_text ?? 'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดในข้อความส่วนตัว',
@@ -142,13 +165,13 @@ export function LiveCfSetup({
   const [bankAccountId, setBankAccountId] = useState(
     initialRule?.live_bank_account_id ?? bankAccounts[0]?.id ?? '',
   )
-  const [testText, setTestText] = useState('CF 159')
+  const [testText, setTestText] = useState(matchMode === 'strict' ? code : `CF ${code}`)
   const [active, setActive] = useState(initialRule?.is_active ?? false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(setupError)
   const privateTextareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const product = products.find((item) => item.id === productId)
+  const product = productOptions.find((item) => item.id === productId)
   const variant = product?.variants.find((item) => item.id === variantId) ?? null
   const selectedStock = variant
     ? Math.min(product?.stock ?? 0, variant.stock)
@@ -157,18 +180,13 @@ export function LiveCfSetup({
   const parserMatch = !!normalizeCfCode(code) && matchOrderCode(testText, code, matchMode)
   const selectedBank = bankAccounts.find((item) => item.id === bankAccountId)
 
-  const examples = useMemo(() => {
-    const value = code.trim() || '159'
-    return [value, `CF ${value}`, `cf${value}`, `เอา ${value}`]
-  }, [code])
-
-  function chooseProduct(nextId: string) {
-    setProductId(nextId)
-    const next = products.find((item) => item.id === nextId)
+  function selectProduct(next: LiveProductOption | undefined) {
+    setProductId(next?.id ?? '')
     const firstVariant = next?.variants[0] ?? null
     setVariantId(firstVariant?.id ?? '')
     setStockLimit(Math.max(1, Math.min(firstVariant?.stock ?? next?.stock ?? 1, 5)))
     if (next?.code) setCode(next.code)
+    if (next?.code) setTestText(matchMode === 'strict' ? next.code : `CF ${next.code}`)
     // เติมข้อความเริ่มต้น (Default Template) ที่มีข้อมูลของสินค้านั้นให้อัตโนมัติทันที
     if (next) {
       setPrivateText(
@@ -179,6 +197,17 @@ export function LiveCfSetup({
         ),
       )
     }
+  }
+
+  function chooseProduct(nextId: string) {
+    selectProduct(productOptions.find((item) => item.id === nextId))
+  }
+
+  function onProductCreated(next: LiveProductOption) {
+    setCreatedProducts((current) => [...current, next])
+    selectProduct(next)
+    setShowProductModal(false)
+    setNotice(`เพิ่มสินค้าแล้ว: ${next.name} พร้อมใช้ในไลฟ์นี้`)
   }
 
   function insertVariable(tag: string) {
@@ -206,7 +235,7 @@ export function LiveCfSetup({
     const sampleLink = product.sales_page_url
       ? `${typeof window !== 'undefined' ? window.location.origin : ''}${product.sales_page_url}`
       : 'https://snapbot.app/pay/live/sample.order123'
-    return privateText
+    return storedLiveReplyTemplate(privateText)
       .replaceAll('{product_name}', product.name)
       .replaceAll('{variant_name}', variant?.label ?? 'มาตรฐาน')
       .replaceAll('{price}', priceFormatted)
@@ -216,6 +245,8 @@ export function LiveCfSetup({
 
   async function save() {
     setNotice(null)
+    setLiveLinkTouched(true)
+    if (parsedLiveId === null) return
     if (!pageId || !product || !normalizeCfCode(code) || stockLimit < 1)
       return setNotice('กรุณาเลือกเพจ สินค้า และกรอกรหัส CF ให้ครบ')
     if (product.variants.length && !variant) return setNotice('กรุณาเลือกตัวเลือกสินค้า')
@@ -228,7 +259,7 @@ export function LiveCfSetup({
           id,
           tenantId,
           pageId,
-          livePostId,
+          livePostId: parsedLiveId,
           productId,
           variantId: variant?.id ?? null,
           code,
@@ -237,7 +268,7 @@ export function LiveCfSetup({
           deductStock,
           privateReply,
           publicReply,
-          privateText,
+          privateText: storedLiveReplyTemplate(privateText),
           publicText,
           bankAccountId: bankAccountId || null,
           isActive: true,
@@ -258,6 +289,8 @@ export function LiveCfSetup({
 
   async function toggleActive(nextActive: boolean) {
     if (!id) return
+    setLiveLinkTouched(true)
+    if (parsedLiveId === null) return
     setSaving(true)
     setNotice(null)
     try {
@@ -268,7 +301,7 @@ export function LiveCfSetup({
           id,
           tenantId,
           pageId,
-          livePostId,
+          livePostId: parsedLiveId,
           productId,
           variantId: variant?.id ?? null,
           code,
@@ -277,7 +310,7 @@ export function LiveCfSetup({
           deductStock,
           privateReply,
           publicReply,
-          privateText,
+          privateText: storedLiveReplyTemplate(privateText),
           publicText,
           bankAccountId: bankAccountId || null,
           isActive: nextActive,
@@ -286,7 +319,9 @@ export function LiveCfSetup({
       const result = await response.json()
       if (!response.ok) throw new Error(result.error ?? 'เปลี่ยนสถานะไม่สำเร็จ')
       setActive(nextActive)
-      setNotice(nextActive ? 'เปิดใช้งานระบบดูดออเดอร์แล้ว' : 'หยุดการทำงานระบบดูดออเดอร์ชั่วคราวแล้ว')
+      setNotice(
+        nextActive ? 'เปิดใช้งานระบบดูดออเดอร์แล้ว' : 'หยุดการทำงานระบบดูดออเดอร์ชั่วคราวแล้ว',
+      )
       router.refresh()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'เปลี่ยนสถานะไม่สำเร็จ')
@@ -338,7 +373,9 @@ export function LiveCfSetup({
         <div
           role="status"
           className={`rounded-2xl px-5 py-4 text-sm font-medium ring-1 ${
-            notice.startsWith('บันทึกแล้ว') || notice.startsWith('เปิดใช้งาน')
+            notice.startsWith('บันทึกแล้ว') ||
+            notice.startsWith('เปิดใช้งาน') ||
+            notice.startsWith('เพิ่มสินค้าแล้ว')
               ? 'bg-emerald-50 text-emerald-800 ring-emerald-200'
               : 'bg-amber-50 text-amber-800 ring-amber-200'
           }`}
@@ -366,18 +403,36 @@ export function LiveCfSetup({
           </select>
         </label>
         <label className="text-sm font-semibold text-slate-800">
-          รหัสวิดีโอไลฟ์สด (Live Video ID)
+          ลิงก์หรือรหัสไลฟ์สด Facebook
           <input
-            aria-label="รหัสวิดีโอไลฟ์สด"
+            aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"
+            aria-invalid={liveLinkError}
+            aria-describedby="live-link-help"
             className={field}
-            inputMode="numeric"
             value={livePostId}
             onChange={(event) => setLivePostId(event.target.value)}
-            placeholder="เช่น 123456789 หรือ 123_456"
+            onPaste={(event) => {
+              const extracted = extractFacebookLiveId(event.clipboardData.getData('text'))
+              if (extracted) {
+                event.preventDefault()
+                setLivePostId(extracted)
+                setLiveLinkTouched(true)
+              }
+            }}
+            onBlur={() => {
+              setLiveLinkTouched(true)
+              if (parsedLiveId !== null) setLivePostId(parsedLiveId)
+            }}
+            placeholder="วางลิงก์ไลฟ์ Facebook หรือใส่รหัส เช่น 123456789"
           />
-          <span className="mt-1.5 flex items-center gap-1.5 text-xs font-normal text-slate-500">
+          <span
+            id="live-link-help"
+            className={`mt-1.5 flex items-center gap-1.5 text-xs font-normal ${liveLinkError ? 'text-red-600' : 'text-slate-500'}`}
+          >
             <Link2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-            เว้นว่างเพื่อรับทุกไลฟ์ของเพจ หรือใส่รหัสวิดีโอเพื่อระบุเฉพาะไลฟ์นี้ (เช่น 123456789 หรือ 123_456)
+            {liveLinkError
+              ? 'อ่านรหัสจากลิงก์นี้ไม่ได้ กรุณาคัดลอกลิงก์วิดีโอแบบเต็มจาก Facebook'
+              : 'วางลิงก์แล้วระบบจะดึงรหัสให้อัตโนมัติ เว้นว่างเพื่อรับทุกไลฟ์ของเพจ'}
           </span>
         </label>
       </section>
@@ -385,36 +440,50 @@ export function LiveCfSetup({
       {/* Responsive Layout 2 คอลัมน์บน Desktop */}
       <div className="grid items-start gap-6 lg:grid-cols-12">
         {/* ฝั่งซ้าย: 3 สเต็ปตั้งค่า */}
-        <section className={`${card} divide-y divide-slate-100 overflow-hidden lg:col-span-7 xl:col-span-8`}>
+        <section
+          className={`${card} divide-y divide-slate-100 overflow-hidden lg:col-span-7 xl:col-span-8`}
+        >
           {/* สเต็ป 1: เลือกสินค้า */}
           <div className="space-y-4 p-5 md:p-6">
             <StepTitle number={1}>เลือกสินค้าจากร้านค้า / เซลเพจ</StepTitle>
-            <label className="block text-sm font-semibold text-slate-800">
-              สินค้าในร้าน
-              <div className="relative">
-                <select
-                  aria-label="สินค้าจากร้านค้า / เซลเพจ"
-                  className={`${field} appearance-none pr-10`}
-                  value={productId}
-                  onChange={(event) => chooseProduct(event.target.value)}
-                >
-                  <option value="">เลือกสินค้า</option>
-                  {products.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} • ฿{Number(item.price).toLocaleString('th-TH')} • คงเหลือ {item.stock} ชิ้น
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute top-5 right-3 h-4 w-4 text-slate-400" />
-              </div>
-            </label>
-            {!products.length && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="block min-w-0 flex-1 text-sm font-semibold text-slate-800">
+                สินค้าในร้าน
+                <div className="relative">
+                  <select
+                    aria-label="สินค้าจากร้านค้า / เซลเพจ"
+                    className={`${field} appearance-none pr-10`}
+                    value={productId}
+                    onChange={(event) => chooseProduct(event.target.value)}
+                  >
+                    <option value="">เลือกสินค้า</option>
+                    {productOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} • ฿{Number(item.price).toLocaleString('th-TH')} • คงเหลือ{' '}
+                        {item.stock} ชิ้น
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute top-5 right-3 h-4 w-4 text-slate-400" />
+                </div>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowProductModal(true)}
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-2 focus-visible:outline-orange-500"
+              >
+                <Plus className="h-4 w-4" /> เพิ่มสินค้าใหม่เข้าเซลล์เพจ
+              </button>
+            </div>
+            {!productOptions.length && (
               <p className="rounded-xl bg-amber-50 p-3.5 text-xs text-amber-800 ring-1 ring-amber-200">
-                ยังไม่มีสินค้าในร้านค้า กรุณาเพิ่มสินค้าที่หน้า{' '}
-                <Link href="/shop" className="font-semibold text-orange-600 underline hover:text-orange-700">
+                ยังไม่มีสินค้า กด “เพิ่มสินค้าใหม่เข้าเซลล์เพจ” ด้านบน หรือจัดการสินค้าที่หน้า{' '}
+                <Link
+                  href="/shop"
+                  className="font-semibold text-orange-600 underline hover:text-orange-700"
+                >
                   ร้านค้า / เซลเพจ
                 </Link>{' '}
-                ก่อน
               </p>
             )}
             {product && (
@@ -450,7 +519,8 @@ export function LiveCfSetup({
                 {product.sales_page_url && (
                   <div className="flex items-center justify-between border-t border-slate-200/70 pt-2.5 text-xs text-slate-600">
                     <span className="flex items-center gap-1.5 font-medium">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500" /> หน้าร้านค้า / เซลเพจที่เชื่อมต่อ:
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" /> หน้าร้านค้า /
+                      เซลเพจที่เชื่อมต่อ:
                     </span>
                     <a
                       href={product.sales_page_url}
@@ -475,7 +545,8 @@ export function LiveCfSetup({
                 >
                   {product.variants.map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.label} • ฿{Number(item.price).toLocaleString('th-TH')} • {item.stock} ชิ้น
+                      {item.label} • ฿{Number(item.price).toLocaleString('th-TH')} • {item.stock}{' '}
+                      ชิ้น
                     </option>
                   ))}
                 </select>
@@ -490,9 +561,9 @@ export function LiveCfSetup({
             {/* โหมดการตรวจจับรหัส (Match Mode) */}
             <div className="space-y-2">
               <span className="block text-sm font-semibold text-slate-800">
-                โหมดการตรวจจับรหัส (Match Mode)
+                รูปแบบการพิมพ์ CF ของลูกค้า
               </span>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 xl:grid-cols-2">
                 <label
                   className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition ${
                     matchMode === 'flexible'
@@ -510,13 +581,14 @@ export function LiveCfSetup({
                   />
                   <div>
                     <span className="block text-sm font-semibold text-slate-900">
-                      โหมดอัจฉริยะ (ยืดหยุ่น)
+                      {"พิมพ์ติดคำอื่นก็ดูดได้ (เช่น 'CF 159', 'รับ 159')"}
                       <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-700">
                         แนะนำ
                       </span>
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
-                      จับคู่รหัสอัตโนมัติ แม้ลูกค้าพิมพ์ CF, FC, จอง, เอา, สนใจ นำหน้า หรือพิมพ์เฉพาะรหัส
+                      จับคู่รหัสอัตโนมัติ แม้ลูกค้าพิมพ์ CF, FC, จอง, เอา, สนใจ นำหน้า
+                      หรือพิมพ์เฉพาะรหัส
                     </span>
                   </div>
                 </label>
@@ -538,7 +610,7 @@ export function LiveCfSetup({
                   />
                   <div>
                     <span className="block text-sm font-semibold text-slate-900">
-                      ตรงคำเป๊ะ 100% (Strict)
+                      {"ต้องพิมพ์รหัสเป๊ะๆ เท่านั้น (เช่น '159')"}
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
                       ลูกค้าต้องพิมพ์ข้อความตรงกับรหัสที่ตั้งไว้ทุกตัวอักษรเท่านั้น ห้ามมีคำอื่นปะปน
@@ -549,9 +621,9 @@ export function LiveCfSetup({
             </div>
 
             <label className="block text-sm font-semibold text-slate-800">
-              รหัส CF สำหรับพิมพ์จอง (รองรับตัวเลข ตัวอักษร หรือข้อความภาษาไทย)
+              รหัสสินค้าที่ให้ลูกค้าพิมพ์จอง (เช่น A1, 159)
               <input
-                aria-label="รหัส CF สำหรับพิมพ์จอง"
+                aria-label="รหัสสินค้าที่ให้ลูกค้าพิมพ์จอง"
                 className={`${field} text-base font-bold text-orange-600`}
                 value={code}
                 maxLength={60}
@@ -602,9 +674,7 @@ export function LiveCfSetup({
                 <input
                   aria-label="จำนวนสต็อกไลฟ์"
                   value={stockLimit}
-                  onChange={(event) =>
-                    setStockLimit(Math.max(1, Number(event.target.value) || 1))
-                  }
+                  onChange={(event) => setStockLimit(Math.max(1, Number(event.target.value) || 1))}
                   className="w-20 border-x border-slate-200 text-center font-bold text-slate-800 outline-none"
                 />
                 <button
@@ -638,11 +708,10 @@ export function LiveCfSetup({
           <div className="space-y-5 p-5 md:p-6">
             <StepTitle number={3}>ข้อความตอบกลับอัตโนมัติ</StepTitle>
             <div className="space-y-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-start gap-3">
                 <Toggle checked={privateReply} onChange={setPrivateReply} label="ส่งแชทส่วนตัว" />
-                <span className="font-semibold text-slate-900">ส่งสรุปยอดเข้า Messenger</span>
-                <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-800">
-                  ส่งแชทส่วนตัว
+                <span className="font-semibold text-slate-900">
+                  ส่งสรุปยอดและลิงก์ชำระเงินเข้ากล่องข้อความ Facebook
                 </span>
               </div>
               {privateReply && (
@@ -657,7 +726,7 @@ export function LiveCfSetup({
                       onChange={(event) => setPrivateText(event.target.value)}
                     />
                     <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-                      <span>คลิกปุ่มด้านล่างเพื่อแทรกตัวแปรลงในข้อความ</span>
+                      <span>กดปุ่มด้านล่างเพื่อใส่ข้อมูลสินค้าในข้อความ</span>
                       {product && (
                         <button
                           type="button"
@@ -672,7 +741,7 @@ export function LiveCfSetup({
                           }
                           className="inline-flex items-center gap-1 font-semibold text-orange-600 hover:text-orange-700 hover:underline"
                         >
-                          <Sparkles className="h-3.5 w-3.5" /> รีเซ็ตเป็นข้อความเริ่มต้นของสินค้านี้
+                          <Sparkles className="h-3.5 w-3.5" /> ใช้ข้อความเริ่มต้นของสินค้านี้
                         </button>
                       )}
                     </div>
@@ -681,20 +750,19 @@ export function LiveCfSetup({
                   {/* ปุ่มแทรกตัวแปรอัตโนมัติ (Chip Buttons) */}
                   <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
                     <p className="mb-2 text-xs font-semibold text-slate-700">
-                      แทรกตัวแปรอัตโนมัติ (จะแทนที่ด้วยข้อมูลจริงของออเดอร์เมื่อลูกค้า CF):
+                      เลือกข้อมูลที่จะใส่ในข้อความ ระบบจะเติมข้อมูลจริงเมื่อลูกค้าจอง:
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {VARIABLE_CHIPS.map((chip) => (
                         <button
                           key={chip.tag}
                           type="button"
-                          onClick={() => insertVariable(chip.tag)}
+                          onClick={() => insertVariable(displayLiveReplyTemplate(chip.tag))}
                           className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-white px-2.5 py-1 text-xs font-semibold text-orange-700 shadow-2xs transition hover:bg-orange-50 active:scale-95"
-                          title={`แทรก ${chip.tag}`}
+                          title={`ใส่${chip.label}ในข้อความ`}
                         >
                           <span className="font-mono font-bold text-orange-600">+</span>
-                          <span>{chip.tag}</span>
-                          <span className="font-normal text-[11px] text-slate-400">({chip.label})</span>
+                          <span>{chip.label}</span>
                         </button>
                       ))}
                     </div>
@@ -705,10 +773,11 @@ export function LiveCfSetup({
                     <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs">
                       <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
                         <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                          <Eye className="h-3.5 w-3.5 text-orange-500" /> ตัวอย่างข้อความจริงที่ลูกค้าจะได้รับใน Messenger
+                          <Eye className="h-3.5 w-3.5 text-orange-500" />{' '}
+                          ตัวอย่างข้อความที่ลูกค้าจะได้รับทาง Facebook
                         </span>
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                          พรีวิวจำลอง
+                          ตัวอย่าง
                         </span>
                       </div>
                       <div className="mt-2.5 whitespace-pre-wrap rounded-lg border border-slate-100 bg-slate-50 p-3 font-sans text-xs leading-relaxed text-slate-800">
@@ -737,7 +806,8 @@ export function LiveCfSetup({
                     </label>
                     <div className="rounded-xl border border-orange-200/70 bg-orange-50/80 p-3.5 text-xs leading-relaxed text-orange-950">
                       <CreditCard className="mb-1.5 h-4 w-4 text-orange-600" />
-                      ระบบจะส่งข้อความสรุปยอดพร้อมลิงก์ชำระเงินที่ปลอดภัย (Payment Link) ผ่าน Messenger ให้ลูกค้าโดยอัตโนมัติ
+                      ระบบจะส่งสรุปยอดและลิงก์ชำระเงินที่ปลอดภัยเข้ากล่องข้อความ Facebook
+                      ของลูกค้าโดยอัตโนมัติ
                     </div>
                   </div>
                 </div>
@@ -774,18 +844,21 @@ export function LiveCfSetup({
                   <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
                     {product.image_url ? (
                       // eslint-disable-next-line @next/next/no-img-element -- tenant-owned dynamic product URL
-                      <img
-                        src={product.image_url}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
+                      <img src={product.image_url} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <Package className="h-6 w-6 text-slate-300" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-slate-900">{product.name}</p>
+                    <p className="break-words font-semibold text-slate-900">{product.name}</p>
                     {variant && <p className="text-xs text-slate-500">{variant.label}</p>}
+                    <p className="mt-1 text-lg font-bold text-orange-600">
+                      ฿
+                      {Number(selectedPrice).toLocaleString('th-TH', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </p>
                     <span className="text-xs font-semibold text-emerald-600">
                       คงเหลือ {selectedStock} ชิ้น
                     </span>
@@ -793,10 +866,13 @@ export function LiveCfSetup({
                 </div>
                 <dl className="mt-4 divide-y divide-slate-100 border-t border-slate-200 text-sm">
                   {[
-                    ['รหัส CF', code || '—'],
+                    ['รหัสสินค้าที่ให้พิมพ์จอง', code || '—'],
+                    ['สต็อกคงเหลือ', `${selectedStock} ชิ้น`],
                     [
-                      'โหมดการตรวจจับ',
-                      matchMode === 'strict' ? 'ตรงคำเป๊ะ 100%' : 'โหมดอัจฉริยะ (ยืดหยุ่น)',
+                      'รูปแบบการพิมพ์ CF',
+                      matchMode === 'strict'
+                        ? 'ต้องพิมพ์รหัสเป๊ะๆ เท่านั้น'
+                        : 'พิมพ์ติดคำอื่นก็ดูดได้',
                     ],
                     ['เปิดจอง', `${stockLimit} ชิ้น`],
                     ['ตัดสต็อกอัตโนมัติ', deductStock ? 'เปิด' : 'ปิด'],
@@ -804,9 +880,9 @@ export function LiveCfSetup({
                     ['ตอบใต้คอมเมนต์', publicReply ? 'เปิด' : 'ปิด'],
                   ].map(([label, value]) => (
                     <div key={label} className="flex justify-between gap-4 py-2.5">
-                      <dt className="text-slate-500">{label}</dt>
+                      <dt className="shrink-0 text-slate-500">{label}</dt>
                       <dd
-                        className={`font-semibold ${value === 'เปิด' ? 'text-emerald-600' : 'text-slate-900'}`}
+                        className={`min-w-0 break-words text-right font-semibold ${value === 'เปิด' ? 'text-emerald-600' : 'text-slate-900'}`}
                       >
                         {value}
                       </dd>
@@ -815,7 +891,8 @@ export function LiveCfSetup({
                 </dl>
                 {selectedBank && (
                   <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-2.5 text-xs text-slate-600">
-                    บัญชีรับเงิน: <b className="text-slate-800">{selectedBank.bank_code}</b> ••••{selectedBank.account_number.slice(-4)}
+                    บัญชีรับเงิน: <b className="text-slate-800">{selectedBank.bank_code}</b> ••••
+                    {selectedBank.account_number.slice(-4)}
                   </p>
                 )}
               </>
@@ -851,7 +928,9 @@ export function LiveCfSetup({
               className={`${field} mt-4`}
               value={testText}
               onChange={(event) => setTestText(event.target.value)}
-              placeholder={matchMode === 'strict' ? `พิมพ์ ${code || '159'}` : `ลองพิมพ์ CF ${code || '159'}`}
+              placeholder={
+                matchMode === 'strict' ? `พิมพ์ ${code || '159'}` : `ลองพิมพ์ CF ${code || '159'}`
+              }
             />
             <div
               className={`mt-3 flex items-center gap-2.5 rounded-xl border p-3 text-sm font-medium transition ${
@@ -869,7 +948,9 @@ export function LiveCfSetup({
               ) : (
                 <>
                   <CircleStop className="h-5 w-5 shrink-0 text-slate-400" />
-                  <span className="flex-1">ไม่สร้างออเดอร์ — ข้อความไม่ตรงกับรหัส CF ที่ตั้งไว้</span>
+                  <span className="flex-1">
+                    ไม่สร้างออเดอร์ — ข้อความไม่ตรงกับรหัส CF ที่ตั้งไว้
+                  </span>
                 </>
               )}
             </div>
@@ -886,11 +967,7 @@ export function LiveCfSetup({
             }`}
           />
           <span className="font-semibold text-slate-800">
-            {!id
-              ? 'สถานะ: ยังไม่เริ่มทำงาน'
-              : active
-                ? 'สถานะ: กำลังทำงาน'
-                : 'สถานะ: หยุดชั่วคราว'}
+            {!id ? 'สถานะ: ยังไม่เริ่มทำงาน' : active ? 'สถานะ: กำลังทำงาน' : 'สถานะ: หยุดชั่วคราว'}
           </span>
         </div>
         <div className="flex items-center gap-2.5">
@@ -910,7 +987,7 @@ export function LiveCfSetup({
           )}
           <button
             type="button"
-            disabled={saving || !products.length || !pages.length}
+            disabled={saving || !productOptions.length || !pages.length}
             onClick={save}
             className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-3 font-semibold text-white shadow-lg shadow-orange-500/25 transition hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -921,10 +998,18 @@ export function LiveCfSetup({
             ) : (
               <Play className="h-5 w-5 fill-current" />
             )}
-            {saving ? 'กำลังบันทึก...' : active ? 'บันทึกการตั้งค่า' : 'บันทึกและเริ่มดูดคอมเมนต์'}
+            {saving ? 'กำลังบันทึก...' : active ? 'บันทึกการตั้งค่า' : 'เริ่มเปิดระบบดูดออเดอร์'}
           </button>
         </div>
       </div>
+      {showProductModal && (
+        <QuickProductModal
+          tenantId={tenantId}
+          salesPageUrl={salesPageUrl ?? product?.sales_page_url ?? null}
+          onCreated={onProductCreated}
+          onDismiss={() => setShowProductModal(false)}
+        />
+      )}
     </div>
   )
 }

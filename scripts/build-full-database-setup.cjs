@@ -2,6 +2,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { splitSql } = require('./lib/safe-db-migration.cjs')
+const { completeSchema } = require('./lib/complete-schema.cjs')
 
 // Explicit order: do not sort migrations alphabetically or include operational scripts.
 const groups = [
@@ -67,6 +68,9 @@ const groups = [
       'payment-pro-dashboard.sql',
       'slip-bank-controls.sql',
       'bank-registry.sql',
+      'bank-qr-upload.sql',
+      'bank-qr-per-account.sql',
+      'bank-account-combined-save.sql',
       'payment-receiving-codes.sql',
       'qr-payment-designer.sql',
       'store-rules.sql',
@@ -89,11 +93,23 @@ const groups = [
       'manual-follow-ups.sql',
       'follow-up-simplified.sql',
       'follow-up-step-settings.sql',
+      'follow-up-manual-dispatch-fix.sql',
+      'follow-up-24h-window.sql',
+      'follow-up-approval-mode.sql',
       'dashboard-performance.sql',
       'dashboard-read-models.sql',
       'premium-overview.sql',
       'inbox-realtime.sql',
       'inbox-load-indexes.sql',
+      'facebook-inbox-recovery.sql',
+      'live-cf-variants.sql',
+      'live-cf-mode.sql',
+      'live-cf-setup.sql',
+      'messenger-product-lookup.sql',
+      'slip-confirmation-template.sql',
+      'standalone-slips.sql',
+      'tenant-ai-quota.sql',
+      'vision-master-switch.sql',
     ],
   ],
 ]
@@ -122,6 +138,144 @@ const excluded = {
   'inbox-request-diagnostics.sql': 'Read-only operational diagnostics, not schema.',
   'follow-up-worker-diagnostics.sql': 'Read-only runtime/scheduler diagnostics, not schema.',
   'realtime-cpu-diagnostics.sql': 'Read-only runtime performance diagnostics, not schema.',
+}
+
+// Explicit edges document table/helper prerequisites and prevent accidental
+// reordering of patches whose latest function definitions must win.
+const prerequisites = {
+  'schema.sql': [],
+  'tenants.sql': ['schema.sql'],
+  'comment-rules.sql': ['schema.sql'],
+  'platform.sql': ['tenants.sql', 'comment-rules.sql'],
+  'schema_patch.sql': ['platform.sql'],
+  'orders.sql': ['platform.sql'],
+  'automation.sql': ['orders.sql'],
+  'billing.sql': ['platform.sql'],
+  'security.sql': [
+    'schema.sql',
+    'tenants.sql',
+    'comment-rules.sql',
+    'platform.sql',
+    'orders.sql',
+    'automation.sql',
+    'billing.sql',
+  ],
+  'facebook-connect.sql': ['security.sql'],
+  'facebook-tenants.sql': ['facebook-connect.sql'],
+  'facebook-multi-admin.sql': ['facebook-tenants.sql'],
+  'customer-profiles.sql': ['security.sql'],
+  'customer-gender.sql': ['customer-profiles.sql'],
+  'payments.sql': ['security.sql', 'billing.sql'],
+  'ai-agent-gate.sql': ['billing.sql', 'automation.sql'],
+  'admin-feature-bypass.sql': ['security.sql', 'payments.sql', 'ai-agent-gate.sql'],
+  'billing-slip-topups.sql': ['billing.sql', 'payments.sql', 'admin-feature-bypass.sql'],
+  'platform-dashboard.sql': ['security.sql', 'billing-slip-topups.sql', 'admin-feature-bypass.sql'],
+  'platform-admin-db-only.sql': ['platform-dashboard.sql'],
+  'billing-auto-approval.sql': ['payments.sql', 'billing-slip-topups.sql'],
+  'bank-accounts.sql': ['platform-dashboard.sql'],
+  'image-response-rules.sql': ['security.sql', 'platform-dashboard.sql'],
+  'followup-plan-gate.sql': [
+    'automation.sql',
+    'billing.sql',
+    'security.sql',
+    'admin-feature-bypass.sql',
+  ],
+  'package-access.sql': ['billing-auto-approval.sql', 'ai-agent-gate.sql'],
+  'feature-access.sql': ['package-access.sql', 'admin-feature-bypass.sql'],
+  'free-message-quota.sql': ['feature-access.sql'],
+  'keyword-reply-limits.sql': ['automation.sql', 'billing.sql', 'security.sql'],
+  'fallback-messages.sql': ['automation.sql'],
+  'handover-messages.sql': ['automation.sql'],
+  'followup-message-defaults.sql': ['automation.sql'],
+  'smart-inbox.sql': ['free-message-quota.sql'],
+  'smart-inbox-pro.sql': ['smart-inbox.sql'],
+  'smart-inbox-v2.sql': ['smart-inbox-pro.sql'],
+  'inbox-follow-up-flags.sql': ['smart-inbox-v2.sql'],
+  'inbox-quick-replies.sql': ['smart-inbox.sql'],
+  'inbox-actions.sql': ['smart-inbox-v2.sql'],
+  'automation-safety.sql': ['inbox-actions.sql'],
+  'smart-follow-ups.sql': ['smart-inbox.sql', 'free-message-quota.sql', 'automation.sql'],
+  'agent-control.sql': ['automation-safety.sql'],
+  'agent-overview.sql': ['agent-control.sql'],
+  'ai-paid-access.sql': ['agent-control.sql', 'feature-access.sql'],
+  'ai-vision.sql': ['ai-paid-access.sql'],
+  'commerce-v2.sql': ['orders.sql', 'automation.sql', 'security.sql'],
+  'product-sku-reuse.sql': ['commerce-v2.sql'],
+  'payment-pro.sql': [
+    'payments.sql',
+    'billing-auto-approval.sql',
+    'bank-accounts.sql',
+    'smart-follow-ups.sql',
+  ],
+  'payment-pro-dashboard.sql': ['payment-pro.sql'],
+  'slip-bank-controls.sql': [
+    'bank-accounts.sql',
+    'security.sql',
+    'smart-inbox.sql',
+    'payment-pro.sql',
+  ],
+  'bank-registry.sql': ['slip-bank-controls.sql'],
+  'bank-qr-upload.sql': ['bank-accounts.sql', 'slip-bank-controls.sql', 'bank-registry.sql'],
+  'bank-qr-per-account.sql': ['bank-qr-upload.sql'],
+  'bank-account-combined-save.sql': ['bank-qr-per-account.sql'],
+  'payment-receiving-codes.sql': ['bank-registry.sql'],
+  'qr-payment-designer.sql': ['payment-receiving-codes.sql'],
+  'store-rules.sql': ['automation.sql', 'agent-control.sql', 'ai-paid-access.sql'],
+  'store-rule-items.sql': ['store-rules.sql'],
+  'store-rules-validation.sql': ['store-rule-items.sql'],
+  'facebook-webhook-queue.sql': ['security.sql', 'smart-inbox.sql'],
+  'facebook-webhook-nonblocking.sql': ['facebook-webhook-queue.sql'],
+  'facebook-message-window.sql': ['facebook-webhook-nonblocking.sql'],
+  'broadcast-policy.sql': ['facebook-message-window.sql'],
+  'broadcast-recipient-eligibility.sql': ['broadcast-policy.sql'],
+  'broadcast-recipient-selection.sql': ['broadcast-recipient-eligibility.sql'],
+  'broadcast-inbound-sync.sql': ['broadcast-policy.sql'],
+  'inbox-messenger-window.sql': ['broadcast-policy.sql', 'inbox-actions.sql'],
+  'smart-follow-up-presend.sql': ['smart-follow-ups.sql', 'broadcast-policy.sql'],
+  'manual-follow-ups.sql': ['smart-follow-up-presend.sql'],
+  'follow-up-simplified.sql': ['manual-follow-ups.sql'],
+  'follow-up-step-settings.sql': ['follow-up-simplified.sql'],
+  'follow-up-manual-dispatch-fix.sql': [
+    'follow-up-simplified.sql',
+    'smart-follow-up-presend.sql',
+    'manual-follow-ups.sql',
+  ],
+  'follow-up-24h-window.sql': ['follow-up-manual-dispatch-fix.sql', 'facebook-message-window.sql'],
+  'follow-up-approval-mode.sql': ['follow-up-24h-window.sql', 'follow-up-step-settings.sql'],
+  'dashboard-performance.sql': ['commerce-v2.sql'],
+  'dashboard-read-models.sql': ['dashboard-performance.sql'],
+  'premium-overview.sql': ['dashboard-read-models.sql'],
+  'inbox-realtime.sql': ['schema.sql', 'security.sql'],
+  'inbox-load-indexes.sql': ['inbox-realtime.sql'],
+  'facebook-inbox-recovery.sql': ['facebook-webhook-queue.sql', 'smart-inbox.sql'],
+  'live-cf-variants.sql': ['commerce-v2.sql', 'facebook-webhook-queue.sql'],
+  'live-cf-mode.sql': ['live-cf-variants.sql', 'comment-rules.sql'],
+  'live-cf-setup.sql': ['live-cf-mode.sql', 'bank-accounts.sql', 'facebook-webhook-queue.sql'],
+  'messenger-product-lookup.sql': ['commerce-v2.sql', 'live-cf-variants.sql'],
+  'slip-confirmation-template.sql': ['platform-dashboard.sql'],
+  'standalone-slips.sql': [
+    'security.sql',
+    'payments.sql',
+    'billing-auto-approval.sql',
+    'bank-accounts.sql',
+    'facebook-webhook-queue.sql',
+  ],
+  'tenant-ai-quota.sql': ['smart-inbox.sql', 'agent-control.sql'],
+  'vision-master-switch.sql': ['ai-vision.sql', 'tenant-ai-quota.sql'],
+}
+
+function validateOrder(sources) {
+  for (const file of sources)
+    if (!(file in prerequisites)) throw Error('Missing dependency declaration: ' + file)
+  for (const [file, required] of Object.entries(prerequisites)) {
+    const position = sources.indexOf(file)
+    if (position < 0) throw Error('Missing registered migration: ' + file)
+    for (const dependency of required) {
+      const before = sources.indexOf(dependency)
+      if (before < 0 || before >= position)
+        throw Error(`Migration dependency order: ${dependency} must precede ${file}`)
+    }
+  }
 }
 
 // Only these reviewed setup INSERTs are retained. Never remove DML inside a
@@ -173,12 +327,13 @@ function build(root = path.resolve(__dirname, '..')) {
     .readdirSync(folder, { recursive: true })
     .filter((f) => f.endsWith('.sql'))
     .map((f) => f.replaceAll('\\', '/'))
-    .filter((f) => f !== 'full_database_setup.sql')
+    .filter((f) => !['full_database_setup.sql', 'complete_schema.sql'].includes(f))
     .sort()
   const unclassified = files.filter((f) => !sources.includes(f) && !(f in excluded))
   if (unclassified.length)
     throw Error('Review new SQL files before bundling: ' + unclassified.join(', '))
   if (new Set(sources).size !== sources.length) throw Error('Duplicate source in dependency order')
+  validateOrder(sources)
   for (const file of [...sources, ...Object.keys(excluded)]) {
     if (!files.includes(file)) throw Error('Missing inventoried SQL source: ' + file)
   }
@@ -256,7 +411,8 @@ commit;`
     "notify pgrst, 'reload schema';",
     '',
   ].join('\n')
-  return { sql, sections, sources, files }
+  const result = { sql, sections, sources, files }
+  return { ...result, completeSql: completeSchema(result) }
 }
 
 function manifest(result) {
@@ -265,10 +421,18 @@ function manifest(result) {
       .filter((q) => q.omitted && !/^(begin|commit|set|reset)\b/i.test(q.sql))
       .map((q) => [s.file, q]),
   )
-  return `# Fresh Supabase database setup inventory
+  return `# Supabase SQL migration registry
 
 พบ SQL ต้นฉบับ ${result.files.length} ไฟล์: รวมตาม dependencies ${result.sources.length} ไฟล์ และแยกไว้ ${Object.keys(excluded).length} ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด ${result.files.length + 1} ไฟล์ รวม full_database_setup.sql ด้วย
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด ${result.files.length + 2} ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (${Buffer.byteLength(result.completeSql)} bytes)
+ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
+ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
+หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
+ดู [วิธีใช้งานและข้อจำกัด](MIGRATIONS.md)
+
+## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
 ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (${Buffer.byteLength(result.sql)} bytes, ${result.sql.split('\n').length} lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
@@ -306,7 +470,17 @@ ${Object.entries(excluded)
   .map(([file, reason]) => `| [${file}](${file}) | ${reason} |`)
   .join('\n')}
 
-## ท่อนที่ตัดจากไฟล์ต้นฉบับ
+## Dependencies ที่ตรวจอัตโนมัติ
+
+| Migration | ต้องอยู่หลัง |
+| --- | --- |
+${Object.entries(prerequisites)
+  .map(([file, required]) => `| ${file} | ${required.join(', ')} |`)
+  .join('\n')}
+
+## ท่อนที่ตัดจากไฟล์ bootstrap เดิม
+
+ตารางนี้อธิบาย full_database_setup.sql เท่านั้น; complete_schema.sql คง integrity scans และ backfills ของ proof ledger และ null quota repair เพิ่มเติมตาม scripts/lib/complete-schema.cjs
 
 เลข statement นับจาก SQL parser (ไม่นับ comment; DO/function body นับเป็นหนึ่ง statement)
 BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแทนด้วย transaction รายไฟล์และ SET LOCAL lock_timeout='2s'
@@ -315,7 +489,9 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | --- | --- | --- |
 ${removed.map(([file, q]) => `| ${file} | ${q.number}: \`${q.sql.slice(0, 80).replace(/\s+/g, ' ').replaceAll('|', '/')}…\` | ${q.omitted} |`).join('\n')}
 
-## วิธีใช้งานและขอบเขต
+## วิธีใช้ไฟล์ bootstrap เดิม
+
+สำหรับ complete_schema.sql ให้ใช้ [คู่มือหลัก](MIGRATIONS.md) ด้านล่างนี้เฉพาะ full_database_setup.sql เท่านั้น
 
 1. สร้าง Supabase project ใหม่; ตรวจว่า auth/storage และ publication supabase_realtime มีอยู่แล้ว
 2. เปิด full_database_setup.sql **ทั้งไฟล์** ใน SQL Editor และรันด้วย postgres ก่อนเชื่อม Dashboard/Webhook
@@ -331,7 +507,7 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 
 สร้างใหม่: node scripts/build-full-database-setup.cjs
 ตรวจสอบโดยไม่เขียน: node scripts/build-full-database-setup.cjs --check
-ทดสอบ isolated database: node --test scripts/test-full-database-setup.cjs
+ทดสอบ isolated database ทั้งสองรูปแบบ: npm run test:schema
 
 ## Source hashes
 
@@ -343,6 +519,7 @@ if (require.main === module) {
   const root = path.resolve(__dirname, '..')
   const result = build(root)
   const outputs = [
+    ['supabase/complete_schema.sql', result.completeSql],
     ['supabase/full_database_setup.sql', result.sql],
     ['supabase/full_database_setup-manifest.md', manifest(result)],
   ]
@@ -354,8 +531,8 @@ if (require.main === module) {
     } else fs.writeFileSync(target, content)
   }
   console.log(
-    `${result.files.length} sources: ${result.sources.length} included, ${Object.keys(excluded).length} excluded. ${Buffer.byteLength(result.sql)} bytes.`,
+    `${result.files.length} SQL sources: ${result.sources.length} included, ${Object.keys(excluded).length} excluded. complete_schema.sql: ${Buffer.byteLength(result.completeSql)} bytes.`,
   )
 }
 
-module.exports = { build, groups, excluded, omission, manifest }
+module.exports = { build, groups, excluded, prerequisites, validateOrder, omission, manifest }

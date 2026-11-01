@@ -90,6 +90,8 @@ Probe ด้วย role `authenticated` และสมาชิก `staff`: เ
 
 ### F07 — High / Deployment: ชุดติดตั้งฐานข้อมูลกับโค้ดปัจจุบันไม่ตรงกัน
 
+**อัปเดตหลังจัด Registry:** แก้ส่วน migration inventory แล้ว ปัจจุบัน classify SQL ต้นฉบับครบ 103 ไฟล์ รวม 86 migrations และแยกเครื่องมือเฉพาะงาน 17 ไฟล์ สร้าง `complete_schema.sql` ซึ่งรวม Live CF, Messenger และ standalone slips พร้อมทดสอบ fresh install, rerun, upgrade และ rollback ผ่าน ดู [คู่มือ migrations](../supabase/MIGRATIONS.md) หลักฐานด้านล่างเป็นสภาพที่พบก่อนแก้ไข ยังไม่ได้ยืนยัน environment หรือ apply ไปยัง Production
+
 **หลักฐาน:** `node scripts/build-full-database-setup.cjs --check`/ชุดทดสอบ full setup ปฏิเสธ SQL 14 ไฟล์ที่ยังไม่ได้ classify รวม `live-cf-variants.sql`, `live-cf-mode.sql`, `live-cf-setup.sql`, `messenger-product-lookup.sql` และ migration บัญชี/AI/vision อื่น ๆ [ตัวตรวจรายการ](../scripts/build-full-database-setup.cjs#L178)
 
 ไฟล์ `full_database_setup.sql` ที่ commit อยู่รันบน fixture ได้และเปิด RLS ให้ทุก application table แต่ไม่รวม migration Live CF/Messenger ข้างต้น การรัน SQL รวมเพียงไฟล์เดียวจึงไม่ทำให้ feature ใหม่พร้อมใช้งาน

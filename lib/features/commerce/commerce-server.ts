@@ -389,7 +389,7 @@ export async function commerceMutation(scope: CommerceScope, input: any) {
     if (result.error.code === '23505')
       throw new CommerceError(
         input.action === 'product'
-          ? 'รหัสสินค้า (SKU) นี้ถูกใช้แล้ว กรุณาเลือกรหัสอื่น'
+          ? 'รหัสสินค้านี้ถูกใช้แล้ว กรุณาเลือกรหัสอื่น'
           : 'ชื่อหรือลิงก์นี้ถูกใช้แล้ว',
         409,
       )

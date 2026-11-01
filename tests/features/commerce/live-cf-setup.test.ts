@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import { PGlite } from '@electric-sql/pglite'
 import { matchesCfCode, matchOrderCode } from '../../../lib/features/commerce/cf-code'
 import { createMockLiveCfMetaAdapter } from '../../../lib/integrations/facebook/live-cf-adapter'
+import { quickLiveProduct } from '../../../lib/features/commerce/live-cf-setup'
 
 const tenant = '11111111-1111-4111-8111-111111111111'
 const actor = '22222222-2222-4222-8222-222222222222'
@@ -67,6 +68,49 @@ async function place(db: PGlite, commentId: string) {
   )
   return result.rows[0]
 }
+
+test('quick-created products are active on the sales page with the submitted code, price and stock', async () => {
+  const db = await database()
+  try {
+    const value = quickLiveProduct({
+      name: 'สินค้าเพิ่มจากไลฟ์',
+      price: '259.50',
+      stock: '12',
+      cf_code: 'A1',
+    })
+    const result = await db.query<{ id: string }>(
+      'select commerce_save_product($1,$2,null,$3::jsonb) id',
+      [tenant, actor, JSON.stringify(value)],
+    )
+    const row = (
+      await db.query<{
+        code: string
+        price: string
+        stock: number
+        is_active: boolean
+        commerce_archived: boolean
+      }>(
+        'select code,price,stock,is_active,commerce_archived from products where id=$1 and tenant_id=$2',
+        [result.rows[0].id, tenant],
+      )
+    ).rows[0]
+    assert.equal(row.code, 'A1')
+    assert.equal(Number(row.price), 259.5)
+    assert.equal(row.stock, 12)
+    assert.equal(row.is_active, true)
+    assert.equal(row.commerce_archived, false)
+    await assert.rejects(
+      db.query('select commerce_save_product($1,$2,null,$3::jsonb)', [
+        tenant,
+        actor,
+        JSON.stringify(value),
+      ]),
+      (error: unknown) => (error as { code: string }).code === '23505',
+    )
+  } finally {
+    await db.close()
+  }
+})
 
 test('parser matches 159 as an exact token but never 1590', () => {
   assert.equal(matchesCfCode('CF 159', '159'), true)

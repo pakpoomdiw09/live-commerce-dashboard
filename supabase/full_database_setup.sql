@@ -86,6 +86,8 @@ begin
     ('public.payment_pro_attempts'),
     ('public.payment_pro_audit'),
     ('public.bank_account_audit'),
+    ('public.bank_receiving_qr'),
+    ('public.bank_account_save_requests'),
     ('public.payment_receiving_codes'),
     ('public.payment_receiving_audit'),
     ('public.bank_qr_designs'),
@@ -94,7 +96,11 @@ begin
     ('public.facebook_webhook_steps'),
     ('public.broadcast_messaging_events'),
     ('public.broadcast_runs'),
-    ('public.broadcast_deliveries')) expected(name)
+    ('public.broadcast_deliveries'),
+    ('public.live_cf_webhook_receipts'),
+    ('public.slip_settings'),
+    ('public.standalone_slips'),
+    ('public.tenant_ai_reply_reservations')) expected(name)
   where to_regclass(name) is not null;
   if existing is not null then
     raise exception 'Fresh database only. Existing application tables: %', existing
@@ -5063,7 +5069,7 @@ notify pgrst,'reload schema';
 commit;
 -- ============================================================================
 -- 44. commerce-v2.sql | Inbox, automation and commerce functions/triggers
--- SHA256: 40a75be6ce40169b82de51925d8b2fa5232cba8bc4fe1a985a5f2e9ec32b409a
+-- SHA256: 43b4aa77038376bec249d3dfd1c9c53c08fa2094ba24fe40b35afcbcfc94f9f7
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -5111,7 +5117,7 @@ alter table products add column if not exists commerce_archived boolean not null
 drop index if exists public.products_tenant_code;
 
 -- Source statement 13
-create unique index products_tenant_code on public.products(tenant_id,lower(code)) where not commerce_archived;
+create unique index if not exists products_tenant_code on public.products(tenant_id,lower(code)) where not commerce_archived;
 
 -- Source statement 14
 alter table products add column if not exists commerce_version integer not null default 0;
@@ -5844,7 +5850,254 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 50. payment-receiving-codes.sql | Inbox, automation and commerce functions/triggers
+-- 50. bank-qr-upload.sql | Inbox, automation and commerce functions/triggers
+-- SHA256: 6f115a66a303c4cdffce869df158f47c6090542411f674fdede0c28f9c6f539c
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+values('bank-receiving-qr','bank-receiving-qr',false,5242880,array['image/png','image/jpeg'])
+on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
+
+-- Source statement 3
+drop policy if exists bank_receiving_qr_private on storage.objects;
+
+-- Source statement 4
+create policy bank_receiving_qr_private on storage.objects as restrictive for all to anon,authenticated
+using(bucket_id<>'bank-receiving-qr') with check(bucket_id<>'bank-receiving-qr');
+
+-- Source statement 5
+create table if not exists public.bank_receiving_qr (
+ tenant_id uuid primary key references public.tenants(id) on delete cascade,
+ account_id uuid not null references public.bank_accounts(id),
+ bank_code_snapshot text not null,
+ account_number_snapshot text not null,
+ image_path text not null,
+ payload text not null check(length(payload) between 20 and 2048),
+ version integer not null check(version>0),
+ updated_at timestamptz not null default now()
+);
+
+-- Source statement 6
+alter table public.bank_receiving_qr enable row level security;
+
+-- Source statement 7
+revoke all on public.bank_receiving_qr from public,anon,authenticated;
+
+-- Source statement 8
+grant select,insert,update,delete on public.bank_receiving_qr to service_role;
+
+-- Source statement 9
+create or replace function public.save_bank_receiving_qr(
+ p_tenant uuid,p_actor uuid,p_bank text,p_name text,p_number text,p_path text,p_payload text,p_version integer
+) returns integer language plpgsql set search_path=pg_catalog,public as $$
+declare previous public.bank_receiving_qr; saved uuid; next_version integer;
+begin
+ if not exists(select 1 from public.tenants where id=p_tenant and is_active) or not (
+  exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or
+  exists(select 1 from public.platform_admins where user_id=p_actor)
+ ) then raise exception 'Forbidden' using errcode='42501';end if;
+ if not public.has_tenant_feature(p_tenant,'slip_auto_pilot') then raise exception 'Feature locked' using errcode='42501';end if;
+ if p_bank is null or p_bank not in ('KBANK','SCB','KTB','BBL','BAY','KKP','CIMB','TTB','TISCO','TCRB','SME','BAAC','EXIM','UOB','LH','GSB','GHB','ICBC') or
+  p_name is null or length(trim(p_name)) not between 1 and 120 or p_number is null or p_number !~ '^[0-9]{10,15}$' or
+  p_path is null or p_path not like p_tenant::text||'/%' or p_path like '%..%' or
+  p_payload is null or length(p_payload) not between 20 and 2048 or p_version is null or p_version<0
+ then raise exception 'Invalid receiving QR' using errcode='22023';end if;
+ perform 1 from public.tenants where id=p_tenant for update;
+ select * into previous from public.bank_receiving_qr where tenant_id=p_tenant for update;
+ if coalesce(previous.version,0)<>p_version then raise exception 'QR changed' using errcode='40001';end if;
+ -- An existing image cannot be silently reattached to a different account.
+ if previous.image_path=p_path and (previous.bank_code_snapshot<>p_bank or previous.account_number_snapshot<>p_number or previous.payload<>p_payload)
+ then raise exception 'Upload QR for new account' using errcode='22023';end if;
+ select id into saved from public.bank_accounts where tenant_id=p_tenant and bank_code=p_bank and account_number=p_number;
+ saved:=public.manage_slip_bank_account(p_tenant,p_actor,'save',saved,
+  jsonb_build_object('bank_code',p_bank,'account_name',trim(p_name),'account_number',p_number,'is_active',true),true);
+ perform public.manage_slip_bank_account(p_tenant,p_actor,'primary',saved,'{}',true);
+ next_version:=p_version+1;
+ insert into public.bank_receiving_qr(tenant_id,account_id,bank_code_snapshot,account_number_snapshot,image_path,payload,version)
+ values(p_tenant,saved,p_bank,p_number,p_path,p_payload,next_version)
+ on conflict(tenant_id) do update set account_id=excluded.account_id,bank_code_snapshot=excluded.bank_code_snapshot,
+  account_number_snapshot=excluded.account_number_snapshot,image_path=excluded.image_path,payload=excluded.payload,
+  version=excluded.version,updated_at=now();
+ return next_version;
+end $$;
+
+-- Source statement 10
+revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public,anon,authenticated;
+
+-- Source statement 11
+grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role;
+
+-- Source statement 12
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 51. bank-qr-per-account.sql | Inbox, automation and commerce functions/triggers
+-- SHA256: 32f1910876783a4661555a71c8144e1923d9548611ef0cbd5c6927681aecee27
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+do $$ begin
+ if exists(select 1 from pg_constraint where conrelid='public.bank_receiving_qr'::regclass
+  and contype='p' and pg_get_constraintdef(oid)='PRIMARY KEY (tenant_id)') then
+  alter table public.bank_receiving_qr drop constraint bank_receiving_qr_pkey;
+  alter table public.bank_receiving_qr add primary key(tenant_id,account_id);
+ end if;
+end $$;
+
+-- Source statement 3
+create or replace function public.save_bank_account_qr(
+ p_tenant uuid,p_actor uuid,p_account uuid,p_bank text,p_number text,p_path text,p_payload text,p_version integer
+) returns integer language plpgsql set search_path=pg_catalog,public as $$
+declare account public.bank_accounts; previous public.bank_receiving_qr; next_version integer;
+begin
+ if not exists(select 1 from public.tenants where id=p_tenant and is_active) or not (
+  exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or
+  exists(select 1 from public.platform_admins where user_id=p_actor)
+ ) then raise exception 'Forbidden' using errcode='42501';end if;
+ if not public.has_tenant_feature(p_tenant,'slip_auto_pilot') then raise exception 'Feature locked' using errcode='42501';end if;
+ if p_account is null or p_bank is null or p_number is null or p_path is null or
+  p_path not like p_tenant::text||'/'||p_account::text||'/%' or p_path like '%..%' or
+  p_payload is null or length(p_payload) not between 20 and 2048 or p_version is null or p_version<0
+ then raise exception 'Invalid account QR' using errcode='22023';end if;
+ -- Serialize with existing account-edit/toggle/primary RPCs; never change their settings here.
+ perform 1 from public.tenants where id=p_tenant for update;
+ select * into account from public.bank_accounts where tenant_id=p_tenant and id=p_account for update;
+ if not found then raise exception 'Account not found' using errcode='P0002';end if;
+ if account.bank_code<>p_bank or account.account_number<>p_number then
+  raise exception 'Account changed' using errcode='40001';end if;
+ if account.bank_code not in ('KBANK','SCB','KTB','BBL','BAY','KKP','CIMB','TTB','TISCO','TCRB','SME','BAAC','EXIM','UOB','LH','GSB','GHB','ICBC') then
+  raise exception 'Unsupported bank' using errcode='22023';end if;
+ select * into previous from public.bank_receiving_qr where tenant_id=p_tenant and account_id=p_account for update;
+ if coalesce(previous.version,0)<>p_version then raise exception 'QR changed' using errcode='40001';end if;
+ next_version:=p_version+1;
+ insert into public.bank_receiving_qr(tenant_id,account_id,bank_code_snapshot,account_number_snapshot,image_path,payload,version)
+ values(p_tenant,p_account,p_bank,p_number,p_path,p_payload,next_version)
+ on conflict(tenant_id,account_id) do update set bank_code_snapshot=excluded.bank_code_snapshot,
+  account_number_snapshot=excluded.account_number_snapshot,image_path=excluded.image_path,payload=excluded.payload,
+  version=excluded.version,updated_at=now();
+ insert into public.bank_account_audit(tenant_id,account_id,actor_id,action,last_four)
+ values(p_tenant,p_account,p_actor,'qr_upload',right(account.account_number,4));
+ return next_version;
+end $$;
+
+-- Source statement 4
+revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public,anon,authenticated;
+
+-- Source statement 5
+grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role;
+
+-- Source statement 6
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 52. bank-account-combined-save.sql | Inbox, automation and commerce functions/triggers
+-- SHA256: ba5776e10e9d121d7d374238c8031330a1ac43c18ccfe055a2dafc1551bc1128
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create table if not exists public.bank_account_save_requests (
+ tenant_id uuid not null references public.tenants(id) on delete cascade,
+ request_id uuid not null,
+ actor_id uuid not null,
+ fingerprint text not null check(fingerprint ~ '^[0-9a-f]{64}$'),
+ result jsonb not null,
+ created_at timestamptz not null default now(),
+ primary key(tenant_id,request_id)
+);
+
+-- Source statement 3
+alter table public.bank_account_save_requests enable row level security;
+
+-- Source statement 4
+revoke all on public.bank_account_save_requests from public,anon,authenticated;
+
+-- Source statement 5
+grant select,insert on public.bank_account_save_requests to service_role;
+
+-- Source statement 6
+create or replace function public.save_bank_account_with_qr(
+ p_tenant uuid,p_actor uuid,p_account uuid,p_create boolean,p_data jsonb,p_original jsonb,
+ p_path text,p_payload text,p_version integer,p_request uuid,p_fingerprint text
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare account public.bank_accounts; previous public.bank_receiving_qr; cached public.bank_account_save_requests;
+ saved uuid; result jsonb; next_version integer;
+begin
+ if not exists(select 1 from public.tenants where id=p_tenant and is_active) or not (
+  exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or
+  exists(select 1 from public.platform_admins where user_id=p_actor)
+ ) then raise exception 'Forbidden' using errcode='42501';end if;
+ if not public.has_tenant_feature(p_tenant,'slip_auto_pilot') then raise exception 'Feature locked' using errcode='42501';end if;
+ if p_request is null or p_account is null or p_create is null or p_fingerprint is null or p_fingerprint !~ '^[0-9a-f]{64}$'
+ then raise exception 'Invalid save request' using errcode='22023';end if;
+ perform 1 from public.tenants where id=p_tenant for update;
+ select * into cached from public.bank_account_save_requests where tenant_id=p_tenant and request_id=p_request;
+ if found then
+  if cached.actor_id<>p_actor or cached.fingerprint<>p_fingerprint then raise exception 'Save request changed' using errcode='40001';end if;
+  return cached.result;
+ end if;
+ if p_data->>'bank_code' is null or p_data->>'bank_code' not in ('KBANK','SCB','KTB','BBL','BAY','KKP','CIMB','TTB','TISCO','TCRB','SME','BAAC','EXIM','UOB','LH','GSB','GHB','ICBC') or
+  p_data->>'account_name' is null or length(trim(p_data->>'account_name')) not between 1 and 120 or
+  p_data->>'account_number' is null or p_data->>'account_number' !~ '^[0-9]{10,15}$' or
+  jsonb_typeof(p_data->'is_active') is distinct from 'boolean' or p_version is null or p_version<0
+ then raise exception 'Invalid account data' using errcode='22023';end if;
+ if (p_path is null)<>(p_payload is null) or (p_path is not null and
+  (p_path not like p_tenant::text||'/'||p_account::text||'/%' or p_path like '%..%' or length(p_payload) not between 20 and 2048))
+ then raise exception 'Invalid QR' using errcode='22023';end if;
+ if p_create then
+  if p_original is not null and p_original<>'null'::jsonb then raise exception 'Invalid original account' using errcode='22023';end if;
+  if exists(select 1 from public.bank_accounts where id=p_account) then raise exception 'Account already exists' using errcode='40001';end if;
+  insert into public.bank_accounts(id,tenant_id,bank_code,account_name,account_number,is_active)
+  values(p_account,p_tenant,p_data->>'bank_code',trim(p_data->>'account_name'),p_data->>'account_number',(p_data->>'is_active')::boolean);
+ else
+  select * into account from public.bank_accounts where tenant_id=p_tenant and id=p_account for update;
+  if not found then raise exception 'Account not found' using errcode='P0002';end if;
+  if p_original is distinct from jsonb_build_object('bank_code',account.bank_code,'account_name',trim(account.account_name),
+   'account_number',account.account_number,'is_active',account.is_active)
+  then raise exception 'Account changed' using errcode='40001';end if;
+ end if;
+ select * into previous from public.bank_receiving_qr where tenant_id=p_tenant and account_id=p_account for update;
+ if coalesce(previous.version,0)<>p_version then raise exception 'QR changed' using errcode='40001';end if;
+ if previous.account_id is not null and p_path is null and
+  (previous.bank_code_snapshot<>p_data->>'bank_code' or previous.account_number_snapshot<>p_data->>'account_number')
+ then raise exception 'Upload QR for changed account' using errcode='22023';end if;
+ saved:=public.manage_slip_bank_account(p_tenant,p_actor,'save',p_account,p_data,true);
+ next_version:=p_version;
+ if p_path is not null then
+  next_version:=public.save_bank_account_qr(p_tenant,p_actor,p_account,p_data->>'bank_code',p_data->>'account_number',p_path,p_payload,p_version);
+ end if;
+ result:=jsonb_build_object('id',saved,'version',next_version,'image_path',coalesce(p_path,previous.image_path));
+ insert into public.bank_account_save_requests(tenant_id,request_id,actor_id,fingerprint,result)
+ values(p_tenant,p_request,p_actor,p_fingerprint,result);
+ return result;
+end $$;
+
+-- Source statement 7
+revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public,anon,authenticated;
+
+-- Source statement 8
+grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role;
+
+-- Source statement 9
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 53. payment-receiving-codes.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 69d202f61858dbf27aaffa6a93e201b0fe43cb15e22fc579fbe82d1bca342826
 -- ============================================================================
 begin;
@@ -5944,7 +6197,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 51. qr-payment-designer.sql | Inbox, automation and commerce functions/triggers
+-- 54. qr-payment-designer.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 791010165b6065afb641c311106260bb7f574a3624530ee8d9df966d2bee8cd3
 -- ============================================================================
 begin;
@@ -6019,7 +6272,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 52. store-rules.sql | Inbox, automation and commerce functions/triggers
+-- 55. store-rules.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: ea6f24e091470f5d88369563d5f012c9500370aaa7536d84d3bf33c986daaee9
 -- ============================================================================
 begin;
@@ -6062,7 +6315,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 53. store-rule-items.sql | Inbox, automation and commerce functions/triggers
+-- 56. store-rule-items.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 7f10a22e7c4ad118a193af3e28a5105070e4eeff33b9fee5d95d836fc9664a41
 -- ============================================================================
 begin;
@@ -6103,7 +6356,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 54. store-rules-validation.sql | Inbox, automation and commerce functions/triggers
+-- 57. store-rules-validation.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: f8cbdf12cd3851025951edbf50d831548032211d73e43f12b011c1aa51df4883
 -- ============================================================================
 begin;
@@ -6202,8 +6455,8 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 55. facebook-webhook-queue.sql | Latest delivery safety, reporting and index patches
--- SHA256: f860709ad67ac9cebdaaf4ac9e6307b31f70cbf20b2289ec99ba36ec9755a374
+-- 58. facebook-webhook-queue.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 7e67011b3489c011639ea3f4f800fa6ac4825670f76f04fca4e0f7fddb3c641e
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -6214,13 +6467,16 @@ set local search_path = public, extensions;
 alter table public.customers add column if not exists last_interaction_at timestamptz;
 
 -- Source statement 3
+alter table public.customers add column if not exists window_expires_at timestamptz;
+
+-- Source statement 4
 create table if not exists public.facebook_webhook_payloads (
  id uuid primary key default gen_random_uuid(), payload_sha256 text not null unique check(payload_sha256 ~ '^[a-f0-9]{64}$'),
  raw_payload text not null check(octet_length(raw_payload)<=2097152), received_at timestamptz not null default clock_timestamp(),
  last_received_at timestamptz not null default clock_timestamp(), delivery_count integer not null default 1
 );
 
--- Source statement 4
+-- Source statement 5
 create table if not exists public.facebook_webhook_events (
  id uuid primary key default gen_random_uuid(), payload_id uuid not null references public.facebook_webhook_payloads(id),
  sequence bigint generated always as identity unique, page_id text not null, event_key text not null, ordering_key text not null,
@@ -6231,41 +6487,41 @@ create table if not exists public.facebook_webhook_events (
  unique(page_id,event_key)
 );
 
--- Source statement 5
+-- Source statement 6
 create index if not exists facebook_webhook_due on public.facebook_webhook_events(available_at,sequence) where status='pending';
 
--- Source statement 6
+-- Source statement 7
 create index if not exists facebook_webhook_ordering on public.facebook_webhook_events(page_id,ordering_key,sequence) where status in ('pending','processing','requires_review','dead');
 
--- Source statement 7
+-- Source statement 8
 create index if not exists facebook_webhook_leases on public.facebook_webhook_events(lease_until) where status='processing';
 
--- Source statement 8
+-- Source statement 9
 create table if not exists public.facebook_webhook_steps (
  event_id uuid not null references public.facebook_webhook_events(id), name text not null check(length(name) between 1 and 120),
  status text not null check(status in ('started','completed')), result jsonb, started_at timestamptz not null default clock_timestamp(),
  completed_at timestamptz, primary key(event_id,name)
 );
 
--- Source statement 9
+-- Source statement 10
 alter table public.facebook_webhook_payloads enable row level security;
 
--- Source statement 10
+-- Source statement 11
 alter table public.facebook_webhook_events enable row level security;
 
--- Source statement 11
+-- Source statement 12
 alter table public.facebook_webhook_steps enable row level security;
 
--- Source statement 12
+-- Source statement 13
 revoke all on public.facebook_webhook_payloads,public.facebook_webhook_events,public.facebook_webhook_steps from public,anon,authenticated;
 
--- Source statement 13
+-- Source statement 14
 grant select,insert,update,delete on public.facebook_webhook_payloads,public.facebook_webhook_events,public.facebook_webhook_steps to service_role;
 
--- Source statement 14
+-- Source statement 15
 grant usage,select on sequence public.facebook_webhook_events_sequence_seq to service_role;
 
--- Source statement 15
+-- Source statement 16
 create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare receipt uuid; item jsonb; accepted integer:=0; affected integer;
@@ -6287,7 +6543,7 @@ begin
  return jsonb_build_object('id',receipt,'accepted',accepted);
 end $$;
 
--- Source statement 16
+-- Source statement 17
 create or replace function public.claim_facebook_webhook(p_lease_seconds integer default 120) returns setof public.facebook_webhook_events
 language plpgsql set search_path=pg_catalog,public as $$
 begin
@@ -6312,7 +6568,7 @@ begin
  from candidate where e.id=candidate.id returning e.*;
 end $$;
 
--- Source statement 17
+-- Source statement 18
 create or replace function public.heartbeat_facebook_webhook(p_event uuid,p_claim uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 begin
@@ -6320,7 +6576,7 @@ begin
  where id=p_event and claim_token=p_claim and status='processing' and lease_until>clock_timestamp();return found;
 end $$;
 
--- Source statement 18
+-- Source statement 19
 create or replace function public.begin_facebook_webhook_step(p_event uuid,p_claim uuid,p_name text) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare step public.facebook_webhook_steps;
@@ -6333,7 +6589,7 @@ begin
  return jsonb_build_object('status','new');
 end $$;
 
--- Source statement 19
+-- Source statement 20
 create or replace function public.complete_facebook_webhook_step(p_event uuid,p_claim uuid,p_name text,p_result jsonb) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 begin
@@ -6342,7 +6598,7 @@ begin
  update public.facebook_webhook_steps set status='completed',result=p_result,completed_at=clock_timestamp() where event_id=p_event and name=p_name and status='started';return found;
 end $$;
 
--- Source statement 20
+-- Source statement 21
 create or replace function public.finish_facebook_webhook(p_event uuid,p_claim uuid,p_outcome text,p_error text default null) returns text
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events;next_state text;
@@ -6359,7 +6615,7 @@ begin
  return next_state;
 end $$;
 
--- Source statement 21
+-- Source statement 22
 create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
@@ -6388,13 +6644,13 @@ begin
  return to_timestamp(floor(milliseconds/1000)::double precision)+(mod(milliseconds,1000)::integer*interval '1 millisecond');
 end $$;
 
--- Source statement 22
+-- Source statement 23
 revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated;
 
--- Source statement 23
+-- Source statement 24
 grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role;
 
--- Source statement 24
+-- Source statement 25
 create or replace function public.inbox_incoming_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
@@ -6407,7 +6663,7 @@ begin
  return new;
 end $$;
 
--- Source statement 25
+-- Source statement 26
 create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events; prior jsonb; v jsonb; c public.customers; record_id uuid; result jsonb; event_time timestamptz; duplicate boolean;
@@ -6452,7 +6708,8 @@ begin
   if not duplicate then
    update public.customers set
     last_message_at=greatest(coalesce(last_message_at,event_time),event_time),
-    last_interaction_at=greatest(coalesce(last_interaction_at,event_time),event_time)
+    last_interaction_at=greatest(coalesce(last_interaction_at,event_time),event_time),
+    window_expires_at=greatest(coalesce(last_interaction_at,event_time),event_time)+interval '86400 seconds'
    where id=c.id;
   end if;
  else
@@ -6466,24 +6723,24 @@ begin
  return result;
 end $$;
 
--- Source statement 26
+-- Source statement 27
 revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated;
 
--- Source statement 27
+-- Source statement 28
 grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role;
 
--- Source statement 28
+-- Source statement 29
 revoke all on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) from public,anon,authenticated;
 
--- Source statement 29
+-- Source statement 30
 grant execute on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) to service_role;
 
--- Source statement 30
+-- Source statement 31
 notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 56. facebook-webhook-nonblocking.sql | Latest delivery safety, reporting and index patches
+-- 59. facebook-webhook-nonblocking.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 0cfe5319ef9b061c353b80a57463e06e1a97ff1424be84ecefb4a7ecb10baf4d
 -- ============================================================================
 begin;
@@ -6535,8 +6792,8 @@ end $$;
 
 commit;
 -- ============================================================================
--- 57. facebook-message-window.sql | Latest delivery safety, reporting and index patches
--- SHA256: 78ed4b175f56e2a324553f4cdc8c23e6b1aa526fd7112fbda778cb2fc32c11de
+-- 60. facebook-message-window.sql | Latest delivery safety, reporting and index patches
+-- SHA256: d2581ef71797895f11e05f0dfc74302cd202b9c278c9ecbb4c2968418baa9d5e
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -6547,6 +6804,9 @@ set local search_path = public, extensions;
 alter table public.customers add column if not exists last_interaction_at timestamptz;
 
 -- Source statement 3
+alter table public.customers add column if not exists window_expires_at timestamptz;
+
+-- Source statement 4
 create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
@@ -6575,13 +6835,13 @@ begin
  return to_timestamp(floor(milliseconds/1000)::double precision)+(mod(milliseconds,1000)::integer*interval '1 millisecond');
 end $$;
 
--- Source statement 4
+-- Source statement 5
 revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated;
 
--- Source statement 5
+-- Source statement 6
 grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role;
 
--- Source statement 6
+-- Source statement 7
 create or replace function public.inbox_incoming_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
@@ -6594,7 +6854,7 @@ begin
  return new;
 end $$;
 
--- Source statement 7
+-- Source statement 8
 create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events; prior jsonb; v jsonb; c public.customers; record_id uuid; result jsonb; event_time timestamptz; duplicate boolean;
@@ -6639,7 +6899,8 @@ begin
   if not duplicate then
    update public.customers set
     last_message_at=greatest(coalesce(last_message_at,event_time),event_time),
-    last_interaction_at=greatest(coalesce(last_interaction_at,event_time),event_time)
+    last_interaction_at=greatest(coalesce(last_interaction_at,event_time),event_time),
+    window_expires_at=greatest(coalesce(last_interaction_at,event_time),event_time)+interval '86400 seconds'
    where id=c.id;
   end if;
  else
@@ -6653,18 +6914,18 @@ begin
  return result;
 end $$;
 
--- Source statement 8
+-- Source statement 9
 revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated;
 
--- Source statement 9
+-- Source statement 10
 grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role;
 
--- Source statement 10
+-- Source statement 11
 notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 58. broadcast-policy.sql | Latest delivery safety, reporting and index patches
+-- 61. broadcast-policy.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a45cf7c24ef5f6d31ef31868029bd3e9216370bc5c582b911b80a4ed74071233
 -- ============================================================================
 begin;
@@ -6841,7 +7102,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 59. broadcast-recipient-eligibility.sql | Latest delivery safety, reporting and index patches
+-- 62. broadcast-recipient-eligibility.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 6ea5e1f9044db876fc8d0f07d8da52668f9897fa684851092eab347710e4a74c
 -- ============================================================================
 begin;
@@ -6881,7 +7142,7 @@ grant execute on function public.broadcast_recipient_reason(uuid,uuid) to servic
 
 commit;
 -- ============================================================================
--- 60. broadcast-recipient-selection.sql | Latest delivery safety, reporting and index patches
+-- 63. broadcast-recipient-selection.sql | Latest delivery safety, reporting and index patches
 -- SHA256: bdd1581c239a6ebc20048d32d342e6697d98ada245dd01260feacde8fe44278f
 -- ============================================================================
 begin;
@@ -6914,7 +7175,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 61. broadcast-inbound-sync.sql | Latest delivery safety, reporting and index patches
+-- 64. broadcast-inbound-sync.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 074351e109ac3b2191bc1eece9356c5ea28a58cb5b165a078e63413ad876beba
 -- ============================================================================
 begin;
@@ -6956,7 +7217,7 @@ for each row execute function public.sync_broadcast_inbound_message();
 
 commit;
 -- ============================================================================
--- 62. inbox-messenger-window.sql | Latest delivery safety, reporting and index patches
+-- 65. inbox-messenger-window.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 4ebe59d252e016e5d62eb28617e9a08d27847550f925f0273d18cc456c43e77e
 -- ============================================================================
 begin;
@@ -7092,7 +7353,7 @@ grant execute on function public.inbox_automation_window_open(uuid,uuid),public.
 
 commit;
 -- ============================================================================
--- 63. smart-follow-up-presend.sql | Latest delivery safety, reporting and index patches
+-- 66. smart-follow-up-presend.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 978fd4adf4cb9e1f16c8a1f21783ab4c7c43dedb66d7c11c7df20fe6ad36f9e4
 -- ============================================================================
 begin;
@@ -7289,7 +7550,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 64. manual-follow-ups.sql | Latest delivery safety, reporting and index patches
+-- 67. manual-follow-ups.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 34d34f06c0a32579c6dc4a80583c4c15040b1919b8f2bd7e6638848adb06e165
 -- ============================================================================
 begin;
@@ -7404,8 +7665,8 @@ end $$;
 
 commit;
 -- ============================================================================
--- 65. follow-up-simplified.sql | Latest delivery safety, reporting and index patches
--- SHA256: d425f213aab29a30c164cf201815925add5d76840f82fecb89cfae2aefb679fa
+-- 68. follow-up-simplified.sql | Latest delivery safety, reporting and index patches
+-- SHA256: c1463162272b2eb3b5248a42dd663baf9bc2371c23f300c70916df0921f4b86b
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -7451,7 +7712,7 @@ begin
  select * into w from public.follow_up_workflows where id=j.workflow_id and tenant_id=j.tenant_id;
  if c.id is null or c.tenant_id is distinct from j.tenant_id or w.id is null then reason:='invalid_reference';
  elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then reason:='plan_required';
- elsif (not w.enabled and not j.manual_without_order) or not t.auto_reply_enabled then reason:='disabled';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then reason:='disabled';
  elsif w.version<>j.workflow_version then reason:='workflow_changed';
  elsif c.followup_opted_out then reason:='opt_out';
  elsif c.contact_suspended then reason:='contact_suspended';
@@ -7518,7 +7779,7 @@ begin
  elsif j.claim_until<=clock_timestamp() then block_reason:='claim_expired';next_status:='requires_review';
  elsif j.run_at>clock_timestamp() then block_reason:='not_due';next_status:='requires_review';
  elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then block_reason:='plan_required';
- elsif (not w.enabled and not j.manual_without_order) or not t.auto_reply_enabled then block_reason:='disabled';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then block_reason:='disabled';
  elsif w.version<>j.workflow_version then block_reason:='workflow_changed';
  elsif c.followup_opted_out then block_reason:='opt_out';
  elsif c.contact_suspended then block_reason:='contact_suspended';
@@ -7625,7 +7886,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 66. follow-up-step-settings.sql | Latest delivery safety, reporting and index patches
+-- 69. follow-up-step-settings.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 96bedcb1959a8d864b018de761fb35e8d989b42450060ca784c2f7143af13a0e
 -- ============================================================================
 begin;
@@ -7680,7 +7941,521 @@ grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,
 
 commit;
 -- ============================================================================
--- 67. dashboard-performance.sql | Latest delivery safety, reporting and index patches
+-- 70. follow-up-manual-dispatch-fix.sql | Latest delivery safety, reporting and index patches
+-- SHA256: c05b6fe3c8261f43a521871557de3f2436712570afbbfd6d536340e403de1bc5
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid) returns boolean
+language sql stable security definer set search_path=pg_catalog,public as $$
+ select exists(select 1 from public.customers c join public.tenants t on t.id=c.tenant_id
+ where c.id=p_customer and c.tenant_id=p_tenant and t.is_active and
+ (c.platform<>'facebook' or (select max(e.interacted_at) from public.broadcast_messaging_events e
+ where e.tenant_id=t.id and e.customer_id=c.id and e.page_id=t.page_id and e.kind='inbound_message')
+ >statement_timestamp()-interval '24 hours' and (select max(e.interacted_at) from public.broadcast_messaging_events e
+ where e.tenant_id=t.id and e.customer_id=c.id and e.page_id=t.page_id and e.kind='inbound_message')<=statement_timestamp()))
+$$;
+
+-- Source statement 3
+revoke all on function public.follow_up_window_open(uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 4
+grant execute on function public.follow_up_window_open(uuid,uuid) to service_role;
+
+-- Source statement 5
+create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
+language plpgsql set search_path=pg_catalog,public as $$
+<<preflight>>
+declare j public.follow_up_jobs;c public.customers;w public.follow_up_workflows;t public.tenants;o public.orders;
+ reason text;next_status text:='cancelled';reservation record;lease uuid;msg uuid;rendered text;product text;total numeric;
+begin
+ select * into j from public.follow_up_jobs where id=p_job;
+ if not found then return jsonb_build_object('status','skipped');end if;
+ -- Consistent tenant -> customer -> job order, also used by completion. Customer triggers lock jobs.
+ select * into t from public.tenants where id=j.tenant_id for update;
+ select * into c from public.customers where id=j.customer_id for update;
+ if j.order_id is not null then perform 1 from public.orders where id=j.order_id and tenant_id=j.tenant_id and customer_id=j.customer_id for update;end if;
+ select * into j from public.follow_up_jobs where id=p_job for update;
+ if j.status<>'processing' or j.claim_token is distinct from p_claim or j.claim_until<=clock_timestamp() or j.dispatch_started_at is not null then return jsonb_build_object('status','skipped');end if;
+ if j.run_at>clock_timestamp() then
+  update public.follow_up_jobs set status='pending',reason='not_due',claim_token=null,claim_until=null,attempts=greatest(0,attempts-1) where id=j.id;
+  return jsonb_build_object('status','deferred','reason','not_due');
+ end if;
+ select * into w from public.follow_up_workflows where id=j.workflow_id and tenant_id=j.tenant_id;
+ if c.id is null or c.tenant_id is distinct from j.tenant_id or w.id is null then reason:='invalid_reference';
+ elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then reason:='plan_required';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then reason:='disabled';
+ elsif w.version<>j.workflow_version then reason:='workflow_changed';
+ elsif c.followup_opted_out then reason:='opt_out';
+ elsif c.contact_suspended then reason:='contact_suspended';
+ elsif not c.bot_enabled or c.assigned_user_id is not null or c.conversation_status='closed' then reason:='handover';
+ elsif (w.stop_on_reply or j.kind='interested') and c.inbound_seq>j.source_seq then reason:='customer_replied';end if;
+ if reason is null and j.kind in ('payment','after_sales') and not j.manual_without_order then
+  select * into o from public.orders where id=j.order_id and tenant_id=j.tenant_id and customer_id=j.customer_id;
+  if not found then reason:='invalid_reference';
+  elsif o.status='cancelled' then reason:='order_cancelled';
+  elsif j.kind='payment' and o.status<>'pending_payment' then reason:='paid';
+  elsif j.kind='payment' and o.confirmed_at is null then reason:='order_unconfirmed';next_status:='requires_review';
+  elsif j.kind='payment' and exists(select 1 from public.slips where tenant_id=j.tenant_id and customer_id=c.id and created_at>=o.created_at) then reason:='slip_received';next_status:='requires_review';
+  elsif j.kind='after_sales' and (o.status<>'shipped' or not exists(select 1 from public.order_delivery_events where order_id=o.id and tenant_id=j.tenant_id and delivered_at<=clock_timestamp())) then reason:='invalid_reference';end if;
+  product:=o.product_name;total:=o.amount;
+ elsif reason is null and j.kind='interested' and not j.manual_without_order then
+  select name,price into product,total from public.products where id=j.product_id and tenant_id=j.tenant_id and is_active;
+  if not found or not exists(select 1 from public.messages where id=j.source_message_id and customer_id=c.id and sender='customer') then reason:='invalid_reference';
+  elsif exists(select 1 from public.orders where tenant_id=j.tenant_id and customer_id=c.id and created_at>=j.anchor_at) then reason:='new_order';end if;
+ end if;
+ if reason is null and not public.follow_up_window_open(j.tenant_id,j.customer_id) then reason:='window_closed';next_status:='requires_review';end if;
+ if reason is null and (w.use_ai or j.manual_without_order) and not j.ai_approved then reason:='ai_draft';next_status:='requires_review';end if;
+ if reason is not null then
+  update public.follow_up_jobs set status=next_status,reason=preflight.reason,claim_token=null,claim_until=null where id=j.id;
+  return jsonb_build_object('status',next_status,'reason',reason);
+ end if;
+ if c.outbound_lock_until>clock_timestamp() then
+  update public.follow_up_jobs set status='pending',reason='delivery_busy',run_at=clock_timestamp()+interval '1 minute',attempts=greatest(0,attempts-1),claim_token=null,claim_until=null where id=j.id;return jsonb_build_object('status','deferred');
+ end if;
+ if exists(select 1 from public.messages where external_id='followup:'||j.id::text) then
+  update public.follow_up_jobs set status='requires_review',reason='delivery_unknown',claim_token=null,claim_until=null where id=j.id;return jsonb_build_object('status','requires_review');
+ end if;
+ select * into reservation from public.reserve_broadcast_credits(j.tenant_id,1);
+ if reservation.monthly+reservation.topup<>1 then
+  update public.follow_up_jobs set status='requires_review',reason='quota_exhausted',claim_token=null,claim_until=null where id=j.id;return jsonb_build_object('status','requires_review','reason','quota_exhausted');
+ end if;
+ -- The lease blocks Inbox claim/transfer while the network request is in flight.
+ lease:=public.start_inbox_delivery(c.id,null);
+ rendered:=public.render_smart_follow_up(j.text,c.display_name,product,total);
+ insert into public.messages(customer_id,sender,external_id,body,delivery_status) values(c.id,'bot','followup:'||j.id::text,rendered,'pending') returning id into msg;
+ update public.follow_up_jobs set dispatch_started_at=clock_timestamp(),message_id=msg,delivery_lease=lease,reserved_monthly=reservation.monthly,reserved_topup=reservation.topup where id=j.id;
+ return jsonb_build_object('status','ready','text',rendered,'customerId',c.id,'psid',c.platform_user_id,'tenantId',j.tenant_id,'messageId',msg);
+end $$;
+
+-- Source statement 6
+create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
+language plpgsql set search_path=pg_catalog,public as $$
+declare j public.follow_up_jobs;c public.customers;o public.orders;t public.tenants;
+ w public.follow_up_workflows;block_reason text;next_status text:='cancelled';
+begin
+ select * into j from public.follow_up_jobs where id=p_job;
+ if not found then return jsonb_build_object('status','skipped','reason','invalid_reference');end if;
+ -- Lock orders before jobs, matching the order-status trigger's order -> jobs order.
+ select * into t from public.tenants where id=j.tenant_id for update;
+ select * into c from public.customers where id=j.customer_id for update;
+ if j.order_id is not null then
+   select * into o from public.orders where id=j.order_id and tenant_id=j.tenant_id and customer_id=j.customer_id for update;
+ end if;
+ select * into j from public.follow_up_jobs where id=p_job for update;
+ if j.status<>'processing' or j.claim_token is distinct from p_claim or j.dispatch_started_at is null or j.send_authorized_at is not null then
+   return jsonb_build_object('status','skipped','reason','dispatch_not_available');
+ end if;
+ select * into w from public.follow_up_workflows where id=j.workflow_id and tenant_id=j.tenant_id;
+ if c.id is null or c.tenant_id is distinct from j.tenant_id or w.id is null then block_reason:='invalid_reference';
+ elsif j.claim_until<=clock_timestamp() then block_reason:='claim_expired';next_status:='requires_review';
+ elsif j.run_at>clock_timestamp() then block_reason:='not_due';next_status:='requires_review';
+ elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then block_reason:='plan_required';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then block_reason:='disabled';
+ elsif w.version<>j.workflow_version then block_reason:='workflow_changed';
+ elsif c.followup_opted_out then block_reason:='opt_out';
+ elsif c.contact_suspended then block_reason:='contact_suspended';
+ elsif not c.bot_enabled or c.assigned_user_id is not null or c.conversation_status='closed' then block_reason:='handover';
+ elsif (w.stop_on_reply or j.kind='interested') and c.inbound_seq>j.source_seq then block_reason:='customer_replied';
+ end if;
+ if block_reason is null and j.kind='payment' and not j.manual_without_order then
+   if o.id is null then block_reason:='invalid_reference';
+   elsif o.status='cancelled' then block_reason:='order_cancelled';
+   elsif o.status<>'pending_payment' then block_reason:='paid';
+   elsif o.confirmed_at is null then block_reason:='order_unconfirmed';next_status:='requires_review';
+   elsif exists(select 1 from public.slips where tenant_id=j.tenant_id and customer_id=j.customer_id and created_at>=o.created_at) then block_reason:='slip_received';next_status:='requires_review';
+   end if;
+ end if;
+ if block_reason is null and j.manual_without_order and not j.ai_approved then block_reason:='ai_draft';next_status:='requires_review';end if;
+ if block_reason is null and not public.follow_up_window_open(j.tenant_id,j.customer_id) then block_reason:='window_closed';next_status:='requires_review';end if;
+ if block_reason is not null then
+   if not public.complete_follow_up(j.id,p_claim,'failed',null,block_reason) then return jsonb_build_object('status','skipped');end if;
+   update public.follow_up_jobs set status=next_status,reason=block_reason where id=j.id;
+   insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason) values(j.tenant_id,j.id,'precheck_blocked',block_reason);
+   return jsonb_build_object('status',next_status,'reason',block_reason);
+ end if;
+ update public.follow_up_jobs set send_authorized_at=clock_timestamp() where id=j.id;
+ insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason)
+ values(j.tenant_id,j.id,'precheck_passed',case when j.kind='payment' then 'unpaid_confirmed' else 'eligibility_confirmed' end);
+ return jsonb_build_object('status','ready');
+end $$;
+
+-- Source statement 7
+revoke all on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 8
+grant execute on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) to service_role;
+
+-- Source statement 9
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 71. follow-up-24h-window.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 18871aeb28c2b8fd9fac9a16588904281380c733721168135fa49d3733eaaacd
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.customers add column if not exists last_interaction_at timestamptz;
+
+-- Source statement 3
+alter table public.customers add column if not exists window_expires_at timestamptz;
+
+-- Source statement 4
+create or replace function public.sync_facebook_customer_window() returns trigger
+language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if new.platform='facebook' then
+  new.window_expires_at:=case when new.last_interaction_at is null then null
+   else new.last_interaction_at+interval '86400 seconds' end;
+ end if;
+ return new;
+end $$;
+
+-- Source statement 5
+drop trigger if exists customers_facebook_window on public.customers;
+
+-- Source statement 6
+create trigger customers_facebook_window before insert or update of last_interaction_at
+ on public.customers for each row execute function public.sync_facebook_customer_window();
+
+-- Source statement 7
+create or replace function public.sync_facebook_evidence_window() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+ if new.kind='inbound_message' and new.interacted_at<=clock_timestamp() then
+  update public.customers c set last_interaction_at=new.interacted_at
+  from public.tenants t where c.id=new.customer_id and c.tenant_id=new.tenant_id
+   and c.platform='facebook' and t.id=c.tenant_id and t.page_id=new.page_id
+   and (c.last_interaction_at is null or c.last_interaction_at<new.interacted_at);
+ end if;
+ return new;
+end $$;
+
+-- Source statement 8
+drop trigger if exists broadcast_inbound_customer_window on public.broadcast_messaging_events;
+
+-- Source statement 9
+create trigger broadcast_inbound_customer_window after insert or update
+ on public.broadcast_messaging_events for each row execute function public.sync_facebook_evidence_window();
+
+-- Source statement 11
+create or replace function public.follow_up_window_expires_at(p_tenant uuid,p_customer uuid)
+returns timestamptz language sql stable security definer set search_path=pg_catalog,public as $$
+ select least(c.window_expires_at,e.inbound_at+interval '86400 seconds')
+ from public.customers c join public.tenants t on t.id=c.tenant_id and t.is_active
+ cross join lateral (select max(b.interacted_at) inbound_at from public.broadcast_messaging_events b
+  where b.tenant_id=t.id and b.customer_id=c.id and b.page_id=t.page_id and b.kind='inbound_message') e
+ where c.id=p_customer and c.tenant_id=p_tenant and c.platform='facebook'
+  and c.window_expires_at is not null and c.last_interaction_at<=statement_timestamp()
+  and e.inbound_at<=statement_timestamp()
+$$;
+
+-- Source statement 12
+create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid)
+returns boolean language sql stable security definer set search_path=pg_catalog,public as $$
+ select coalesce(public.follow_up_window_expires_at(p_tenant,p_customer)>statement_timestamp(),false)
+$$;
+
+-- Source statement 13
+create or replace function public.complete_follow_up(p_job uuid,p_claim uuid,p_result text,p_provider text default null,p_reason text default null) returns boolean
+language plpgsql set search_path=pg_catalog,public as $$
+declare j public.follow_up_jobs;
+begin
+ select * into j from public.follow_up_jobs where id=p_job;
+ if not found then return false;end if;
+ perform 1 from public.tenants where id=j.tenant_id for update;
+ perform 1 from public.customers where id=j.customer_id for update;
+ select * into j from public.follow_up_jobs where id=p_job for update;
+ if j.status<>'processing' or j.claim_token is distinct from p_claim or j.dispatch_started_at is null then return false;end if;
+ if p_result is null or p_result not in ('sent','failed','requires_review','cancelled')
+ or (p_result='sent' and nullif(trim(p_provider),'') is null)
+ or (p_result='cancelled' and (p_reason is distinct from 'outside_24h_window' or p_provider is not null)) then
+  raise exception 'Invalid delivery outcome or missing provider receipt' using errcode='22023';end if;
+ if p_result in ('failed','cancelled') or p_result='requires_review' and p_reason='window_closed' then
+  perform public.refund_broadcast_credits(j.tenant_id,j.reserved_monthly,j.reserved_topup);end if;
+ update public.messages set delivery_status=case when p_result='sent' then 'sent'
+  when p_result in ('failed','cancelled') or p_reason='window_closed' then 'failed' else 'unknown' end,
+  provider_message_id=p_provider where id=j.message_id;
+ update public.follow_up_jobs set status=p_result,reason=p_reason,provider_message_id=p_provider,
+  sent_at=case when p_result='sent' then now() else null end,claim_token=null,claim_until=null,
+  reserved_monthly=0,reserved_topup=0 where id=j.id;
+ perform public.end_inbox_delivery(j.customer_id,j.delivery_lease);
+ return true;
+end $$;
+
+-- Source statement 14
+create or replace function public.expire_follow_up_if_outside_window(p_job uuid,p_claim uuid) returns boolean
+language plpgsql set search_path=pg_catalog,public as $$
+declare j public.follow_up_jobs;
+begin
+ select * into j from public.follow_up_jobs where id=p_job;
+ if not found then return false;end if;
+ perform 1 from public.tenants where id=j.tenant_id for update;
+ perform 1 from public.customers where id=j.customer_id for update;
+ select * into j from public.follow_up_jobs where id=p_job for update;
+ if j.status<>'processing' or j.claim_token is distinct from p_claim or j.claim_until<=clock_timestamp()
+ or j.dispatch_started_at is not null then return false;end if;
+ if public.follow_up_window_open(j.tenant_id,j.customer_id) then return false;end if;
+ update public.follow_up_jobs set status='cancelled',reason='outside_24h_window',claim_token=null,claim_until=null where id=j.id;
+ return true;
+end $$;
+
+-- Source statement 15
+revoke all on function public.sync_facebook_customer_window(),public.sync_facebook_evidence_window() from public,anon,authenticated,service_role;
+
+-- Source statement 16
+revoke all on function public.follow_up_window_expires_at(uuid,uuid),public.follow_up_window_open(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.expire_follow_up_if_outside_window(uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 17
+grant execute on function public.follow_up_window_expires_at(uuid,uuid),public.follow_up_window_open(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.expire_follow_up_if_outside_window(uuid,uuid) to service_role;
+
+-- Source statement 18
+create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
+language plpgsql set search_path=pg_catalog,public as $$
+<<preflight>>
+declare j public.follow_up_jobs;c public.customers;w public.follow_up_workflows;t public.tenants;o public.orders;
+ reason text;next_status text:='cancelled';reservation record;lease uuid;msg uuid;rendered text;product text;total numeric;
+begin
+ select * into j from public.follow_up_jobs where id=p_job;
+ if not found then return jsonb_build_object('status','skipped');end if;
+ -- Consistent tenant -> customer -> job order, also used by completion. Customer triggers lock jobs.
+ select * into t from public.tenants where id=j.tenant_id for update;
+ select * into c from public.customers where id=j.customer_id for update;
+ if j.order_id is not null then perform 1 from public.orders where id=j.order_id and tenant_id=j.tenant_id and customer_id=j.customer_id for update;end if;
+ select * into j from public.follow_up_jobs where id=p_job for update;
+ if j.status<>'processing' or j.claim_token is distinct from p_claim or j.claim_until<=clock_timestamp() or j.dispatch_started_at is not null then return jsonb_build_object('status','skipped');end if;
+ if j.run_at>clock_timestamp() then
+  update public.follow_up_jobs set status='pending',reason='not_due',claim_token=null,claim_until=null,attempts=greatest(0,attempts-1) where id=j.id;
+  return jsonb_build_object('status','deferred','reason','not_due');
+ end if;
+ select * into w from public.follow_up_workflows where id=j.workflow_id and tenant_id=j.tenant_id;
+ if c.id is null or c.tenant_id is distinct from j.tenant_id or w.id is null then reason:='invalid_reference';
+ elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then reason:='plan_required';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then reason:='disabled';
+ elsif w.version<>j.workflow_version then reason:='workflow_changed';
+ elsif c.followup_opted_out then reason:='opt_out';
+ elsif c.contact_suspended then reason:='contact_suspended';
+ elsif not c.bot_enabled or c.assigned_user_id is not null or c.conversation_status='closed' then reason:='handover';
+ elsif (w.stop_on_reply or j.kind='interested') and c.inbound_seq>j.source_seq then reason:='customer_replied';end if;
+ if reason is null and j.kind in ('payment','after_sales') and not j.manual_without_order then
+  select * into o from public.orders where id=j.order_id and tenant_id=j.tenant_id and customer_id=j.customer_id;
+  if not found then reason:='invalid_reference';
+  elsif o.status='cancelled' then reason:='order_cancelled';
+  elsif j.kind='payment' and o.status<>'pending_payment' then reason:='paid';
+  elsif j.kind='payment' and o.confirmed_at is null then reason:='order_unconfirmed';next_status:='requires_review';
+  elsif j.kind='payment' and exists(select 1 from public.slips where tenant_id=j.tenant_id and customer_id=c.id and created_at>=o.created_at) then reason:='slip_received';next_status:='requires_review';
+  elsif j.kind='after_sales' and (o.status<>'shipped' or not exists(select 1 from public.order_delivery_events where order_id=o.id and tenant_id=j.tenant_id and delivered_at<=clock_timestamp())) then reason:='invalid_reference';end if;
+  product:=o.product_name;total:=o.amount;
+ elsif reason is null and j.kind='interested' and not j.manual_without_order then
+  select name,price into product,total from public.products where id=j.product_id and tenant_id=j.tenant_id and is_active;
+  if not found or not exists(select 1 from public.messages where id=j.source_message_id and customer_id=c.id and sender='customer') then reason:='invalid_reference';
+  elsif exists(select 1 from public.orders where tenant_id=j.tenant_id and customer_id=c.id and created_at>=j.anchor_at) then reason:='new_order';end if;
+ end if;
+ if reason is null and not public.follow_up_window_open(j.tenant_id,j.customer_id) then reason:='outside_24h_window';next_status:='cancelled';end if;
+ if reason is null and (w.use_ai or j.manual_without_order) and not j.ai_approved then reason:='ai_draft';next_status:='requires_review';end if;
+ if reason is not null then
+  update public.follow_up_jobs set status=next_status,reason=preflight.reason,claim_token=null,claim_until=null where id=j.id;
+  return jsonb_build_object('status',next_status,'reason',reason);
+ end if;
+ if c.outbound_lock_until>clock_timestamp() then
+  update public.follow_up_jobs set status='pending',reason='delivery_busy',run_at=clock_timestamp()+interval '1 minute',attempts=greatest(0,attempts-1),claim_token=null,claim_until=null where id=j.id;return jsonb_build_object('status','deferred');
+ end if;
+ if exists(select 1 from public.messages where external_id='followup:'||j.id::text) then
+  update public.follow_up_jobs set status='requires_review',reason='delivery_unknown',claim_token=null,claim_until=null where id=j.id;return jsonb_build_object('status','requires_review');
+ end if;
+ select * into reservation from public.reserve_broadcast_credits(j.tenant_id,1);
+ if reservation.monthly+reservation.topup<>1 then
+  update public.follow_up_jobs set status='requires_review',reason='quota_exhausted',claim_token=null,claim_until=null where id=j.id;return jsonb_build_object('status','requires_review','reason','quota_exhausted');
+ end if;
+ -- The lease blocks Inbox claim/transfer while the network request is in flight.
+ lease:=public.start_inbox_delivery(c.id,null);
+ rendered:=public.render_smart_follow_up(j.text,c.display_name,product,total);
+ insert into public.messages(customer_id,sender,external_id,body,delivery_status) values(c.id,'bot','followup:'||j.id::text,rendered,'pending') returning id into msg;
+ update public.follow_up_jobs set dispatch_started_at=clock_timestamp(),message_id=msg,delivery_lease=lease,reserved_monthly=reservation.monthly,reserved_topup=reservation.topup where id=j.id;
+ return jsonb_build_object('status','ready','text',rendered,'customerId',c.id,'psid',c.platform_user_id,'tenantId',j.tenant_id,'messageId',msg);
+end $$;
+
+-- Source statement 19
+create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
+language plpgsql set search_path=pg_catalog,public as $$
+declare j public.follow_up_jobs;c public.customers;o public.orders;t public.tenants;
+ w public.follow_up_workflows;block_reason text;next_status text:='cancelled';
+begin
+ select * into j from public.follow_up_jobs where id=p_job;
+ if not found then return jsonb_build_object('status','skipped','reason','invalid_reference');end if;
+ -- Lock orders before jobs, matching the order-status trigger's order -> jobs order.
+ select * into t from public.tenants where id=j.tenant_id for update;
+ select * into c from public.customers where id=j.customer_id for update;
+ if j.order_id is not null then
+   select * into o from public.orders where id=j.order_id and tenant_id=j.tenant_id and customer_id=j.customer_id for update;
+ end if;
+ select * into j from public.follow_up_jobs where id=p_job for update;
+ if j.status<>'processing' or j.claim_token is distinct from p_claim or j.dispatch_started_at is null or j.send_authorized_at is not null then
+   return jsonb_build_object('status','skipped','reason','dispatch_not_available');
+ end if;
+ select * into w from public.follow_up_workflows where id=j.workflow_id and tenant_id=j.tenant_id;
+ if c.id is null or c.tenant_id is distinct from j.tenant_id or w.id is null then block_reason:='invalid_reference';
+ elsif j.claim_until<=clock_timestamp() then block_reason:='claim_expired';next_status:='requires_review';
+ elsif j.run_at>clock_timestamp() then block_reason:='not_due';next_status:='requires_review';
+ elsif not public.has_tenant_feature(j.tenant_id,'customer_follow_up') or (j.kind<>'payment' or w.use_ai) and not public.has_tenant_feature(j.tenant_id,'ai_agent') then block_reason:='plan_required';
+ elsif not j.manual_without_order and (not w.enabled or not t.auto_reply_enabled) then block_reason:='disabled';
+ elsif w.version<>j.workflow_version then block_reason:='workflow_changed';
+ elsif c.followup_opted_out then block_reason:='opt_out';
+ elsif c.contact_suspended then block_reason:='contact_suspended';
+ elsif not c.bot_enabled or c.assigned_user_id is not null or c.conversation_status='closed' then block_reason:='handover';
+ elsif (w.stop_on_reply or j.kind='interested') and c.inbound_seq>j.source_seq then block_reason:='customer_replied';
+ end if;
+ if block_reason is null and j.kind='payment' and not j.manual_without_order then
+   if o.id is null then block_reason:='invalid_reference';
+   elsif o.status='cancelled' then block_reason:='order_cancelled';
+   elsif o.status<>'pending_payment' then block_reason:='paid';
+   elsif o.confirmed_at is null then block_reason:='order_unconfirmed';next_status:='requires_review';
+   elsif exists(select 1 from public.slips where tenant_id=j.tenant_id and customer_id=j.customer_id and created_at>=o.created_at) then block_reason:='slip_received';next_status:='requires_review';
+   end if;
+ end if;
+ if block_reason is null and j.manual_without_order and not j.ai_approved then block_reason:='ai_draft';next_status:='requires_review';end if;
+ if block_reason is null and not public.follow_up_window_open(j.tenant_id,j.customer_id) then block_reason:='outside_24h_window';next_status:='cancelled';end if;
+ if block_reason is not null then
+   if not public.complete_follow_up(j.id,p_claim,'failed',null,block_reason) then return jsonb_build_object('status','skipped');end if;
+   update public.follow_up_jobs set status=next_status,reason=block_reason where id=j.id;
+   insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason) values(j.tenant_id,j.id,'precheck_blocked',block_reason);
+   return jsonb_build_object('status',next_status,'reason',block_reason);
+ end if;
+ update public.follow_up_jobs set send_authorized_at=clock_timestamp() where id=j.id;
+ insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason)
+ values(j.tenant_id,j.id,'precheck_passed',case when j.kind='payment' then 'unpaid_confirmed' else 'eligibility_confirmed' end);
+ return jsonb_build_object('status','ready','windowExpiresAt',public.follow_up_window_expires_at(j.tenant_id,j.customer_id));
+end $$;
+
+-- Source statement 20
+revoke all on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 21
+grant execute on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) to service_role;
+
+-- Source statement 22
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 72. follow-up-approval-mode.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 53f81f07be504e99d4afbe8fab1f25c6f859f218470b280ceea2dc44760f74a4
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.follow_up_policies add column if not exists approval_mode text
+ not null default 'manual_review' check(approval_mode in ('manual_review','auto_approve'));
+
+-- Source statement 3
+create or replace function public.set_follow_up_approval_mode(p_tenant uuid,p_actor uuid,p_mode text)
+returns text language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if not public.has_tenant_feature(p_tenant,'customer_follow_up') or not (
+  exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor)
+  or exists(select 1 from public.platform_admins where user_id=p_actor)) then
+  raise exception 'Forbidden' using errcode='42501';
+ end if;
+ if p_mode is null or p_mode not in ('manual_review','auto_approve') then
+  raise exception 'Invalid approval mode' using errcode='22023';
+ end if;
+ perform 1 from public.tenants where id=p_tenant for update;
+ -- Update only the approval setting: do not toggle automation, revise workflows,
+ -- cancel queues or approve historical drafts.
+ insert into public.follow_up_policies(tenant_id,approval_mode) values(p_tenant,p_mode)
+ on conflict(tenant_id) do update set approval_mode=excluded.approval_mode;
+ return p_mode;
+end $$;
+
+-- Source statement 4
+create or replace function public.apply_follow_up_approval_mode() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+declare mode text;
+begin
+ if new.status in ('pending','scheduled') or new.status='requires_review' and new.reason='ai_draft' then
+  select approval_mode into mode from public.follow_up_policies where tenant_id=new.tenant_id;
+  new.ai_approved:=coalesce(mode,'manual_review')='auto_approve';
+  new.status:=case when new.ai_approved then 'pending' else 'requires_review' end;
+  new.reason:=case when new.ai_approved then null else 'ai_draft' end;
+ end if;
+ return new;
+end $$;
+
+-- Source statement 5
+drop trigger if exists follow_up_approval_mode on public.follow_up_jobs;
+
+-- Source statement 6
+create trigger follow_up_approval_mode before insert on public.follow_up_jobs
+ for each row execute function public.apply_follow_up_approval_mode();
+
+-- Source statement 7
+create or replace function public.retry_rejected_follow_up(p_job uuid,p_tenant uuid,p_actor uuid)
+returns text language plpgsql set search_path=pg_catalog,public as $$
+declare j public.follow_up_jobs; m public.messages;
+begin
+ if not public.has_tenant_feature(p_tenant,'customer_follow_up') or not (
+  exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor)
+  or exists(select 1 from public.platform_admins where user_id=p_actor)) then
+  raise exception 'Forbidden' using errcode='42501';
+ end if;
+ select * into j from public.follow_up_jobs where id=p_job and tenant_id=p_tenant;
+ if not found then raise exception 'Job not found' using errcode='P0002';end if;
+ perform 1 from public.tenants where id=p_tenant for update;
+ perform 1 from public.customers where id=j.customer_id and tenant_id=p_tenant for update;
+ select * into j from public.follow_up_jobs where id=p_job and tenant_id=p_tenant for update;
+ if j.status<>'failed' or coalesce(j.reason,'') not in ('api_rejected','page_restricted')
+ or j.dispatch_started_at is null or j.provider_message_id is not null
+ or j.claim_token is not null or j.claim_until is not null
+ or j.reserved_monthly<>0 or j.reserved_topup<>0 then
+  raise exception 'Only confirmed rejected sends can retry' using errcode='40001';
+ end if;
+ select * into m from public.messages where id=j.message_id and customer_id=j.customer_id for update;
+ if m.id is null or m.delivery_status is distinct from 'failed' or m.provider_message_id is not null
+ or m.external_id is distinct from 'followup:'||j.id::text then
+  raise exception 'Delivery outcome is not a confirmed refusal' using errcode='40001';
+ end if;
+ if not public.follow_up_window_open(p_tenant,j.customer_id) then
+  update public.follow_up_jobs set status='cancelled',reason='outside_24h_window' where id=j.id;
+  insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason,actor_id)
+  values(p_tenant,j.id,'admin_action','retry_outside_24h_window',p_actor);
+  return 'cancelled';
+ end if;
+ update public.messages set external_id='followup:'||j.id::text||':rejected:'||m.id::text where id=m.id;
+ update public.follow_up_jobs set status='pending',reason=null,attempts=0,
+  run_at=greatest(run_at,clock_timestamp()),dispatch_started_at=null,send_authorized_at=null,
+  message_id=null,delivery_lease=null,sent_at=null where id=j.id;
+ insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason,actor_id)
+ values(p_tenant,j.id,'admin_action','retry_confirmed_refusal',p_actor);
+ return 'pending';
+end $$;
+
+-- Source statement 8
+revoke all on function public.apply_follow_up_approval_mode() from public,anon,authenticated,service_role;
+
+-- Source statement 9
+revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text),public.retry_rejected_follow_up(uuid,uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 10
+grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text),public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role;
+
+-- Source statement 11
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 73. dashboard-performance.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 87871cb3623b3153a08fd585394dda0fbd296c4fb670e50791ee09527b2c29c5
 -- ============================================================================
 begin;
@@ -7889,7 +8664,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 68. dashboard-read-models.sql | Latest delivery safety, reporting and index patches
+-- 74. dashboard-read-models.sql | Latest delivery safety, reporting and index patches
 -- SHA256: daca680061c44493d8ec6c139716a5a7e58aca1c20cddab9231ce59f94cf72cf
 -- ============================================================================
 begin;
@@ -8088,7 +8863,7 @@ grant execute on function public.customer_directory(uuid,integer,text,text,text)
 
 commit;
 -- ============================================================================
--- 69. premium-overview.sql | Latest delivery safety, reporting and index patches
+-- 75. premium-overview.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 19d97393eda4ebd1de925886ce3add41af56164a2541e8e4e0b6f377f861f273
 -- ============================================================================
 begin;
@@ -8190,7 +8965,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 70. inbox-realtime.sql | Latest delivery safety, reporting and index patches
+-- 76. inbox-realtime.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a7dc1d4c93f7995e27731bd59a078c4430650c0b627c9f4c14a80c5357d607f7
 -- ============================================================================
 begin;
@@ -8214,7 +8989,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 71. inbox-load-indexes.sql | Latest delivery safety, reporting and index patches
+-- 77. inbox-load-indexes.sql | Latest delivery safety, reporting and index patches
 -- SHA256: cee506871122e657bfbf6b2a12533272fee5b44607176d4c29298b0aaf404e42
 -- ============================================================================
 begin;
@@ -8257,6 +9032,1219 @@ create index if not exists broadcast_customer_recent on public.broadcast_messagi
 -- Source statement 9
 create index if not exists facebook_webhook_message_id_lookup on public.facebook_webhook_events
  (page_id,((payload->'message')->>'mid')) where kind='message';
+
+commit;
+-- ============================================================================
+-- 78. facebook-inbox-recovery.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 1eb9f1832583ddae48cd6adda766c7c3828e48d5c9401f2b0b96442977e6a1ad
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+do $$
+declare missing text;
+begin
+  foreach missing in array array[
+    'public.tenants',
+    'public.customers',
+    'public.messages',
+    'public.facebook_webhook_events',
+    'public.facebook_webhook_steps'
+  ] loop
+    if to_regclass(missing) is null then
+      raise exception 'Missing prerequisite relation: %', missing;
+    end if;
+  end loop;
+  if to_regprocedure('public.persist_facebook_webhook_record(uuid,uuid,uuid)') is null then
+    raise exception 'Missing prerequisite function: persist_facebook_webhook_record';
+  end if;
+end $$;
+
+-- Source statement 3
+create or replace function public.ensure_facebook_customer_fallback_name()
+returns trigger
+language plpgsql
+set search_path=pg_catalog,public
+as $$
+begin
+  if new.platform='facebook'
+     and nullif(btrim(coalesce(new.display_name,'')),'') is null
+     and nullif(btrim(coalesce(new.platform_user_id,'')),'') is not null then
+    new.display_name := 'ลูกค้า Facebook (' || right(new.platform_user_id,4) || ')';
+  end if;
+  return new;
+end $$;
+
+-- Source statement 4
+drop trigger if exists customers_facebook_fallback_name on public.customers;
+
+-- Source statement 5
+create trigger customers_facebook_fallback_name
+before insert or update on public.customers
+for each row execute function public.ensure_facebook_customer_fallback_name();
+
+-- Source statement 7
+create index if not exists customers_tenant_last_message_idx
+  on public.customers(tenant_id,last_message_at desc,id desc);
+
+-- Source statement 8
+create index if not exists messages_customer_created_idx
+  on public.messages(customer_id,created_at desc,id desc);
+
+-- Source statement 9
+grant select,insert,update on public.customers to service_role;
+
+-- Source statement 10
+grant select,insert,update on public.messages to service_role;
+
+-- Source statement 11
+grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role;
+
+-- Source statement 12
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 79. live-cf-variants.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 76d033c8d7df54314df3ec983143fa1194d4fbf29c3f261507c29fedbdec00f1
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.commerce_variants add column if not exists variant_code text;
+
+-- Source statement 3
+create unique index if not exists commerce_variant_tenant_code
+  on public.commerce_variants(tenant_id, lower(variant_code))
+  where variant_code is not null and length(trim(variant_code)) > 0;
+
+-- Source statement 4
+alter table public.orders add column if not exists variant_id uuid
+  references public.commerce_variants(id);
+
+-- Source statement 5
+alter table public.orders add column if not exists variant_label text;
+
+-- Source statement 6
+alter table public.orders add column if not exists source text;
+
+-- Source statement 7
+alter table public.orders add column if not exists source_id text;
+
+-- Source statement 8
+alter table public.orders add column if not exists source_code text;
+
+-- Source statement 9
+create unique index if not exists orders_one_per_source
+  on public.orders(tenant_id, source, source_id)
+  where source is not null and source_id is not null;
+
+-- Source statement 10
+create or replace function public.commerce_save_product(
+  p_tenant uuid,p_actor uuid,p_id uuid,p_value jsonb,p_version integer default null
+) returns uuid language plpgsql security definer set search_path=pg_catalog,public as $$
+declare r public.products;l public.commerce_limits;v jsonb;vid uuid;pid uuid:=coalesce(p_id,gen_random_uuid());kept uuid[]:='{}';
+begin
+ perform public.commerce_access(p_tenant,p_actor);
+ perform 1 from public.tenants where id=p_tenant for update;
+ l:=public.commerce_plan(p_tenant);
+ if p_id is not null then
+  select * into r from public.products where id=p_id and tenant_id=p_tenant and not commerce_archived for update;
+  if not found or r.commerce_version is distinct from p_version then raise exception 'COMMERCE_CHANGED' using errcode='40001';end if;
+ elsif l.max_products is not null and (select count(*) from public.products where tenant_id=p_tenant and not commerce_archived)>=l.max_products then
+  raise exception 'COMMERCE_LIMIT' using errcode='42501';
+ end if;
+ if p_value->>'category_id' is not null and not exists(
+  select 1 from public.commerce_categories where id=(p_value->>'category_id')::uuid and tenant_id=p_tenant
+ ) then raise exception 'COMMERCE_CATEGORY';end if;
+ if p_id is null then
+  insert into public.products(id,tenant_id,code,name,price,stock)
+  values(pid,p_tenant,p_value->>'code',p_value->>'name',(p_value->>'price')::numeric,0);
+ end if;
+ update public.products set
+  code=p_value->>'code',name=p_value->>'name',description=nullif(p_value->>'description',''),
+  price=(p_value->>'price')::numeric,stock=(p_value->>'stock')::integer,
+  is_active=(p_value->>'is_active')::boolean,image_url=p_value->'images'->>0,
+  commerce_images=p_value->'images',commerce_category_id=(p_value->>'category_id')::uuid,
+  commerce_compare_price=(p_value->>'compare_price')::numeric,
+  commerce_cost=(p_value->>'cost')::numeric,commerce_featured=(p_value->>'featured')::boolean
+ where id=pid;
+ for v in select * from jsonb_array_elements(p_value->'variants') loop
+  vid:=coalesce((v->>'id')::uuid,gen_random_uuid());
+  if exists(select 1 from public.commerce_variants where id=vid and (tenant_id<>p_tenant or product_id<>pid)) then
+   raise exception 'COMMERCE_FORBIDDEN';
+  end if;
+  insert into public.commerce_variants(id,tenant_id,product_id,label,variant_code,price,stock)
+  values(vid,p_tenant,pid,v->>'label',nullif(trim(v->>'variant_code'),''),(v->>'price')::numeric,(v->>'stock')::integer)
+  on conflict(id) do update set label=excluded.label,variant_code=excluded.variant_code,
+   price=excluded.price,stock=excluded.stock,is_active=true;
+  kept:=array_append(kept,vid);
+ end loop;
+ update public.commerce_variants set is_active=false where product_id=pid and not(id=any(kept));
+ insert into public.commerce_audit(tenant_id,actor_id,entity_id,action)
+ values(p_tenant,p_actor,pid,'product_saved');
+ return pid;
+end $$;
+
+-- Source statement 11
+create or replace function public.on_order_status() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+ if new.status=old.status then return new;end if;
+ if old.status='cancelled' then raise exception 'ออเดอร์ที่ยกเลิกแล้วเปลี่ยนสถานะไม่ได้';end if;
+ if new.status='cancelled' and new.product_id is not null then
+  if new.variant_id is not null then
+   update public.commerce_variants set stock=stock+1 where id=new.variant_id;
+  end if;
+  update public.products set stock=stock+1 where id=new.product_id;
+ end if;
+ return new;
+end $$;
+
+-- Source statement 12
+drop trigger if exists orders_status_change on public.orders;
+
+-- Source statement 13
+create trigger orders_status_change before update of status on public.orders
+ for each row execute function public.on_order_status();
+
+-- Source statement 14
+drop function if exists public.place_cf_order(uuid,uuid,uuid,text);
+
+-- Source statement 15
+create or replace function public.place_cf_order_core(
+ p_tenant uuid,p_customer uuid,p_message uuid,p_code text,p_source text,p_source_id text
+) returns table(
+ r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
+) language plpgsql security definer set search_path=pg_catalog,public as $$
+declare p public.products;v public.commerce_variants;o public.orders;new_id uuid;
+begin
+ if p_source is not null and (p_source<>'facebook_comment' or p_source_id is null or p_message is not null) then
+  raise exception 'Invalid CF order source' using errcode='22023';
+ end if;
+ perform 1 from public.tenants where id=p_tenant for update;
+ if not found then raise exception 'Tenant not found' using errcode='P0002';end if;
+ if p_source is not null then
+  select * into o from public.orders
+   where tenant_id=p_tenant and source=p_source and source_id=p_source_id for update;
+  if found then
+   if o.source_code is distinct from lower(trim(p_code)) then
+    raise exception 'CF comment already used' using errcode='40001';
+   end if;
+   return query select 'created'::text,o.id,o.product_name,o.source_code,o.amount,o.variant_label;
+   return;
+  end if;
+ end if;
+ if p_customer is null or not exists(
+  select 1 from public.customers where id=p_customer and tenant_id=p_tenant and platform='facebook'
+ ) then raise exception 'Customer not found' using errcode='P0002';end if;
+
+ select cv.* into v
+  from public.commerce_variants cv join public.products cp on cp.id=cv.product_id
+  where cv.tenant_id=p_tenant and lower(cv.variant_code)=lower(trim(p_code))
+   and cv.is_active and cp.is_active and not cp.commerce_archived;
+ if found then
+  select * into p from public.products where id=v.product_id and tenant_id=p_tenant for update;
+  select * into v from public.commerce_variants where id=v.id and tenant_id=p_tenant and is_active for update;
+  if not found or p.stock<1 or v.stock<1 then
+   return query select 'sold_out'::text,null::uuid,p.name,v.variant_code,v.price,v.label;
+   return;
+  end if;
+  update public.commerce_variants set stock=stock-1 where id=v.id;
+  update public.products set stock=stock-1 where id=p.id;
+  insert into public.orders(
+   tenant_id,customer_id,product_id,product_name,amount,message_id,variant_id,variant_label,
+   source,source_id,source_code
+  ) values(
+   p_tenant,p_customer,p.id,p.name,v.price,p_message,v.id,v.label,p_source,p_source_id,lower(trim(p_code))
+  ) returning id into new_id;
+  return query select 'created'::text,new_id,p.name,v.variant_code,v.price,v.label;
+  return;
+ end if;
+
+ select * into p from public.products
+  where tenant_id=p_tenant and lower(code)=lower(trim(p_code))
+   and is_active and not commerce_archived for update;
+ if not found then
+  return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;
+  return;
+ end if;
+ if exists(select 1 from public.commerce_variants where tenant_id=p_tenant and product_id=p.id and is_active) then
+  return query select 'require_variant'::text,null::uuid,p.name,p.code,null::numeric,null::text;
+  return;
+ end if;
+ if p.stock<1 then
+  return query select 'sold_out'::text,null::uuid,p.name,p.code,p.price,null::text;
+  return;
+ end if;
+ update public.products set stock=stock-1 where id=p.id;
+ insert into public.orders(tenant_id,customer_id,product_id,product_name,amount,message_id,source,source_id,source_code)
+ values(p_tenant,p_customer,p.id,p.name,p.price,p_message,p_source,p_source_id,lower(trim(p_code))
+ ) returning id into new_id;
+ return query select 'created'::text,new_id,p.name,p.code,p.price,null::text;
+end $$;
+
+-- Source statement 16
+create or replace function public.place_cf_order(
+ p_tenant uuid,p_customer uuid,p_message uuid,p_code text
+) returns table(
+ r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
+) language sql security definer set search_path=pg_catalog,public as $$
+ select * from public.place_cf_order_core(p_tenant,p_customer,p_message,p_code,null,null)
+$$;
+
+-- Source statement 17
+create or replace function public.place_cf_order(
+ p_tenant_id uuid,p_code text,p_customer_psid text,p_source text,p_source_id text
+) returns table(
+ r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
+) language plpgsql security definer set search_path=pg_catalog,public as $$
+declare customer_id uuid;
+begin
+ if p_source<>'facebook_comment' or p_source_id is null or length(p_source_id)>512 then
+  raise exception 'Invalid CF order source' using errcode='22023';
+ end if;
+ select id into customer_id from public.customers
+  where tenant_id=p_tenant_id and platform='facebook' and platform_user_id=p_customer_psid for update;
+ if not found then raise exception 'Facebook customer not found' using errcode='P0002';end if;
+ return query select * from public.place_cf_order_core(
+  p_tenant_id,customer_id,null,p_code,p_source,p_source_id
+ );
+end $$;
+
+-- Source statement 18
+revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text)
+ from public,anon,authenticated;
+
+-- Source statement 19
+revoke all on function public.place_cf_order(uuid,uuid,uuid,text)
+ from public,anon,authenticated;
+
+-- Source statement 20
+revoke all on function public.place_cf_order(uuid,text,text,text,text)
+ from public,anon,authenticated;
+
+-- Source statement 21
+grant execute on function public.place_cf_order(uuid,uuid,uuid,text)
+ to service_role;
+
+-- Source statement 22
+grant execute on function public.place_cf_order(uuid,text,text,text,text)
+ to service_role;
+
+-- Source statement 23
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 80. live-cf-mode.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 91f67f49d0e22fcdba1f1a77d9fb169c5a66b14ac83d53eb8e001f6580cd966c
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.comment_rules add column if not exists mode text not null default 'general'
+  check (mode in ('general','live_cf'));
+
+-- Source statement 3
+alter table public.comment_rules add column if not exists live_product_id uuid references public.products(id);
+
+-- Source statement 4
+alter table public.comment_rules add column if not exists live_variant_id uuid references public.commerce_variants(id);
+
+-- Source statement 5
+alter table public.comment_rules add column if not exists live_stock_limit integer
+  check (live_stock_limit between 1 and 1000000);
+
+-- Source statement 6
+alter table public.comment_rules add column if not exists live_post_id text;
+
+-- Source statement 7
+alter table public.orders add column if not exists live_rule_id uuid
+  references public.comment_rules(id) on delete set null;
+
+-- Source statement 8
+create index if not exists orders_live_rule on public.orders(tenant_id,live_rule_id,status);
+
+-- Source statement 9
+create unique index if not exists orders_one_facebook_comment
+  on public.orders(tenant_id,source_id)
+  where source in ('facebook_comment','live_comment') and source_id is not null;
+
+-- Source statement 10
+create or replace function public.validate_live_cf_rule() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+declare p public.products; v public.commerce_variants; normalized text[];
+begin
+ if tg_op='UPDATE' and new.tenant_id is distinct from old.tenant_id then
+  raise exception 'ย้ายกฎไปยังร้านอื่นไม่ได้' using errcode='23514';
+ end if;
+ if new.mode<>'live_cf' then
+  new.live_product_id:=null; new.live_variant_id:=null;
+  new.live_stock_limit:=null; new.live_post_id:=null;
+  return new;
+ end if;
+ perform 1 from public.tenants where id=new.tenant_id for update;
+ if not found then raise exception 'ไม่พบร้านค้า' using errcode='23514'; end if;
+ select * into p from public.products where id=new.live_product_id and tenant_id=new.tenant_id;
+ if not found then raise exception 'กรุณาเลือกสินค้าของร้านนี้' using errcode='23514'; end if;
+ if new.is_active and (not p.is_active or p.commerce_archived) then
+  raise exception 'สินค้านี้ยังไม่เปิดขาย' using errcode='23514';
+ end if;
+ if new.live_variant_id is not null then
+  select * into v from public.commerce_variants
+   where id=new.live_variant_id and tenant_id=new.tenant_id and product_id=p.id;
+  if not found or (new.is_active and not v.is_active) then
+   raise exception 'ตัวเลือกสินค้าไม่ถูกต้อง' using errcode='23514';
+  end if;
+ elsif new.is_active and exists(select 1 from public.commerce_variants where product_id=p.id and is_active) then
+  raise exception 'กรุณาเลือกสีหรือขนาดสินค้า' using errcode='23514';
+ end if;
+ if cardinality(new.page_ids)=0 or not exists(
+  select 1 from public.tenants where id=new.tenant_id and page_id=any(new.page_ids)
+ ) or exists(select 1 from unnest(new.page_ids) x where x is null or x<>(select page_id from public.tenants where id=new.tenant_id)) then
+  raise exception 'กรุณาเลือกเพจของร้านนี้' using errcode='23514';
+ end if;
+ select array_agg(distinct lower(trim(k))) into normalized from unnest(new.keywords) k;
+ if coalesce(cardinality(normalized),0)=0 or cardinality(normalized)>50 or
+  exists(select 1 from unnest(normalized) k where k is null or k!~'^[a-z0-9][a-z0-9_-]{0,39}$') then
+  raise exception 'รหัสไลฟ์ใช้ตัวอักษรอังกฤษ ตัวเลข ขีดกลาง หรือขีดล่าง ไม่เกิน 40 ตัว' using errcode='23514';
+ end if;
+ new.keywords:=normalized;
+ new.live_post_id:=nullif(trim(new.live_post_id),'');
+ if new.live_post_id is not null and (length(new.live_post_id)>140 or new.live_post_id!~'^[0-9]+(_[0-9]+)?$') then
+  raise exception 'รหัสโพสต์หรือวิดีโอไม่ถูกต้อง' using errcode='23514';
+ end if;
+ if new.is_active and exists(
+  select 1 from public.comment_rules r where r.id<>new.id and r.tenant_id=new.tenant_id
+   and r.mode='live_cf' and r.is_active and r.page_ids && new.page_ids and r.keywords && normalized
+   and (r.live_post_id is null or new.live_post_id is null or r.live_post_id=new.live_post_id
+    or regexp_replace(r.live_post_id,'^.*_','')=regexp_replace(new.live_post_id,'^.*_',''))
+ ) then raise exception 'รหัสไลฟ์นี้ซ้ำกับกฎที่เปิดใช้งานอยู่' using errcode='23514'; end if;
+ if tg_op='UPDATE' and exists(
+  select 1 from public.orders where live_rule_id=new.id and tenant_id=new.tenant_id and status<>'cancelled'
+   and (product_id is distinct from new.live_product_id or variant_id is distinct from new.live_variant_id)
+ ) then
+  raise exception 'กฎนี้มีออเดอร์แล้ว กรุณาสร้างกฎใหม่เมื่อเปลี่ยนสินค้า' using errcode='23514';
+ end if;
+ return new;
+end $$;
+
+-- Source statement 11
+drop trigger if exists validate_live_cf_rule on public.comment_rules;
+
+-- Source statement 12
+create trigger validate_live_cf_rule before insert or update on public.comment_rules
+ for each row execute function public.validate_live_cf_rule();
+
+-- Source statement 13
+revoke all on function public.validate_live_cf_rule() from public,anon,authenticated;
+
+-- Source statement 14
+create or replace function public.on_order_status() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+ if new.status=old.status then return new;end if;
+ if old.status='cancelled' then raise exception 'ออเดอร์ที่ยกเลิกแล้วเปลี่ยนสถานะไม่ได้';end if;
+ if new.status='cancelled' and new.product_id is not null then
+  update public.products set stock=stock+1 where id=new.product_id and tenant_id=new.tenant_id;
+  if new.variant_id is not null then
+   update public.commerce_variants set stock=stock+1 where id=new.variant_id and tenant_id=new.tenant_id;
+  end if;
+ end if;
+ return new;
+end $$;
+
+-- Source statement 15
+create or replace function public.place_live_cf_order(
+ p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
+) returns table(
+ r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
+) language plpgsql security definer set search_path=pg_catalog,public as $$
+declare r public.comment_rules;p public.products;v public.commerce_variants;o public.orders;
+ price numeric;label text;new_id uuid;used integer;
+begin
+ if p_comment is null or length(p_comment) not between 1 and 512 or p_code is null then
+  raise exception 'Invalid live comment' using errcode='22023';
+ end if;
+ -- Serialize this shop's live quotas as well as simultaneous comments. Row locks below
+ -- also serialize stock with storefront checkout, which updates the same product rows.
+ perform 1 from public.tenants where id=p_tenant and is_active and page_id=p_page for update;
+ if not found then raise exception 'Live CF Page not found' using errcode='42501';end if;
+ if not exists(select 1 from public.customers where id=p_customer and tenant_id=p_tenant and platform='facebook') then
+  raise exception 'Live CF customer not found' using errcode='42501';end if;
+ select * into o from public.orders where tenant_id=p_tenant and source_id=p_comment
+  and source in ('live_comment','facebook_comment') for update;
+ if found then
+  if o.source='facebook_comment' or o.status='cancelled' then
+   return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;
+  end if;
+  if o.customer_id is distinct from p_customer or o.live_rule_id is distinct from p_rule or o.source_code is distinct from lower(trim(p_code)) then
+   raise exception 'Live CF comment already used' using errcode='40001';end if;
+  return query select 'created'::text,o.id,o.product_name,o.source_code,o.amount,o.variant_label;return;
+ end if;
+ select * into r from public.comment_rules where id=p_rule and tenant_id=p_tenant
+  and mode='live_cf' and is_active and p_page=any(page_ids);
+ if not found or not(lower(trim(p_code))=any(r.keywords)) or
+  (r.live_post_id is not null and regexp_replace(r.live_post_id,'^.*_','')<>regexp_replace(coalesce(p_post,''),'^.*_','')) then
+  return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;
+ end if;
+ select * into p from public.products where id=r.live_product_id and tenant_id=p_tenant and is_active and not commerce_archived for update;
+ if not found then
+  return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;
+ end if;
+ price:=p.price; label:=null;
+ if r.live_variant_id is not null then
+  select * into v from public.commerce_variants where id=r.live_variant_id and product_id=p.id and tenant_id=p_tenant and is_active for update;
+  if not found then
+   return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;
+  end if;
+  price:=v.price;label:=v.label;
+ elsif exists(select 1 from public.commerce_variants where product_id=p.id and tenant_id=p_tenant and is_active) then
+  return query select 'require_variant'::text,null::uuid,p.name,p_code,null::numeric,null::text;return;
+ end if;
+ select count(*) into used from public.orders where tenant_id=p_tenant and live_rule_id=r.id and status<>'cancelled';
+ if p.stock<1 or (r.live_variant_id is not null and v.stock<1) or
+  (r.live_stock_limit is not null and used>=r.live_stock_limit) then
+  return query select 'sold_out'::text,null::uuid,p.name,p_code,price,label;return;
+ end if;
+ update public.products set stock=stock-1 where id=p.id;
+ if r.live_variant_id is not null then update public.commerce_variants set stock=stock-1 where id=v.id;end if;
+ insert into public.orders(tenant_id,customer_id,product_id,product_name,amount,variant_id,variant_label,source,source_id,source_code,live_rule_id)
+ values(p_tenant,p_customer,p.id,p.name,price,r.live_variant_id,label,'live_comment',p_comment,lower(trim(p_code)),r.id)
+ returning id into new_id;
+ insert into public.commerce_audit(tenant_id,entity_id,action,detail) values(p_tenant,new_id,'live_cf_order',r.id::text);
+ return query select 'created'::text,new_id,p.name,p_code,price,label;
+end $$;
+
+-- Source statement 16
+revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated;
+
+-- Source statement 17
+grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role;
+
+-- Source statement 18
+do $$ begin
+ if exists(select 1 from pg_publication where pubname='supabase_realtime') then
+  if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='products') then
+   alter publication supabase_realtime add table public.products;
+  end if;
+  if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='commerce_variants') then
+   alter publication supabase_realtime add table public.commerce_variants;
+  end if;
+ end if;
+end $$;
+
+-- Source statement 19
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 81. live-cf-setup.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 05dfcefd0d101569a99dd462230fc8fd87ce2a43476027432e201410644b4ad0
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.comment_rules add column if not exists live_bank_account_id uuid
+  references public.bank_accounts(id) on delete set null;
+
+-- Source statement 3
+alter table public.comment_rules add column if not exists live_deduct_stock boolean not null default true;
+
+-- Source statement 4
+alter table public.orders add column if not exists live_bank_account_id uuid
+  references public.bank_accounts(id) on delete set null;
+
+-- Source statement 5
+alter table public.orders add column if not exists live_stock_deducted boolean not null default true;
+
+-- Source statement 6
+create table if not exists public.live_cf_webhook_receipts (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  page_id text not null,
+  comment_id text not null,
+  live_rule_id uuid references public.comment_rules(id) on delete set null,
+  created_at timestamptz not null default clock_timestamp(),
+  primary key(tenant_id,page_id,comment_id)
+);
+
+-- Source statement 7
+alter table public.live_cf_webhook_receipts enable row level security;
+
+-- Source statement 8
+revoke all on public.live_cf_webhook_receipts from public,anon,authenticated;
+
+-- Source statement 9
+grant select,insert on public.live_cf_webhook_receipts to service_role;
+
+-- Source statement 10
+create or replace function public.validate_live_cf_setup_rule() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+declare p public.products;v public.commerce_variants;b public.bank_accounts;normalized text[];
+begin
+ if tg_op='UPDATE' and new.tenant_id is distinct from old.tenant_id then
+  raise exception 'Cannot move a Live CF rule to another tenant' using errcode='23514';
+ end if;
+ if new.mode<>'live_cf' then
+  new.live_product_id:=null;new.live_variant_id:=null;new.live_stock_limit:=null;
+  new.live_post_id:=null;new.live_bank_account_id:=null;new.live_deduct_stock:=true;return new;
+ end if;
+ perform 1 from public.tenants where id=new.tenant_id for update;
+ if not found then raise exception 'Live CF tenant not found' using errcode='23514';end if;
+ select * into p from public.products where id=new.live_product_id and tenant_id=new.tenant_id;
+ if not found or (new.is_active and (not p.is_active or p.commerce_archived)) then
+  raise exception 'Live CF product is unavailable' using errcode='23514';end if;
+ if new.live_variant_id is not null then
+  select * into v from public.commerce_variants where id=new.live_variant_id and tenant_id=new.tenant_id and product_id=p.id;
+  if not found or (new.is_active and not v.is_active) then raise exception 'Live CF variant is unavailable' using errcode='23514';end if;
+ elsif new.is_active and exists(select 1 from public.commerce_variants where product_id=p.id and is_active) then
+  raise exception 'Live CF variant is required' using errcode='23514';
+ end if;
+ if cardinality(new.page_ids)<>1 or not exists(
+  select 1 from public.tenants where id=new.tenant_id and page_id=new.page_ids[1]
+ ) then raise exception 'Live CF Page does not belong to tenant' using errcode='23514';end if;
+ select array_agg(distinct lower(trim(k))) into normalized from unnest(new.keywords) k;
+ if coalesce(cardinality(normalized),0)=0 or cardinality(normalized)>50 or exists(
+  select 1 from unnest(normalized) k where k is null or length(k)>40 or
+   k!~'^[[:alnum:]][[:alnum:]_-]*$'
+ ) then raise exception 'Invalid Live CF code' using errcode='23514';end if;
+ new.keywords:=normalized;
+ new.live_post_id:=nullif(trim(new.live_post_id),'');
+ if new.live_post_id is not null and (length(new.live_post_id)>140 or new.live_post_id!~'^[0-9]+(_[0-9]+)?$') then
+  raise exception 'Invalid live video ID' using errcode='23514';end if;
+ if new.live_bank_account_id is not null then
+  select * into b from public.bank_accounts where id=new.live_bank_account_id and tenant_id=new.tenant_id and is_active;
+  if not found then raise exception 'Live CF bank account is unavailable' using errcode='23514';end if;
+ end if;
+ if new.is_active and exists(
+  select 1 from public.comment_rules r where r.id<>new.id and r.tenant_id=new.tenant_id and r.mode='live_cf'
+   and r.is_active and r.page_ids&&new.page_ids and r.keywords&&normalized
+   and (r.live_post_id is null or new.live_post_id is null or r.live_post_id=new.live_post_id
+    or regexp_replace(r.live_post_id,'^.*_','')=regexp_replace(new.live_post_id,'^.*_',''))
+ ) then raise exception 'Active Live CF code already exists' using errcode='23514';end if;
+ return new;
+end $$;
+
+-- Source statement 11
+drop trigger if exists validate_live_cf_rule on public.comment_rules;
+
+-- Source statement 12
+drop trigger if exists validate_live_cf_setup_rule on public.comment_rules;
+
+-- Source statement 13
+create trigger validate_live_cf_setup_rule before insert or update on public.comment_rules
+ for each row execute function public.validate_live_cf_setup_rule();
+
+-- Source statement 14
+revoke all on function public.validate_live_cf_setup_rule() from public,anon,authenticated;
+
+-- Source statement 15
+create or replace function public.on_order_status() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+ if new.status=old.status then return new;end if;
+ if old.status='cancelled' then raise exception 'Cancelled order status cannot be changed';end if;
+ if new.status='cancelled' and new.product_id is not null and coalesce(new.live_stock_deducted,true) then
+  update public.products set stock=stock+1 where id=new.product_id and tenant_id=new.tenant_id;
+  if new.variant_id is not null then
+   update public.commerce_variants set stock=stock+1 where id=new.variant_id and tenant_id=new.tenant_id;
+  end if;
+ end if;
+ return new;
+end $$;
+
+-- Source statement 16
+create or replace function public.place_cf_order(
+ p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
+) returns table(
+ r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
+) language plpgsql security definer set search_path=pg_catalog,public as $$
+declare r public.comment_rules;p public.products;v public.commerce_variants;o public.orders;
+ price numeric;label text;new_id uuid;used integer;
+begin
+ if p_comment is null or length(p_comment) not between 1 and 512 or p_code is null then raise exception 'Invalid live comment' using errcode='22023';end if;
+ perform 1 from public.tenants where id=p_tenant and is_active and page_id=p_page for update;
+ if not found then raise exception 'Live CF Page not found' using errcode='42501';end if;
+ if not exists(select 1 from public.customers where id=p_customer and tenant_id=p_tenant and platform='facebook') then raise exception 'Live CF customer not found' using errcode='42501';end if;
+ select * into o from public.orders where tenant_id=p_tenant and source_id=p_comment and source in ('live_comment','facebook_comment') for update;
+ if found then
+  if o.source='facebook_comment' or o.status='cancelled' then return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;end if;
+  if o.customer_id is distinct from p_customer or o.live_rule_id is distinct from p_rule or o.source_code is distinct from lower(trim(p_code)) then raise exception 'Live CF comment already used' using errcode='40001';end if;
+  return query select 'created'::text,o.id,o.product_name,o.source_code,o.amount,o.variant_label;return;
+ end if;
+ select * into r from public.comment_rules where id=p_rule and tenant_id=p_tenant and mode='live_cf' and is_active and p_page=any(page_ids) for update;
+ if not found or not(lower(trim(p_code))=any(r.keywords)) or (r.live_post_id is not null and regexp_replace(r.live_post_id,'^.*_','')<>regexp_replace(coalesce(p_post,''),'^.*_','')) then
+  return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;
+ end if;
+ insert into public.live_cf_webhook_receipts(tenant_id,page_id,comment_id,live_rule_id)
+ values(p_tenant,p_page,p_comment,p_rule) on conflict(tenant_id,page_id,comment_id) do nothing;
+ select * into p from public.products where id=r.live_product_id and tenant_id=p_tenant and is_active and not commerce_archived for update;
+ if not found then return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;end if;
+ price:=p.price;label:=null;
+ if r.live_variant_id is not null then
+  select * into v from public.commerce_variants where id=r.live_variant_id and product_id=p.id and tenant_id=p_tenant and is_active for update;
+  if not found then return query select 'no_match'::text,null::uuid,null::text,null::text,null::numeric,null::text;return;end if;
+  price:=v.price;label:=v.label;
+ elsif exists(select 1 from public.commerce_variants where product_id=p.id and tenant_id=p_tenant and is_active) then
+  return query select 'require_variant'::text,null::uuid,p.name,p_code,null::numeric,null::text;return;
+ end if;
+ select count(*) into used from public.orders where tenant_id=p_tenant and live_rule_id=r.id and status<>'cancelled';
+ if p.stock<1 or (r.live_variant_id is not null and v.stock<1) or (r.live_stock_limit is not null and used>=r.live_stock_limit) then
+  return query select 'sold_out'::text,null::uuid,p.name,p_code,price,label;return;
+ end if;
+ if r.live_deduct_stock then
+  update public.products set stock=stock-1 where id=p.id and stock>0;
+  if not found then return query select 'sold_out'::text,null::uuid,p.name,p_code,price,label;return;end if;
+  if r.live_variant_id is not null then
+   update public.commerce_variants set stock=stock-1 where id=v.id and stock>0;
+   if not found then raise exception 'Live CF variant stock changed' using errcode='40001';end if;
+  end if;
+ end if;
+ insert into public.orders(tenant_id,customer_id,product_id,product_name,amount,variant_id,variant_label,source,source_id,source_code,live_rule_id,live_bank_account_id,live_stock_deducted)
+ values(p_tenant,p_customer,p.id,p.name,price,r.live_variant_id,label,'live_comment',p_comment,lower(trim(p_code)),r.id,r.live_bank_account_id,r.live_deduct_stock) returning id into new_id;
+ insert into public.commerce_audit(tenant_id,entity_id,action,detail) values(p_tenant,new_id,'live_cf_order',r.id::text);
+ return query select 'created'::text,new_id,p.name,p_code,price,label;
+end $$;
+
+-- Source statement 17
+create or replace function public.place_live_cf_order(
+ p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
+) returns table(r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text)
+language sql security definer set search_path=pg_catalog,public as $$
+ select * from public.place_cf_order(p_tenant,p_customer,p_rule,p_code,p_comment,p_post,p_page)
+$$;
+
+-- Source statement 18
+revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated;
+
+-- Source statement 19
+revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated;
+
+-- Source statement 20
+grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role;
+
+-- Source statement 21
+grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role;
+
+-- Source statement 22
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 82. messenger-product-lookup.sql | Latest delivery safety, reporting and index patches
+-- SHA256: d7dc47ee4ae0c13a90593a213044a0f6dd4f99075e09726bfab58b1ccb9140c0
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.messenger_product_lookup(p_tenant uuid, p_code text)
+returns table (
+  id uuid, name text, price numeric, description text, images jsonb,
+  store_slug text, sales_page_url text, variant_id uuid, variant_label text
+)
+language sql stable security definer set search_path = pg_catalog, public as $$
+  with candidates as (
+    select p.id, p.name, p.price, p.description,
+      coalesce(nullif(p.commerce_images, '[]'::jsonb),
+        case when p.image_url is not null then jsonb_build_array(p.image_url) else '[]'::jsonb end) images,
+      s.slug store_slug, to_jsonb(p)->>'sales_page_url' sales_page_url,
+      null::uuid variant_id, null::text variant_label
+    from public.products p
+    join public.commerce_stores s on s.tenant_id = p.tenant_id and s.is_open
+    join public.tenants t on t.id = p.tenant_id and t.is_active
+    where p.tenant_id = p_tenant and p.is_active and not p.commerce_archived
+      and length(p_code) between 1 and 60
+      and (
+        lower(p.code) = lower(p_code)
+        or lower(p.id::text) = lower(p_code)
+        -- Some installations call the product SKU cf_code/sku; the current editor stores it in code.
+        or lower(to_jsonb(p)->>'cf_code') = lower(p_code)
+        or lower(to_jsonb(p)->>'sku') = lower(p_code)
+      )
+    union all
+    select p.id, p.name, v.price, p.description,
+      coalesce(nullif(p.commerce_images, '[]'::jsonb),
+        case when p.image_url is not null then jsonb_build_array(p.image_url) else '[]'::jsonb end),
+      s.slug, to_jsonb(p)->>'sales_page_url', v.id, v.label
+    from public.commerce_variants v
+    join public.products p on p.id = v.product_id and p.tenant_id = v.tenant_id
+    join public.commerce_stores s on s.tenant_id = p.tenant_id and s.is_open
+    join public.tenants t on t.id = p.tenant_id and t.is_active
+    where v.tenant_id = p_tenant and v.is_active and p.is_active and not p.commerce_archived
+      and length(p_code) between 1 and 60
+      and lower(to_jsonb(v)->>'variant_code') = lower(p_code)
+  )
+  -- Overlapping aliases are ambiguous: leave the question with normal chat/staff.
+  select * from candidates where (select count(*) from candidates) = 1;
+$$;
+
+-- Source statement 3
+revoke all on function public.messenger_product_lookup(uuid, text) from public, anon, authenticated;
+
+-- Source statement 4
+grant execute on function public.messenger_product_lookup(uuid, text) to service_role;
+
+commit;
+-- ============================================================================
+-- 83. slip-confirmation-template.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 591e7c6185b3c102ecc0e7045ffaeb6f0b3b7bf4b7fd1f0e19247995b1b8778f
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create table if not exists public.slip_settings (
+  tenant_id uuid primary key references public.tenants(id) on delete cascade,
+  slip_confirmation_template text check (length(slip_confirmation_template) <= 2000),
+  updated_at timestamptz not null default now()
+);
+
+-- Source statement 3
+alter table public.slip_settings enable row level security;
+
+-- Source statement 4
+drop policy if exists member_read on public.slip_settings;
+
+-- Source statement 5
+create policy member_read on public.slip_settings for select to authenticated
+  using (public.can_access_tenant(tenant_id));
+
+-- Source statement 6
+revoke all on public.slip_settings from public, anon, authenticated;
+
+-- Source statement 7
+grant select on public.slip_settings to authenticated;
+
+-- Source statement 8
+grant select, insert, update, delete on public.slip_settings to service_role;
+
+-- Source statement 9
+notify pgrst, 'reload schema';
+
+commit;
+-- ============================================================================
+-- 84. standalone-slips.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 96608fd194cf79cae1e2972b7bb8e8e93dc199b75029eb8305dc2576f9a2227b
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create table if not exists public.standalone_slips (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete restrict,
+  trans_ref text not null check(length(trim(trans_ref)) between 1 and 200 and trans_ref=trim(trans_ref)),
+  amount numeric(12,2) not null check(amount>0),
+  sender_name text,
+  sender_bank text,
+  receiver_name text,
+  receiver_account text,
+  trans_timestamp timestamptz not null,
+  raw_payload jsonb,
+  customer_id uuid references public.customers(id) on delete set null,
+  message_id uuid references public.messages(id) on delete set null,
+  image_sha256 text check(image_sha256 is null or image_sha256~'^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now(),
+  constraint uq_standalone_slip_ref unique(tenant_id,trans_ref),
+  constraint uq_standalone_slip_image unique(tenant_id,image_sha256)
+);
+
+-- Source statement 3
+alter table public.standalone_slips add column if not exists customer_id uuid references public.customers(id) on delete set null;
+
+-- Source statement 4
+alter table public.standalone_slips add column if not exists message_id uuid references public.messages(id) on delete set null;
+
+-- Source statement 5
+alter table public.standalone_slips add column if not exists image_sha256 text check(image_sha256 is null or image_sha256~'^[0-9a-f]{64}$');
+
+-- Source statement 6
+create unique index if not exists uq_standalone_slip_image on public.standalone_slips(tenant_id,image_sha256);
+
+-- Source statement 7
+create unique index if not exists uq_standalone_slip_ref on public.standalone_slips(tenant_id,trans_ref);
+
+-- Source statement 8
+create index if not exists standalone_slips_tenant_created on public.standalone_slips(tenant_id,created_at desc);
+
+-- Source statement 9
+alter table public.standalone_slips enable row level security;
+
+-- Source statement 10
+revoke all on public.standalone_slips from public,anon,authenticated,service_role;
+
+-- Source statement 11
+grant select,insert on public.standalone_slips to service_role;
+
+-- Source statement 12
+grant select on public.standalone_slips to authenticated;
+
+-- Source statement 13
+drop policy if exists member_read on public.standalone_slips;
+
+-- Source statement 14
+create policy member_read on public.standalone_slips for select to authenticated
+  using(public.can_access_tenant(tenant_id));
+
+-- Source statement 15
+alter table public.payment_transfer_ledger drop constraint if exists payment_transfer_ledger_source_check;
+
+-- Source statement 16
+alter table public.payment_transfer_ledger add constraint payment_transfer_ledger_source_check
+  check(source in ('package','sale','billing','standalone'));
+
+-- Source statement 19
+do $$ begin
+  if exists(
+    select 1 from public.standalone_slips s left join public.payment_transfer_ledger l on l.trans_ref=s.trans_ref
+    where l.source is distinct from 'standalone' or l.source_id is distinct from s.id
+  ) then raise exception 'Existing standalone transfers conflict with the payment ledger; review before installing';end if;
+end $$;
+
+-- Source statement 20
+create or replace function public.guard_standalone_slip() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+  if not exists(select 1 from public.tenants where id=new.tenant_id and is_active) then
+    raise exception 'Standalone tenant is unavailable' using errcode='42501';
+  end if;
+  if new.customer_id is not null and not exists(
+    select 1 from public.customers where id=new.customer_id and tenant_id=new.tenant_id
+  ) then raise exception 'Standalone customer scope mismatch' using errcode='42501';end if;
+  if new.message_id is not null and not exists(
+    select 1 from public.messages m join public.customers c on c.id=m.customer_id
+    where m.id=new.message_id and c.id=new.customer_id and c.tenant_id=new.tenant_id
+  ) then raise exception 'Standalone message scope mismatch' using errcode='42501';end if;
+  perform public.claim_payment_transfer(new.trans_ref,'standalone',new.id);
+  return new;
+end $$;
+
+-- Source statement 21
+drop trigger if exists standalone_slip_transfer_guard on public.standalone_slips;
+
+-- Source statement 22
+create trigger standalone_slip_transfer_guard before insert on public.standalone_slips
+  for each row execute function public.guard_standalone_slip();
+
+-- Source statement 23
+revoke all on function public.guard_standalone_slip() from public,anon,authenticated;
+
+-- Source statement 24
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 85. tenant-ai-quota.sql | Latest delivery safety, reporting and index patches
+-- SHA256: a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.tenants add column if not exists ai_quota_limit integer default 1000;
+
+-- Source statement 3
+alter table public.tenants add column if not exists ai_quota_used integer default 0;
+
+-- Source statement 4
+alter table public.tenants alter column ai_quota_limit set default 1000;
+
+-- Source statement 5
+alter table public.tenants alter column ai_quota_used set default 0;
+
+-- Source statement 7
+alter table public.tenants alter column ai_quota_limit set not null;
+
+-- Source statement 8
+alter table public.tenants alter column ai_quota_used set not null;
+
+-- Source statement 9
+do $$begin
+ if not exists(select 1 from pg_constraint where conrelid='public.tenants'::regclass and conname='tenants_ai_quota_nonnegative') then
+  alter table public.tenants add constraint tenants_ai_quota_nonnegative check(ai_quota_limit>=0 and ai_quota_used>=0);
+ end if;
+end $$;
+
+-- Source statement 10
+alter table public.conversation_events add column if not exists reason text;
+
+-- Source statement 11
+create table if not exists public.tenant_ai_reply_reservations(
+ id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id) on delete cascade,
+ customer_id uuid not null references public.customers(id) on delete cascade,
+ source_message_id uuid not null references public.messages(id),external_id text not null,
+ status text not null default 'reserved' check(status in ('reserved','dispatching','unknown','sent','released')),
+ created_at timestamptz not null default clock_timestamp(),completed_at timestamptz,
+ unique(tenant_id,source_message_id),unique(tenant_id,external_id)
+);
+
+-- Source statement 12
+create index if not exists tenant_ai_reply_capacity on public.tenant_ai_reply_reservations(tenant_id,status)
+ where status in ('reserved','dispatching','unknown');
+
+-- Source statement 13
+alter table public.tenant_ai_reply_reservations enable row level security;
+
+-- Source statement 14
+revoke all on public.tenant_ai_reply_reservations from public,anon,authenticated;
+
+-- Source statement 15
+grant all on public.tenant_ai_reply_reservations to service_role;
+
+-- Source statement 16
+create or replace function public.guard_tenant_ai_quota() returns trigger
+language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if current_user in ('anon','authenticated') and
+  ((tg_op='UPDATE' and (new.ai_quota_limit is distinct from old.ai_quota_limit or new.ai_quota_used is distinct from old.ai_quota_used))
+   or (tg_op='INSERT' and (new.ai_quota_limit<>1000 or new.ai_quota_used<>0))) then
+  raise exception 'AI quota is server managed' using errcode='42501';
+ end if;
+ return new;
+end $$;
+
+-- Source statement 17
+drop trigger if exists tenants_ai_quota_server_only on public.tenants;
+
+-- Source statement 18
+create trigger tenants_ai_quota_server_only before insert or update on public.tenants
+ for each row execute function public.guard_tenant_ai_quota();
+
+-- Source statement 19
+create or replace function public.reserve_tenant_ai_reply(p_tenant uuid,p_customer uuid,p_message uuid)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare t public.tenants;reservation uuid;held bigint;
+begin
+ select * into t from public.tenants where id=p_tenant and is_active for update;
+ if not found or not t.auto_reply_enabled or not public.has_tenant_feature(p_tenant,'ai_agent') then
+  return jsonb_build_object('status','blocked');end if;
+ if not exists(select 1 from public.customers where id=p_customer and tenant_id=p_tenant
+  and bot_enabled and assigned_user_id is null and conversation_status<>'closed')
+  or not exists(select 1 from public.messages where id=p_message and customer_id=p_customer and sender='customer') then
+  return jsonb_build_object('status','blocked');end if;
+ if exists(select 1 from public.tenant_ai_reply_reservations where tenant_id=p_tenant and source_message_id=p_message)
+  or exists(select 1 from public.messages where customer_id=p_customer and external_id='reply:'||p_message::text) then
+  return jsonb_build_object('status','duplicate');end if;
+ select count(*) into held from public.tenant_ai_reply_reservations
+  where tenant_id=p_tenant and status in ('reserved','dispatching','unknown');
+ if t.ai_quota_used::bigint+held>=t.ai_quota_limit then return jsonb_build_object('status','quota_exceeded');end if;
+ insert into public.tenant_ai_reply_reservations(tenant_id,customer_id,source_message_id,external_id)
+ values(p_tenant,p_customer,p_message,'reply:'||p_message::text) returning id into reservation;
+ return jsonb_build_object('status','reserved','id',reservation);
+end $$;
+
+-- Source statement 20
+create or replace function public.authorize_tenant_ai_reply(p_reservation uuid)
+returns text language plpgsql set search_path=pg_catalog,public as $$
+declare r public.tenant_ai_reply_reservations;t public.tenants;held bigint;
+begin
+ select * into r from public.tenant_ai_reply_reservations where id=p_reservation;
+ if not found then return 'blocked';end if;
+ select * into t from public.tenants where id=r.tenant_id for update;
+ select * into r from public.tenant_ai_reply_reservations where id=p_reservation for update;
+ if r.status<>'reserved' or not t.is_active or not t.auto_reply_enabled then return 'blocked';end if;
+ select count(*) into held from public.tenant_ai_reply_reservations where tenant_id=r.tenant_id and status in ('dispatching','unknown');
+ if t.ai_quota_used::bigint+held>=t.ai_quota_limit then return 'quota_exceeded';end if;
+ update public.tenant_ai_reply_reservations set status='dispatching' where id=r.id;
+ return 'authorized';
+end $$;
+
+-- Source statement 21
+create or replace function public.account_tenant_ai_reply() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+declare r public.tenant_ai_reply_reservations;
+begin
+ if new.sender<>'bot' or new.external_id is null or new.delivery_status is null
+  or new.delivery_status not in ('sent','delivered','read','failed','unknown') then return new;end if;
+ select * into r from public.tenant_ai_reply_reservations where customer_id=new.customer_id and external_id=new.external_id;
+ if not found then return new;end if;
+ perform 1 from public.tenants where id=r.tenant_id for update;
+ select * into r from public.tenant_ai_reply_reservations where id=r.id for update;
+ if r.status='sent' then return new;end if;
+ if new.delivery_status in ('sent','delivered','read') then
+  update public.tenants set ai_quota_used=ai_quota_used+1 where id=r.tenant_id;
+  update public.tenant_ai_reply_reservations set status='sent',completed_at=clock_timestamp() where id=r.id;
+ elsif new.delivery_status='failed' then
+  update public.tenant_ai_reply_reservations set status='released',completed_at=clock_timestamp() where id=r.id;
+ else
+  update public.tenant_ai_reply_reservations set status='unknown' where id=r.id;
+ end if;
+ return new;
+end $$;
+
+-- Source statement 22
+drop trigger if exists messages_account_tenant_ai_reply on public.messages;
+
+-- Source statement 23
+create trigger messages_account_tenant_ai_reply after insert or update of delivery_status on public.messages
+ for each row execute function public.account_tenant_ai_reply();
+
+-- Source statement 24
+create or replace function public.settle_tenant_ai_reply(p_reservation uuid)
+returns text language plpgsql set search_path=pg_catalog,public as $$
+declare r public.tenant_ai_reply_reservations;delivery text;
+begin
+ select * into r from public.tenant_ai_reply_reservations where id=p_reservation;
+ if not found then return 'missing';end if;
+ perform 1 from public.tenants where id=r.tenant_id for update;
+ select * into r from public.tenant_ai_reply_reservations where id=p_reservation for update;
+ if r.status in ('sent','released') then return r.status;end if;
+ select delivery_status into delivery from public.messages where customer_id=r.customer_id and external_id=r.external_id;
+ if delivery in ('sent','delivered','read') then
+  update public.tenants set ai_quota_used=ai_quota_used+1 where id=r.tenant_id;
+  update public.tenant_ai_reply_reservations set status='sent',completed_at=clock_timestamp() where id=r.id;
+  return 'sent';
+ elsif not found or delivery='failed' then
+  update public.tenant_ai_reply_reservations set status='released',completed_at=clock_timestamp() where id=r.id;
+  return 'released';
+ end if;
+ -- Pending/unknown sends may have reached Meta: keep the capacity held for review.
+ update public.tenant_ai_reply_reservations set status='unknown' where id=r.id;
+ return 'unknown';
+end $$;
+
+-- Source statement 25
+create or replace function public.handover_tenant_ai_quota(p_tenant uuid,p_customer uuid,p_message uuid)
+returns boolean language plpgsql set search_path=pg_catalog,public as $$
+declare c public.customers;
+begin
+ perform 1 from public.tenants where id=p_tenant and is_active for update;
+ if not found then return false;end if;
+ select * into c from public.customers where id=p_customer and tenant_id=p_tenant for update;
+ if not found or not exists(select 1 from public.messages where id=p_message and customer_id=c.id and sender='customer') then return false;end if;
+ if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
+  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
+  insert into public.conversation_events(tenant_id,customer_id,action,reason) values(p_tenant,c.id,'handover','quota_exceeded');
+ end if;
+ return true;
+end $$;
+
+-- Source statement 26
+revoke all on function public.guard_tenant_ai_quota(),public.account_tenant_ai_reply() from public,anon,authenticated,service_role;
+
+-- Source statement 27
+revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 28
+grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role;
+
+-- Source statement 29
+do $$
+declare definition text;proof text;
+begin
+ if to_regprocedure('public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid)') is not null then
+  definition:=pg_get_functiondef('public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid)'::regprocedure);
+  if position('tenant_ai_reply_reservations' in definition)=0 then
+   proof:='exists(select 1 from public.tenant_ai_reply_reservations r where r.id=p_key and r.tenant_id=p_tenant and r.customer_id=p_customer and r.status=''reserved'' and (p_job is null or exists(select 1 from public.agent_message_jobs q where q.id=p_job and q.message_id=r.source_message_id)))';
+   definition:=replace(definition,'s.ai_monthly_limit<=0','(s.ai_monthly_limit<=0 and not '||proof||')');
+   definition:=replace(definition,'used<s.ai_monthly_limit','(used<s.ai_monthly_limit or '||proof||')');
+   execute definition;
+  end if;
+ end if;
+end $$;
+
+-- Source statement 30
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 86. vision-master-switch.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+do $$
+declare signature text; definition text;
+begin
+ foreach signature in array array['public.claim_vision_job(uuid)',
+  'public.start_vision_analysis(uuid,uuid)','public.begin_vision_dispatch(uuid,uuid)'] loop
+  definition:=pg_get_functiondef(signature::regprocedure);
+  if position('vision_settings' in definition)=0 then
+   raise exception 'Missing Vision Master Switch guard in %',signature;
+  end if;
+  definition:=replace(definition,' and t.auto_reply_enabled',' and t.is_active');
+  definition:=replace(definition,'where id=j.tenant_id and auto_reply_enabled','where id=j.tenant_id and is_active');
+  if position('auto_reply_enabled' in definition)>0 then
+   raise exception 'Unrecognized Vision gate in %; no changes committed',signature;
+  end if;
+  execute definition;
+ end loop;
+end $$;
+
+-- Source statement 3
+create or replace function public.save_vision_settings(p_tenant uuid,p_actor uuid,p_enabled boolean,p_mode text,p_confidence numeric,p_handoff boolean) returns void
+language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner')
+  or exists(select 1 from public.platform_admins where user_id=p_actor))
+  or not public.has_tenant_feature(p_tenant,'image_assistant') then
+  raise exception 'FEATURE_LOCKED' using errcode='42501';
+ end if;
+ if p_enabled is null then raise exception 'Invalid enabled setting' using errcode='22023';end if;
+ insert into public.vision_settings(tenant_id,enabled,mode,confidence_threshold,handoff_enabled)
+ values(p_tenant,p_enabled,'rules',0.8,true)
+ on conflict(tenant_id) do update set enabled=excluded.enabled,mode='rules',confidence_threshold=0.8,handoff_enabled=true;
+ insert into public.vision_audit_logs(tenant_id,actor_id,event,detail)
+ values(p_tenant,p_actor,'settings_updated',case when p_enabled then 'enabled' else 'disabled' end);
+end $$;
+
+-- Source statement 4
+create or replace function public.handover_vision_job(p_job uuid,p_claim uuid,p_reason text)
+returns boolean language plpgsql set search_path=pg_catalog,public as $$
+declare j public.vision_jobs;c public.customers;
+begin
+ select * into j from public.vision_jobs where id=p_job;
+ if not found or j.source<>'messenger' or j.customer_id is null then return false;end if;
+ perform 1 from public.tenants where id=j.tenant_id and is_active for update;
+ if not found then return false;end if;
+ select * into c from public.customers where id=j.customer_id and tenant_id=j.tenant_id for update;
+ select * into j from public.vision_jobs where id=p_job for update;
+ if j.status<>'processing' or p_claim is null or j.claim_token is distinct from p_claim
+  or c.id is null or not exists(select 1 from public.vision_settings where tenant_id=j.tenant_id and enabled)
+  or not exists(select 1 from public.messages where id=j.message_id and customer_id=c.id and sender='customer') then return false;end if;
+ if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
+  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
+  insert into public.conversation_events(tenant_id,customer_id,action) values(j.tenant_id,c.id,'handover');
+ end if;
+ update public.vision_jobs set status='requires_review',reason=left(coalesce(nullif(p_reason,''),'VISION_ANALYSIS_FAILED'),200),
+  claim_token=null,claim_until=null,updated_at=clock_timestamp() where id=j.id;
+ return true;
+end $$;
+
+-- Source statement 5
+revoke all on function public.handover_vision_job(uuid,uuid,text),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public,anon,authenticated;
+
+-- Source statement 6
+grant execute on function public.handover_vision_job(uuid,uuid,text),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role;
+
+-- Source statement 7
+notify pgrst,'reload schema';
 
 commit;
 

@@ -34,12 +34,14 @@ export default async function LiveCfPage() {
   const setupError = rule.error?.message ?? accounts.error?.message ?? catalog.error
   return (
     <LiveCfSetup
+      key={tenant.id}
       tenantId={tenant.id}
       pages={pages}
       products={catalog.products}
       bankAccounts={accounts.data ?? []}
       initialRule={(rule.data as CommentRule | null) ?? null}
       setupError={setupError}
+      salesPageUrl={catalog.salesPageUrl}
     />
   )
 }
