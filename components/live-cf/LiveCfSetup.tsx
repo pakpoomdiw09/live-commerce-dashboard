@@ -22,9 +22,16 @@ import {
   Send,
   ShoppingCart,
   Sparkles,
+  X,
 } from 'lucide-react'
 import type { CommentRule, LiveProductOption } from '@/lib/features/comments/comment-rules'
-import { matchOrderCode, normalizeCfCode } from '@/lib/features/commerce/cf-code'
+import {
+  MAX_LIVE_CF_CODES,
+  addLiveCfCode,
+  parseLiveCfCodes,
+  matchLiveCfCode,
+  liveCfCodeExamples,
+} from '@/lib/features/commerce/live-cf-codes'
 import {
   extractFacebookLiveId,
   displayLiveReplyTemplate,
@@ -139,7 +146,12 @@ export function LiveCfSetup({
   const [variantId, setVariantId] = useState(
     initialRule?.live_variant_id ?? initialProduct?.variants[0]?.id ?? '',
   )
-  const [code, setCode] = useState(initialRule?.keywords[0] ?? initialProduct?.code ?? '159')
+  const [codes, setCodes] = useState<string[]>(
+    initialRule?.keywords.length ? [...initialRule.keywords] : [initialProduct?.code ?? '159'],
+  )
+  const [codeDraft, setCodeDraft] = useState('')
+  const [codeError, setCodeError] = useState<string | null>(null)
+  const codeInputRef = useRef<HTMLInputElement>(null)
   const [matchMode, setMatchMode] = useState<'flexible' | 'strict'>(
     (initialRule as CommentRule & { match_mode?: 'flexible' | 'strict' })?.match_mode ??
       (initialRule?.match_type === 'exact' ? 'strict' : 'flexible'),
@@ -165,7 +177,9 @@ export function LiveCfSetup({
   const [bankAccountId, setBankAccountId] = useState(
     initialRule?.live_bank_account_id ?? bankAccounts[0]?.id ?? '',
   )
-  const [testText, setTestText] = useState(matchMode === 'strict' ? code : `CF ${code}`)
+  const [testText, setTestText] = useState(
+    matchMode === 'strict' ? (codes[0] ?? '') : `CF ${codes[0] ?? ''}`,
+  )
   const [active, setActive] = useState(initialRule?.is_active ?? false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(setupError)
@@ -177,7 +191,8 @@ export function LiveCfSetup({
     ? Math.min(product?.stock ?? 0, variant.stock)
     : (product?.stock ?? 0)
   const selectedPrice = variant?.price ?? product?.price ?? 0
-  const parserMatch = !!normalizeCfCode(code) && matchOrderCode(testText, code, matchMode)
+  const matchedCode = matchLiveCfCode(testText, codes, matchMode)
+  const examples = useMemo(() => liveCfCodeExamples(codes, matchMode), [codes, matchMode])
   const selectedBank = bankAccounts.find((item) => item.id === bankAccountId)
 
   function selectProduct(next: LiveProductOption | undefined) {
@@ -185,7 +200,9 @@ export function LiveCfSetup({
     const firstVariant = next?.variants[0] ?? null
     setVariantId(firstVariant?.id ?? '')
     setStockLimit(Math.max(1, Math.min(firstVariant?.stock ?? next?.stock ?? 1, 5)))
-    if (next?.code) setCode(next.code)
+    if (next?.code) setCodes([next.code])
+    setCodeDraft('')
+    setCodeError(null)
     if (next?.code) setTestText(matchMode === 'strict' ? next.code : `CF ${next.code}`)
     // เติมข้อความเริ่มต้น (Default Template) ที่มีข้อมูลของสินค้านั้นให้อัตโนมัติทันที
     if (next) {
@@ -212,6 +229,32 @@ export function LiveCfSetup({
         ? `บันทึกสินค้าแล้ว: ${next.name} ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์`
         : `เพิ่มสินค้าแล้ว: ${next.name} พร้อมใช้ในไลฟ์นี้`,
     )
+  }
+
+  function addCode() {
+    try {
+      setCodes(addLiveCfCode(codes, codeDraft))
+      setCodeDraft('')
+      setCodeError(null)
+      codeInputRef.current?.focus()
+    } catch (error) {
+      setCodeError(error instanceof Error ? error.message : 'เพิ่มรหัสไม่สำเร็จ')
+    }
+  }
+
+  function codesForSave() {
+    try {
+      // Include a typed pending tag so saving never silently discards the last code.
+      const next = codeDraft.trim() ? addLiveCfCode(codes, codeDraft) : parseLiveCfCodes(codes)
+      setCodes(next)
+      setCodeDraft('')
+      setCodeError(null)
+      return next
+    } catch (error) {
+      setCodeError(error instanceof Error ? error.message : 'กรุณาตรวจสอบรหัสสั่งซื้อ')
+      codeInputRef.current?.focus()
+      return null
+    }
   }
 
   function insertVariable(tag: string) {
@@ -251,8 +294,10 @@ export function LiveCfSetup({
     setNotice(null)
     setLiveLinkTouched(true)
     if (parsedLiveId === null) return
-    if (!pageId || !product || !normalizeCfCode(code) || stockLimit < 1)
-      return setNotice('กรุณาเลือกเพจ สินค้า และกรอกรหัส CF ให้ครบ')
+    const nextCodes = codesForSave()
+    if (!nextCodes) return
+    if (!pageId || !product || stockLimit < 1)
+      return setNotice('กรุณาเลือกเพจ สินค้า และกรอกรหัสสั่งซื้อให้ครบ')
     if (product.is_active === false)
       return setNotice('สินค้านี้ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์')
     if (product.variants.length && !variant) return setNotice('กรุณาเลือกตัวเลือกสินค้า')
@@ -268,7 +313,7 @@ export function LiveCfSetup({
           livePostId: parsedLiveId,
           productId,
           variantId: variant?.id ?? null,
-          code,
+          codes: nextCodes,
           matchMode,
           stockLimit,
           deductStock,
@@ -299,6 +344,8 @@ export function LiveCfSetup({
       return setNotice('สินค้านี้ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์')
     setLiveLinkTouched(true)
     if (parsedLiveId === null) return
+    const nextCodes = codesForSave()
+    if (!nextCodes) return
     setSaving(true)
     setNotice(null)
     try {
@@ -312,7 +359,7 @@ export function LiveCfSetup({
           livePostId: parsedLiveId,
           productId,
           variantId: variant?.id ?? null,
-          code,
+          codes: nextCodes,
           matchMode,
           stockLimit,
           deductStock,
@@ -564,7 +611,7 @@ export function LiveCfSetup({
 
           {/* สเต็ป 2: กำหนดรหัส CF */}
           <div className="space-y-4 p-5 md:p-6">
-            <StepTitle number={2}>กำหนดรหัส CF</StepTitle>
+            <StepTitle number={2}>ตั้งรหัสสั่งซื้อ / รหัสจองสินค้า</StepTitle>
 
             {/* โหมดการตรวจจับรหัส (Match Mode) */}
             <div className="space-y-2">
@@ -628,42 +675,122 @@ export function LiveCfSetup({
               </div>
             </div>
 
-            <label className="block text-sm font-semibold text-slate-800">
-              รหัสสินค้าที่ให้ลูกค้าพิมพ์จอง (เช่น A1, 159)
-              <input
-                aria-label="รหัสสินค้าที่ให้ลูกค้าพิมพ์จอง"
-                className={`${field} text-base font-bold text-orange-600`}
-                value={code}
-                maxLength={60}
-                onChange={(event) => {
-                  setCode(event.target.value)
-                  if (testText.startsWith('CF ')) setTestText(`CF ${event.target.value}`)
-                }}
-                placeholder="เช่น 159, A1, Z99, แดง, ชุดเดรส"
-              />
-            </label>
-            <div>
-              <span className="mb-1.5 block text-xs font-medium text-slate-500">
-                ตัวอย่างข้อความที่ลูกค้าพิมพ์ (คลิกเพื่อทดสอบ):
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  code.trim() || '159',
-                  `CF ${code.trim() || '159'}`,
-                  `cf ${code.trim() || '159'}`,
-                  `FC ${code.trim() || '159'}`,
-                  `เอา ${code.trim() || '159'}`,
-                  `จอง ${code.trim() || '159'}`,
-                ].map((example) => (
+            <div className="space-y-3 rounded-2xl border border-orange-100 bg-orange-50/40 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <label
+                  htmlFor="live-cf-code-draft"
+                  className="text-sm font-semibold leading-relaxed text-slate-800"
+                >
+                  รหัสที่ให้ลูกค้าพิมพ์จองในไลฟ์ (เพิ่มได้ 1 - 5 รหัส เช่น A1, 159, จอง)
+                </label>
+                <span
+                  aria-label="จำนวนรหัสที่เพิ่มแล้ว"
+                  className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-orange-700 ring-1 ring-orange-200"
+                >
+                  {codes.length}/{MAX_LIVE_CF_CODES}
+                </span>
+              </div>
+              <div
+                role="group"
+                aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"
+                className="flex min-h-14 flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5 transition focus-within:border-orange-400 focus-within:ring-3 focus-within:ring-orange-100"
+              >
+                {codes.map((code, index) => (
+                  <span
+                    key={`${code}-${index}`}
+                    className="inline-flex max-w-full items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 py-1 pl-3 pr-1 text-sm font-bold text-orange-700"
+                  >
+                    <span className="min-w-0 break-all">{code}</span>
+                    <button
+                      type="button"
+                      aria-label={`ลบรหัส ${code}`}
+                      disabled={saving}
+                      onClick={() => {
+                        setCodes((current) => current.filter((_, position) => position !== index))
+                        setCodeError(null)
+                      }}
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-orange-500 transition hover:bg-orange-100 hover:text-orange-800 focus-visible:outline-2 focus-visible:outline-orange-500 disabled:opacity-50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  id="live-cf-code-draft"
+                  ref={codeInputRef}
+                  aria-label="เพิ่มรหัสสั่งซื้อ"
+                  aria-describedby="live-cf-code-help live-cf-code-status"
+                  aria-invalid={!!codeError}
+                  disabled={saving || codes.length >= MAX_LIVE_CF_CODES}
+                  className="min-w-0 flex-[1_1_9rem] rounded-lg bg-transparent px-2 py-2 text-sm outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+                  value={codeDraft}
+                  maxLength={40}
+                  onChange={(event) => {
+                    setCodeDraft(event.target.value)
+                    setCodeError(null)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                      event.preventDefault()
+                      addCode()
+                    }
+                  }}
+                  placeholder={
+                    codes.length >= MAX_LIVE_CF_CODES ? 'ครบ 5 รหัสแล้ว' : 'พิมพ์รหัส แล้วกด Enter'
+                  }
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p id="live-cf-code-help" className="text-xs leading-relaxed text-slate-500">
+                  ตัวพิมพ์เล็กและใหญ่ใช้แทนกันได้ จึงไม่ต้องเพิ่มรหัสซ้ำ เช่น A1 กับ a1
+                </p>
+                <button
+                  type="button"
+                  disabled={saving || codes.length >= MAX_LIVE_CF_CODES || !codeDraft.trim()}
+                  onClick={addCode}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" />
+                  เพิ่มรหัส
+                </button>
+              </div>
+              <div id="live-cf-code-status" aria-live="polite">
+                {codeError && (
+                  <p role="alert" className="text-sm font-medium text-red-600">
+                    {codeError}
+                  </p>
+                )}
+                {codes.length >= MAX_LIVE_CF_CODES && (
+                  <p className="text-xs font-medium text-amber-700">เพิ่มได้สูงสุด 5 รหัส</p>
+                )}
+                {!codes.length && !codeError && (
+                  <p className="text-xs font-medium text-amber-700">
+                    กรุณาเพิ่มรหัสสั่งซื้ออย่างน้อย 1 รหัส
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="mb-2 text-sm font-semibold text-slate-800">
+                ตัวอย่างคำที่ระบบจะดูดออเดอร์ให้
+              </p>
+              <p className="mb-3 text-xs text-slate-500">
+                กดตัวอย่างเพื่อทดลองจับคู่กับรหัสทั้งหมดที่ตั้งไว้
+              </p>
+              <div aria-label="ตัวอย่างคำสั่งซื้อ" className="flex flex-wrap gap-2">
+                {examples.map((example) => (
                   <button
                     key={example}
                     type="button"
                     onClick={() => setTestText(example)}
-                    className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 transition hover:bg-orange-100"
+                    className="max-w-full break-all rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-semibold text-orange-700 transition hover:bg-orange-100 focus-visible:outline-2 focus-visible:outline-orange-500"
                   >
                     {example}
                   </button>
                 ))}
+                {!examples.length && (
+                  <span className="text-xs text-slate-500">เพิ่มรหัสด้านบนเพื่อดูตัวอย่าง</span>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -874,7 +1001,7 @@ export function LiveCfSetup({
                 </div>
                 <dl className="mt-4 divide-y divide-slate-100 border-t border-slate-200 text-sm">
                   {[
-                    ['รหัสสินค้าที่ให้พิมพ์จอง', code || '—'],
+                    ['รหัสสั่งซื้อ / รหัสจอง', codes.join(', ') || '—'],
                     ['สต็อกคงเหลือ', `${selectedStock} ชิ้น`],
                     [
                       'รูปแบบการพิมพ์ CF',
@@ -937,20 +1064,24 @@ export function LiveCfSetup({
               value={testText}
               onChange={(event) => setTestText(event.target.value)}
               placeholder={
-                matchMode === 'strict' ? `พิมพ์ ${code || '159'}` : `ลองพิมพ์ CF ${code || '159'}`
+                matchMode === 'strict'
+                  ? `พิมพ์ ${codes[0] || 'รหัสจอง'}`
+                  : `ลองพิมพ์ CF ${codes[0] || 'รหัสจอง'}`
               }
             />
             <div
               className={`mt-3 flex items-center gap-2.5 rounded-xl border p-3 text-sm font-medium transition ${
-                parserMatch
+                matchedCode
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
                   : 'border-slate-200 bg-slate-100 text-slate-600'
               }`}
             >
-              {parserMatch ? (
+              {matchedCode ? (
                 <>
                   <BadgeCheck className="h-5 w-5 shrink-0 text-emerald-600" />
-                  <span className="flex-1">ตรงรหัส CF ระบบพร้อมสร้างออเดอร์</span>
+                  <span className="min-w-0 flex-1 break-words">
+                    ตรงรหัส <b>{matchedCode}</b> ระบบพร้อมสร้างออเดอร์
+                  </span>
                   <ShoppingCart className="h-4 w-4 shrink-0 text-emerald-600" />
                 </>
               ) : (
