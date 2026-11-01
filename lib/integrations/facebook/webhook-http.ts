@@ -9,6 +9,7 @@ import {
 } from '@/lib/integrations/facebook/webhook-envelope'
 import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
 import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
+import { redactFacebookDiagnostic } from '@/lib/integrations/facebook/diagnostics'
 
 // All ingress requests in this process share one drain. Database leases still
 // fence independent cron workers / other server instances.
@@ -65,6 +66,10 @@ export async function postFacebookWebhook(req: NextRequest) {
       return new NextResponse('Invalid signature', { status: 401 })
     }
     const envelope = parseWebhook(bytes)
+    console.log(
+      '[facebook-webhook/raw] ' +
+        JSON.stringify(redactFacebookDiagnostic(JSON.parse(envelope.raw))),
+    )
     console.log('[facebook-webhook/ingress] verified payload', {
       hash: envelope.hash.slice(0, 12),
       bytes: bytes.length,

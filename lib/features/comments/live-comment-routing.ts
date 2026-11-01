@@ -23,9 +23,15 @@ export function liveRuleCandidates(
 export function commentPostIds(value: Record<string, any>) {
   return [
     ...new Set(
-      [value.post_id, value.video_id, value.live_video_id, value.video?.id]
+      [value.post_id, value.video_id, value.live_video_id, value.video?.id, value.post?.id]
         .filter((id): id is string => typeof id === 'string' && /^\d+(?:_\d+)?$/.test(id))
         .flatMap((id) => [id, id.split('_').at(-1)!]),
     ),
   ]
+}
+
+/** Pass the observed ID that actually matched the rule, not an unrelated feed post ID. */
+export function liveRulePostId(rule: Pick<CommentRule, 'live_post_id'>, ids: string[]) {
+  if (!rule.live_post_id) return ids[0] ?? null
+  return ids.find((id) => id.split('_').at(-1) === rule.live_post_id!.split('_').at(-1)) ?? null
 }

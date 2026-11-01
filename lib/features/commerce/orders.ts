@@ -51,10 +51,10 @@ function cfResult(data: unknown): CfResult {
 /** Place a chat order; product or variant stock is changed atomically in the database. */
 async function callCfOrder(db: SupabaseClient, rpc: string, args: Record<string, unknown>) {
   const { data, error } = await db.rpc(rpc, args)
-  if (error)
-    throw new Error(
-      `place_cf_order failed (did you run supabase/live-cf-variants.sql?): ${error.message}`,
-    )
+  if (error) {
+    console.error('[live-cf/order] RPC failed', { rpc, code: error.code, hint: error.hint })
+    throw Object.assign(new Error('PLACE_CF_ORDER_FAILED'), { code: error.code })
+  }
   return cfResult(data)
 }
 

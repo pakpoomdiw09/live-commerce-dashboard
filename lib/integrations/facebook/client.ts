@@ -318,15 +318,49 @@ export const sendPaymentCard = (token: string | null, psid: string, card: Paymen
 
 /** Public reply under a comment. Needs the pages_manage_engagement permission. */
 export async function replyToComment(token: string | null, commentId: string, text: string) {
-  return facebookOperation('facebook.comment_reply', async () => {
-    const res = await fetch(graph(`${commentId}/comments`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...auth(token) },
-      body: JSON.stringify({ message: text }),
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) throw new Error('Facebook comment reply failed')
-  })
+  return facebookOperation(
+    'facebook.comment_reply',
+    async () => {
+      const res = await fetch(graph(`${encodeURIComponent(commentId)}/comments`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth(token) },
+        body: JSON.stringify({ message: text }),
+        signal: AbortSignal.timeout(10_000),
+      })
+      return commentGraphResult(res, token, commentId, { text })
+    },
+    (error) => logSendFailure(error, token, commentId, { text }),
+  )
+}
+
+async function commentGraphResult(
+  response: Response,
+  token: string | null,
+  commentId: string,
+  message: object,
+) {
+  const raw = await response.text()
+  let data: any
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    data = raw
+  }
+  if (!response.ok || data?.error || !(data?.id || data?.message_id)) {
+    throw new SendApiError(
+      response.status,
+      data?.error?.code ?? null,
+      data?.error?.error_subcode ?? null,
+      providerErrorMessage(
+        data?.error?.message ?? 'Missing Graph reply receipt',
+        token,
+        commentId,
+        message,
+      ),
+      providerErrorDetails(data, token, commentId, message),
+    )
+  }
+  return data
 }
 
 export type OutgoingMessage =
@@ -360,24 +394,72 @@ export async function privateReply(
         body: JSON.stringify({ recipient: { comment_id: commentId }, message }),
         signal: AbortSignal.timeout(10_000),
       })
-      if (!res.ok) {
-        throw Object.assign(new Error('Facebook private reply failed'), {
-          response: { status: res.status, data: await res.text() },
-        })
-      }
+      return commentGraphResult(res, token, commentId, message)
     },
     (error) => logSendFailure(error, token, commentId, message),
   )
 }
 
 /** Live CF private reply: one text payload only; payment media belongs on a signed HTTPS page. */
-export function sendPrivateReply(token: string | null, commentId: string, message: string) {
-  return privateReply(token, commentId, { text: message.normalize('NFC').trim().slice(0, 2000) })
+export function sendPrivateReply(
+  token: string | null,
+  commentId: string,
+  message: string,
+  pageId?: string,
+) {
+  const text = message.normalize('NFC').trim().slice(0, 2000)
+  return facebookOperation(
+    'facebook.private_reply',
+    async () => {
+      const post = async (path: string, body: object) =>
+        commentGraphResult(
+          await fetch(graph(path), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...auth(token) },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(10_000),
+          }),
+          token,
+          commentId,
+          { text },
+        )
+      try {
+        return await post(`${encodeURIComponent(commentId)}/private_replies`, { message: text })
+      } catch (error) {
+        // Only an explicit unsupported edge rejection permits another attempt. Never
+        // retry ambiguous transport failures, permissions or rate limits: one reply per comment.
+        if (
+          !(error instanceof SendApiError) ||
+          error.status !== 400 ||
+          error.code !== 100 ||
+          !/(?:nonexisting|non-existing|unknown) (?:field|edge|path)[^\n]*private_replies|private_replies[^\n]*(?:does not exist|not supported|unsupported)/i.test(
+            error.providerMessage ?? '',
+          ) ||
+          !pageId ||
+          !/^\d+$/.test(pageId)
+        )
+          throw error
+        logSendFailure(error, token, commentId, { text })
+        return post(`${pageId}/messages`, {
+          recipient: { comment_id: commentId },
+          message: { text },
+        })
+      }
+    },
+    (error) => logSendFailure(error, token, commentId, { text }),
+  )
 }
 
 /** Resolve a feed post to a video only when a Live CF keyword already matched. No polling. */
 export async function isLiveVideoComment(token: string | null, postId: string): Promise<boolean> {
-  if (!/^\d+(?:_\d+)?$/.test(postId)) return false
+  return (await resolveLiveCommentVideo(token, postId)).live
+}
+
+export async function resolveLiveCommentVideo(
+  token: string | null,
+  postId: string,
+): Promise<{ live: boolean; ids: string[] }> {
+  if (!/^\d+(?:_\d+)?$/.test(postId)) return { live: false, ids: [] }
   async function read(id: string, fields: string) {
     const res = await fetch(
       graph(`${encodeURIComponent(id)}?fields=${encodeURIComponent(fields)}`),
@@ -388,30 +470,51 @@ export async function isLiveVideoComment(token: string | null, postId: string): 
       },
     )
     const data = await res.json()
-    if (!res.ok) {
-      logSendFailure(
-        new SendApiError(
-          res.status,
-          data?.error?.code ?? null,
-          data?.error?.error_subcode ?? null,
-          providerErrorMessage(data?.error?.message, token, postId, {}),
-          providerErrorDetails(data, token, postId, {}),
-        ),
-        token,
-        postId,
-        {},
+    if (!res.ok || data?.error) {
+      const error = new SendApiError(
+        res.status,
+        data?.error?.code ?? null,
+        data?.error?.error_subcode ?? null,
+        providerErrorMessage(data?.error?.message, token, postId, {}),
+        providerErrorDetails(data, token, postId, {}),
       )
-      throw new Error('LIVE_COMMENT_LOOKUP_FAILED')
+      logSendFailure(error, token, postId, {})
+      // Post and Video expose different fields; try the other object shape only
+      // after an explicit invalid-field response. Other failures remain retryable.
+      if (error.status === 400 && error.code === 100) return null
+      throw error
     }
     return data
   }
-  const post = await read(postId, 'attachments{media_type,target}')
-  const videos = (post.attachments?.data ?? []).filter(
-    (a: any) => String(a.media_type).toLowerCase() === 'video' && /^\d+$/.test(a.target?.id ?? ''),
+  if (/^\d+$/.test(postId)) {
+    const direct = await read(postId, 'live_status')
+    if (typeof direct?.live_status === 'string')
+      return { live: direct.live_status === 'LIVE', ids: [postId] }
+  }
+  const post = await read(
+    postId,
+    'attachments{media_type,type,target,subattachments{media_type,type,target}}',
   )
-  if (videos.length !== 1) return false
-  const video = await read(videos[0].target.id, 'live_status')
-  return video.live_status === 'LIVE'
+  const attachments = (post?.attachments?.data ?? []).flatMap((a: any) => [
+    a,
+    ...(a.subattachments?.data ?? []),
+  ])
+  const ids = [
+    ...new Set<string>(
+      attachments
+        .filter(
+          (a: any) =>
+            /video/i.test(String(a.media_type ?? a.type)) && /^\d+$/.test(a.target?.id ?? ''),
+        )
+        .map((a: any) => String(a.target.id)),
+    ),
+  ].slice(0, 3)
+  let live = false
+  for (const id of ids) {
+    const video = await read(id, 'live_status')
+    live ||= video?.live_status === 'LIVE'
+  }
+  return { live, ids }
 }
 
 /** The customer's name, or null (no token, or Meta refused). Never throws. */

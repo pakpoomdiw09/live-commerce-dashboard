@@ -2,7 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import {
   getCustomerProfile,
   getPageTokenStatus,
-  isLiveVideoComment,
+  resolveLiveCommentVideo,
   pageTokenFor,
   privateReply,
   replyToComment,
@@ -16,7 +16,11 @@ import {
   ruleMatches,
   type CommentRule,
 } from '@/lib/features/comments/comment-rules'
-import { commentPostIds, liveRuleCandidates } from '@/lib/features/comments/live-comment-routing'
+import {
+  commentPostIds,
+  liveRuleCandidates,
+  liveRulePostId,
+} from '@/lib/features/comments/live-comment-routing'
 import { answerChat, loadBotSettings } from '@/lib/features/agents/chatbot-server'
 import { pendingOrders, placeCfOrder } from '@/lib/features/commerce/orders'
 import { replyToMessengerProduct } from '@/lib/features/commerce/messenger-product-server'
@@ -80,6 +84,14 @@ export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
     payload.value?.verb === 'add'
   ) {
     await onComment(payload.value, pageId, tenant, execution)
+  } else if (kind === 'change') {
+    console.info('[live-cf/comment] skipped', {
+      reason: 'NOT_NEW_COMMENT',
+      pageId,
+      field: payload.field,
+      item: payload.value?.item,
+      verb: payload.value?.verb,
+    })
   }
 }
 
@@ -495,19 +507,40 @@ async function onComment(
   execution: WebhookExecution,
 ) {
   // the Page's own replies (including the auto-replies below): never answer them, or rules would loop
-  if (v.from?.id === pageId) return
+  if (v.from?.id === pageId) {
+    console.info('[live-cf/comment] skipped', {
+      reason: 'PAGE_OWN_COMMENT',
+      commentId: v.comment_id,
+    })
+    return
+  }
   // Meta leaves out `from` when the app lacks pages_read_engagement / Page Public Content Access,
   // or (in Development mode) when the commenter has no role on the app
   if (!v.from)
     console.warn(
-      '[fb webhook] comment has no `from` (check app permissions / Live mode):',
+      '[live-cf/comment] NO_COMMENT_AUTHOR; check Page permissions and Meta delivery payload:',
       v.comment_id,
     )
 
-  if (typeof v.comment_id !== 'string' || !v.comment_id) return
+  if (typeof v.comment_id !== 'string' || !v.comment_id) {
+    console.warn('[live-cf/comment] skipped', { reason: 'MISSING_COMMENT_ID', pageId })
+    return
+  }
   const stored = await execution.persistRecord(tenant?.id ?? null)
-  if (stored.duplicate || !stored.id) return
-  if (typeof v.message !== 'string' || !tenant) return
+  if (stored.duplicate || !stored.id) {
+    console.info('[live-cf/comment] skipped', {
+      reason: stored.duplicate ? 'DUPLICATE_COMMENT' : 'COMMENT_NOT_STORED',
+      commentId: v.comment_id,
+    })
+    return
+  }
+  if (typeof v.message !== 'string' || !tenant) {
+    console.warn('[live-cf/comment] skipped', {
+      reason: !tenant ? 'NO_TENANT' : 'NO_TEXT',
+      commentId: v.comment_id,
+    })
+    return
+  }
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const rules = await loadCommentRules(db, tenant.id, pageId)
   const psid = typeof v.from?.id === 'string' ? v.from.id : null
@@ -516,27 +549,26 @@ async function onComment(
     : []
   if (psid && stored.customer) {
     const token = pageTokenFor(tenant)
+    let ids = commentPostIds(v)
+    let live = execution.event.payload.field === 'live_comments'
+    let candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
+    // Read-only lookup stays outside durable side-effect checkpoints, so a
+    // transient Graph failure can be retried without creating another order.
+    if (!candidates.length && possibleLive.length && ids.length) {
+      const resolved = await resolveLiveCommentVideo(token, ids[0])
+      ids = [...new Set([...ids, ...resolved.ids])]
+      live ||= resolved.live
+      candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
+    }
     const selection = await execution.once('comment-live-selection', async () => {
-      const ids = commentPostIds(v)
-      let live = execution.event.payload.field === 'live_comments'
-      let candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
-      if (!live && candidates.length) {
-        // A shop explicitly scoped this post as its live sale.
-        live = true
-        candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
-      }
-      if (
-        !live &&
-        !candidates.length &&
-        possibleLive.some((r) => !r.live_post_id) &&
-        typeof v.post_id === 'string'
-      ) {
-        live = await isLiveVideoComment(token, v.post_id)
-        candidates = liveRuleCandidates(possibleLive, v.message, ids, live)
-      }
-      if (candidates.length > 1) return { ambiguous: true, ruleId: '', code: '' }
+      if (candidates.length > 1) return { ambiguous: true, ruleId: '', code: '', postId: null }
       return candidates.length
-        ? { ambiguous: false, ruleId: candidates[0].rule.id, code: candidates[0].code }
+        ? {
+            ambiguous: false,
+            ruleId: candidates[0].rule.id,
+            code: candidates[0].code,
+            postId: liveRulePostId(candidates[0].rule, ids),
+          }
         : null
     })
     if (selection?.ambiguous) {
@@ -553,14 +585,15 @@ async function onComment(
         .eq('tenant_id', tenant.id)
       if (saved.error) throw saved.error
       const meta = createLiveCfMetaAdapter({
-        privateText: async (commentId, message) => sendPrivateReply(token, commentId, message),
+        privateText: async (commentId, message) =>
+          sendPrivateReply(token, commentId, message, pageId),
         publicText: async (commentId, message) => replyToComment(token, commentId, message),
       })
       const handled = await handleLiveCfComment(
         { text: v.message, commentId: v.comment_id, code: selection.code },
         {
-          placeOrder: (code) =>
-            execution.once('comment-cf-order', () =>
+          placeOrder: async (code) => {
+            const order = await execution.once('comment-cf-order', () =>
               placeCfOrder(db, {
                 tenantId: tenant.id,
                 customerId: stored.customer!.id,
@@ -568,10 +601,18 @@ async function onComment(
                 source: 'live_comment',
                 ruleId: selection.ruleId,
                 pageId,
-                postId: v.post_id ?? v.video_id ?? null,
+                postId: selection.postId ?? liveRulePostId(selectedRule, ids),
                 code,
               }),
-            ),
+            )
+            console.info('[live-cf/order]', {
+              commentId: v.comment_id,
+              ruleId: selection.ruleId,
+              postId: selection.postId,
+              status: order.status,
+            })
+            return order
+          },
           getPayment: () => primaryBankPayment(db, tenant.id, selectedRule.live_bank_account_id),
           getPendingTotal: async () =>
             (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
@@ -602,6 +643,16 @@ async function onComment(
       // A selected live rule that was disabled/changed must not fall through to another bot.
       return
     }
+    console.info('[live-cf/comment] skipped', {
+      commentId: v.comment_id,
+      reason: !possibleLive.length ? 'NO_MATCHING_LIVE_KEYWORD' : 'NO_MATCHING_LIVE_SESSION',
+      postIds: ids,
+    })
+  } else if (possibleLive.length) {
+    console.warn('[live-cf/comment] skipped', {
+      commentId: v.comment_id,
+      reason: !psid ? 'NO_COMMENT_AUTHOR' : 'NO_CUSTOMER_RECORD',
+    })
   }
   await runCommentRules(
     stored.id,
@@ -668,7 +719,11 @@ async function runCommentRules(
     `[fb webhook] comment ${v.comment_id} → ${rule ? `rule "${rule.name}"` : 'no matching rule'}`,
   )
   if (!rule) return
-  const saved = await db.from('comments').update({ rule_id: rule.id }).eq('id', commentRowId)
+  const saved = await db
+    .from('comments')
+    .update({ rule_id: rule.id })
+    .eq('id', commentRowId)
+    .eq('tenant_id', tenant.id)
   if (saved.error) throw saved.error
 
   const token = pageTokenFor(tenant)

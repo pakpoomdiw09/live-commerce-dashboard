@@ -9,7 +9,15 @@ import { graph, getPageTokenStatus } from '@/lib/integrations/facebook/client'
  * permissions from a configuration (FB_LOGIN_CONFIG_ID). Other app types use SCOPES.
  */
 // Login and Page permissions requested by the dashboard.
-export const SCOPES = ['public_profile', 'pages_show_list', 'pages_messaging']
+export const SCOPES = [
+  'public_profile',
+  'pages_show_list',
+  'pages_messaging',
+  'pages_read_engagement',
+  'pages_manage_engagement',
+  'pages_manage_metadata',
+  'pages_read_user_content',
+]
 
 const appId = () => (process.env.FB_APP_ID || process.env.NEXT_PUBLIC_FB_APP_ID || '').trim()
 const appSecret = () => (process.env.FB_APP_SECRET ?? '').trim()

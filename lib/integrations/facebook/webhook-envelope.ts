@@ -73,6 +73,48 @@ function canonical(value: unknown): string {
 }
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 
+function externalId(value: unknown): string | undefined {
+  if (object(value)) return externalId(value.id)
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return String(value)
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+/** Canonicalize before enqueue so persistence, deduplication and matching see the same comment. */
+export function normalizeCommentChange(event: WebhookObject): WebhookObject {
+  if (!['feed', 'live_comments'].includes(event.field) || !object(event.value)) return event
+  const v = event.value
+  const item = typeof v.item === 'string' ? v.item.toLowerCase() : null
+  if (
+    event.field !== 'live_comments' &&
+    item !== 'comment' &&
+    item !== 'live_comment' &&
+    !(!item && (v.comment_id != null || object(v.comment)))
+  )
+    return event
+  const author = object(v.from) ? v.from : object(v.comment?.from) ? v.comment.from : {}
+  const authorId = externalId(author.id ?? v.sender_id)
+  const postId = externalId(v.post_id ?? v.comment?.post_id)
+  const videoId = externalId(v.video_id ?? v.video?.id)
+  const liveVideoId = externalId(v.live_video_id)
+  return {
+    ...event,
+    value: {
+      ...v,
+      comment_id: externalId(v.comment_id ?? v.comment?.id ?? v.id) ?? v.comment_id,
+      post_id: postId ?? videoId ?? liveVideoId,
+      ...(videoId ? { video_id: videoId } : {}),
+      ...(liveVideoId ? { live_video_id: liveVideoId } : {}),
+      ...(authorId
+        ? { from: { ...author, id: authorId, name: author.name ?? v.sender_name } }
+        : {}),
+      message: v.message ?? v.comment?.message ?? v.text,
+      item: 'comment',
+      verb:
+        typeof v.verb === 'string' ? v.verb.toLowerCase() : v.deleted === true ? 'remove' : 'add',
+    },
+  }
+}
+
 export function parseWebhook(bytes: Uint8Array): {
   raw: string
   hash: string
@@ -103,19 +145,7 @@ export function parseWebhook(bytes: Uint8Array): {
         if (!object(event)) throw new WebhookInputError('Invalid event', 400)
         // Canonical shape is also persisted by the durable worker. feed/live_comments
         // deliveries of the same comment must share one idempotency key.
-        if (kind === 'change' && event.field === 'live_comments' && object(event.value)) {
-          const v = event.value
-          event = {
-            ...event,
-            value: {
-              ...v,
-              comment_id: v.comment_id ?? v.id,
-              post_id: v.post_id ?? v.video_id ?? v.video?.id,
-              item: v.item ?? 'comment',
-              verb: v.verb ?? 'add',
-            },
-          }
-        }
+        if (kind === 'change') event = normalizeCommentChange(event)
         if (events.length >= WEBHOOK_MAX_EVENTS) throw new WebhookInputError('Too many events', 413)
         const externalId =
           kind === 'message'

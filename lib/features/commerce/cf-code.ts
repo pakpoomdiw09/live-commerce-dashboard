@@ -34,7 +34,7 @@ export function matchOrderCode(
   if (normComment === normTarget) return true
 
   // Prefixes are optional. Preserve old aliases while supporting Thai booking words.
-  const prefixRegex = /^(?:cf|fc|เอา|จอง|ปิด|สนใจ|รับ|ขอ)\s*[:.\-]?\s*/iu
+  const prefixRegex = /^(?:cf|fc|ขอรับ|เอา|จอง|สั่ง|ปิด|สนใจ|รับ|ขอ)\s*[:.\-]?\s*/iu
   const withoutPrefix = normComment.replace(prefixRegex, '').trim()
   if (withoutPrefix === normTarget) return true
 
@@ -43,7 +43,7 @@ export function matchOrderCode(
   for (const candidate of [normComment, withoutPrefix]) {
     if (
       candidate.startsWith(normTarget) &&
-      /^(?:\s*(?:ครับ|ค่ะ|คะ))$/u.test(candidate.slice(normTarget.length))
+      /^(?:\s*(?:ครับ|ค่ะ|คะ|จ้า|จ้ะ|นะ|น้า))$/u.test(candidate.slice(normTarget.length))
     )
       return true
   }
@@ -61,12 +61,37 @@ export function matchesCfCode(text: string | null | undefined, expected: string)
   return matchOrderCode(text, expected, 'flexible')
 }
 
-/** Accept a bare code or a short CF/FC/เอา/จอง/สนใจ-prefixed message; return a canonical code. */
+/**
+ * สกัดรหัสสินค้า CF จากข้อความคอมเมนต์อย่างยืดหยุ่น:
+ * - รองรับ Case-insensitive ทั้ง CF, cf, Cf, cF
+ * - รองรับคำนำหน้าภาษาไทย: รับ, เอา, จอง, ขอรับ, สั่ง, ปิด, สนใจ, ขอ
+ * - รองรับทั้งแบบเว้นวรรคและไม่เว้นวรรค เช่น "CF fc159", "CFfc159", "รับ fc159", "fc159"
+ * - ตัดคำลงท้ายสุภาพ/คำสร้อย เช่น ครับ, ค่ะ, คะ, จ้า, จ้ะ, น้า, แอดมิน ออกอัตโนมัติ
+ * - คืนค่าเป็นตัวพิมพ์เล็ก (lowercase canonical) เพื่อให้เทียบกับ SKU/Rule ได้แม่นยำ
+ */
 export function cfCode(text: string | null | undefined): string | null {
-  const source = (text ?? '').normalize('NFKC').replace(/\s+/gu, ' ').trim()
-  const match =
-    /^(?:(?:cf|fc|เอา|จอง|ปิด|สนใจ|รับ|ขอ)\s*[:.\-]?\s*)?([\p{L}\p{N}][\p{L}\p{N}\p{M}_\-\s]{0,59})$/iu.exec(
-      source,
-    )
-  return match ? match[1].trim() : null
+  if (!text) return null
+
+  // 1. Clean & Normalize Unicode และช่องว่าง
+  let clean = text
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // ลบ zero-width spaces
+    .replace(/\s+/gu, ' ')
+    .trim()
+
+  if (!clean) return null
+
+  // 2. ตัดคำนำหน้า (Prefix) ทั้งไทยและอังกฤษ (Case-insensitive)
+  const prefixRegex = /^(?:cf|fc|ขอรับ|รับ|เอา|จอง|สั่ง|ปิด|สนใจ|ขอ)\s*[:.\-_]?\s*/iu
+  clean = clean.replace(prefixRegex, '').trim()
+
+  // 3. ตัดคำลงท้ายสุภาพ (Suffix)
+  const suffixRegex = /\s*(?:ครับ|ค่ะ|คะ|จ้า|จ้ะ|นะ|น้า|หน่อย|แอดมิน|คับ|ฮะ)[\s.!~]*$/iu
+  clean = clean.replace(suffixRegex, '').trim()
+
+  // 4. สกัดรหัสสินค้า (อักษร + ตัวเลข ความยาว 1-40 ตัวอักษร)
+  const codeMatch = /^([\p{L}\p{N}][\p{L}\p{N}\p{M}_\-]{0,39})/u.exec(clean)
+  if (!codeMatch) return null
+
+  return codeMatch[1].toLocaleLowerCase('en-US').trim()
 }

@@ -13,20 +13,27 @@ export type LiveCfOrder =
   | { status: 'require_variant'; name: string; code: string }
   | { status: 'no_match' }
 
-export type LiveCfPayment = {
-  bankName: string
-  accountName: string | null
-  accountNumber: string
-}
-
+export type LiveCfPayment = { bankName: string; accountName: string | null; accountNumber: string }
 const money = (value: number) =>
   value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-/**
- * Complete one Live CF comment. The private channel is deliberately text-only:
- * Meta permits only one private reply for a comment, so payment is opened through
- * a signed HTTPS link instead of attaching a QR image.
- */
+/** Attempt each enabled channel, then propagate failures to the durable worker. */
+async function deliverReplies(jobs: { channel: string; send: () => Promise<unknown> }[]) {
+  const results = await Promise.allSettled(jobs.map(async (job) => job.send()))
+  let failure: PromiseRejectedResult | undefined
+  results.forEach((result, index) => {
+    if (result.status !== 'rejected') return
+    failure ??= result
+    console.error('[live-cf/reply] failed', {
+      channel: jobs[index].channel,
+      errorCode: typeof result.reason?.code === 'number' ? result.reason.code : 'DELIVERY_FAILED',
+      errorSubcode: typeof result.reason?.subcode === 'number' ? result.reason.subcode : null,
+    })
+  })
+  if (failure) throw failure.reason
+}
+
+/** One comment-scoped private text reply, with a signed payment link. */
 export async function handleLiveCfComment(
   input: { text: string; commentId: string; code?: string },
   dependencies: {
@@ -40,64 +47,79 @@ export async function handleLiveCfComment(
     publicTemplate?: string | null
   },
 ): Promise<boolean> {
-  const code = input.code ?? cfCode(input.text)
+  const rawCode = input.code?.trim() || cfCode(input.text)
+  const code = rawCode ? rawCode.toLocaleLowerCase('en-US').trim() : null
   if (!code) return false
-
   const order = await dependencies.placeOrder(code)
   if (order.status === 'no_match') return false
-
-  if (order.status === 'require_variant') {
-    await dependencies.sendPrivateReply?.(
-      `${order.name} มีตัวเลือกสินค้า กรุณาติดต่อแอดมินเพื่อเลือกสีหรือขนาดก่อนสั่งซื้อ`,
-    )
-    await dependencies.replyToComment?.('สินค้ามีตัวเลือก กรุณาตรวจสอบข้อความส่วนตัวค่ะ')
+  const jobs: { channel: string; send: () => Promise<unknown> }[] = []
+  if (order.status === 'require_variant' || order.status === 'sold_out') {
+    const privateText =
+      order.status === 'require_variant'
+        ? `${order.name} มีตัวเลือกสินค้า กรุณาติดต่อแอดมินเพื่อเลือกสีหรือขนาดก่อนสั่งซื้อ`
+        : `ขออภัยค่ะ ${order.name} (รหัส ${order.code}) หมดแล้ว`
+    const publicText =
+      order.status === 'require_variant'
+        ? 'สินค้ามีตัวเลือก กรุณาตรวจสอบข้อความส่วนตัวค่ะ'
+        : 'ขออภัยค่ะ สินค้ารหัสนี้หมดแล้ว'
+    if (dependencies.sendPrivateReply)
+      jobs.push({ channel: 'private', send: () => dependencies.sendPrivateReply!(privateText) })
+    if (dependencies.replyToComment)
+      jobs.push({ channel: 'public', send: () => dependencies.replyToComment!(publicText) })
+    await deliverReplies(jobs)
     return true
   }
-  if (order.status === 'sold_out') {
-    await dependencies.sendPrivateReply?.(`ขออภัยค่ะ ${order.name} (รหัส ${order.code}) หมดแล้ว`)
-    await dependencies.replyToComment?.('ขออภัยค่ะ สินค้ารหัสนี้หมดแล้ว')
-    return true
-  }
-
-  const [payment, total, paymentLink] = await Promise.all([
-    dependencies.getPayment(),
-    dependencies.getPendingTotal(),
-    dependencies.getPaymentLink(order.orderId),
-  ])
-  if (dependencies.sendPrivateReply && !paymentLink)
-    throw new Error('LIVE_CF_PAYMENT_LINK_UNAVAILABLE')
-  const variantLabel = order.variantLabel ?? ''
-  const hasVariantTag = dependencies.privateTemplate?.includes('{variant_name}')
-  const product = hasVariantTag
-    ? order.name
-    : `${order.name}${variantLabel ? ` • ${variantLabel}` : ''}`
-  const priceText = dependencies.privateTemplate?.includes('{total}')
-    ? money(order.amount)
-    : money(total)
-
-  const privateMessage = dependencies.privateTemplate?.trim()
-    ? dependencies.privateTemplate
-        .replaceAll('{product_name}', product)
-        .replaceAll('{variant_name}', variantLabel)
-        .replaceAll('{price}', priceText)
-        .replaceAll('{total}', money(total))
-        .replaceAll('{payment_link}', paymentLink ?? '')
-        .trim()
-    : [
-        `รับออเดอร์ ${order.name}${variantLabel ? ` • ${variantLabel}` : ''} (${order.code})`,
-        `ยอดชำระ ${money(total)} บาท`,
-        payment
-          ? `บัญชี ${payment.bankName} ${payment.accountNumber}${payment.accountName ? ` (${payment.accountName})` : ''}`
-          : 'แอดมินจะแจ้งช่องทางชำระเงินให้ทางแชท',
-        paymentLink ? `ชำระเงินอย่างปลอดภัย: ${paymentLink}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n')
-  await dependencies.sendPrivateReply?.(privateMessage)
-
-  await dependencies.replyToComment?.(
-    dependencies.publicTemplate?.trim() ||
-      'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดและลิงก์ชำระเงินในข้อความส่วนตัว',
-  )
+  if (dependencies.sendPrivateReply)
+    jobs.push({
+      channel: 'private',
+      send: async () => {
+        // A failed total lookup or missing signed link must not produce an incorrect bill.
+        const [payment, total, paymentLink] = await Promise.all([
+          dependencies.getPayment(),
+          dependencies.getPendingTotal(),
+          dependencies.getPaymentLink(order.orderId),
+        ])
+        if (!paymentLink) throw new Error('LIVE_CF_PAYMENT_LINK_UNAVAILABLE')
+        if (!Number.isFinite(total) || total <= 0)
+          throw new Error('LIVE_CF_PAYMENT_TOTAL_UNAVAILABLE')
+        const variantLabel = order.variantLabel ?? ''
+        const product = dependencies.privateTemplate?.includes('{variant_name}')
+          ? order.name
+          : `${order.name}${variantLabel ? ` • ${variantLabel}` : ''}`
+        const priceText = money(
+          dependencies.privateTemplate?.includes('{total}') ? order.amount : total,
+        )
+        let message = dependencies.privateTemplate?.trim()
+          ? dependencies.privateTemplate
+              .replaceAll('{product_name}', product)
+              .replaceAll('{variant_name}', variantLabel)
+              .replaceAll('{price}', priceText)
+              .replaceAll('{total}', money(total))
+              .replaceAll('{payment_link}', paymentLink)
+              .trim()
+          : [
+              `รับออเดอร์ ${order.name}${variantLabel ? ` • ${variantLabel}` : ''} (${order.code})`,
+              `ยอดชำระ ${money(total)} บาท`,
+              payment
+                ? `บัญชี ${payment.bankName} ${payment.accountNumber}${payment.accountName ? ` (${payment.accountName})` : ''}`
+                : null,
+              `ชำระเงินอย่างปลอดภัย: ${paymentLink}`,
+            ]
+              .filter(Boolean)
+              .join('\n')
+        if (!message.includes(paymentLink)) message += `\nชำระเงินอย่างปลอดภัย: ${paymentLink}`
+        await dependencies.sendPrivateReply!(message)
+      },
+    })
+  if (dependencies.replyToComment)
+    jobs.push({
+      channel: 'public',
+      send: () =>
+        dependencies.replyToComment!(
+          dependencies.publicTemplate?.trim() ||
+            'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดและลิงก์ชำระเงินในข้อความส่วนตัว',
+        ),
+    })
+  await deliverReplies(jobs)
   return true
 }

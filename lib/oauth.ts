@@ -1,6 +1,6 @@
 /** Shared client/server OAuth routing and safe user-facing errors. No credentials here. */
 export const FACEBOOK_SCOPES =
-  'public_profile,email,pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata'
+  'public_profile,email,pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata,pages_manage_engagement,pages_read_user_content'
 export const FACEBOOK_LOGIN_SCOPES = FACEBOOK_SCOPES
 export const OAUTH_NEXT_COOKIE = 'auth_oauth_next'
 export const OAUTH_COOKIE_PATH = '/auth/callback'

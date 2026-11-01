@@ -258,7 +258,7 @@ test('live comment CF orders match codes, protect stock, and send one secure pay
       2,
     )
 
-    assert.equal(cfCode('CF 159W'), '159W')
+    assert.equal(cfCode('CF 159W'), '159w')
     assert.equal(await handle('CF 159W', 'comment-variant'), true)
     assert.match(publicReplies[1], /รับออเดอร์แล้วค่ะ/)
     assert.equal(
@@ -320,4 +320,121 @@ test('private reply template replaces all variables: product_name, variant_name,
     sent,
     'ยินดีด้วยค่ะ! เสื้อยืดแขนสั้น (สีขาว XL) ราคา 250.00 บาท ยอดสุทธิ 500.00 บาท ลิงก์: https://pay.example/live/token123',
   )
+})
+
+test('each reply channel is attempted independently and delivery failures propagate to the queue', async () => {
+  for (const channel of ['private', 'public']) {
+    const attempts: string[] = []
+    const failure = Object.assign(new Error('Meta permission refused'), { code: 200, subcode: 10 })
+    await assert.rejects(
+      handleLiveCfComment(
+        { text: 'fc159', commentId: 'c', code: 'fc159' },
+        {
+          placeOrder: async () => ({
+            status: 'created',
+            orderId: 'order',
+            name: 'เสื้อยืด',
+            code: 'fc159',
+            amount: 159,
+            variantLabel: null,
+          }),
+          getPayment: async () => null,
+          getPendingTotal: async () => 159,
+          getPaymentLink: () => 'https://shop.example/pay/live/signed',
+          sendPrivateReply: async () => {
+            attempts.push('private')
+            if (channel === 'private') throw failure
+          },
+          replyToComment: async () => {
+            attempts.push('public')
+            if (channel === 'public') throw failure
+          },
+        },
+      ),
+      (e) => e === failure,
+    )
+    assert.deepEqual(attempts.sort(), ['private', 'public'])
+  }
+})
+
+test('a missing signed bill or failed total lookup still allows public confirmation without sending an incorrect private bill', async () => {
+  for (const problem of ['link', 'total']) {
+    let privateCount = 0,
+      publicCount = 0
+    await assert.rejects(
+      handleLiveCfComment(
+        { text: '159', commentId: 'c', code: '159' },
+        {
+          placeOrder: async () => ({
+            status: 'created',
+            orderId: 'order',
+            name: 'เสื้อยืด',
+            code: '159',
+            amount: 159,
+            variantLabel: null,
+          }),
+          getPayment: async () => null,
+          getPendingTotal: async () => {
+            if (problem === 'total') throw new Error('TOTAL_LOOKUP_FAILED')
+            return 159
+          },
+          getPaymentLink: () =>
+            problem === 'link' ? null : 'https://shop.example/pay/live/signed',
+          sendPrivateReply: async () => {
+            privateCount++
+          },
+          replyToComment: async () => {
+            publicCount++
+          },
+        },
+      ),
+    )
+    assert.equal(privateCount, 0)
+    assert.equal(publicCount, 1)
+  }
+})
+
+test('public-only rules do not require payment configuration; sold-out replies are also independent', async () => {
+  let publicCount = 0
+  const unused = async (): Promise<never> => {
+    throw new Error('MUST_NOT_READ_PAYMENT')
+  }
+  await handleLiveCfComment(
+    { text: '159', commentId: 'c', code: '159' },
+    {
+      placeOrder: async () => ({
+        status: 'created',
+        orderId: 'order',
+        name: 'เสื้อยืด',
+        code: '159',
+        amount: 159,
+        variantLabel: null,
+      }),
+      getPayment: unused,
+      getPendingTotal: unused,
+      getPaymentLink: unused,
+      replyToComment: async () => {
+        publicCount++
+      },
+    },
+  )
+  assert.equal(publicCount, 1)
+  await assert.rejects(
+    handleLiveCfComment(
+      { text: '159', commentId: 'c', code: '159' },
+      {
+        placeOrder: async () => ({ status: 'sold_out', name: 'เสื้อยืด', code: '159' }),
+        getPayment: unused,
+        getPendingTotal: unused,
+        getPaymentLink: unused,
+        sendPrivateReply: async () => {
+          throw new Error('META_REFUSED')
+        },
+        replyToComment: async () => {
+          publicCount++
+        },
+      },
+    ),
+  )
+  assert.equal(publicCount, 2)
 })

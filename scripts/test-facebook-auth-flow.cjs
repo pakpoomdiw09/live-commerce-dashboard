@@ -29,17 +29,17 @@ function load(file, deps = {}, globals = {}) {
   return context.exports
 }
 
-test('Facebook login sends all requested Business scopes and a stable callback URL', async () => {
+test('Facebook Page connection sends all requested scopes and a stable callback URL', async () => {
   const location = { origin: 'https://shop.example', protocol: 'https:' },
     document = {}
   const oauth = load('lib/oauth.ts', {}, { location, document })
   let request
   const component = load(
-    'components/LoginForm.tsx',
+    'components/select-page/ConnectFacebookButton.tsx',
     {
       react: { useState: (value) => [value, () => {}] },
       'react/jsx-runtime': require('react/jsx-runtime'),
-      'next/navigation': { useRouter: () => ({}) },
+      'lucide-react': { Plus: () => null },
       '@/lib/oauth': oauth,
       '@/lib/supabase/browser': {
         supabaseBrowser: () => ({
@@ -53,16 +53,16 @@ test('Facebook login sends all requested Business scopes and a stable callback U
       },
     },
     { location },
-  ).LoginForm
-  const tree = component({ next: '/slips?tab=history' })
+  ).ConnectFacebookButton
+  const tree = component()
   await tree.props.children.find((child) => child?.type === 'button').props.onClick()
   assert.equal(request.provider, 'facebook')
   assert.equal(
     request.options.scopes,
-    'public_profile,email,pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata',
+    'public_profile,email,pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata,pages_manage_engagement,pages_read_user_content',
   )
   assert.equal(request.options.redirectTo, 'https://shop.example/auth/callback')
-  assert.match(document.cookie, /%2Fslips%3Ftab%3Dhistory/)
+  assert.match(document.cookie, /%2Fselect-page/)
 })
 
 test('Supabase authorization URL carries every requested Facebook permission', async () => {
@@ -84,9 +84,41 @@ test('Supabase authorization URL carries every requested Facebook permission', a
   assert.equal(url.searchParams.get('provider'), 'facebook')
   assert.equal(
     url.searchParams.get('scopes'),
-    'public_profile,email,pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata',
+    'public_profile,email,pages_show_list,pages_messaging,pages_read_engagement,pages_manage_metadata,pages_manage_engagement,pages_read_user_content',
   )
   assert.equal(oauth.FACEBOOK_LOGIN_SCOPES, oauth.FACEBOOK_SCOPES)
+})
+
+test('direct Page OAuth requests comment permissions and Business Login uses its configured permissions', () => {
+  const env = { FB_APP_ID: 'app', FB_APP_SECRET: 'secret' }
+  const api = load(
+    'lib/integrations/facebook/oauth.ts',
+    {
+      'server-only': {},
+      '@/lib/integrations/facebook/client': {},
+    },
+    { process: { env } },
+  )
+  const dialog = new URL(
+    api.dialogUrl('https://shop.example/api/auth/facebook/callback', 'csrf-state'),
+  )
+  assert.equal(dialog.searchParams.get('state'), 'csrf-state')
+  const scopes = dialog.searchParams.get('scope').split(',')
+  for (const scope of [
+    'pages_messaging',
+    'pages_read_engagement',
+    'pages_manage_engagement',
+    'pages_read_user_content',
+    'pages_manage_metadata',
+    'pages_show_list',
+  ])
+    assert.ok(scopes.includes(scope), scope)
+  env.FB_LOGIN_CONFIG_ID = 'configured-business-login'
+  const business = new URL(
+    api.dialogUrl('https://shop.example/api/auth/facebook/callback', 'csrf-state'),
+  )
+  assert.equal(business.searchParams.get('config_id'), 'configured-business-login')
+  assert.equal(business.searchParams.get('scope'), null)
 })
 
 function callback(
