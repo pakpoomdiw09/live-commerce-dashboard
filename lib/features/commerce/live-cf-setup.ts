@@ -49,18 +49,37 @@ export type QuickLiveProductDraft = {
   price: string
   stock: string
   cf_code: string
+  category_id?: string
+  description?: string
+  images?: string[]
+  is_active?: boolean
+  featured?: boolean
+  variants?: {
+    id: string
+    label: string
+    variant_code: string
+    price: string
+    stock: string
+  }[]
 }
 
 export function quickLiveProduct(draft: QuickLiveProductDraft) {
-  if (!draft.stock.trim()) throw new CommerceError('กรุณากรอกจำนวนสต็อก')
+  const variants = draft.variants ?? []
+  if (!variants.length && !draft.stock.trim()) throw new CommerceError('กรุณากรอกจำนวนสต็อก')
   return parseProduct({
     name: draft.name,
     code: draft.cf_code,
     price: Number(draft.price),
     stock: Number(draft.stock),
-    description: '',
-    images: [],
-    variants: [],
-    is_active: true,
+    category_id: draft.category_id ?? '',
+    description: draft.description ?? '',
+    images: draft.images ?? [],
+    variants: variants.map((variant, index) => {
+      if (!variant.stock.trim())
+        throw new CommerceError(`กรุณากรอกสต็อกของตัวเลือกที่ ${index + 1}`)
+      return { ...variant, price: Number(variant.price), stock: Number(variant.stock) }
+    }),
+    is_active: draft.is_active ?? true,
+    featured: draft.featured ?? false,
   })
 }

@@ -101,6 +101,14 @@ compiler.init()
       errors = []
     socket.onmessage = (event) => {
       const result = JSON.parse(event.data)
+      if (result.method === 'Fetch.requestPaused') {
+        void call('Fetch.fulfillRequest', {
+          requestId: result.params.requestId,
+          responseCode: 200,
+          responseHeaders: [{ name: 'Content-Type', value: 'image/png' }],
+          body: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY9sAAAAASUVORK5CYII=',
+        }).catch((error) => errors.push(error.message))
+      }
       if (result.method === 'Runtime.exceptionThrown')
         errors.push(
           result.params.exceptionDetails.exception?.description ||
@@ -149,7 +157,7 @@ compiler.init()
     }
     const fill = async (selector, value) => {
       await evaluate(
-        `(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.focus();Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`,
+        `(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.focus();Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`,
       )
       await pause()
     }
@@ -176,6 +184,7 @@ compiler.init()
     }
     await call('Runtime.enable')
     await call('Page.enable')
+    await call('Fetch.enable', { patterns: [{ urlPattern: 'https://storage.example/*' }] })
     await call('Emulation.setFocusEmulationEnabled', { enabled: true })
     await resize(1440)
     await call('Page.navigate', { url: address })
@@ -214,7 +223,13 @@ compiler.init()
     )
     await click('เพิ่มสินค้าใหม่เข้าเซลล์เพจ')
     await wait(`!!document.querySelector('dialog[open]')`)
-    assert.equal(await evaluate(`document.activeElement.name`), 'name')
+    assert.equal(await evaluate(`document.activeElement.name`), 'cf_code')
+    assert.equal(
+      await evaluate(
+        `document.querySelector('dialog').textContent.includes('ต้นทุน')||document.querySelector('dialog').textContent.includes('ราคาเปรียบเทียบ')`,
+      ),
+      false,
+    )
     await call('Input.dispatchKeyEvent', {
       type: 'keyDown',
       key: 'Escape',
@@ -228,12 +243,55 @@ compiler.init()
       windowsVirtualKeyCode: 27,
     })
     await wait(`!document.querySelector('dialog')`)
+    await evaluate('liveCfTest.categoryFailure=true')
     await click('เพิ่มสินค้าใหม่เข้าเซลล์เพจ')
     await wait(`!!document.querySelector('dialog[open]')`)
+    await wait(`!!document.querySelector('#quick-category-error')`)
+    assert.equal(
+      await evaluate(`document.querySelector('dialog button[type="submit"]').disabled`),
+      true,
+    )
+    await evaluate('liveCfTest.categoryFailure=false')
+    await click('ลองโหลดใหม่')
+    await wait(`!document.querySelector('select[name="category_id"]').disabled`)
     await fill('dialog input[name="name"]', 'สินค้าใหม่จากไลฟ์')
     await fill('dialog input[name="price"]', '259.50')
     await fill('dialog input[name="stock"]', '12')
     await fill('dialog input[name="cf_code"]', 'A1')
+    await fill('dialog select[name="category_id"]', '77777777-7777-4777-8777-777777777777')
+    await fill('dialog textarea[name="description"]', 'รายละเอียดสินค้าใหม่ พร้อมรูปและตัวเลือก')
+    await evaluate(`document.querySelector('dialog input[name="featured"]').click()`)
+    const attachImage = () =>
+      evaluate(
+        `(()=>{const data=new DataTransfer();const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY9sAAAAASUVORK5CYII='),c=>c.charCodeAt(0));data.items.add(new File([bytes],'product.png',{type:'image/png'}));const input=document.querySelector('input[aria-label="อัปโหลดรูปสินค้า"]');input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      )
+    await evaluate('liveCfTest.uploadFailure=true')
+    await attachImage()
+    await wait(`document.querySelector('dialog').textContent.includes('อัปโหลดรูปไม่สำเร็จ')`)
+    await evaluate('liveCfTest.uploadFailure=false')
+    await attachImage()
+    await evaluate(`document.querySelector('dialog form').requestSubmit()`)
+    await wait(`!!document.querySelector('dialog img')`)
+    assert.equal(
+      await evaluate('liveCfTest.requests.filter(r=>r.url==="/api/commerce").length'),
+      0,
+      'Cannot save while uploading',
+    )
+    await wait(`document.querySelector('dialog img').naturalWidth>0`)
+    await click('เพิ่มตัวเลือก')
+    await fill('input[name="variant_label_0"]', 'พิมพ์ใหญ่ / เนื้อเงิน')
+    await fill('input[name="variant_code_0"]', 'A1-L')
+    await fill('input[name="variant_price_0"]', '299.50')
+    await fill('input[name="variant_stock_0"]', '3')
+    await click('เพิ่มตัวเลือก')
+    await fill('input[name="variant_label_1"]', 'พิมพ์เล็ก / เนื้อทองแดง')
+    await fill('input[name="variant_price_1"]', '259.50')
+    await fill('input[name="variant_stock_1"]', '2')
+    assert.equal(await evaluate(`document.querySelector('dialog input[name="stock"]').value`), '5')
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="stock"]').disabled`),
+      true,
+    )
     for (const width of [375, 768, 1440]) {
       await resize(width)
       await pause()
@@ -282,7 +340,7 @@ compiler.init()
     )
     assert.equal(
       await evaluate(
-        `document.querySelector('aside').textContent.includes('259.50')&&document.querySelector('aside').textContent.includes('12 ชิ้น')`,
+        `document.querySelector('aside').textContent.includes('299.50')&&document.querySelector('aside').textContent.includes('3 ชิ้น')`,
       ),
       true,
     )
@@ -291,6 +349,17 @@ compiler.init()
     assert.equal(product.action, 'product')
     assert.equal(product.value.code, 'A1')
     assert.equal(product.value.is_active, true)
+    assert.equal(product.value.featured, true)
+    assert.equal(product.value.category_id, '77777777-7777-4777-8777-777777777777')
+    assert.deepEqual(product.value.images, ['https://storage.example/commerce/test/product.webp'])
+    assert.equal(product.value.description, 'รายละเอียดสินค้าใหม่ พร้อมรูปและตัวเลือก')
+    assert.equal(product.value.stock, 5)
+    assert.equal(product.value.variants.length, 2)
+    assert.equal(
+      await evaluate(`document.querySelector('select[aria-label="ตัวเลือกสินค้า"]').value`),
+      product.value.variants[0].id,
+    )
+    await fill('select[aria-label="ตัวเลือกสินค้า"]', product.value.variants[1].id)
     await click('เริ่มเปิดระบบดูดออเดอร์')
     await wait(
       `liveCfTest.requests.some(r=>r.url==='/api/live-cf/setup')&&liveCfTest.refreshes===1`,
@@ -299,6 +368,7 @@ compiler.init()
     assert.equal(setup.livePostId, '456')
     assert.equal(setup.productId, await evaluate('liveCfTest.newProductId'))
     assert.equal(setup.matchMode, 'strict')
+    assert.equal(setup.variantId, product.value.variants[1].id)
     assert.ok(setup.privateText.includes('{product_name}'))
     assert.ok(setup.privateText.includes('{payment_link}'))
     assert.equal(setup.privateText.includes('{ชื่อสินค้า}'), false)
@@ -319,9 +389,23 @@ compiler.init()
       true,
     )
     assert.equal(await evaluate('liveCfTest.refreshes'), 0)
+    await call('Page.navigate', { url: address + '/?empty=1' })
+    await wait(`!!document.querySelector('select[aria-label="สินค้าจากร้านค้า / เซลเพจ"]')`)
+    await click('เพิ่มสินค้าใหม่เข้าเซลล์เพจ')
+    await wait(`!!document.querySelector('dialog[open]')`)
+    await fill('dialog input[name="name"]', 'สินค้ายังไม่เปิดขาย')
+    await fill('dialog input[name="price"]', '99')
+    await fill('dialog input[name="cf_code"]', 'DRAFT')
+    await evaluate(`document.querySelector('dialog input[name="is_active"]').click()`)
+    await wait(`!document.querySelector('select[name="category_id"]').disabled`)
+    await click('บันทึกและเลือกสินค้านี้')
+    await wait(`!document.querySelector('dialog')`)
+    await click('เริ่มเปิดระบบดูดออเดอร์')
+    assert.equal(await evaluate(`liveCfTest.requests.some(r=>r.url==='/api/live-cf/setup')`), false)
+    assert.equal(await evaluate(`document.body.textContent.includes('ยังไม่เปิดขาย')`), true)
     assert.deepEqual(errors, [])
     console.log(
-      'PASS: Thai Live CF setup, URL extraction, modal focus/Escape, errors/retry/double-submit guard, immediate selection, first product, setup save, and 375/768/1440 layouts. Offline APIs only.',
+      'PASS: Live CF full product modal: categories/retry, image upload/retry, variants with stable IDs and stock totals, sale/featured flags, no cost/compare fields, immediate selection, no refresh, duplicate-submit guard, and 375/768/1440 layouts. Offline APIs only.',
     )
   } finally {
     socket?.close()

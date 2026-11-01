@@ -8,14 +8,31 @@ const newProductId = '44444444-4444-4444-8444-444444444444'
 const state = Object.assign(liveCfTest, {
   requests: [] as { url: string; body: any }[],
   failure: false,
+  categoryFailure: false,
+  uploadFailure: false,
   newProductId,
 })
 ;(window as any).liveCfTest = state
 window.fetch = async (input, init) => {
   const url = String(input),
-    body = JSON.parse(String(init?.body ?? '{}'))
+    body =
+      init?.body instanceof FormData
+        ? { file: (init.body.get('file') as File)?.name }
+        : JSON.parse(String(init?.body ?? '{}'))
   state.requests.push({ url, body })
   await new Promise((resolve) => setTimeout(resolve, 150))
+  if (url.startsWith('/api/commerce/product-options')) {
+    if (state.categoryFailure)
+      return Response.json({ error: 'โหลดหมวดหมู่ไม่สำเร็จ กรุณาลองใหม่' }, { status: 503 })
+    return Response.json({
+      categories: [{ id: '77777777-7777-4777-8777-777777777777', name: 'พระเครื่องและวัตถุมงคล' }],
+    })
+  }
+  if (url.startsWith('/api/commerce/media')) {
+    if (state.uploadFailure)
+      return Response.json({ error: 'อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่' }, { status: 503 })
+    return Response.json({ url: 'https://storage.example/commerce/test/product.webp' })
+  }
   if (url === '/api/commerce') {
     if (state.failure)
       return Response.json({ error: 'รหัสสินค้านี้ถูกใช้แล้ว กรุณาเลือกรหัสอื่น' }, { status: 409 })

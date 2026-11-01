@@ -124,6 +124,25 @@ type CommerceStats = {
   report: { monthly: { month: string; total: number }[] } | null
 }
 type CommerceCategory = { id: string; name: string }
+export async function commerceProductCategories(scope: Pick<CommerceScope, 'db' | 'tenantId'>) {
+  const result: CommerceCategory[] = []
+  let cursor: string | undefined
+  for (;;) {
+    let query = scope.db
+      .from('commerce_categories')
+      .select('id,name')
+      .eq('tenant_id', scope.tenantId)
+      .order('id')
+      .limit(200)
+    if (cursor) query = query.gt('id', cursor)
+    const page = (await rows(query)) as CommerceCategory[]
+    result.push(...page)
+    if (page.length < 200) return result.sort((a, b) => a.name.localeCompare(b.name, 'th'))
+    const next = page.at(-1)!.id
+    if (next === cursor) throw new Error('Category pagination did not advance')
+    cursor = next
+  }
+}
 type CommerceProduct = {
   id: string
   name: string
@@ -202,26 +221,7 @@ export async function commerceSnapshot(
   const { db, tenantId } = scope,
     filters = commerceFilters(input)
   // Dropdown options are independent of the paginated category management list.
-  const allCategories = async () => {
-    const result: CommerceCategory[] = []
-    let cursor: string | undefined
-    for (;;) {
-      let query = db
-        .from('commerce_categories')
-        .select('id,name')
-        .eq('tenant_id', tenantId)
-        .order('id')
-        .limit(200)
-      if (cursor) query = query.gt('id', cursor)
-      const page = (await rows(query)) as CommerceCategory[]
-      result.push(...page)
-      if (page.length < 200) return result.sort((a, b) => a.name.localeCompare(b.name, 'th'))
-      const next = page.at(-1)!.id
-      if (next === cursor) throw new Error('Category pagination did not advance')
-      cursor = next
-    }
-  }
-  const categories = await allCategories()
+  const categories = await commerceProductCategories(scope)
   const preset = presetCategory(filters.category)
   // A preset without saved products has no tenant category yet; return no matches.
   const categoryId = preset

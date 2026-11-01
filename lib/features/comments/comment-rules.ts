@@ -40,6 +40,7 @@ export type LiveProductOption = {
   code: string
   price: number
   stock: number
+  is_active?: boolean
   image_url?: string | null
   description?: string | null
   sales_page_url?: string | null

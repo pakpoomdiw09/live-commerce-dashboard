@@ -86,3 +86,76 @@ test('quick product validates the form and publishes using the existing product 
       quickLiveProduct({ name: 'สินค้า', price: '159', stock: '7', cf_code: 'A1', ...invalid }),
     )
 })
+
+test('quick product preserves categories, photos and sale settings and totals variant stock', () => {
+  const value = quickLiveProduct({
+    name: 'พระเนื้อเงิน',
+    cf_code: 'AM1',
+    price: '999',
+    stock: '',
+    category_id: '77777777-7777-4777-8777-777777777777',
+    description: ' รายละเอียดพระเครื่อง ',
+    images: ['https://storage.example/one.webp'],
+    is_active: false,
+    featured: true,
+    variants: [
+      {
+        id: '88888888-8888-4888-8888-888888888888',
+        label: 'พิมพ์ใหญ่',
+        variant_code: 'AM1-L',
+        price: '1099.50',
+        stock: '3',
+      },
+      {
+        id: '99999999-9999-4999-8999-999999999999',
+        label: 'พิมพ์เล็ก',
+        variant_code: '',
+        price: '999',
+        stock: '2',
+      },
+    ],
+  })
+  assert.equal(value.stock, 5)
+  assert.equal(value.is_active, false)
+  assert.equal(value.featured, true)
+  assert.equal(value.description, 'รายละเอียดพระเครื่อง')
+  assert.equal(value.category_id, '77777777-7777-4777-8777-777777777777')
+  assert.deepEqual(value.images, ['https://storage.example/one.webp'])
+  assert.equal(value.variants[0].id, '88888888-8888-4888-8888-888888888888')
+  assert.equal(value.variants[0].price, 1099.5)
+  for (const invalid of [
+    { stock: '' },
+    { stock: '-1' },
+    { stock: '1.5' },
+    { price: '' },
+    { price: '0' },
+    { label: '' },
+  ])
+    assert.throws(() =>
+      quickLiveProduct({
+        name: 'สินค้า',
+        cf_code: 'A1',
+        price: '159',
+        stock: '0',
+        variants: [
+          {
+            id: '88888888-8888-4888-8888-888888888888',
+            label: 'พิมพ์ใหญ่',
+            variant_code: '',
+            price: '159',
+            stock: '2',
+            ...invalid,
+          },
+        ],
+      }),
+    )
+  assert.throws(() =>
+    quickLiveProduct({
+      name: 'สินค้า',
+      cf_code: 'A1',
+      price: '159',
+      stock: '1',
+      images: ['javascript:alert(1)'],
+    }),
+  )
+})

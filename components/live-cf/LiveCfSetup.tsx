@@ -207,7 +207,11 @@ export function LiveCfSetup({
     setCreatedProducts((current) => [...current, next])
     selectProduct(next)
     setShowProductModal(false)
-    setNotice(`เพิ่มสินค้าแล้ว: ${next.name} พร้อมใช้ในไลฟ์นี้`)
+    setNotice(
+      next.is_active === false
+        ? `บันทึกสินค้าแล้ว: ${next.name} ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์`
+        : `เพิ่มสินค้าแล้ว: ${next.name} พร้อมใช้ในไลฟ์นี้`,
+    )
   }
 
   function insertVariable(tag: string) {
@@ -249,6 +253,8 @@ export function LiveCfSetup({
     if (parsedLiveId === null) return
     if (!pageId || !product || !normalizeCfCode(code) || stockLimit < 1)
       return setNotice('กรุณาเลือกเพจ สินค้า และกรอกรหัส CF ให้ครบ')
+    if (product.is_active === false)
+      return setNotice('สินค้านี้ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์')
     if (product.variants.length && !variant) return setNotice('กรุณาเลือกตัวเลือกสินค้า')
     setSaving(true)
     try {
@@ -289,6 +295,8 @@ export function LiveCfSetup({
 
   async function toggleActive(nextActive: boolean) {
     if (!id) return
+    if (nextActive && product?.is_active === false)
+      return setNotice('สินค้านี้ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์')
     setLiveLinkTouched(true)
     if (parsedLiveId === null) return
     setSaving(true)

@@ -112,6 +112,95 @@ test('quick-created products are active on the sales page with the submitted cod
   }
 })
 
+test('full quick products persist category, image metadata, flags and exact variant IDs atomically', async () => {
+  const db = await database()
+  try {
+    const category = '77777777-7777-4777-8777-777777777777'
+    const variantId = '88888888-8888-4888-8888-888888888888'
+    await db.query('insert into commerce_categories(id,tenant_id,name) values($1,$2,$3)', [
+      category,
+      tenant,
+      'พระเครื่อง',
+    ])
+    const value = quickLiveProduct({
+      name: 'พระเครื่อง',
+      price: '159',
+      stock: '',
+      cf_code: 'AM1',
+      category_id: category,
+      description: 'รายละเอียดพระเครื่อง',
+      images: ['https://storage.example/one.webp', 'https://storage.example/two.webp'],
+      featured: true,
+      is_active: false,
+      variants: [
+        { id: variantId, label: 'เนื้อเงิน', variant_code: 'AM1-S', price: '259.50', stock: '3' },
+      ],
+    })
+    const result = await db.query<{ id: string }>(
+      'select commerce_save_product($1,$2,null,$3::jsonb) id',
+      [tenant, actor, JSON.stringify(value)],
+    )
+    const id = result.rows[0].id
+    const row = (
+      await db.query<{
+        commerce_category_id: string
+        commerce_images: string[]
+        image_url: string
+        description: string
+        commerce_featured: boolean
+        is_active: boolean
+        commerce_cost: null
+        commerce_compare_price: null
+        stock: number
+      }>('select * from products where id=$1', [id])
+    ).rows[0]
+    assert.equal(row.commerce_category_id, category)
+    assert.deepEqual(row.commerce_images, value.images)
+    assert.equal(row.image_url, value.images[0])
+    assert.equal(row.description, value.description)
+    assert.equal(row.commerce_featured, true)
+    assert.equal(row.is_active, false)
+    assert.equal(row.commerce_cost, null)
+    assert.equal(row.commerce_compare_price, null)
+    assert.equal(row.stock, 3)
+    const variant = (
+      await db.query<{
+        id: string
+        tenant_id: string
+        variant_code: string
+        price: string
+        stock: number
+      }>('select * from commerce_variants where product_id=$1', [id])
+    ).rows[0]
+    assert.equal(variant.id, variantId)
+    assert.equal(variant.tenant_id, tenant)
+    assert.equal(variant.variant_code, 'AM1-S')
+    assert.equal(Number(variant.price), 259.5)
+    assert.equal(variant.stock, 3)
+    // A conflicting variant code must roll back the parent insertion as well.
+    const conflict = {
+      ...value,
+      code: 'AM2',
+      variants: [{ ...value.variants[0], id: '99999999-9999-4999-8999-999999999999' }],
+    }
+    await assert.rejects(
+      db.query('select commerce_save_product($1,$2,null,$3::jsonb)', [
+        tenant,
+        actor,
+        JSON.stringify(conflict),
+      ]),
+      (error: unknown) => (error as { code: string }).code === '23505',
+    )
+    assert.equal(
+      (await db.query<{ n: number }>("select count(*)::int n from products where code='AM2'"))
+        .rows[0].n,
+      0,
+    )
+  } finally {
+    await db.close()
+  }
+})
+
 test('parser matches 159 as an exact token but never 1590', () => {
   assert.equal(matchesCfCode('CF 159', '159'), true)
   assert.equal(matchesCfCode('เอา 159 ค่ะ', '159'), true)

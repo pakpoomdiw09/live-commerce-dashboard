@@ -209,6 +209,9 @@ test('commerce API passes filters only after authenticated tenant scope and disa
   assert.equal(response.headers['Cache-Control'], 'private, no-store')
 })
 test('commerce renders complete SQL KPIs rather than page lengths, server pagination and customer totals', () => {
+  const noBrowserIO = () => {
+    throw Error('Static KPI rendering must not connect to browser Realtime')
+  }
   const { stats, page } = fixture(),
     filters = service().commerceFilters()
   const Workspace = load('components/shop/CommerceWorkspace.tsx', {
@@ -220,6 +223,9 @@ test('commerce renders complete SQL KPIs rather than page lengths, server pagina
         React.createElement('a', { href, ...props }, children),
     },
     'next/navigation': { useRouter: () => ({ push() {} }) },
+    '@/lib/supabase/browser': { supabaseBrowser: noBrowserIO },
+    '@/lib/realtime-visibility': { subscribeWhileVisible: noBrowserIO },
+    '@/lib/features/commerce/stock-subscription': { subscribeCommerceStock: noBrowserIO },
     '@/lib/features/commerce/commerce-core': {
       ...core,
       SHOP_TABS: { overview: 'ภาพรวม', customers: 'ลูกค้า' },
