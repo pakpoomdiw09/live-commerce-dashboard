@@ -617,14 +617,13 @@ export function LiveCfSetup({
                   />
                   <div>
                     <span className="block text-sm font-semibold text-slate-900">
-                      {"พิมพ์ติดคำอื่นก็ดูดได้ (เช่น 'รับ 159', 'เอา 159')"}
+                      {'ตรวจจับข้อความที่มีคีย์เวิร์ด (Contains) - '}
                       <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-700">
                         แนะนำ
                       </span>
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
-                      จับคู่รหัสอัตโนมัติ แม้ลูกค้าพิมพ์ รับ, จอง, เอา, สนใจ นำหน้า
-                      หรือพิมพ์เฉพาะรหัส
+                      ลูกค้าพิมพ์คีย์เวิร์ดรวมกับข้อความอื่น ระบบก็ดึงออเดอร์ให้อัตโนมัติ
                     </span>
                   </div>
                 </label>
@@ -646,10 +645,10 @@ export function LiveCfSetup({
                   />
                   <div>
                     <span className="block text-sm font-semibold text-slate-900">
-                      {"ต้องพิมพ์รหัสเป๊ะๆ เท่านั้น (เช่น '159')"}
+                      ตรงตามคีย์เวิร์ดทุกตัวอักษร (Exact Match)
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
-                      ลูกค้าต้องพิมพ์ข้อความตรงกับรหัสที่ตั้งไว้ทุกตัวอักษรเท่านั้น ห้ามมีคำอื่นปะปน
+                      ข้อความต้องตรงกับคีย์เวิร์ดที่ตั้งไว้เท่านั้น ห้ามมีคำอื่นปะปน
                     </span>
                   </div>
                 </label>
@@ -662,7 +661,7 @@ export function LiveCfSetup({
                   htmlFor="live-cf-code-draft"
                   className="text-sm font-semibold leading-relaxed text-slate-800"
                 >
-                  รหัสที่ให้ลูกค้าพิมพ์จองในไลฟ์ (เพิ่มได้ 1 - 5 รหัส เช่น A1, 159, จอง)
+                  คีย์เวิร์ดสำหรับสั่งซื้อ (เพิ่มได้ 1 - 5 คำ)
                 </label>
                 <span
                   aria-label="จำนวนรหัสที่เพิ่มแล้ว"
