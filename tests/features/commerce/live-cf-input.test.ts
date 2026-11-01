@@ -5,7 +5,66 @@ import {
   addLiveCfCode,
   matchLiveCfCode,
   liveCfCodeExamples,
+  previewLiveCfCodes,
 } from '../../../lib/features/commerce/live-cf-codes'
+import { matchOrderCode } from '../../../lib/features/commerce/cf-code'
+
+test('draft codes immediately preview the six customer examples without adding a saved tag', () => {
+  const codes: string[] = []
+  assert.deepEqual(previewLiveCfCodes(codes, ''), [])
+  assert.deepEqual(liveCfCodeExamples(previewLiveCfCodes(codes, 'A1'), 'flexible'), [
+    'A1',
+    'รับ A1',
+    'จอง A1',
+    'เอา A1',
+    'A1 ครับ',
+    'A1 ค่ะ',
+  ])
+  assert.deepEqual(codes, [])
+  for (const code of ['01', '159', 'เสื้อ']) {
+    assert.deepEqual(previewLiveCfCodes([], code), [code])
+    assert.deepEqual(liveCfCodeExamples([code], 'strict'), [code])
+  }
+  assert.deepEqual(previewLiveCfCodes(['A1'], 'a1'), ['A1'])
+  assert.deepEqual(previewLiveCfCodes([], '  '), [])
+  assert.deepEqual(previewLiveCfCodes([], 'A 1'), [])
+  assert.deepEqual(previewLiveCfCodes(['A1', 'B2', 'C3', 'D4', 'E5'], 'F6'), [
+    'A1',
+    'B2',
+    'C3',
+    'D4',
+    'E5',
+  ])
+})
+
+test('webhook matching accepts bare, joined Thai booking words and polite endings without requiring a Latin prefix', () => {
+  for (const code of ['A1', '01', '159', 'เสื้อ', 'จอง']) {
+    for (const prefix of ['', 'รับ', 'จอง', 'เอา', 'ปิด']) {
+      for (const separator of ['', ' ']) {
+        for (const suffix of ['', ' ครับ', ' ค่ะ', 'ครับ', 'ค่ะ']) {
+          const comment = `${prefix}${separator}${code}${suffix}`
+          assert.equal(matchOrderCode(comment, code, 'flexible'), true, comment)
+          assert.equal(matchLiveCfCode(comment, [code], 'flexible'), code, comment)
+        }
+      }
+    }
+    for (const prefix of ['รับ', 'จอง', 'เอา', 'ปิด']) {
+      assert.equal(matchOrderCode(`${prefix}${code}`, code, 'strict'), false)
+    }
+  }
+  for (const [comment, code] of [
+    ['1590', '159'],
+    ['ปิด1590', '159'],
+    ['A12', 'A1'],
+    ['BA1', 'A1'],
+    ['B01', '01'],
+    ['A1-2', 'A1'],
+    ['เสื้อ', 'เส'],
+    ['เสื้อผ้า', 'เสื้อ'],
+    ['สวัสดีครับ', 'A1'],
+  ])
+    assert.equal(matchOrderCode(comment, code), false, `${comment} must not match ${code}`)
+})
 
 test('Live CF tags preserve display case, accept one to five codes and reject equivalent duplicates', () => {
   assert.deepEqual(parseLiveCfCodes([' A1 ', '159', 'จอง', 'B2', 'รับ1']), [

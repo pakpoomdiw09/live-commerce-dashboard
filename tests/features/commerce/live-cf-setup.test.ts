@@ -218,7 +218,8 @@ test('all saved aliases route real live comments to the same product and retain 
     ).rows[0]
     assert.deepEqual(new Set(rule.keywords), new Set(aliases))
     for (const [index, alias] of aliases.entries()) {
-      const matched = liveRuleCode(rule, `CF ${alias}`)
+      const prefix = ['', 'รับ', 'จอง', 'เอา', 'ปิด'][index]
+      const matched = liveRuleCode(rule, `${prefix}${alias}`)
       assert.equal(matched, alias)
       const args = [tenant, customer, rule.id, matched, `multi-${index}`, null, 'page-1']
       const order = (

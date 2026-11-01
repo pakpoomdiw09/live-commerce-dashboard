@@ -31,6 +31,7 @@ import {
   parseLiveCfCodes,
   matchLiveCfCode,
   liveCfCodeExamples,
+  previewLiveCfCodes,
 } from '@/lib/features/commerce/live-cf-codes'
 import {
   extractFacebookLiveId,
@@ -144,9 +145,7 @@ export function LiveCfSetup({
   const initialProduct = products.find(
     (item) => item.id === (initialRule?.live_product_id ?? products[0]?.id),
   )
-  const [codes, setCodes] = useState<string[]>(
-    initialRule?.keywords.length ? [...initialRule.keywords] : [],
-  )
+  const [codes, setCodes] = useState<string[]>(() => [...(initialRule?.keywords ?? [])])
   const [codeDraft, setCodeDraft] = useState('')
   const [codeError, setCodeError] = useState<string | null>(null)
   const codeInputRef = useRef<HTMLInputElement>(null)
@@ -186,17 +185,21 @@ export function LiveCfSetup({
   const customerSelectVariant = !!product?.variants.length
   const selectedStock = product?.stock ?? 0
   const selectedPrice = product?.price ?? 0
-  const matchedCode = matchLiveCfCode(testText, codes, matchMode)
-  const examples = useMemo(() => liveCfCodeExamples(codes, matchMode), [codes, matchMode])
+  const previewCodes = useMemo(() => previewLiveCfCodes(codes, codeDraft), [codes, codeDraft])
+  const matchedCode = matchLiveCfCode(testText, previewCodes, matchMode)
+  const examples = useMemo(
+    () => liveCfCodeExamples(previewCodes, matchMode),
+    [previewCodes, matchMode],
+  )
   const selectedBank = bankAccounts.find((item) => item.id === bankAccountId)
 
-  function selectProduct(next: LiveProductOption | undefined) {
+  function selectProduct(next: LiveProductOption | undefined, useEnteredProductCode = false) {
     setProductId(next?.id ?? '')
     setStockLimit(Math.max(1, Math.min(next?.stock ?? 1, 5)))
-    if (next?.code) setCodes([next.code])
+    setCodes(useEnteredProductCode && next?.code ? [next.code] : [])
     setCodeDraft('')
     setCodeError(null)
-    if (next?.code) setTestText(next.code)
+    setTestText('')
     // เติมข้อความเริ่มต้น (Default Template) ที่มีข้อมูลของสินค้านั้นให้อัตโนมัติทันที
     if (next) {
       setPrivateText(
@@ -211,7 +214,7 @@ export function LiveCfSetup({
 
   function onProductCreated(next: LiveProductOption) {
     setCreatedProducts((current) => [...current, next])
-    selectProduct(next)
+    selectProduct(next, true)
     setShowProductModal(false)
     setNotice(
       next.is_active === false
@@ -653,7 +656,7 @@ export function LiveCfSetup({
               </div>
             </div>
 
-            <div className="space-y-3 rounded-2xl border border-orange-100 bg-orange-50/40 p-4">
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <label
                   htmlFor="live-cf-code-draft"
@@ -750,11 +753,13 @@ export function LiveCfSetup({
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="mb-2 text-sm font-semibold text-slate-800">
-                ตัวอย่างคำที่ระบบจะดูดออเดอร์ให้
+                ตัวอย่างข้อความที่ลูกค้าพิมพ์
               </p>
-              <p className="mb-3 text-xs text-slate-500">
-                กดตัวอย่างเพื่อทดลองจับคู่กับรหัสทั้งหมดที่ตั้งไว้
-              </p>
+              {!!examples.length && (
+                <p className="mb-3 text-xs text-slate-500">
+                  ตัวอย่างอัปเดตตามรหัสที่พิมพ์ กดเพื่อทดลองจับคู่ได้ทันที
+                </p>
+              )}
               <div aria-label="ตัวอย่างคำสั่งซื้อ" className="flex flex-wrap gap-2">
                 {examples.map((example) => (
                   <button
@@ -767,7 +772,7 @@ export function LiveCfSetup({
                   </button>
                 ))}
                 {!examples.length && (
-                  <span className="text-xs text-slate-500">เพิ่มรหัสด้านบนเพื่อดูตัวอย่าง</span>
+                  <span className="text-xs text-slate-500">กรุณากรอกรหัสสินค้าเพื่อดูตัวอย่าง</span>
                 )}
               </div>
             </div>
@@ -982,7 +987,7 @@ export function LiveCfSetup({
                 </div>
                 <dl className="mt-4 divide-y divide-slate-100 border-t border-slate-200 text-sm">
                   {[
-                    ['รหัสสั่งซื้อ / รหัสจอง', codes.join(', ') || '—'],
+                    ['รหัสสั่งซื้อ / รหัสจอง', previewCodes.join(', ') || '—'],
                     ['สต็อกคงเหลือ', `${selectedStock} ชิ้น`],
                     [
                       'รูปแบบการพิมพ์จอง',
@@ -1037,7 +1042,7 @@ export function LiveCfSetup({
             <p className="mt-1 text-xs text-slate-500">
               {matchMode === 'strict'
                 ? 'โหมดตรงคำเป๊ะ: ต้องพิมพ์ตรงกับรหัสทุกตัวอักษรเท่านั้น ห้ามมีคำอื่นปน'
-                : 'โหมดยืดหยุ่น: พิมพ์รหัสล้วน หรือมี รับ, จอง, เอา, สนใจ นำหน้า ระบบจะดูดให้'}
+                : 'พิมพ์รหัสล้วน หรือใช้ รับ / จอง / เอา / ปิด นำหน้าได้ โดยไม่ต้องเว้นวรรค'}
             </p>
             <input
               aria-label="ทดลองพิมพ์คอมเมนต์"
@@ -1046,8 +1051,8 @@ export function LiveCfSetup({
               onChange={(event) => setTestText(event.target.value)}
               placeholder={
                 matchMode === 'strict'
-                  ? `พิมพ์ ${codes[0] || 'รหัสจอง'}`
-                  : `ลองพิมพ์ รับ ${codes[0] || 'รหัสจอง'}`
+                  ? `พิมพ์ ${previewCodes[0] || 'รหัสจอง'}`
+                  : `ลองพิมพ์ รับ ${previewCodes[0] || 'รหัสจอง'}`
               }
             />
             <div

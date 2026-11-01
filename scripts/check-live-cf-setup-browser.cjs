@@ -231,6 +231,36 @@ compiler.init()
       await evaluate(`document.querySelector('input[aria-label="ทดลองพิมพ์คอมเมนต์"]').value`),
       '',
     )
+    const exampleTexts = `Array.from(document.querySelectorAll('[aria-label="ตัวอย่างคำสั่งซื้อ"] button'), b=>b.textContent.trim())`
+    assert.deepEqual(await evaluate(exampleTexts), [])
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="ตัวอย่างคำสั่งซื้อ"]').textContent.includes('กรุณากรอกรหัสสินค้าเพื่อดูตัวอย่าง')`,
+      ),
+      true,
+    )
+    await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', 'A1')
+    assert.deepEqual(await evaluate(exampleTexts), [
+      'A1',
+      'รับ A1',
+      'จอง A1',
+      'เอา A1',
+      'A1 ครับ',
+      'A1 ค่ะ',
+    ])
+    assert.equal(await evaluate(tagCount), 0, 'Preview must work before committing the draft tag')
+    for (const comment of ['A1', 'รับA1', 'จองA1', 'เอาA1', 'ปิดA1', 'A1ครับ', 'A1ค่ะ']) {
+      await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', comment)
+      assert.equal(
+        await evaluate(
+          `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+        ),
+        true,
+        comment,
+      )
+    }
+    await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', '')
+    assert.deepEqual(await evaluate(exampleTexts), [])
     await enterCode('')
     assert.equal(await evaluate(tagCount), 0)
     await enterCode('159')

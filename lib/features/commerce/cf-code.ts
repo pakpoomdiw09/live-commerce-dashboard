@@ -1,6 +1,3 @@
-// Permissive code regex: allows letters (any language including Thai), numbers, spaces, symbols up to 60 chars
-const CODE = /^[\p{L}\p{N}][\p{L}\p{N}_\-\s]{0,59}$/u
-
 /** Unicode/case/space normalization shared by the webhook and setup preview. */
 export function normalizeCfText(value: string | null | undefined): string {
   return (value ?? '').normalize('NFKC').toLocaleLowerCase('en-US').replace(/\s+/gu, ' ').trim()
@@ -36,13 +33,26 @@ export function matchOrderCode(
   // mode === 'flexible'
   if (normComment === normTarget) return true
 
-  // Strip common live-shopping prefixes: cf, fc, เอา, จอง, สนใจ, รับ, ขอ (case-insensitive, optional colon/hyphen/period/space)
-  const prefixRegex = /^(?:cf|fc|เอา|จอง|สนใจ|รับ|ขอ)\s*[:.\-]?\s*/iu
+  // Prefixes are optional. Preserve old aliases while supporting Thai booking words.
+  const prefixRegex = /^(?:cf|fc|เอา|จอง|ปิด|สนใจ|รับ|ขอ)\s*[:.\-]?\s*/iu
   const withoutPrefix = normComment.replace(prefixRegex, '').trim()
   if (withoutPrefix === normTarget) return true
 
+  // Thai often has no separating spaces: รับA1ค่ะ / ปิด159ครับ.
+  // Only explicit polite endings are accepted; longer SKUs must remain distinct.
+  for (const candidate of [normComment, withoutPrefix]) {
+    if (
+      candidate.startsWith(normTarget) &&
+      /^(?:\s*(?:ครับ|ค่ะ|คะ))$/u.test(candidate.slice(normTarget.length))
+    )
+      return true
+  }
+
   // Also check if targetCode appears as a distinct word/token in the comment
-  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_-])${escapeRegex(normTarget)}(?=$|[^\\p{L}\\p{N}_-])`, 'u')
+  const pattern = new RegExp(
+    `(^|[^\\p{L}\\p{N}\\p{M}_-])${escapeRegex(normTarget)}(?=$|[^\\p{L}\\p{N}\\p{M}_-])`,
+    'u',
+  )
   return pattern.test(normComment)
 }
 
@@ -54,6 +64,9 @@ export function matchesCfCode(text: string | null | undefined, expected: string)
 /** Accept a bare code or a short CF/FC/เอา/จอง/สนใจ-prefixed message; return a canonical code. */
 export function cfCode(text: string | null | undefined): string | null {
   const source = (text ?? '').normalize('NFKC').replace(/\s+/gu, ' ').trim()
-  const match = /^(?:(?:cf|fc|เอา|จอง|สนใจ|รับ|ขอ)\s*[:.\-]?\s*)?([\p{L}\p{N}][\p{L}\p{N}_\-\s]{0,59})$/iu.exec(source)
+  const match =
+    /^(?:(?:cf|fc|เอา|จอง|ปิด|สนใจ|รับ|ขอ)\s*[:.\-]?\s*)?([\p{L}\p{N}][\p{L}\p{N}\p{M}_\-\s]{0,59})$/iu.exec(
+      source,
+    )
   return match ? match[1].trim() : null
 }

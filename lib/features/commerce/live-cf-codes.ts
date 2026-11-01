@@ -27,6 +27,17 @@ export function addLiveCfCode(codes: readonly string[], value: string) {
   return parseLiveCfCodes([...codes, value])
 }
 
+/** The unfinished tag is previewed immediately, but invalid/duplicate input never becomes a rule. */
+export function previewLiveCfCodes(codes: readonly string[], draft: string) {
+  if (!draft.trim()) return [...codes]
+  if (codes.some((code) => normalizeCfText(code) === normalizeCfText(draft))) return [...codes]
+  try {
+    return addLiveCfCode(codes, draft)
+  } catch {
+    return [...codes]
+  }
+}
+
 export function matchLiveCfCode(
   comment: string,
   codes: readonly string[],
@@ -37,6 +48,8 @@ export function matchLiveCfCode(
 
 export function liveCfCodeExamples(codes: readonly string[], mode: 'flexible' | 'strict') {
   return codes.flatMap((code) =>
-    mode === 'strict' ? [code] : [code, `รับ ${code}`, `จอง ${code}`],
+    mode === 'strict'
+      ? [code]
+      : [code, `รับ ${code}`, `จอง ${code}`, `เอา ${code}`, `${code} ครับ`, `${code} ค่ะ`],
   )
 }
