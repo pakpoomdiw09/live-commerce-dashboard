@@ -18,20 +18,15 @@ import {
 } from '@/lib/features/comments/comment-rules'
 import { commentPostIds, liveRuleCandidates } from '@/lib/features/comments/live-comment-routing'
 import { answerChat, loadBotSettings } from '@/lib/features/agents/chatbot-server'
-import {
-  cfCode,
-  orderSummaryText,
-  pendingOrders,
-  placeCfOrder,
-  soldOutText,
-} from '@/lib/features/commerce/orders'
+import { pendingOrders, placeCfOrder } from '@/lib/features/commerce/orders'
+import { replyToMessengerProduct } from '@/lib/features/commerce/messenger-product-server'
 import { handleLiveCfComment } from '@/lib/features/commerce/live-cf-comment'
 import { createLiveCfPaymentLink } from '@/lib/features/commerce/live-cf-payment-link'
 import { createLiveCfMetaAdapter } from '@/lib/integrations/facebook/live-cf-adapter'
 import { isFeatureEnabled } from '@/lib/feature-flags'
 import { findBank } from '@/lib/features/banking/banks'
 import { processSlip } from '@/lib/features/slips/process'
-import { deliverOnce, notifySlipResult, type Recipient } from '@/lib/features/slips/notify'
+import { notifySlipResult, type Recipient } from '@/lib/features/slips/notify'
 import { downloadSlipImage, slipCandidates } from '@/lib/features/slips/image'
 import { sendWithMessageCredit } from '@/lib/message-quota'
 import { observeFollowUpMessage } from '@/lib/features/follow-ups/followup-ai'
@@ -366,19 +361,7 @@ async function onMessage(
   }
 
   if (visionQueued || (!m.text && !imageChat)) return
-  // CF: the customer typed a product code ("1", "A12", "cf 3")
-  if (
-    m.text &&
-    (await execution.once('cf-order', () =>
-      onCfOrder(m.text, recipient, message.id, tenant, autoReply),
-    ))
-  )
-    return
   if (!autoReply) return
-  await execution.once('followup-observation', async () => {
-    await observeFollowUpMessage(db, tenant.id, customer.id, message.id)
-    return null
-  })
   const currentBot = await db
     .from('customers')
     .select('bot_enabled')
@@ -387,6 +370,18 @@ async function onMessage(
     .maybeSingle()
   if (currentBot.error) throw currentBot.error
   if (!currentBot.data?.bot_enabled) return
+  // Product inquiries answer with a sales-page card; live comments retain their CF order flow.
+  if (
+    m.text &&
+    (await execution.once('product-reply', () =>
+      replyToMessengerProduct(db, tenant.id, recipient, message.id, m.text),
+    ))
+  )
+    return
+  await execution.once('followup-observation', async () => {
+    await observeFollowUpMessage(db, tenant.id, customer.id, message.id)
+    return null
+  })
   await execution.once('chat-answer', async () => {
     try {
       await answerChat(db, {
@@ -403,36 +398,6 @@ async function onMessage(
     }
     return null
   })
-}
-
-/** true when the text was a product code of this tenant (the order is placed even with auto-reply off). */
-async function onCfOrder(
-  text: string,
-  customer: Recipient,
-  messageId: string,
-  tenant: PageTenant,
-  autoReply: boolean,
-) {
-  const code = cfCode(text)
-  if (!code) return false
-  const db = supabaseAdmin({ timeoutMs: 15000 })
-  const r = await placeCfOrder(db, {
-    tenantId: tenant.id,
-    customerId: customer.id,
-    messageId,
-    code,
-  })
-  if (r.status === 'no_match') return false
-  console.log(`[fb webhook] CF "${code}" → ${r.status}`)
-  if (!autoReply) return true // the admin answers this chat by hand; the order is in the dashboard
-  const body =
-    r.status === 'created'
-      ? tenant.account_number && tenant.bank_code
-        ? orderSummaryText(r, (await pendingOrders(db, customer.id)).total, tenant)
-        : 'รับออเดอร์แล้วค่ะ ขณะนี้ร้านยังไม่มีบัญชีรับเงินที่เปิดใช้งาน กรุณารอแอดมินแจ้งวิธีชำระเงินก่อนโอน'
-      : soldOutText(r)
-  await deliverOnce(db, customer, `order:${messageId}`, body)
-  return true
 }
 
 /** Automatic verification is pending-order-only; only verified receipts may notify the customer. */

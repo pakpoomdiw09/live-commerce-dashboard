@@ -4,11 +4,21 @@ import { CommerceStorefront } from '@/components/shop/CommerceStorefront'
 export const dynamic = 'force-dynamic'
 export default async function SalesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; page: string }>
+  searchParams: Promise<{ product?: string; variant?: string }>
 }) {
   const { slug, page } = await params
+  const { product, variant } = await searchParams
   const data = await publicStore(slug, page)
   if (!data) notFound()
-  return <CommerceStorefront key={`${slug}:${page}`} data={data} />
+  return (
+    <CommerceStorefront
+      key={`${slug}:${page}:${product}:${variant}`}
+      data={data}
+      initialProductId={product}
+      initialVariantId={variant}
+    />
+  )
 }

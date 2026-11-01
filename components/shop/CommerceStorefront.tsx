@@ -11,12 +11,26 @@ import {
 } from '@/components/shop/CommerceEditor'
 type CartItem = { product_id: string; variant_id: string | null; qty: number }
 const price = (n: any) => `฿${Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`
-export function CommerceStorefront({ data }: { data: PublicStoreData }) {
+export function CommerceStorefront({
+  data,
+  initialProductId,
+  initialVariantId,
+}: {
+  data: PublicStoreData
+  initialProductId?: string
+  initialVariantId?: string
+}) {
+  const initialProduct = data.products.find((p) => p.id === initialProductId)
+  const initialVariant = data.variants.find(
+    (v) => v.id === initialVariantId && v.product_id === initialProduct?.id,
+  )
   const [search, setSearch] = useState(''),
     [category, setCategory] = useState(''),
     [cart, setCart] = useState<CartItem[]>([]),
-    [choices, setChoices] = useState<Record<string, string>>({}),
-    [selected, setSelected] = useState<any>(null)
+    [choices, setChoices] = useState<Record<string, string>>(
+      initialVariant ? { [initialVariant.product_id]: initialVariant.id } : {},
+    ),
+    [selected, setSelected] = useState<any>(initialProduct ?? null)
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [pending, setPending] = useState<any>(null),
@@ -26,6 +40,11 @@ export function CommerceStorefront({ data }: { data: PublicStoreData }) {
     checkoutSection = useRef<HTMLElement>(null),
     lock = useRef(false)
   const storageKey = `snapbot-order-pending:${data.store.slug}`
+  useEffect(() => {
+    if (!initialProduct) return
+    document.getElementById(`product-${initialProduct.id}`)?.scrollIntoView()
+    detail.current?.showModal()
+  }, [initialProduct])
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(storageKey)
@@ -110,6 +129,7 @@ export function CommerceStorefront({ data }: { data: PublicStoreData }) {
   const card = (p: any) => (
     <article
       key={p.id}
+      id={`product-${p.id}`}
       className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
     >
       <button
