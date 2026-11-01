@@ -185,6 +185,7 @@ function fixture({
   production = false,
   send = false,
   foreignCustomer = false,
+  timestampOffset = 0,
 } = {}) {
   let providerCalls = 0,
     claims = 0,
@@ -193,6 +194,7 @@ function fixture({
     recovered = 0
   const records = [],
     filters = []
+  const orderCreatedAt = Date.now()
   const db = {
     from(table) {
       const q = {
@@ -201,6 +203,12 @@ function fixture({
         },
         eq(key, value) {
           filters.push([table, key, value])
+          return q
+        },
+        in() {
+          return q
+        },
+        update() {
           return q
         },
         maybeSingle: async () => ({
@@ -223,7 +231,9 @@ function fixture({
             data:
               table === 'bank_accounts'
                 ? [{ bank_code: 'KTB', account_number: '9260337828', is_active: true }]
-                : null,
+                : table === 'orders'
+                  ? [{ id: 'order', created_at: new Date(orderCreatedAt).toISOString() }]
+                  : null,
           }).then(resolve, reject)
         },
       }
@@ -241,6 +251,7 @@ function fixture({
             claim_token: claimExisting || claims > 1 ? null : 'claim',
             expected_satang: 10000,
             image_path: null,
+            order_ids: ['order'],
           },
         }
       }
@@ -270,6 +281,10 @@ function fixture({
         paymentProAvailable: () => true,
       },
       '@/lib/features/payments/payment-pro-core': core,
+      '@/lib/features/slips/slip-timestamp': require('./helpers/load-typescript.cjs')(
+        'lib/features/slips/slip-timestamp.ts',
+        { 'server-only': {}, '@/lib/features/payments/payment-pro-core': core },
+      ),
       '@/lib/features/slips/slipok': {
         verifyWithSlipOK: async (input) => {
           providerCalls++
@@ -282,7 +297,9 @@ function fixture({
             transRef: 'ref',
             receiverBank: '006',
             receiverAccount: '9260337828',
-            raw: { data: { transTimestamp: new Date().toISOString() } },
+            raw: {
+              data: { transTimestamp: new Date(orderCreatedAt + timestampOffset).toISOString() },
+            },
           }
         },
       },
@@ -313,6 +330,27 @@ function fixture({
     counts: () => ({ providerCalls, claims, starts, completed, recovered }),
   }
 }
+test('Pro applies the same 60-second timestamp boundary before finalizing payment', async () => {
+  for (const timestampOffset of [0, -60000]) {
+    const f = fixture({ timestampOffset })
+    await f.run()
+    assert.equal(f.counts().completed, 1)
+    assert.equal(f.counts().recovered, 0)
+  }
+  for (const timestampOffset of [-60001, -90000]) {
+    const f = fixture({ timestampOffset })
+    await assert.rejects(
+      f.run(),
+      (error) =>
+        error.code === 'SLIP_TIMESTAMP_REJECTED' &&
+        error.message === 'สลิปนี้ทำรายการก่อนสร้างออเดอร์ ไม่สามารถใช้ชำระเงินได้',
+    )
+    assert.equal(f.counts().providerCalls, 1)
+    assert.equal(f.counts().completed, 0)
+    assert.equal(f.counts().recovered, 1)
+  }
+})
+
 test('Pro off returns control to legacy with no storage/provider work', async () => {
   const f = fixture({ enabled: false })
   assert.equal(await f.run(), null)

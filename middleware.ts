@@ -12,7 +12,8 @@ export async function middleware(request: NextRequest) {
       pathname === '/login' ||
       pathname.startsWith('/auth') ||
       pathname.startsWith('/p/') ||
-      pathname.startsWith('/s/')
+      pathname.startsWith('/s/') ||
+      pathname.startsWith('/pay/live/')
     )
       return NextResponse.next({ request })
     const url = request.nextUrl.clone()

@@ -13,7 +13,8 @@ const PUBLIC_PATHS = [
   '/p',
   '/s',
 ]
-const isPublic = (p: string) => PUBLIC_PATHS.some((x) => p === x || p.startsWith(x + '/'))
+const isPublic = (p: string) =>
+  p.startsWith('/pay/live/') || PUBLIC_PATHS.some((x) => p === x || p.startsWith(x + '/'))
 
 export async function updateSession(request: NextRequest) {
   const { pathname, search } = request.nextUrl

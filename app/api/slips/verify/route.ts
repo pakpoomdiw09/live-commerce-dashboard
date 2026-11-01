@@ -2,7 +2,7 @@ import { hasSlipAccess, featureLockedResponse, FeatureLockedError } from '@/lib/
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { canAccessTenant, getActor, isPlatformAdmin } from '@/lib/auth'
-import { processSlip, type Tenant } from '@/lib/features/slips/process'
+import { processSlip, SlipTimestampError, type Tenant } from '@/lib/features/slips/process'
 import { notifyVerifiedSlipForCustomer } from '@/lib/features/slips/notify'
 import { UUID } from '@/lib/utils'
 import {
@@ -100,6 +100,7 @@ export async function POST(req: NextRequest) {
       })
     } catch (error) {
       if (error instanceof FeatureLockedError) return featureLockedResponse(error.feature)
+      if (error instanceof SlipTimestampError) return bad(error.message, 400)
       return bad(
         error instanceof Error ? error.message : 'อ่านข้อมูลตรวจสลิปไม่ได้ กรุณาลองอีกครั้ง',
         503,

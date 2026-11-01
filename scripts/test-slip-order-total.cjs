@@ -28,6 +28,7 @@ function fixture({
           tenant_id: 'shop',
           status: 'pending_payment',
           amount: 0.1,
+          created_at: '2026-11-01T02:59:00Z',
         },
         {
           id: 'two',
@@ -35,6 +36,7 @@ function fixture({
           tenant_id: 'shop',
           status: 'pending_payment',
           amount: 0.2,
+          created_at: '2026-11-01T03:00:00Z',
         },
         {
           id: 'other',
@@ -76,7 +78,7 @@ function fixture({
         then(resolve, reject) {
           return Promise.resolve({
             data: (table === 'bank_accounts' ? accounts : rows).filter((r) =>
-              q.filters.every(([k, v]) => r[k] === v),
+              q.filters.every(([k, v]) => (Array.isArray(v) ? v.includes(r[k]) : r[k] === v)),
             ),
             error: q.operation === 'select' && table === 'orders' ? error : null,
           }).then(resolve, reject)
@@ -99,6 +101,15 @@ function fixture({
     require: () => banks,
   })
   const process = {}
+  const paymentCore = {}
+  vm.runInNewContext(compile('lib/features/payments/payment-pro-core.ts'), { exports: paymentCore })
+  const timestamps = require('./helpers/load-typescript.cjs')(
+    'lib/features/slips/slip-timestamp.ts',
+    {
+      'server-only': {},
+      '@/lib/features/payments/payment-pro-core': paymentCore,
+    },
+  )
   vm.runInNewContext(compile('lib/features/slips/process.ts'), {
     exports: process,
     console,
@@ -108,6 +119,7 @@ function fixture({
       if (name === '@/lib/features/slips/receiver-matching') return matching
       if (name === '@/lib/features/banking/banks') return banks
       if (name === '@/lib/features/commerce/orders') return orders
+      if (name === '@/lib/features/slips/slip-timestamp') return timestamps
       if (name === '@/lib/feature-access') return { requireFeature: async () => {} }
       if (name === '@/lib/auth') return { tenantHasFeatureBypass: async () => true }
       if (name === '@/lib/features/slips/slipok')
@@ -120,6 +132,7 @@ function fixture({
               transRef: 'ref',
               receiverBank: '004',
               receiverAccount: '1234567890',
+              raw: { data: { transTimestamp: '2026-11-01T03:00:00Z' } },
               ...slip,
             }
           },

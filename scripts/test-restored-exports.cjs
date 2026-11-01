@@ -165,6 +165,10 @@ test('receiver matching requires an active account with matching bank and visibl
   const banks = load('lib/features/banking/banks.ts')
   const api = load('lib/features/slips/process.ts', {
     'server-only': {},
+    '@/lib/features/slips/slip-timestamp': load('lib/features/slips/slip-timestamp.ts', {
+      'server-only': {},
+      '@/lib/features/payments/payment-pro-core': load('lib/features/payments/payment-pro-core.ts'),
+    }),
     '@/lib/features/slips/receiver-matching': load('lib/features/slips/receiver-matching.ts', {
       '@/lib/features/banking/banks': banks,
     }),

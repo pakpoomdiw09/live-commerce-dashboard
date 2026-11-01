@@ -4,6 +4,8 @@ import { verifyWithSlipOK, type SlipVerdict } from '@/lib/features/slips/slipok'
 import { requireFeature } from '@/lib/feature-access'
 import { pendingOrders } from '@/lib/features/commerce/orders'
 import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
+import { assertSlipOrderTimestamp, SlipTimestampError } from '@/lib/features/slips/slip-timestamp'
+export { SlipTimestampError } from '@/lib/features/slips/slip-timestamp'
 export {
   accountMatches,
   bankMatches,
@@ -31,7 +33,6 @@ type Input = {
 export type SlipInput = Input
 
 const NO_CREDIT_NOTE = 'เครดิตตรวจสลิปของร้านหมดแล้ว เติมเครดิตในหน้าตั้งค่าร้านค้า'
-
 export type ProcessedSlip = {
   paymentPro?: boolean
   automationAllowed?: boolean
@@ -224,6 +225,12 @@ export async function processSlip(
       note = 'ยอดเงินจากผู้ให้บริการไม่ถูกต้อง กรุณาให้แอดมินตรวจสอบ'
     }
 
+    // Reject old/missing provider times before accepting the slip, claiming its
+    // transfer reference, or marking the customer/orders paid. Check every order
+    // in a combined payment, not just the oldest order in that payment.
+    if (verdict === 'valid' && orderIds.length)
+      await assertSlipOrderTimestamp(db, r.raw, orderIds, tenant.id, customerId)
+
     // The unique index on trans_ref is partial (where status = 'valid'): it rejects a second
     // 'valid' row for the same transfer. Saving again as 'duplicate' moves the row outside
     // that index, so trans_ref can stay as it is.
@@ -263,12 +270,16 @@ export async function processSlip(
     }
   } catch (e) {
     console.error('slip verify failed', e)
-    const note = 'ตรวจสลิปไม่สำเร็จ ลองส่งใหม่อีกครั้ง'
+    const note =
+      e instanceof SlipTimestampError ? e.message : 'ตรวจสลิปไม่สำเร็จ ลองส่งใหม่อีกครั้ง'
     // minimal update, so it still works if the full one was what failed
     await db
       .from('slips')
       .update({ status: 'error', note, verified_at: new Date().toISOString() })
       .eq('id', slip.id)
+    // Preserve the explicit validation error for API callers; never hide a
+    // rejected timestamp behind the generic technical-failure result.
+    if (e instanceof SlipTimestampError) throw e
     return { id: slip.id, status: 'error', amount: null, transRef: null, note, crashed: true }
   }
 }

@@ -11,6 +11,7 @@ import { verifyWithSlipOK } from '@/lib/features/slips/slipok'
 import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
 import type { ProcessedSlip, SlipInput } from '@/lib/features/slips/process'
 import { validateVisionFile } from '@/lib/features/vision/vision-image'
+import { assertSlipOrderTimestamp, SlipTimestampError } from '@/lib/features/slips/slip-timestamp'
 type ClaimedPayment = {
   id: string
   slip_id: string
@@ -18,6 +19,7 @@ type ClaimedPayment = {
   claim_token: string | null
   expected_satang: number | null
   image_path: string | null
+  order_ids: string[]
 }
 
 export async function processPaymentPro(
@@ -120,6 +122,14 @@ async function verifyClaimedPayment(
       duplicateTransaction: verdict.verdict === 'duplicate' || !!duplicate.data,
       providerError: verdict.providerFault,
     })
+    if (evaluation.decision === 'VERIFIED')
+      await assertSlipOrderTimestamp(
+        db,
+        verdict.raw,
+        attempt.order_ids,
+        tenantId,
+        input.customerId ?? null,
+      )
     const saved = await db.rpc('complete_payment_pro', {
       p_attempt: attempt.id,
       p_claim: attempt.claim_token,
@@ -154,6 +164,19 @@ async function verifyClaimedPayment(
         attemptId: attempt.id,
         code: failed.error.code,
       })
+    if (error instanceof SlipTimestampError) {
+      const recorded = await db
+        .from('slips')
+        .update({ status: 'error', note: error.message, verified_at: new Date().toISOString() })
+        .eq('id', attempt.slip_id)
+        .eq('tenant_id', tenantId)
+        .in('status', ['pending', 'error'])
+      if (recorded.error)
+        console.error('[payment-pro] timestamp rejection persistence failed', {
+          code: recorded.error.code,
+        })
+      throw error
+    }
   }
   return readResult(db, attempt.slip_id, tenantId, true)
 }
@@ -162,7 +185,7 @@ export async function resumePaymentPro(db: SupabaseClient, attemptId: string, te
   const row = await db
     .from('payment_pro_attempts')
     .select(
-      'id,slip_id,customer_id,message_id,claim_token,expected_satang,image_path,provider_started_at,status',
+      'id,slip_id,customer_id,message_id,claim_token,expected_satang,image_path,provider_started_at,status,order_ids',
     )
     .eq('id', attemptId)
     .eq('tenant_id', tenantId)

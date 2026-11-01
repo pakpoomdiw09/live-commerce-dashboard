@@ -13,6 +13,8 @@ function fixture({
   enabled = true,
   verdict = 'valid',
   orderError = false,
+  autoReply = true,
+  standaloneSuccess = true,
 } = {}) {
   const calls = {
     downloads: 0,
@@ -22,6 +24,8 @@ function fixture({
     images: 0,
     queries: [],
     persisted: 0,
+    standaloneChecks: 0,
+    standaloneReplies: [],
   }
   const steps = new Map()
   const db = {
@@ -35,7 +39,7 @@ function fixture({
               name: 'Shop',
               page_name: 'My Page',
               auto_verify_enabled: enabled,
-              auto_reply_enabled: true,
+              auto_reply_enabled: autoReply,
               page_access_token: 'fake',
             },
             error: null,
@@ -84,7 +88,13 @@ function fixture({
         },
       },
       '@/lib/features/commerce/orders': orders,
+      '@/lib/features/commerce/messenger-product-server': {
+        replyToMessengerProduct: async () => false,
+      },
       '@/lib/features/commerce/live-cf-comment': {},
+      '@/lib/features/commerce/live-cf-payment-link': {},
+      '@/lib/integrations/facebook/live-cf-adapter': {},
+      '@/lib/feature-flags': {},
       '@/lib/features/banking/banks': {},
       '@/lib/features/slips/process': {
         processSlip: async (_db, input) => {
@@ -103,10 +113,27 @@ function fixture({
         },
       },
       '@/lib/features/slips/notify': {
+        deliverOnce: async (_db, recipient, key, body) => {
+          calls.standaloneReplies.push({ recipient, key, body })
+          return true
+        },
         notifySlipResult: async (_db, slip, customer) => {
           calls.receipts.push({ slip, customer })
         },
       },
+      '@/lib/features/slips/standalone-verifier': {
+        processStandaloneSlip: async (_db, input) => {
+          calls.standaloneChecks++
+          assert.equal(input.tenantId, 'shop-a')
+          assert.equal(input.customerId, 'customer-a')
+          assert.equal(input.messageId, 'message-a')
+          assert.ok(input.slipImageUrl.startsWith('https://example.test/'))
+          return standaloneSuccess
+            ? { success: true, message: 'ยอดโอน 159.25 บาท ผู้โอนทดสอบ รหัสอ้างอิง standalone-ref' }
+            : { success: false, message: 'สลิปนี้เคยส่งตรวจแล้ว' }
+        },
+      },
+      '@/lib/features/slips/standalone-slip': { standaloneSlipReply: (result) => result.message },
       '@/lib/features/slips/image': {
         downloadSlipImage: async () => {
           calls.downloads++
@@ -172,7 +199,7 @@ const pending = () => ({
   amount: 100,
 })
 
-test('no pending order, paid/cancelled orders and other customer/shop orders never download or verify a slip', async () => {
+test('no pending order, paid/cancelled orders and unrelated orders route images to standalone without paying orders', async () => {
   for (const rows of [
     [],
     [{ ...pending(), status: 'paid' }],
@@ -185,7 +212,12 @@ test('no pending order, paid/cancelled orders and other customer/shop orders nev
     assert.equal(f.calls.downloads, 0)
     assert.equal(f.calls.checks, 0)
     assert.equal(f.calls.receipts.length, 0)
-    assert.equal(f.calls.ai, 1, 'ordinary image AI remains available')
+    assert.equal(f.calls.standaloneChecks, 1)
+    assert.equal(f.calls.standaloneReplies.length, 1)
+    assert.equal(f.calls.standaloneReplies[0].recipient.psid, '987654321')
+    assert.equal(f.calls.standaloneReplies[0].recipient.token, 'fake')
+    assert.equal(f.calls.ai, 0)
+    assert.equal(f.calls.images, 0)
     assert.ok(
       f.calls.queries.every(
         (q) =>
@@ -194,6 +226,33 @@ test('no pending order, paid/cancelled orders and other customer/shop orders nev
           q.status === 'pending_payment',
       ),
     )
+  }
+})
+
+test('standalone verification and replies are checkpointed separately and never repeat on webhook replay', async () => {
+  const f = fixture()
+  await f.run()
+  await f.run()
+  assert.equal(f.calls.standaloneChecks, 1)
+  assert.equal(f.calls.standaloneReplies.length, 1)
+  assert.ok(f.calls.standaloneReplies[0].key.startsWith('standalone-slip:message-a:'))
+})
+
+test('standalone rejection sends the reason and does not fall through to AI or order confirmation', async () => {
+  const f = fixture({ standaloneSuccess: false })
+  await f.run()
+  assert.equal(f.calls.standaloneReplies[0].body, 'สลิปนี้เคยส่งตรวจแล้ว')
+  assert.equal(f.calls.receipts.length, 0)
+  assert.equal(f.calls.checks, 0)
+  assert.equal(f.calls.ai, 0)
+})
+
+test('standalone images respect paused bot, shop auto reply and Auto-Pilot switches', async () => {
+  for (const settings of [{ bot: false }, { autoReply: false }, { enabled: false }]) {
+    const f = fixture(settings)
+    await f.run()
+    assert.equal(f.calls.standaloneChecks, 0)
+    assert.equal(f.calls.standaloneReplies.length, 0)
   }
 })
 

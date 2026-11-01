@@ -26,7 +26,7 @@ import { createLiveCfMetaAdapter } from '@/lib/integrations/facebook/live-cf-ada
 import { isFeatureEnabled } from '@/lib/feature-flags'
 import { findBank } from '@/lib/features/banking/banks'
 import { processSlip } from '@/lib/features/slips/process'
-import { notifySlipResult, type Recipient } from '@/lib/features/slips/notify'
+import { deliverOnce, notifySlipResult, type Recipient } from '@/lib/features/slips/notify'
 import { downloadSlipImage, slipCandidates } from '@/lib/features/slips/image'
 import { sendWithMessageCredit } from '@/lib/message-quota'
 import { observeFollowUpMessage } from '@/lib/features/follow-ups/followup-ai'
@@ -306,19 +306,27 @@ async function onMessage(
   // With Auto-Pilot off the images stay in the chat and an admin can verify them from the dashboard.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
-  // Only actual pending orders of this customer/shop authorize automatic slip checking.
-  // Product/general images without an outstanding payment keep their ordinary image route.
-  const verifySlipImages =
-    tenant.auto_verify_enabled &&
-    images.length > 0 &&
-    (await execution.once('slip-route', async () => {
-      const pending = await pendingOrders(db, customer.id, tenant.id)
-      // Keep the route stable if this webhook is resumed after its order was paid.
-      return pending.ids.length > 0 && Number.isFinite(pending.total) && pending.total > 0
-    }))
-  const visionRoute = verifySlipImages
-    ? false
-    : await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
+  // Route the entire message once. Completing one order payment must not turn
+  // another image from that message into a standalone verification on a retry.
+  const slipRoute =
+    tenant.auto_verify_enabled && images.length > 0
+      ? await execution.once('slip-image-route', async () => {
+          const pending = await pendingOrders(db, customer.id, tenant.id)
+          if (pending.ids.length) {
+            if (!Number.isFinite(pending.total) || pending.total <= 0)
+              throw new Error('PENDING_PAYMENT_TOTAL_INVALID')
+            return 'order' as const
+          }
+          // Standalone replies honor the existing shop/chat automation controls.
+          return autoReply ? ('standalone' as const) : ('none' as const)
+        })
+      : 'none'
+  const verifySlipImages = slipRoute === 'order'
+  const verifyStandaloneImages = slipRoute === 'standalone'
+  const visionRoute =
+    verifySlipImages || verifyStandaloneImages
+      ? false
+      : await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
   const visionQueued = visionRoute === true
   const imageAssistantDisabled = visionRoute === 'disabled'
   if (visionQueued) {
@@ -336,6 +344,7 @@ async function onMessage(
   }
   const imageChat =
     !verifySlipImages &&
+    !verifyStandaloneImages &&
     !visionQueued &&
     !imageAssistantDisabled &&
     autoReply &&
@@ -350,6 +359,7 @@ async function onMessage(
       sticker: !!m.sticker_id,
       autoReply,
       slipVerification: verifySlipImages,
+      standaloneVerification: verifyStandaloneImages,
       dedicatedVision: visionQueued,
       imageAssistantDisabled,
       chatVision: imageChat,
@@ -358,6 +368,16 @@ async function onMessage(
     for (const url of images) {
       await onSlipImage(url, { ...recipient, messageId: message.id }, tenant, execution)
     }
+  }
+  if (verifyStandaloneImages) {
+    for (const url of images)
+      await onStandaloneSlipImage(
+        url,
+        { ...recipient, messageId: message.id },
+        tenant.id,
+        execution,
+      )
+    return
   }
 
   if (visionQueued || (!m.text && !imageChat)) return
@@ -396,6 +416,36 @@ async function onMessage(
       if (error instanceof InboxAutomationWindowError) return null
       throw error
     }
+    return null
+  })
+}
+
+/** Standalone verification and delivery have separate durable checkpoints. */
+async function onStandaloneSlipImage(
+  url: string,
+  customer: Recipient & { messageId: string },
+  tenantId: string,
+  execution: WebhookExecution,
+) {
+  const { processStandaloneSlip } = await import('@/lib/features/slips/standalone-verifier')
+  const { standaloneSlipReply } = await import('@/lib/features/slips/standalone-slip')
+  const key = (await import('node:crypto')).createHash('sha256').update(url).digest('hex')
+  const db = supabaseAdmin({ timeoutMs: 15000 })
+  const result = await execution.once(`standalone-slip:${key}`, () =>
+    processStandaloneSlip(db, {
+      tenantId,
+      slipImageUrl: url,
+      customerId: customer.id,
+      messageId: customer.messageId,
+    }),
+  )
+  await execution.once(`standalone-slip-reply:${key}`, async () => {
+    await deliverOnce(
+      db,
+      customer,
+      `standalone-slip:${customer.messageId}:${key}`,
+      standaloneSlipReply(result),
+    )
     return null
   })
 }
