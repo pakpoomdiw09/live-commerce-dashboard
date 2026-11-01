@@ -53,6 +53,30 @@ test('restoring complete color/size grids preserves original variant IDs, prices
   assert.equal(new Map(restored.ids).size, 4)
 })
 
+test('identical option names in different products have isolated keys, variant IDs, prices and stock', () => {
+  const first = [{ id: 'first-variant', label: 'สี: ขาว', price: 159, stock: 3 }]
+  const second = [{ id: 'second-variant', label: 'สี: ขาว', price: 299, stock: 8 }]
+  const a = restoreProductOptions(first, 'tenant:first')
+  const b = restoreProductOptions(second, 'tenant:second')
+  const aKeys = new Set(productCombinations(a.groups).map((row) => row.key))
+  assert.ok(productCombinations(b.groups).every((row) => !aKeys.has(row.key)))
+  a.overrides[Object.keys(a.overrides)[0]].stock = '0'
+  a.groups[0].values[0].label = 'แดง'
+  assert.equal(b.groups[0].values[0].label, 'ขาว')
+  const rows = resolveProductVariants('299', '8', productCombinations(b.groups), b.overrides)
+  assert.deepEqual(
+    rows.map((row) => [row.id, row.price, row.stock]),
+    [['second-variant', '299', '8']],
+  )
+  assert.equal(second[0].stock, 8)
+  assert.deepEqual(restoreProductOptions([], 'tenant:empty'), {
+    groups: [],
+    legacy: [],
+    overrides: {},
+    ids: [],
+  })
+})
+
 test('irregular and legacy variants remain exact editable rows without inventing combinations', () => {
   for (const labels of [
     ['ขาว', 'ดำ'],

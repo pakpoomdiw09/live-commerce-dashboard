@@ -141,3 +141,47 @@ test('private comment replies retain their comment recipient and log rejected re
     'Private reply is no longer available',
   )
 })
+
+test('diagnostics identify explicit role/window/token/rate restrictions without guessing Development mode from code 10', async () => {
+  for (const scenario of [
+    {
+      code: 10,
+      message: 'Missing pages_manage_engagement permission',
+      reason: 'PERMISSION_OR_POLICY_RESTRICTION',
+    },
+    {
+      code: 10,
+      message: 'This app is in development mode; only app developers may use it',
+      reason: 'APP_MODE_OR_ROLE_RESTRICTION',
+    },
+    {
+      code: 10,
+      subcode: 2018278,
+      message: 'Outside the 24-hour messaging window',
+      reason: 'MESSAGING_WINDOW_OR_TAG_RESTRICTION',
+    },
+    { code: 190, message: 'Invalid OAuth access token', reason: 'TOKEN_INVALID_OR_EXPIRED' },
+    { code: 4, message: 'Application request limit reached', reason: 'META_RATE_LIMIT' },
+  ]) {
+    const f = fixture(async () =>
+      Response.json(
+        {
+          error: {
+            code: scenario.code,
+            error_subcode: scenario.subcode,
+            message: scenario.message,
+            type: 'OAuthException',
+            fbtrace_id: 'trace-diagnostic',
+          },
+        },
+        { status: 400 },
+      ),
+    )
+    await assert.rejects(f.api.replyToComment(token, recipientId, messageText))
+    const detail = diagnostic(f.logs)
+    assert.equal(detail.operation, 'comment_public_reply')
+    assert.equal(detail.reason, scenario.reason)
+    assert.equal(detail.errorCode, scenario.code)
+    assert.equal(JSON.parse(detail.responseData).error.fbtrace_id, 'trace-diagnostic')
+  }
+})

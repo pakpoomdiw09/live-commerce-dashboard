@@ -51,6 +51,14 @@ export async function GET(req: NextRequest) {
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(25_000)])
     await verifyLiveVideoPageToken(pageId, token, signal)
     const result = await fetchPageLiveVideos(pageId, token, signal)
+    console.info('[facebook/live-videos] result', {
+      pageId,
+      tenantId: tenant.data.id,
+      videoCount: result.videos.length,
+      liveCount: result.videos.filter((video) => video.isLive).length,
+      fallback: result.fallback,
+      videos: result.videos.map((video) => ({ id: video.id, isLive: video.isLive })),
+    })
     return NextResponse.json({ pageId, ...result }, { headers })
   } catch (error) {
     if (error instanceof LiveVideosError) return failure(error.message, error.status)

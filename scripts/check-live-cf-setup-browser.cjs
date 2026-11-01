@@ -1013,9 +1013,111 @@ compiler.init()
       true,
     )
     assert.equal(await evaluate('liveCfTest.refreshes'), 0)
+    // Reuse the exported modal without a parent key: product identity must own
+    // its form state even when callers only change initialData.
+    await call('Page.navigate', { url: address + '/?modal-isolation=1' })
+    await wait(
+      `document.querySelector('dialog input[name="variant_stock_0"]')?.value==='3'&&!document.querySelector('dialog button[type="submit"]').disabled`,
+    )
+    await fill('dialog input[name="variant_price_0"]', '111')
+    await fill('dialog input[name="variant_stock_0"]', '1')
+    await evaluate(`selectModalProduct('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')`)
+    await wait(
+      `document.querySelector('dialog input[name="variant_price_0"]')?.value==='599'&&!document.querySelector('dialog button[type="submit"]').disabled`,
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="variant_stock_0"]').value`),
+      '6',
+    )
+    assert.equal(await evaluate(`document.querySelector('dialog input[name="stock"]').value`), '13')
+    assert.equal(
+      await evaluate(`document.querySelector('dialog').textContent.includes('น้ำเงิน')`),
+      true,
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="price"]').value`),
+      '499',
+    )
+    await fill('dialog input[name="variant_price_0"]', '625')
+    await fill('dialog input[name="variant_stock_0"]', '2')
+    await click('บันทึกการแก้ไข')
+    await wait(`liveCfTest.savedCallbacks.length===1`)
+    const secondSave = await evaluate(
+      `liveCfTest.requests.filter(r=>r.url==='/api/commerce').at(-1).body`,
+    )
+    assert.equal(secondSave.id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    assert.deepEqual(
+      secondSave.value.variants.map((v) => [v.id, v.price, v.stock]),
+      [
+        ['cccccccc-cccc-4ccc-8ccc-cccccccccccc', 625, 2],
+        ['dddddddd-dddd-4ddd-8ddd-dddddddddddd', 699, 7],
+      ],
+    )
+    assert.equal(
+      await evaluate(
+        `liveCfTest.details['33333333-3333-4333-8333-333333333333'].variants[0].stock`,
+      ),
+      3,
+    )
+    await evaluate(`selectModalProduct('33333333-3333-4333-8333-333333333333')`)
+    await wait(
+      `document.querySelector('dialog input[name="variant_stock_0"]')?.value==='3'&&!document.querySelector('dialog button[type="submit"]').disabled`,
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="variant_price_0"]').value`),
+      '199',
+    )
+    // Edit -> create must clear all fields, refs, variants and overrides.
+    await evaluate(`selectModalProduct(null)`)
+    await wait(`document.querySelector('dialog h2')?.textContent==='เพิ่มสินค้า'`)
+    assert.equal(
+      await evaluate(`document.querySelectorAll('dialog input[name^="variant_price_"]').length`),
+      0,
+    )
+    assert.equal(await evaluate(`document.querySelector('dialog input[name="price"]').value`), '')
+    assert.equal(await evaluate(`document.querySelector('dialog input[name="stock"]').value`), '0')
+    // A response arriving after switching products must not replace the new grid.
+    await evaluate(
+      `liveCfTest.detailDelays['33333333-3333-4333-8333-333333333333']=700;selectModalProduct('33333333-3333-4333-8333-333333333333')`,
+    )
+    await wait(`liveCfTest.requests.at(-1).url.includes('/api/commerce/')`)
+    await evaluate(`selectModalProduct('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')`)
+    await wait(`document.querySelector('dialog input[name="variant_price_0"]')?.value==='625'`)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="cf_code"]').value`),
+      'SECOND',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="variant_stock_0"]').value`),
+      '2',
+    )
+    // Changing tenants while creating must also start a fresh form.
+    await evaluate(`selectModalProduct(null)`)
+    await wait(`document.querySelector('dialog input[name="name"]')?.value===''`)
+    await fill('dialog input[name="name"]', 'UNSAVED OTHER SHOP')
+    await evaluate(`selectModalTenant('22222222-2222-4222-8222-222222222222')`)
+    await wait(`document.querySelector('dialog input[name="name"]')?.value===''`)
+    // A late save can commit only its captured product; it cannot fire onSaved
+    // into the product opened next, even if transport ignores cancellation.
+    await evaluate(
+      `liveCfTest.detailDelays={};liveCfTest.saveDelay=700;selectModalProduct('33333333-3333-4333-8333-333333333333')`,
+    )
+    await wait(
+      `document.querySelector('dialog input[name="variant_stock_0"]')?.value==='3'&&!document.querySelector('dialog button[type="submit"]').disabled`,
+    )
+    await click('บันทึกการแก้ไข')
+    await evaluate(`selectModalProduct('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')`)
+    await wait(`document.querySelector('dialog input[name="variant_price_0"]')?.value==='625'`)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    assert.equal(await evaluate(`liveCfTest.savedCallbacks.length`), 1)
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[name="cf_code"]').value`),
+      'SECOND',
+    )
     assert.deepEqual(errors, [])
     console.log(
-      'PASS: Minimal product modal, option groups, optional prices/stock, compact images, automatic flags, Live CF tags, and customer variant confirmation before payment at 375/768/1440px. Offline APIs only.',
+      'PASS: Product/tenant state isolation, per-product save payloads, late load/save fencing, minimal product modal, Live CF tags and customer variant confirmation at 375/768/1440px. Offline APIs only.',
     )
   } finally {
     socket?.close()

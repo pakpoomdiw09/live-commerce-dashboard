@@ -250,7 +250,7 @@ test('all saved aliases route real live comments to the same product and retain 
   }
 })
 
-test('quick product edits update the existing row and variants and reject inventory changes made after loading', async () => {
+test('quick product edits isolate two products and their variants, reject foreign variant IDs and stale inventory', async () => {
   const db = await database()
   try {
     const variantId = '88888888-8888-4888-8888-888888888888'
@@ -274,6 +274,35 @@ test('quick product edits update the existing row and variants and reject invent
         JSON.stringify(value),
       ])
     ).rows[0].id
+    const otherValue = quickLiveProduct({
+      name: 'สินค้าอีกชิ้น',
+      cf_code: 'SECOND',
+      price: '299',
+      stock: '8',
+      variants: [
+        {
+          id: '99999999-9999-4999-8999-999999999999',
+          label: 'สี: ขาว',
+          variant_code: '',
+          price: '349',
+          stock: '8',
+        },
+      ],
+    })
+    const otherId = (
+      await db.query<{ id: string }>('select commerce_save_product($1,$2,null,$3::jsonb) id', [
+        tenant,
+        actor,
+        JSON.stringify(otherValue),
+      ])
+    ).rows[0].id
+    const snapshot = async (id: string) => ({
+      product: (await db.query('select * from products where id=$1', [id])).rows,
+      variants: (
+        await db.query('select * from commerce_variants where product_id=$1 order by id', [id])
+      ).rows,
+    })
+    const untouched = await snapshot(otherId)
     const version = (
       await db.query<{ commerce_version: number }>(
         'select commerce_version from products where id=$1',
@@ -314,6 +343,31 @@ test('quick product edits update the existing row and variants and reject invent
     assert.equal(variant.id, variantId)
     assert.equal(variant.variant_code, 'WHITE')
     assert.equal(variant.stock, 4)
+    assert.deepEqual(
+      await snapshot(otherId),
+      untouched,
+      'Editing A must not change B, even with identical option labels',
+    )
+    await assert.rejects(
+      db.query('select commerce_save_product($1,$2,$3,$4::jsonb,$5)', [
+        tenant,
+        actor,
+        created,
+        JSON.stringify({ ...updated, variants: otherValue.variants }),
+        row.commerce_version,
+      ]),
+      /COMMERCE_FORBIDDEN/,
+    )
+    assert.deepEqual(
+      await snapshot(otherId),
+      untouched,
+      'A cannot claim or overwrite B variant IDs',
+    )
+    assert.equal(
+      (await db.query<any>('select stock from commerce_variants where id=$1', [variantId])).rows[0]
+        .stock,
+      4,
+    )
     await db.query('update products set stock=stock-1 where id=$1', [created])
     await assert.rejects(
       db.query('select commerce_save_product($1,$2,$3,$4::jsonb,$5)', [

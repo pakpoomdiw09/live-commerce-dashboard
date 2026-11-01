@@ -152,6 +152,20 @@ export async function POST(req: NextRequest) {
             .single()
         : await db.from('comment_rules').insert(row).select('id').single()
     if (saved.error) throw saved.error
+    console.info('[live-cf/setup] saved', {
+      tenantId,
+      pageId,
+      ruleId: saved.data.id,
+      livePostId: row.live_post_id,
+      productId,
+      codes,
+      matchType,
+      active: row.is_active,
+      privateReply,
+      publicReply,
+      reception: 'webhook',
+      pollingStarted: false,
+    })
     return NextResponse.json(
       { id: saved.data.id },
       { headers: { 'Cache-Control': 'private, no-store' } },

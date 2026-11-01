@@ -40,6 +40,12 @@ export function getFacebookWebhook(req: NextRequest) {
 }
 
 export async function postFacebookWebhook(req: NextRequest) {
+  // Log arrival even if body reading/signature validation fails. Never log headers or unsigned bodies.
+  console.log('[facebook-webhook/request] received', {
+    method: req.method,
+    path: new URL(req.url).pathname,
+    hasSignature: Boolean(req.headers.get('x-hub-signature-256')),
+  })
   try {
     // Keep the original bytes for signature verification; never reserialize the
     // parsed body before checking Meta's signature.
@@ -68,7 +74,7 @@ export async function postFacebookWebhook(req: NextRequest) {
     const envelope = parseWebhook(bytes)
     console.log(
       '[facebook-webhook/raw] ' +
-        JSON.stringify(redactFacebookDiagnostic(JSON.parse(envelope.raw))),
+        JSON.stringify(redactFacebookDiagnostic(JSON.parse(envelope.raw)), null, 2),
     )
     console.log('[facebook-webhook/ingress] verified payload', {
       hash: envelope.hash.slice(0, 12),
@@ -80,7 +86,14 @@ export async function postFacebookWebhook(req: NextRequest) {
         eventKey: e.eventKey.slice(0, 12),
         messageId: e.payload.message?.mid ?? null,
         echo: e.payload.message?.is_echo === true,
-        textLength: typeof e.payload.message?.text === 'string' ? e.payload.message.text.length : 0,
+        field: e.payload.field ?? null,
+        item: e.payload.value?.item ?? null,
+        verb: e.payload.value?.verb ?? null,
+        commentId: e.payload.value?.comment_id ?? null,
+        postId: e.payload.value?.post_id ?? null,
+        videoId: e.payload.value?.video_id ?? e.payload.value?.live_video_id ?? null,
+        hasAuthor: Boolean(e.payload.value?.from?.id),
+        textLength: String(e.payload.message?.text ?? e.payload.value?.message ?? '').length,
         attachments: Array.isArray(e.payload.message?.attachments)
           ? e.payload.message.attachments.length
           : 0,

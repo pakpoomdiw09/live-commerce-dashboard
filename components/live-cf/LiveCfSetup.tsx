@@ -1255,7 +1255,7 @@ export function LiveCfSetup({
       )}
       {showProductModal && (
         <QuickProductModal
-          key={editingProduct?.id ?? 'create'}
+          key={`${tenantId}:${editingProduct?.id ?? 'create'}`}
           tenantId={tenantId}
           initialData={editingProduct}
           salesPageUrl={salesPageUrl ?? product?.sales_page_url ?? null}

@@ -1,11 +1,14 @@
-import React, { StrictMode } from 'react'
+import React, { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LiveCfSetup } from '@/components/live-cf/LiveCfSetup'
 import { LiveCfVariantPayment } from '@/components/live-cf/LiveCfVariantPayment'
+import { QuickProductModal } from '@/components/live-cf/QuickProductModal'
+import type { LiveProductOption } from '@/lib/features/comments/comment-rules'
 import { liveCfTest } from './setup-mocks'
 
 const productId = '33333333-3333-4333-8333-333333333333'
 const newProductId = '44444444-4444-4444-8444-444444444444'
+const secondProductId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const state = Object.assign(liveCfTest, {
   requests: [] as { url: string; body: any }[],
   failure: false,
@@ -13,6 +16,9 @@ const state = Object.assign(liveCfTest, {
   uploadFailure: false,
   detailFailure: false,
   editStale: false,
+  detailDelays: {} as Record<string, number>,
+  saveDelay: 0,
+  savedCallbacks: [] as LiveProductOption[],
   details: {
     [productId]: {
       id: productId,
@@ -45,6 +51,25 @@ const state = Object.assign(liveCfTest, {
         },
       ],
     },
+    [secondProductId]: {
+      id: secondProductId,
+      code: 'SECOND',
+      name: 'สินค้าตัวที่สอง',
+      description: '',
+      price: 499,
+      stock: 13,
+      images: [],
+      category_id: null,
+      cost: null,
+      compare_price: null,
+      featured: false,
+      is_active: true,
+      version: 3,
+      variants: [
+        { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', label: 'สี: น้ำเงิน', price: 599, stock: 6 },
+        { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', label: 'สี: เขียว', price: 699, stock: 7 },
+      ],
+    },
   } as Record<string, any>,
   liveFailure: false,
   liveEmpty: false,
@@ -65,8 +90,12 @@ window.fetch = async (input, init) => {
     if (state.detailFailure)
       return Response.json({ error: 'โหลดข้อมูลสินค้าไม่สำเร็จ' }, { status: 503 })
     const id = new URL(url, location.origin).pathname.split('/').at(-1)!
-    return state.details[id]
-      ? Response.json({ product: state.details[id] })
+    const snapshot = structuredClone(state.details[id])
+    // Deliberately ignore AbortSignal: late provider responses must still be fenced by the form.
+    if (state.detailDelays[id])
+      await new Promise((resolve) => setTimeout(resolve, state.detailDelays[id]))
+    return snapshot
+      ? Response.json({ product: snapshot })
       : Response.json({ error: 'ไม่พบสินค้า' }, { status: 404 })
   }
   if (url.startsWith('/api/facebook/live-videos')) {
@@ -103,6 +132,7 @@ window.fetch = async (input, init) => {
     return Response.json({ url: 'https://storage.example/commerce/test/product.webp' })
   }
   if (url === '/api/commerce') {
+    if (state.saveDelay) await new Promise((resolve) => setTimeout(resolve, state.saveDelay))
     if (state.failure)
       return Response.json({ error: 'รหัสสินค้านี้ถูกใช้แล้ว กรุณาเลือกรหัสอื่น' }, { status: 409 })
     if (body.id && state.editStale) {
@@ -131,9 +161,31 @@ window.fetch = async (input, init) => {
 }
 
 const empty = location.search.includes('empty')
+function ModalIsolationProbe() {
+  const [selected, setSelected] = useState<string | null>(productId)
+  const [tenant, setTenant] = useState('11111111-1111-4111-8111-111111111111')
+  useEffect(() => {
+    ;(window as any).selectModalProduct = setSelected
+    ;(window as any).selectModalTenant = setTenant
+  }, [])
+  const details = selected ? state.details[selected] : null
+  return (
+    <QuickProductModal
+      tenantId={tenant}
+      salesPageUrl="/s/test-shop"
+      initialData={details ? { ...details, variants: [...details.variants] } : null}
+      onSaved={(product) => {
+        state.savedCallbacks.push(product)
+      }}
+      onDismiss={() => setSelected(null)}
+    />
+  )
+}
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {location.search.includes('payment') ? (
+    {location.search.includes('modal-isolation') ? (
+      <ModalIsolationProbe />
+    ) : location.search.includes('payment') ? (
       <LiveCfVariantPayment
         token="offline-signed-fixture"
         productName="เสื้อยืดคอกลม"

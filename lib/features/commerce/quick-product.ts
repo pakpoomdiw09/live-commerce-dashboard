@@ -20,7 +20,8 @@ type ExistingVariant = {
 }
 
 /** Reconstruct only complete, unambiguous grids. Keep irregular/legacy choices as editable rows. */
-export function restoreProductOptions(variants: readonly ExistingVariant[]) {
+export function restoreProductOptions(variants: readonly ExistingVariant[], productKey = '') {
+  const namespace = productKey ? `${productKey}:` : ''
   let groups: ProductOptionGroup[] = []
   let combinations: ProductCombination[] = []
   let legacy: ProductCombination[] = []
@@ -39,10 +40,13 @@ export function restoreProductOptions(variants: readonly ExistingVariant[]) {
           throw new Error('Mixed groups')
         const values = [...new Set(split.map((row) => row[index].value))]
         return {
-          id: 'saved-group-' + index,
+          id: namespace + 'saved-group-' + index,
           name: part.name,
           draft: '',
-          values: values.map((label, valueIndex) => ({ id: 'saved-value-' + valueIndex, label })),
+          values: values.map((label, valueIndex) => ({
+            id: namespace + 'saved-value-' + valueIndex,
+            label,
+          })),
         }
       })
       combinations = productCombinations(groups)

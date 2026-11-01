@@ -50,12 +50,39 @@ function cfResult(data: unknown): CfResult {
 
 /** Place a chat order; product or variant stock is changed atomically in the database. */
 async function callCfOrder(db: SupabaseClient, rpc: string, args: Record<string, unknown>) {
+  const context = {
+    rpc,
+    tenantId: args.p_tenant ?? args.p_tenant_id,
+    ruleId: args.p_rule,
+    commentId: args.p_comment ?? args.p_source_id,
+    postId: args.p_post,
+    pageId: args.p_page,
+    code: args.p_code,
+  }
+  console.info('[live-cf/order] RPC started', context)
   const { data, error } = await db.rpc(rpc, args)
   if (error) {
-    console.error('[live-cf/order] RPC failed', { rpc, code: error.code, hint: error.hint })
+    console.error('[live-cf/order] RPC failed', {
+      ...context,
+      errorCode: error.code,
+      hint: error.hint,
+    })
     throw Object.assign(new Error('PLACE_CF_ORDER_FAILED'), { code: error.code })
   }
-  return cfResult(data)
+  const result = cfResult(data)
+  console.info('[live-cf/order] RPC result', {
+    ...context,
+    status: result.status,
+    reason:
+      result.status === 'no_match'
+        ? 'PRODUCT_RULE_CODE_OR_SESSION_NOT_FOUND_OR_INACTIVE'
+        : result.status === 'sold_out'
+          ? 'PRODUCT_VARIANT_OR_RULE_STOCK_EXHAUSTED'
+          : result.status === 'require_variant'
+            ? 'VARIANT_SELECTION_REQUIRED'
+            : 'ORDER_CREATED',
+  })
+  return result
 }
 
 export async function placeCfOrder(

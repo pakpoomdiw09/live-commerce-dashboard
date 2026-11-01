@@ -19,6 +19,7 @@ function fixture() {
     reads: 0,
     writes: [] as Record<string, any>[],
     updateScope: [] as unknown[][],
+    logs: [] as unknown[][],
   }
   const route = load(
     'app/api/live-cf/setup/route.ts',
@@ -69,7 +70,7 @@ function fixture() {
       '@/lib/features/commerce/live-cf-setup': { extractFacebookLiveId },
       '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/i },
     },
-    { console: { error() {} } },
+    { console: { error() {}, info: (...args: unknown[]) => state.logs.push(args) } },
   )
   const send = (extra: Record<string, unknown>) =>
     route.POST(
@@ -145,6 +146,13 @@ test('the picked video ID is saved in the existing live post scope for comment r
   )
   assert.equal(state.writes[0].live_post_id, '789')
   assert.deepEqual([...state.writes[0].page_ids], ['100'])
+  const saved = state.logs.find((entry) => entry[0] === '[live-cf/setup] saved')?.[1] as Record<
+    string,
+    unknown
+  >
+  assert.equal(saved.livePostId, '789')
+  assert.equal(saved.reception, 'webhook')
+  assert.equal(saved.pollingStarted, false)
 })
 
 test('Live CF setup rejects empty, duplicate and excessive tags before database writes and preserves owner checks', async () => {

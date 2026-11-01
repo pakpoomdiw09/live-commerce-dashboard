@@ -126,6 +126,7 @@ function logSendFailure(
   token: string | null,
   recipientId: string,
   message: object,
+  operation = 'graph_request',
 ) {
   try {
     const failure = error as {
@@ -139,6 +140,8 @@ function logSendFailure(
     console.error(
       '[facebook/send] Graph API request failed ' +
         JSON.stringify({
+          operation,
+          ...graphFailureDiagnosis(error),
           httpStatus: error instanceof SendApiError ? error.status : failure?.response?.status,
           errorCode: error instanceof SendApiError ? error.code : undefined,
           errorSubcode: error instanceof SendApiError ? error.subcode : undefined,
@@ -174,6 +177,47 @@ export const isWindowOrTagError = (e: unknown) =>
 
 export const WINDOW_OR_TAG_ERROR =
   'เกินระยะเวลาที่ระบบ Facebook อนุญาต หรือหมวดหมู่ข้อความไม่ตรงกับเนื้อหา'
+
+/** Diagnose only evidence in Meta's response; code 10 alone does not prove Development mode. */
+function graphFailureDiagnosis(error: unknown) {
+  if (error instanceof MissingPageTokenError)
+    return {
+      reason: 'MISSING_PAGE_TOKEN',
+      hint: 'เชื่อมต่อเพจและตรวจ Page Access Token ของร้านค้า',
+    }
+  if (!(error instanceof SendApiError))
+    return {
+      reason: 'TRANSPORT_OR_RESPONSE_FAILURE',
+      hint: 'ตรวจเครือข่ายและผลการส่งก่อนลองซ้ำ เพราะ Meta อาจรับข้อความแล้ว',
+    }
+  if (error.code === 190)
+    return { reason: 'TOKEN_INVALID_OR_EXPIRED', hint: 'ตรวจ token ของเพจและเชื่อมต่อเพจใหม่' }
+  if (error.status === 429 || [4, 17, 32, 613].includes(error.code ?? -1))
+    return { reason: 'META_RATE_LIMIT', hint: 'Meta จำกัดอัตราการเรียก API ตรวจคิวก่อนส่งซ้ำ' }
+  if (isWindowOrTagError(error))
+    return {
+      reason: 'MESSAGING_WINDOW_OR_TAG_RESTRICTION',
+      hint: 'Meta ปฏิเสธตามช่วงเวลาส่งข้อความหรือประเภท tag; Private Reply ต้องผูกกับ comment_id',
+    }
+  if (
+    /development mode|app (?:is |has )?not (?:live|published)|only[^.]{0,160}(?:admins?|developers?|testers?)/i.test(
+      error.providerMessage ?? '',
+    )
+  )
+    return {
+      reason: 'APP_MODE_OR_ROLE_RESTRICTION',
+      hint: 'Meta ระบุข้อจำกัดโหมดแอปหรือบทบาทผู้ใช้ ตรวจ App Mode และบทบาท Admin/Developer/Tester',
+    }
+  if (error.code === 10 || error.code === 200 || error.status === 403)
+    return {
+      reason: 'PERMISSION_OR_POLICY_RESTRICTION',
+      hint: 'ตรวจ Page token, scopes, Page tasks และสิทธิ์ที่ได้รับอนุมัติ; error นี้ยังยืนยัน Development mode ไม่ได้',
+    }
+  return {
+    reason: 'META_REQUEST_REJECTED',
+    hint: 'ตรวจ message, error_subcode และ fbtrace_id ใน responseData',
+  }
+}
 
 /** Never propagate a fetch/JSON exception carrying a URL, response body or nested cause. */
 async function facebookOperation<T>(
@@ -261,7 +305,7 @@ export async function sendMessageWithReceipt(
         throw new Error('Messenger did not return a message receipt')
       return receipt.message_id
     },
-    (error) => logSendFailure(error, token, psid, message),
+    (error) => logSendFailure(error, token, psid, message, 'messenger_send'),
   )
 }
 
@@ -329,7 +373,7 @@ export async function replyToComment(token: string | null, commentId: string, te
       })
       return commentGraphResult(res, token, commentId, { text })
     },
-    (error) => logSendFailure(error, token, commentId, { text }),
+    (error) => logSendFailure(error, token, commentId, { text }, 'comment_public_reply'),
   )
 }
 
@@ -396,7 +440,7 @@ export async function privateReply(
       })
       return commentGraphResult(res, token, commentId, message)
     },
-    (error) => logSendFailure(error, token, commentId, message),
+    (error) => logSendFailure(error, token, commentId, message, 'comment_private_message'),
   )
 }
 
@@ -439,14 +483,14 @@ export function sendPrivateReply(
           !/^\d+$/.test(pageId)
         )
           throw error
-        logSendFailure(error, token, commentId, { text })
+        logSendFailure(error, token, commentId, { text }, 'comment_private_reply_unsupported_edge')
         return post(`${pageId}/messages`, {
           recipient: { comment_id: commentId },
           message: { text },
         })
       }
     },
-    (error) => logSendFailure(error, token, commentId, { text }),
+    (error) => logSendFailure(error, token, commentId, { text }, 'comment_private_reply'),
   )
 }
 
@@ -478,7 +522,7 @@ export async function resolveLiveCommentVideo(
         providerErrorMessage(data?.error?.message, token, postId, {}),
         providerErrorDetails(data, token, postId, {}),
       )
-      logSendFailure(error, token, postId, {})
+      logSendFailure(error, token, postId, {}, 'live_video_lookup')
       // Post and Video expose different fields; try the other object shape only
       // after an explicit invalid-field response. Other failures remain retryable.
       if (error.status === 400 && error.code === 100) return null

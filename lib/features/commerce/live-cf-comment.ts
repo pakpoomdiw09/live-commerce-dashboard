@@ -18,15 +18,26 @@ const money = (value: number) =>
   value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /** Attempt each enabled channel, then propagate failures to the durable worker. */
-async function deliverReplies(jobs: { channel: string; send: () => Promise<unknown> }[]) {
+async function deliverReplies(
+  jobs: { channel: string; send: () => Promise<unknown> }[],
+  commentId: string,
+) {
   const results = await Promise.allSettled(jobs.map(async (job) => job.send()))
   let failure: PromiseRejectedResult | undefined
   results.forEach((result, index) => {
     if (result.status !== 'rejected') return
     failure ??= result
     console.error('[live-cf/reply] failed', {
+      commentId,
       channel: jobs[index].channel,
-      errorCode: typeof result.reason?.code === 'number' ? result.reason.code : 'DELIVERY_FAILED',
+      errorCode:
+        typeof result.reason?.code === 'number'
+          ? result.reason.code
+          : /^[A-Z0-9_]{2,80}$/.test(result.reason?.code ?? '')
+            ? result.reason.code
+            : /^[A-Z][A-Z0-9_]{2,80}$/.test(result.reason?.message ?? '')
+              ? result.reason.message
+              : 'DELIVERY_FAILED',
       errorSubcode: typeof result.reason?.subcode === 'number' ? result.reason.subcode : null,
     })
   })
@@ -49,9 +60,29 @@ export async function handleLiveCfComment(
 ): Promise<boolean> {
   const rawCode = input.code?.trim() || cfCode(input.text)
   const code = rawCode ? rawCode.toLocaleLowerCase('en-US').trim() : null
-  if (!code) return false
+  if (!code) {
+    console.info('[live-cf/order] skipped', {
+      commentId: input.commentId,
+      reason: 'NO_PRODUCT_CODE',
+      textLength: input.text.length,
+    })
+    return false
+  }
   const order = await dependencies.placeOrder(code)
-  if (order.status === 'no_match') return false
+  if (order.status === 'no_match') {
+    console.warn('[live-cf/order] skipped', {
+      commentId: input.commentId,
+      code,
+      reason: 'ORDER_RPC_NO_MATCH',
+    })
+    return false
+  }
+  if (!dependencies.sendPrivateReply && !dependencies.replyToComment)
+    console.warn('[live-cf/reply] skipped', {
+      commentId: input.commentId,
+      reason: 'NO_ENABLED_REPLY_CHANNEL',
+      orderStatus: order.status,
+    })
   const jobs: { channel: string; send: () => Promise<unknown> }[] = []
   if (order.status === 'require_variant' || order.status === 'sold_out') {
     const privateText =
@@ -66,7 +97,7 @@ export async function handleLiveCfComment(
       jobs.push({ channel: 'private', send: () => dependencies.sendPrivateReply!(privateText) })
     if (dependencies.replyToComment)
       jobs.push({ channel: 'public', send: () => dependencies.replyToComment!(publicText) })
-    await deliverReplies(jobs)
+    await deliverReplies(jobs, input.commentId)
     return true
   }
   if (dependencies.sendPrivateReply)
@@ -120,6 +151,6 @@ export async function handleLiveCfComment(
             'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดและลิงก์ชำระเงินในข้อความส่วนตัว',
         ),
     })
-  await deliverReplies(jobs)
+  await deliverReplies(jobs, input.commentId)
   return true
 }

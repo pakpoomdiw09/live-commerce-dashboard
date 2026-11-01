@@ -130,7 +130,7 @@ function fixture() {
       },
       '@/lib/integrations/facebook/live-videos': client,
     },
-    { AbortSignal },
+    { AbortSignal, console: { info: (...values: unknown[]) => state.logs.push(values) } },
   )
   const send = (query = '?page_id=100') =>
     route.GET(
@@ -282,6 +282,11 @@ test('empty LIVE lists are distinct from malformed data, pagination loops and pr
     videos: [],
     fallback: false,
   })
+  const report = (empty.state.logs as any[]).find(
+    (entry) => entry[0] === '[facebook/live-videos] result',
+  )[1]
+  assert.equal(report.liveCount, 0)
+  assert.equal(report.videoCount, 0)
   const malformed = fixture()
   malformed.state.responses = [{ data: null }]
   assert.equal((await malformed.send()).status, 502)
@@ -365,6 +370,12 @@ test('no LIVE results offer at most three recent Page videos with explicit non-l
   assert.equal(result.status, 200)
   const payload = await result.json()
   assert.equal(payload.fallback, true)
+  const report = (state.logs as any[]).find(
+    (entry) => entry[0] === '[facebook/live-videos] result',
+  )[1]
+  assert.equal(report.liveCount, 0)
+  assert.equal(report.videoCount, 3)
+  assert.equal(report.fallback, true)
   assert.deepEqual(
     payload.videos.map((video: any) => video.id),
     ['4', '3', '2'],

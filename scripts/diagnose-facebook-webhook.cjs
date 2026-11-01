@@ -2,8 +2,20 @@
 const { loadEnvConfig } = require('@next/env')
 const { createClient } = require('@supabase/supabase-js')
 loadEnvConfig(process.cwd())
+const { redactFacebookDiagnostic } = require('./helpers/load-typescript.cjs')(
+  'lib/integrations/facebook/diagnostics.ts',
+  {},
+  { process },
+)
 
 async function main() {
+  const option = (name) => {
+    const position = process.argv.indexOf(name)
+    return position >= 0 ? process.argv[position + 1] : undefined
+  }
+  const requestedPageId = option('--page-id')
+  if (requestedPageId !== undefined && !/^[1-9]\d{0,63}$/.test(requestedPageId))
+    throw new Error('Invalid Page ID')
   for (const key of [
     'FB_VERIFY_TOKEN',
     'FB_APP_SECRET',
@@ -25,6 +37,7 @@ async function main() {
     process.exitCode = 1
     return
   }
+  console.log('supabase_project_host:', new URL(url).hostname)
   const db = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
@@ -112,7 +125,7 @@ async function main() {
     console.log(
       'recent_payload_shapes:',
       JSON.stringify(
-        (receipts.data ?? []).map((row) => {
+        (receipts.data ?? []).slice(0, 10).map((row) => {
           try {
             const body = JSON.parse(row.raw_payload)
             return {
@@ -139,6 +152,107 @@ async function main() {
         }),
       ),
     )
+  // Meta dashboard test events commonly use page_id=0. Never let that
+  // placeholder suppress inspection of the shop's actual Page/token.
+  const latest = await db
+    .from('facebook_webhook_events')
+    .select('page_id')
+    .neq('page_id', '0')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const targetPageId = requestedPageId ?? latest.data?.page_id
+  const page = targetPageId
+    ? await db
+        .from('tenants')
+        .select('id,page_id,page_access_token')
+        .eq('page_id', targetPageId)
+        .eq('is_active', true)
+        .maybeSingle()
+    : null
+  console.log(
+    'target_page:',
+    JSON.stringify({
+      pageId: targetPageId ?? null,
+      activeTenantFound: Boolean(page?.data),
+      selectedBy: requestedPageId ? 'explicit_page_id' : 'latest_non_placeholder_event',
+      configuredPageMatches: process.env.FB_PAGE_ID
+        ? String(targetPageId) === process.env.FB_PAGE_ID.trim()
+        : null,
+      note: 'FB_PAGE_ID is only a shared-token fallback; tenant Page IDs control routing',
+    }),
+  )
+  let rulesForPage = []
+  if (page?.data) {
+    const rules = await db
+      .from('comment_rules')
+      .select(
+        'id,keywords,match_type,is_active,live_product_id,live_variant_id,live_post_id,live_stock_limit,live_deduct_stock,inbox_enabled,reply_enabled',
+      )
+      .eq('tenant_id', page.data.id)
+      .eq('mode', 'live_cf')
+      .contains('page_ids', [targetPageId])
+      .limit(20)
+    if (rules.error) console.log('live_rule_diagnostics: FAILED code=' + rules.error.code)
+    else {
+      rulesForPage = rules.data ?? []
+      const productIds = [
+        ...new Set((rules.data ?? []).map((rule) => rule.live_product_id).filter(Boolean)),
+      ]
+      const products = productIds.length
+        ? await db
+            .from('products')
+            .select('id,code,stock,is_active,commerce_archived')
+            .eq('tenant_id', page.data.id)
+            .in('id', productIds)
+        : { data: [] }
+      const variants = productIds.length
+        ? await db
+            .from('commerce_variants')
+            .select('id,product_id,stock,is_active')
+            .eq('tenant_id', page.data.id)
+            .in('product_id', productIds)
+            .eq('is_active', true)
+            .limit(1000)
+        : { data: [] }
+      if (products.error || variants.error)
+        console.log(
+          'live_catalog_diagnostics: FAILED code=' + (products.error?.code ?? variants.error?.code),
+        )
+      else
+        console.log(
+          'live_rule_diagnostics:',
+          JSON.stringify(
+            (rules.data ?? []).map((rule) => {
+              const product = products.data.find((product) => product.id === rule.live_product_id)
+              const choices = variants.data.filter(
+                (variant) => variant.product_id === rule.live_product_id,
+              )
+              const selected = choices.find((variant) => variant.id === rule.live_variant_id)
+              return {
+                ruleId: rule.id,
+                active: rule.is_active,
+                keywords: rule.keywords,
+                matchType: rule.match_type,
+                postId: rule.live_post_id,
+                privateEnabled: rule.inbox_enabled,
+                publicEnabled: rule.reply_enabled,
+                stockLimit: rule.live_stock_limit,
+                deductStock: rule.live_deduct_stock,
+                productFound: Boolean(product),
+                productActive: product?.is_active,
+                productArchived: product?.commerce_archived,
+                productCode: product?.code,
+                productStock: product?.stock,
+                activeVariantCount: choices.length,
+                selectedVariantFound: rule.live_variant_id ? Boolean(selected) : null,
+                selectedVariantStock: selected?.stock,
+              }
+            }),
+          ),
+        )
+    }
+  }
   if (process.argv.includes('--meta')) {
     const appId = (process.env.FB_APP_ID || process.env.NEXT_PUBLIC_FB_APP_ID || '').trim()
     const appSecret = (process.env.FB_APP_SECRET || '').trim()
@@ -158,6 +272,7 @@ async function main() {
             code: body?.error?.code,
             subcode: body?.error?.error_subcode,
             type: body?.error?.type,
+            responseData: redactFacebookDiagnostic(body?.error, [authorization, appSecret]),
           }),
         )
         return null
@@ -180,53 +295,81 @@ async function main() {
           ),
         )
     }
-    const latest = await db
-      .from('facebook_webhook_events')
-      .select('page_id')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (latest.data?.page_id) {
-      const page = await db
-        .from('tenants')
-        .select('page_id,page_access_token')
-        .eq('page_id', latest.data.page_id)
-        .eq('is_active', true)
-        .maybeSingle()
-      if (page.data?.page_access_token) {
-        if (appId && appSecret) {
-          const inspected = await readGraph(
-            'debug_token?input_token=' + encodeURIComponent(page.data.page_access_token),
-            appId + '|' + appSecret,
-          )
-          if (inspected)
-            console.log(
-              'latest_page_token:',
-              JSON.stringify({
-                type: inspected.data?.type,
-                valid: inspected.data?.is_valid,
-                pageMatches: String(inspected.data?.profile_id) === page.data.page_id,
-                scopes: inspected.data?.scopes,
-                expiresAt: inspected.data?.expires_at,
-              }),
-            )
-        }
-        const linked = await readGraph(
-          page.data.page_id + '/subscribed_apps?fields=id,subscribed_fields',
-          page.data.page_access_token,
+    if (page?.data?.page_access_token) {
+      if (appId && appSecret) {
+        const inspected = await readGraph(
+          'debug_token?input_token=' + encodeURIComponent(page.data.page_access_token),
+          appId + '|' + appSecret,
         )
-        if (linked)
+        if (inspected)
           console.log(
-            'latest_page_subscriptions:',
+            'latest_page_token:',
             JSON.stringify({
-              pageId: page.data.page_id,
-              apps: (linked.data ?? []).map((row) => ({
-                isCurrentApp: row.id === appId,
-                fields: row.subscribed_fields,
-              })),
+              type: inspected.data?.type,
+              valid: inspected.data?.is_valid,
+              pageMatches: String(inspected.data?.profile_id) === page.data.page_id,
+              scopes: inspected.data?.scopes,
+              missingLivePermissions: [
+                'pages_read_engagement',
+                'pages_read_user_content',
+                'pages_manage_engagement',
+                'pages_manage_metadata',
+                'pages_messaging',
+              ].filter((scope) => !inspected.data?.scopes?.includes(scope)),
+              expiresAt: inspected.data?.expires_at,
             }),
           )
       }
+      const linked = await readGraph(
+        page.data.page_id + '/subscribed_apps?fields=id,subscribed_fields',
+        page.data.page_access_token,
+      )
+      if (linked)
+        console.log(
+          'latest_page_subscriptions:',
+          JSON.stringify({
+            pageId: page.data.page_id,
+            apps: (linked.data ?? []).map((row) => ({
+              isCurrentApp: row.id === appId,
+              fields: row.subscribed_fields,
+            })),
+          }),
+        )
+      const scopedVideos = [
+        ...new Set(
+          rulesForPage.map((rule) => rule.live_post_id).filter((id) => /^\d+$/.test(id ?? '')),
+        ),
+      ].slice(0, 3)
+      for (const videoId of scopedVideos) {
+        const video = await readGraph(
+          videoId + '?fields=id,live_status',
+          page.data.page_access_token,
+        )
+        if (video)
+          console.log(
+            'configured_live_video:',
+            JSON.stringify({ videoId, liveStatus: video.live_status ?? null }),
+          )
+      }
+      const liveList = await readGraph(
+        page.data.page_id + '/live_videos?fields=id,status,creation_time,video{id}&limit=10',
+        page.data.page_access_token,
+      )
+      if (liveList)
+        console.log(
+          'page_live_videos:',
+          JSON.stringify({
+            pageId: page.data.page_id,
+            videos: (liveList.data ?? []).map((video) => ({
+              id: video.id,
+              videoId: video.video?.id ?? null,
+              status: video.status,
+              createdAt: video.creation_time,
+              matchesConfiguredScope:
+                scopedVideos.includes(video.id) || scopedVideos.includes(video.video?.id),
+            })),
+          }),
+        )
     }
   }
 }

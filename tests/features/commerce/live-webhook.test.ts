@@ -84,6 +84,32 @@ test('feed/live_comments canonicalize comment IDs, nested authors and video IDs 
   assert.equal(post.payload.value.item, 'post')
 })
 
+test('every entry routes by its normalized Page ID; unsafe numeric IDs cannot silently lose precision', () => {
+  const body = {
+    object: 'page',
+    entry: [
+      { id: 100, changes: [{ field: 'feed', value: { item: 'comment', comment_id: '100_1' } }] },
+      { id: '200', changes: [{ field: 'feed', value: { item: 'comment', comment_id: '200_2' } }] },
+    ],
+  }
+  assert.deepEqual(
+    envelope.parseWebhook(Buffer.from(JSON.stringify(body))).events.map((e) => e.pageId),
+    ['100', '200'],
+  )
+  assert.throws(
+    () =>
+      envelope.parseWebhook(
+        Buffer.from(
+          JSON.stringify({
+            ...body,
+            entry: [{ ...body.entry[0], id: Number.MAX_SAFE_INTEGER + 1 }],
+          }),
+        ),
+      ),
+    /Invalid Page entry/,
+  )
+})
+
 test('Live CF private/public replies address the original comment, with structured sanitized Meta errors', async () => {
   const requests: { url: string; body: any }[] = []
   const f = clientFixture(async (url, init) => {
@@ -192,8 +218,10 @@ function handlerFixture(
     author?: boolean
     resolved?: string[]
     mode?: string
+    keywords?: string[]
   } = {},
 ) {
+  const traces: { label: string; data: any }[] = []
   const orders: any[] = [],
     sends: any[] = [],
     scopes: any[] = []
@@ -205,7 +233,7 @@ function handlerFixture(
     mode: 'live_cf',
     is_active: true,
     match_type: options.mode ?? 'keyword',
-    keywords: ['fc159'],
+    keywords: options.keywords ?? ['fc159'],
     live_post_id: options.post === undefined ? '456' : options.post,
     inbox_enabled: true,
     reply_enabled: true,
@@ -290,10 +318,14 @@ function handlerFixture(
       '@/lib/integrations/facebook/message-window': {},
       '@/lib/features/inbox/inbox-automation-window': {},
     },
-    { process: { env: {} }, console: silent },
+    {
+      process: { env: { FB_PAGE_ID: '200' } },
+      console: { ...silent, info: (label: string, data: any) => traces.push({ label, data }) },
+    },
   )
   return {
     orders,
+    traces,
     sends,
     scopes,
     receive: async (text: string, extra: Record<string, unknown> = {}, field = 'feed') => {
@@ -340,6 +372,14 @@ test('signed comment pipeline matches literal SKUs case-insensitively, passes th
     assert.equal(f.orders[0].code, 'fc159')
     assert.equal(f.orders[0].postId, '456')
     assert.equal(f.orders[0].tenantId, 'tenant')
+    assert.ok(
+      f.traces.some(
+        (t) =>
+          t.label === '[facebook-webhook/page] resolved' &&
+          t.data.matchesConfiguredPage === false &&
+          t.data.blockedByConfiguredPage === false,
+      ),
+    )
     assert.equal(f.sends.length, 2)
     assert.ok(
       f.sends.some(
@@ -355,6 +395,23 @@ test('signed comment pipeline matches literal SKUs case-insensitively, passes th
   const attached = handlerFixture({ resolved: ['456'] })
   await attached.receive('CF fc159', { video_id: undefined })
   assert.equal(attached.orders[0].postId, '456')
+})
+
+test('diagnostics distinguish a configured keyword mismatch from a session mismatch', async () => {
+  for (const text of ['777', 'กระเป๋า']) {
+    const f = handlerFixture({ keywords: ['as159'] })
+    await f.receive(text)
+    assert.equal(f.orders.length, 0)
+    assert.ok(f.traces.some((t) => t.data.reason === 'NO_MATCHING_LIVE_KEYWORD'))
+    assert.ok(
+      f.traces.some(
+        (t) => t.label === '[live-cf/match] evaluated' && t.data.liveRules[0].matchedCode === null,
+      ),
+    )
+  }
+  const scoped = handlerFixture({ post: '888' })
+  await scoped.receive('fc159')
+  assert.ok(scoped.traces.some((t) => t.data.reason === 'NO_MATCHING_LIVE_SESSION'))
 })
 
 test('wrong sessions, edits/removals, missing authors, Page replies, duplicate comments and Exact mismatches never create orders', async () => {
@@ -404,6 +461,7 @@ test('invalid signatures neither log customer payloads nor enqueue; verified raw
       '@/lib/integrations/facebook/diagnostics': { redactFacebookDiagnostic },
     },
     {
+      URL,
       process: { env: { FB_APP_SECRET: secret } },
       console: { ...silent, log: (...args: unknown[]) => logs.push(JSON.stringify(args)) },
     },
@@ -422,10 +480,15 @@ test('invalid signatures neither log customer payloads nor enqueue; verified raw
     })
   assert.equal((await http.postFacebookWebhook(request('sha256=' + '0'.repeat(64)))).status, 401)
   assert.equal(queued, 0)
+  assert.ok(logs.some((line) => line.includes('[facebook-webhook/request] received')))
   assert.ok(!logs.join().includes('CUSTOMER_PAYLOAD'))
   const signature = 'sha256=' + createHmac('sha256', secret).update(body).digest('hex')
   assert.equal((await http.postFacebookWebhook(request(signature))).status, 200)
   assert.equal(queued, 1)
   assert.ok(logs.join().includes('CUSTOMER_PAYLOAD'))
   assert.ok(!logs.join().includes(token))
+  const rawLog = logs
+    .flatMap((line) => JSON.parse(line))
+    .find((line) => typeof line === 'string' && line.startsWith('[facebook-webhook/raw] '))
+  assert.ok(rawLog.includes('\n  "object"'), 'verified JSON is pretty-printed')
 })

@@ -72,6 +72,18 @@ async function tenantForPage(pageId: string): Promise<PageTenant | null> {
 export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
   const { page_id: pageId, kind, payload } = execution.event
   const tenant = await tenantForPage(pageId)
+  const configuredPageId = process.env.FB_PAGE_ID?.trim()
+  console.info('[facebook-webhook/page] resolved', {
+    eventId: execution.event.id,
+    pageId,
+    tenantId: tenant?.id ?? null,
+    configuredPageId: configuredPageId || null,
+    matchesConfiguredPage: configuredPageId ? String(pageId) === configuredPageId : null,
+    routing: 'tenant_page_id',
+    blockedByConfiguredPage: false,
+    hasPageToken: Boolean(pageTokenFor(tenant)),
+    reason: tenant ? 'PAGE_LINKED' : pageId === '0' ? 'PLACEHOLDER_PAGE_ID' : 'PAGE_NOT_LINKED',
+  })
   if (!tenant)
     console.warn(
       '[facebook-webhook/handler] no active tenant for Page; message will not appear in tenant Inbox',
@@ -544,9 +556,30 @@ async function onComment(
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const rules = await loadCommentRules(db, tenant.id, pageId)
   const psid = typeof v.from?.id === 'string' ? v.from.id : null
-  const possibleLive = isFeatureEnabled('live_cf')
-    ? rules.filter((r) => r.mode === 'live_cf' && liveRuleCode(r, v.message))
-    : []
+  const liveEnabled = isFeatureEnabled('live_cf')
+  const liveRules = rules.filter((r) => r.mode === 'live_cf')
+  const matches = liveRules.map((rule) => ({ rule, code: liveRuleCode(rule, v.message) }))
+  const possibleLive = liveEnabled ? matches.filter((m) => m.code).map((m) => m.rule) : []
+  console.info('[live-cf/match] evaluated', {
+    eventId: execution.event.id,
+    commentId: v.comment_id,
+    pageId,
+    tenantId: tenant.id,
+    liveEnabled,
+    textLength: v.message.length,
+    activeRuleCount: rules.length,
+    liveRules: matches.map(({ rule, code }) => ({
+      ruleId: rule.id,
+      matchType: rule.match_mode ?? rule.match_type,
+      keywordCount: rule.keywords.length,
+      matchedCode: code,
+      productId: rule.live_product_id,
+      variantId: rule.live_variant_id,
+      livePostId: rule.live_post_id,
+      privateEnabled: rule.inbox_enabled,
+      publicEnabled: rule.reply_enabled,
+    })),
+  })
   if (psid && stored.customer) {
     const token = pageTokenFor(tenant)
     let ids = commentPostIds(v)
@@ -571,13 +604,35 @@ async function onComment(
           }
         : null
     })
+    console.info('[live-cf/session] evaluated', {
+      eventId: execution.event.id,
+      commentId: v.comment_id,
+      pageId,
+      postIds: ids,
+      liveEvidence: live,
+      candidateCount: candidates.length,
+      selection,
+    })
     if (selection?.ambiguous) {
       console.warn('[live-cf] ambiguous rules; no order created', { commentId: v.comment_id })
       return
     }
     if (selection) {
       const selectedRule = possibleLive.find((rule) => rule.id === selection.ruleId)
-      if (!selectedRule) return
+      if (!selectedRule) {
+        console.warn('[live-cf/comment] skipped', {
+          commentId: v.comment_id,
+          reason: 'SELECTED_RULE_CHANGED',
+          ruleId: selection.ruleId,
+        })
+        return
+      }
+      if (!selectedRule.inbox_enabled && !selectedRule.reply_enabled)
+        console.warn('[live-cf/reply] disabled', {
+          commentId: v.comment_id,
+          ruleId: selectedRule.id,
+          reason: 'BOTH_REPLY_CHANNELS_DISABLED',
+        })
       const saved = await db
         .from('comments')
         .update({ rule_id: selection.ruleId })
@@ -622,18 +677,38 @@ async function onComment(
           sendPrivateReply: selectedRule.inbox_enabled
             ? (message) =>
                 execution.once('comment-cf-private-reply', async () => {
+                  console.info('[live-cf/reply] started', {
+                    commentId: v.comment_id,
+                    ruleId: selectedRule.id,
+                    channel: 'private',
+                    recipientType: 'comment_id',
+                  })
                   await sendWithMessageCredit(db, tenant.id, () =>
                     meta.sendPrivateText(v.comment_id, message),
                   )
+                  console.info('[live-cf/reply] succeeded', {
+                    commentId: v.comment_id,
+                    channel: 'private',
+                  })
                   return null
                 })
             : undefined,
           replyToComment: selectedRule.reply_enabled
             ? (message) =>
                 execution.once('comment-cf-public-reply', async () => {
+                  console.info('[live-cf/reply] started', {
+                    commentId: v.comment_id,
+                    ruleId: selectedRule.id,
+                    channel: 'public',
+                    recipientType: 'comment_id',
+                  })
                   await sendWithMessageCredit(db, tenant.id, () =>
                     meta.sendPublicText(v.comment_id, message),
                   )
+                  console.info('[live-cf/reply] succeeded', {
+                    commentId: v.comment_id,
+                    channel: 'public',
+                  })
                   return null
                 })
             : undefined,
@@ -645,7 +720,13 @@ async function onComment(
     }
     console.info('[live-cf/comment] skipped', {
       commentId: v.comment_id,
-      reason: !possibleLive.length ? 'NO_MATCHING_LIVE_KEYWORD' : 'NO_MATCHING_LIVE_SESSION',
+      reason: !liveEnabled
+        ? 'LIVE_CF_DISABLED'
+        : !liveRules.length
+          ? 'NO_ACTIVE_LIVE_RULES'
+          : !possibleLive.length
+            ? 'NO_MATCHING_LIVE_KEYWORD'
+            : 'NO_MATCHING_LIVE_SESSION',
       postIds: ids,
     })
   } else if (possibleLive.length) {
@@ -696,10 +777,17 @@ async function loadCommentRules(
     .eq('is_active', true)
     .contains('page_ids', [pageId])
     .order('created_at')
-  if (error)
+  if (error) {
+    console.error('[live-cf/rules] lookup failed', {
+      tenantId,
+      pageId,
+      code: error.code,
+      message: error.message,
+    })
     throw new Error(
       `comment rules: ${error.message} (did you run supabase/comment-rules.sql and platform.sql?)`,
     )
+  }
   return (data ?? []) as unknown as CommentRule[]
 }
 

@@ -131,7 +131,11 @@ export function parseWebhook(bytes: Uint8Array): {
     throw new WebhookInputError('Invalid Page payload', 400)
   const events: FacebookWebhookEvent[] = []
   for (const entry of payload.entry) {
-    if (!object(entry) || !/^\d{1,64}$/.test(String(entry.id ?? '')))
+    if (
+      !object(entry) ||
+      (typeof entry.id === 'number' && !Number.isSafeInteger(entry.id)) ||
+      !/^\d{1,64}$/.test(String(entry.id ?? ''))
+    )
       throw new WebhookInputError('Invalid Page entry', 400)
     const pageId = String(entry.id)
     for (const [field, kind] of [

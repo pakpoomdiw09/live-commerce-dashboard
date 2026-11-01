@@ -49,24 +49,36 @@ function appendValues(group: ProductOptionGroup): ProductOptionGroup {
   return { ...group, values, draft: '' }
 }
 
-export function QuickProductModal({
-  tenantId,
-  salesPageUrl,
-  initialData = null,
-  onSaved,
-  onDismiss,
-}: {
+type QuickProductModalProps = {
   tenantId: string
   salesPageUrl: string | null
   initialData?: LiveProductOption | null
   onSaved: (product: LiveProductOption) => void
   onDismiss: () => void
-}) {
+}
+
+/** Every product/tenant owns a fresh form, including refs and pending requests. */
+export function QuickProductModal(props: QuickProductModalProps) {
+  return (
+    <QuickProductForm key={`${props.tenantId}:${props.initialData?.id ?? 'create'}`} {...props} />
+  )
+}
+
+function QuickProductForm({
+  tenantId,
+  salesPageUrl,
+  initialData = null,
+  onSaved,
+  onDismiss,
+}: QuickProductModalProps) {
+  const productId = initialData?.id
   const dialogRef = useRef<HTMLDialogElement>(null)
   const codeInputRef = useRef<HTMLInputElement>(null)
   const savingRef = useRef(false),
     uploadingRef = useRef(false)
   const variantIds = useRef(new Map<string, string>())
+  const mounted = useRef(false)
+  const pendingRequests = useRef(new Set<AbortController>())
   const [loaded, setLoaded] = useState<QuickProductDetails | null>(null)
   const [detailsReady, setDetailsReady] = useState(!initialData)
   const [detailError, setDetailError] = useState<string | null>(null)
@@ -86,7 +98,7 @@ export function QuickProductModal({
     price: initialData ? String(initialData.price) : '',
     stock: String(initialData?.stock ?? 0),
     description: initialData?.description ?? '',
-    images: initialData?.images ?? (initialData?.image_url ? [initialData.image_url] : []),
+    images: [...(initialData?.images ?? (initialData?.image_url ? [initialData.image_url] : []))],
   })
   const [groups, setGroups] = useState<ProductOptionGroup[]>([])
   const [legacyVariants, setLegacyVariants] = useState<ProductCombination[]>([])
@@ -129,40 +141,52 @@ export function QuickProductModal({
     : draft.stock
 
   useEffect(() => {
+    mounted.current = true
+    const requests = pendingRequests.current
     const dialog = dialogRef.current,
       previousOverflow = document.body.style.overflow
     dialog?.showModal()
     codeInputRef.current?.focus()
     document.body.style.overflow = 'hidden'
     return () => {
+      mounted.current = false
+      requests.forEach((controller) => controller.abort())
+      requests.clear()
       dialog?.close()
       document.body.style.overflow = previousOverflow
     }
   }, [])
 
   useEffect(() => {
-    if (!initialData) return
+    if (!productId) return
     const controller = new AbortController()
+    // Clear the complete editable snapshot before every load/reload, including
+    // products without variants. Never show or submit the previous option grid.
+    setLoaded(null)
+    setGroups([])
+    setLegacyVariants([])
+    setOverrides({})
+    variantIds.current = new Map()
     setDetailsReady(false)
     setDetailError(null)
     void (async () => {
       try {
         const response = await fetch(
-          `/api/commerce/products/${encodeURIComponent(initialData.id)}?tenantId=${encodeURIComponent(tenantId)}`,
+          `/api/commerce/products/${encodeURIComponent(productId)}?tenantId=${encodeURIComponent(tenantId)}`,
           { signal: controller.signal, cache: 'no-store' },
         )
         const result = await response.json()
         if (!response.ok) throw new Error(result.error ?? 'โหลดข้อมูลสินค้าไม่สำเร็จ')
-        const product = result.product as QuickProductDetails
+        const product = structuredClone(result.product) as QuickProductDetails
         if (
           !product ||
-          product.id !== initialData.id ||
+          product.id !== productId ||
           !Number.isSafeInteger(product.version) ||
           !Array.isArray(product.variants) ||
           !Array.isArray(product.images)
         )
           throw new Error('ข้อมูลสินค้าไม่สมบูรณ์ กรุณาลองใหม่')
-        const restored = restoreProductOptions(product.variants)
+        const restored = restoreProductOptions(product.variants, `${tenantId}:${productId}`)
         if (!controller.signal.aborted) {
           setLoaded(product)
           setDraft({
@@ -172,7 +196,7 @@ export function QuickProductModal({
             price: String(product.price),
             stock: String(product.stock),
             description: product.description,
-            images: product.images,
+            images: [...product.images],
           })
           setGroups(restored.groups)
           setLegacyVariants(restored.legacy)
@@ -188,7 +212,7 @@ export function QuickProductModal({
       }
     })()
     return () => controller.abort()
-  }, [initialData, tenantId, detailAttempt])
+  }, [productId, tenantId, detailAttempt])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -250,6 +274,8 @@ export function QuickProductModal({
   async function upload(file: File): Promise<string | null> {
     if (savingRef.current || uploadingRef.current) return null
     uploadingRef.current = true
+    const controller = new AbortController()
+    pendingRequests.current.add(controller)
     setUploading(true)
     setError(null)
     try {
@@ -258,25 +284,33 @@ export function QuickProductModal({
       const response = await fetch(`/api/commerce/media?tenantId=${encodeURIComponent(tenantId)}`, {
         method: 'POST',
         body: form,
+        signal: controller.signal,
       })
       const result = await response.json()
+      if (!mounted.current || controller.signal.aborted) return null
       if (!response.ok) throw new Error(result.error ?? 'อัปโหลดรูปภาพไม่สำเร็จ')
       const url = safeImage(result.url)
       if (!url) throw new Error('ไม่ได้รับที่อยู่รูปภาพ กรุณาลองใหม่')
       return url
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'อัปโหลดรูปภาพไม่สำเร็จ')
+      if (mounted.current && !controller.signal.aborted)
+        setError(failure instanceof Error ? failure.message : 'อัปโหลดรูปภาพไม่สำเร็จ')
       return null
     } finally {
       uploadingRef.current = false
-      setUploading(false)
+      pendingRequests.current.delete(controller)
+      if (mounted.current) setUploading(false)
     }
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (savingRef.current || uploadingRef.current || !categoriesReady || !detailsReady) return
+    const controller = new AbortController()
+    pendingRequests.current.add(controller)
     setError(null)
     try {
+      if (productId && (!loaded || loaded.id !== productId))
+        throw new Error('ข้อมูลสินค้าไม่ตรงกัน กรุณาโหลดข้อมูลใหม่ก่อนบันทึก')
       const finalGroups = groups.map((group) => (group.draft.trim() ? appendValues(group) : group))
       const rows = legacyVariants.length ? legacyVariants : productCombinations(finalGroups)
       const supplied = Object.fromEntries(
@@ -312,15 +346,17 @@ export function QuickProductModal({
       setSaving(true)
       const response = await fetch('/api/commerce', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
           action: 'product',
           value,
-          ...(initialData ? { id: initialData.id, version: loaded!.version } : {}),
+          ...(productId ? { id: productId, version: loaded!.version } : {}),
         }),
       })
       const result = await response.json()
+      if (!mounted.current || controller.signal.aborted) return
       if (!response.ok) {
         setNeedsReload(
           !!initialData &&
@@ -348,10 +384,12 @@ export function QuickProductModal({
         variants: value.variants,
       })
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'บันทึกสินค้าไม่สำเร็จ กรุณาลองใหม่')
+      if (mounted.current && !controller.signal.aborted)
+        setError(failure instanceof Error ? failure.message : 'บันทึกสินค้าไม่สำเร็จ กรุณาลองใหม่')
     } finally {
       savingRef.current = false
-      setSaving(false)
+      pendingRequests.current.delete(controller)
+      if (mounted.current) setSaving(false)
     }
   }
 
