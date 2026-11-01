@@ -1,5 +1,6 @@
 // Shared by the webhook (matching) and the dashboard (editor preview).
-import { matchesCfCode, matchOrderCode, normalizeCfCode, normalizeCfText } from '@/lib/features/commerce/cf-code'
+import { normalizeCfCode } from '@/lib/features/commerce/cf-code'
+import { matchLiveCfCode } from '@/lib/features/commerce/live-cf-codes'
 
 export type MatchType = 'exact' | 'keyword'
 
@@ -54,18 +55,14 @@ export type LiveProductOption = {
   }[]
 }
 
-/** Alias boundaries are stricter than general Thai keyword matching: A1 must not match BA1/A12. */
+/** Return the stored keyword, using the same Contains/Exact matcher as the setup preview. */
 export function liveRuleCode(
   rule: Pick<CommentRule, 'match_type' | 'keywords'> & { match_mode?: 'flexible' | 'strict' },
   comment: string,
 ) {
   const mode = rule.match_mode ?? (rule.match_type === 'exact' ? 'strict' : 'flexible')
-  for (const raw of rule.keywords) {
-    const code = normalizeCfCode(raw)
-    if (!code) continue
-    if (matchOrderCode(comment, code, mode)) return code
-  }
-  return null
+  const codes = rule.keywords.map(normalizeCfCode).filter((code): code is string => code !== null)
+  return matchLiveCfCode(comment, codes, mode)
 }
 
 // case- and whitespace-insensitive; NFC so the same Thai text typed on different keyboards compares equal

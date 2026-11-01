@@ -208,7 +208,7 @@ test('all saved aliases route real live comments to the same product and retain 
   const db = await database(5)
   try {
     const product = (await db.query<{ id: string }>('select id from products limit 1')).rows[0].id
-    const aliases = ['a1', '159', 'จอง', 'b2', 'รับ1']
+    const aliases = ['cf159', '01', 'จอง', 'b2', 'รับ1']
     const rule = (
       await db.query<{ id: string; keywords: string[]; match_type: 'keyword' }>(
         `insert into comment_rules(tenant_id,name,page_ids,keywords,match_type,mode,live_product_id,live_stock_limit,is_active)
@@ -218,8 +218,10 @@ test('all saved aliases route real live comments to the same product and retain 
     ).rows[0]
     assert.deepEqual(new Set(rule.keywords), new Set(aliases))
     for (const [index, alias] of aliases.entries()) {
-      const prefix = ['', 'รับ', 'จอง', 'เอา', 'ปิด'][index]
-      const matched = liveRuleCode(rule, `${prefix}${alias}`)
+      const comment = ['เอา cf 159?!', 'รับ01ครับ', 'อยากจองสินค้าค่ะ', 'xxB 2yy!', 'ปิดรับ 1.'][
+        index
+      ]
+      const matched = liveRuleCode(rule, comment)
       assert.equal(matched, alias)
       const args = [tenant, customer, rule.id, matched, `multi-${index}`, null, 'page-1']
       const order = (

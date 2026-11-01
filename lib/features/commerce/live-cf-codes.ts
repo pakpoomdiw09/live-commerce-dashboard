@@ -1,4 +1,4 @@
-import { matchOrderCode, normalizeCfText } from './cf-code'
+import { normalizeCfText } from './cf-code'
 
 export const MAX_LIVE_CF_CODES = 5
 export class LiveCfCodesError extends Error {}
@@ -38,12 +38,28 @@ export function previewLiveCfCodes(codes: readonly string[], draft: string) {
   }
 }
 
+/** Keep configured separators, ignore trailing punctuation and join letter/number spacing. */
+function containsText(value: string) {
+  return normalizeCfText(value)
+    .replace(/[^\p{L}\p{N}\p{M}_-]+$/gu, '')
+    .replace(/([\p{L}\p{M}])\s+(?=\p{N})/gu, '$1')
+    .replace(/(\p{N})\s+(?=[\p{L}\p{M}])/gu, '$1')
+}
+
+/** Shared by the setup preview and inbound live-comment rules. */
 export function matchLiveCfCode(
   comment: string,
   codes: readonly string[],
   mode: 'flexible' | 'strict',
 ) {
-  return codes.find((code) => matchOrderCode(comment, code, mode)) ?? null
+  const text = mode === 'strict' ? normalizeCfText(comment) : containsText(comment)
+  if (!text) return null
+  return (
+    codes.find((code) => {
+      const keyword = mode === 'strict' ? normalizeCfText(code) : containsText(code)
+      return !!keyword && (mode === 'strict' ? text === keyword : text.includes(keyword))
+    }) ?? null
+  )
 }
 
 export function liveCfCodeExamples(codes: readonly string[], mode: 'flexible' | 'strict') {

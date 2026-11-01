@@ -8,6 +8,39 @@ import {
   previewLiveCfCodes,
 } from '../../../lib/features/commerce/live-cf-codes'
 import { matchOrderCode } from '../../../lib/features/commerce/cf-code'
+import { liveRuleCode } from '../../../lib/features/comments/comment-rules'
+
+test('Contains matches partial keywords, punctuation and mixed letter/number spacing identically in preview and webhook', () => {
+  for (const [code, comments] of [
+    ['CF159', ['cf159?', 'เอา cf 159', 'ข้อความก่อน CF 159! ข้อความหลัง', 'xxcf159yy']],
+    ['159', ['cf159?', 'รับ 159 ครับ', 'เอา cf 159', '1590', 'abc159xyz']],
+    ['A1', ['รับ a 1 ค่ะ?! ', 'BA12', 'ａ１？']],
+    ['เสื้อ', ['ขอเสื้อผ้าค่ะ!', 'เสื้อ,']],
+    ['01', ['รับ01ครับ', '01 . , ! ? ']],
+    ['A-1', ['รับ a-1!', 'a-1.']],
+    ['A_', ['a_!', 'รับ a_']],
+  ] as const) {
+    for (const comment of comments) {
+      assert.equal(matchLiveCfCode(comment, [code], 'flexible'), code, comment)
+      assert.equal(
+        liveRuleCode({ keywords: [code], match_type: 'keyword' }, comment),
+        code.toLowerCase(),
+        comment,
+      )
+    }
+  }
+  for (const comment of ['cf159?', 'cf 159', 'เอา cf 159', 'cf159 ครับ']) {
+    assert.equal(matchLiveCfCode(comment, ['CF159'], 'strict'), null, comment)
+    assert.equal(liveRuleCode({ keywords: ['CF159'], match_type: 'exact' }, comment), null, comment)
+  }
+  assert.equal(matchLiveCfCode('  cF159  ', ['CF159'], 'strict'), 'CF159')
+  for (const comment of ['', '?! . , ', 'ข้อความทั่วไป', 'CF158', 'CF 158'])
+    assert.equal(matchLiveCfCode(comment, ['CF159'], 'flexible'), null, comment)
+  assert.equal(matchLiveCfCode('159', [''], 'flexible'), null)
+  assert.equal(matchLiveCfCode('1', ['01'], 'flexible'), null)
+  assert.equal(matchLiveCfCode('0 1', ['01'], 'flexible'), null)
+  assert.equal(matchLiveCfCode('a1', ['A-1'], 'flexible'), null)
+})
 
 test('draft codes immediately preview the six customer examples without adding a saved tag', () => {
   const codes: string[] = []
@@ -103,7 +136,7 @@ test('all Live CF tag examples match using the webhook rules in flexible and str
   }
   assert.equal(matchLiveCfCode('CF 159', codes, 'strict'), null)
   assert.equal(matchLiveCfCode('รับ A1', codes, 'flexible'), 'A1')
-  assert.equal(matchLiveCfCode('CF 1590', ['A1', '159'], 'flexible'), null)
+  assert.equal(matchLiveCfCode('CF 1590', ['A1', '159'], 'flexible'), '159')
   assert.equal(matchLiveCfCode('ข้อความทั่วไป', codes, 'flexible'), null)
   assert.equal(matchLiveCfCode('159', [], 'flexible'), null)
 })

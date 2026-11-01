@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as codes from '../../../lib/features/commerce/live-cf-codes'
 import * as cf from '../../../lib/features/commerce/cf-code'
 import { extractFacebookLiveId } from '../../../lib/features/commerce/live-cf-setup'
+import { liveRuleCode } from '../../../lib/features/comments/comment-rules'
 
 const require = createRequire(import.meta.url)
 const load = require('../../../scripts/helpers/load-typescript.cjs')
@@ -120,6 +121,20 @@ test('Live CF setup saves every tag to keywords for create/update and accepts le
   )
   assert.equal(state.writes[3].live_customer_select_variant, true)
   assert.equal(state.writes[3].live_variant_id, null)
+})
+
+test('switching Exact to Contains persists the selected mode and reloaded rules use the preview matcher', async () => {
+  const { state, send } = fixture()
+  assert.equal((await send({ codes: ['CF159'], matchMode: 'strict' })).status, 200)
+  assert.equal(state.writes[0].match_type, 'exact')
+  const exactRule = state.writes[0] as { keywords: string[]; match_type: 'exact' }
+  assert.equal(liveRuleCode(exactRule, 'cf159?'), null)
+  assert.equal((await send({ id: ruleId, codes: ['CF159'], matchMode: 'flexible' })).status, 200)
+  assert.equal(state.writes[1].match_type, 'keyword')
+  const containsRule = state.writes[1] as { keywords: string[]; match_type: 'keyword' }
+  assert.equal(liveRuleCode(containsRule, 'เอา cf 159?!'), 'cf159')
+  assert.equal((await send({ id: ruleId, codes: ['CF159'], matchMode: 'strict' })).status, 200)
+  assert.equal(liveRuleCode(state.writes[2] as typeof exactRule, 'เอา cf 159?!'), null)
 })
 
 test('Live CF setup rejects empty, duplicate and excessive tags before database writes and preserves owner checks', async () => {

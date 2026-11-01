@@ -310,6 +310,41 @@ compiler.init()
     }
     await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', '')
     assert.deepEqual(await evaluate(exampleTexts), [])
+    for (const keyword of ['CF159', '159']) {
+      await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', keyword)
+      const comments =
+        keyword === 'CF159'
+          ? ['cf159?', 'เอา cf 159', 'ข้อความก่อนCF159ข้อความหลัง!']
+          : ['cf159?', 'รับ 159 ครับ', 'เอา cf 159', '1590!']
+      for (const comment of comments) {
+        await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', comment)
+        assert.equal(
+          await evaluate(
+            `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+          ),
+          true,
+          `${keyword}: ${comment}`,
+        )
+      }
+      await evaluate(`document.querySelector('input[name="matchMode"][value="strict"]').click()`)
+      await pause()
+      assert.equal(
+        await evaluate(
+          `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+        ),
+        false,
+      )
+      await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', keyword.toLowerCase())
+      assert.equal(
+        await evaluate(
+          `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+        ),
+        true,
+      )
+      await evaluate(`document.querySelector('input[name="matchMode"][value="flexible"]').click()`)
+      await pause()
+    }
+    await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', '')
     await enterCode('')
     assert.equal(await evaluate(tagCount), 0)
     await enterCode('159')
@@ -635,6 +670,17 @@ compiler.init()
         await evaluate(`!!document.querySelector('button[aria-label="ลบรหัส ${code}"]')`),
         true,
       )
+    assert.equal(
+      await evaluate(`document.querySelector('input[name="matchMode"][value="flexible"]').checked`),
+      true,
+    )
+    await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', 'เอา cf 159?')
+    assert.equal(
+      await evaluate(
+        `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+      ),
+      true,
+    )
     await call('Page.navigate', { url: address + '/?payment=1' })
     await wait(`!!document.querySelector('select[aria-label="เลือกรูปแบบสินค้าเพื่อชำระเงิน"]')`)
     assert.equal(
