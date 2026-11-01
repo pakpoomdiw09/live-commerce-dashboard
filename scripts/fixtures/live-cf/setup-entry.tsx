@@ -13,6 +13,7 @@ const state = Object.assign(liveCfTest, {
   uploadFailure: false,
   liveFailure: false,
   liveEmpty: false,
+  liveFallback: false,
   liveId: '456',
   newProductId,
 })
@@ -30,6 +31,7 @@ window.fetch = async (input, init) => {
     const pageId = new URL(url, location.origin).searchParams.get('page_id')
     return Response.json({
       pageId,
+      fallback: state.liveFallback && !state.liveEmpty,
       videos: state.liveEmpty
         ? []
         : [
@@ -38,6 +40,7 @@ window.fetch = async (input, init) => {
               title: pageId === '200' ? 'ไลฟ์สดเพจที่สอง' : 'ไลฟ์เสื้อผ้าวันนี้',
               thumbnail: 'https://storage.example/live.webp',
               createdAt: '2026-11-01T04:00:00.000Z',
+              isLive: !state.liveFallback,
             },
           ],
     })

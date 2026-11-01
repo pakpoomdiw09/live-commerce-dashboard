@@ -535,7 +535,7 @@ export function LiveCfSetup({
           {selectedLive && (
             <div
               aria-label="ไลฟ์สดที่เลือก"
-              className="mt-3 flex items-center gap-3 rounded-xl border border-red-100 bg-red-50/40 p-3"
+              className={`mt-3 flex items-center gap-3 rounded-xl border p-3 ${selectedLive.isLive ? 'border-red-100 bg-red-50/40' : 'border-slate-200 bg-slate-50'}`}
             >
               <div className="grid h-16 w-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-white text-red-300">
                 {selectedLive.thumbnail ? (
@@ -546,7 +546,11 @@ export function LiveCfSetup({
                 )}
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-bold text-red-600">เลือกไลฟ์แล้ว</p>
+                <p
+                  className={`text-[11px] font-bold ${selectedLive.isLive ? 'text-red-600' : 'text-slate-500'}`}
+                >
+                  {selectedLive.isLive ? 'เลือกไลฟ์แล้ว' : 'เลือกวิดีโอสำรองแล้ว'}
+                </p>
                 <p className="mt-0.5 line-clamp-2 break-words font-semibold text-slate-800">
                   {selectedLive.title}
                 </p>

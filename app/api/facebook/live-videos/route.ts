@@ -3,7 +3,11 @@ import { getActor, canAccessTenant } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { isFeatureEnabled } from '@/lib/feature-flags'
 import { pageTokenFor } from '@/lib/integrations/facebook/client'
-import { fetchPageLiveVideos, LiveVideosError } from '@/lib/integrations/facebook/live-videos'
+import {
+  fetchPageLiveVideos,
+  verifyLiveVideoPageToken,
+  LiveVideosError,
+} from '@/lib/integrations/facebook/live-videos'
 
 const headers = { 'Cache-Control': 'private, no-store' }
 const failure = (error: string, status: number) =>
@@ -44,8 +48,10 @@ export async function GET(req: NextRequest) {
     if (!saved.data) return failure('การเชื่อมต่อเพจเปลี่ยนไป กรุณาโหลดหน้าใหม่', 409)
     const token = pageTokenFor(saved.data)
     if (!token) return failure('ยังไม่ได้เชื่อมต่อ Facebook กรุณาเชื่อมต่อเพจในตั้งค่าร้านค้า', 409)
-    const videos = await fetchPageLiveVideos(pageId, token, req.signal)
-    return NextResponse.json({ pageId, videos }, { headers })
+    const signal = AbortSignal.any([req.signal, AbortSignal.timeout(25_000)])
+    await verifyLiveVideoPageToken(pageId, token, signal)
+    const result = await fetchPageLiveVideos(pageId, token, signal)
+    return NextResponse.json({ pageId, ...result }, { headers })
   } catch (error) {
     if (error instanceof LiveVideosError) return failure(error.message, error.status)
     // Provider/database errors may contain credentials; never forward or log them.

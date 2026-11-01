@@ -29,6 +29,7 @@ export function LiveVideoPickerModal({
   const dialogRef = useRef<HTMLDialogElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const [videos, setVideos] = useState<FacebookLiveVideo[]>([])
+  const [fallback, setFallback] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -51,6 +52,7 @@ export function LiveVideoPickerModal({
     const controller = new AbortController()
     setLoading(true)
     setVideos([])
+    setFallback(false)
     setError(null)
     void (async () => {
       try {
@@ -58,13 +60,14 @@ export function LiveVideoPickerModal({
           `/api/facebook/live-videos?page_id=${encodeURIComponent(pageId)}`,
           {
             cache: 'no-store',
-            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(18_000)]),
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]),
           },
         )
         const result = await response.json()
         if (!response.ok) throw new Error(result.error ?? 'โหลดรายการไลฟ์สดไม่สำเร็จ')
         if (
           result.pageId !== pageId ||
+          typeof result.fallback !== 'boolean' ||
           !Array.isArray(result.videos) ||
           result.videos.some(
             (row: FacebookLiveVideo) =>
@@ -72,6 +75,7 @@ export function LiveVideoPickerModal({
               typeof row.id !== 'string' ||
               !/^\d{1,40}$/.test(row.id) ||
               typeof row.title !== 'string' ||
+              typeof row.isLive !== 'boolean' ||
               (row.thumbnail !== null &&
                 (typeof row.thumbnail !== 'string' || !row.thumbnail.startsWith('https://'))) ||
               (row.createdAt !== null &&
@@ -79,7 +83,10 @@ export function LiveVideoPickerModal({
           )
         )
           throw new Error('ข้อมูลไลฟ์สดไม่สมบูรณ์ กรุณาลองใหม่')
-        if (!controller.signal.aborted) setVideos(result.videos)
+        if (!controller.signal.aborted) {
+          setVideos(result.videos)
+          setFallback(result.fallback)
+        }
       } catch (failure) {
         if (!controller.signal.aborted)
           setError(
@@ -117,9 +124,13 @@ export function LiveVideoPickerModal({
               <h2 id="live-video-picker-title" className="text-lg font-bold">
                 เลือกไลฟ์สดปัจจุบัน
               </h2>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-bold text-red-600">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500 motion-reduce:animate-none" />{' '}
-                LIVE
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${fallback ? 'bg-slate-100 text-slate-600' : 'bg-red-50 text-red-600'}`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${fallback ? 'bg-slate-400' : 'animate-pulse bg-red-500 motion-reduce:animate-none'}`}
+                />{' '}
+                {fallback ? 'ตัวเลือกสำรอง' : 'LIVE'}
               </span>
             </div>
             <p className="mt-1 break-words text-sm text-slate-500">{pageName}</p>
@@ -141,7 +152,9 @@ export function LiveVideoPickerModal({
                 ? 'กำลังค้นหาไลฟ์สด…'
                 : error
                   ? 'โหลดรายการไม่สำเร็จ'
-                  : `กำลังถ่ายทอดสด ${videos.length} รายการ`}
+                  : fallback
+                    ? `วิดีโอล่าสุด ${videos.length} รายการ`
+                    : `กำลังถ่ายทอดสด ${videos.length} รายการ`}
             </p>
             <button
               type="button"
@@ -152,6 +165,14 @@ export function LiveVideoPickerModal({
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> รีเฟรชรายการ
             </button>
           </div>
+          {fallback && !loading && !error && (
+            <p
+              role="note"
+              className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-600"
+            >
+              ไม่พบไลฟ์ที่กำลังถ่ายทอดสด แสดงวิดีโอล่าสุดไม่เกิน 3 รายการเป็นตัวเลือกสำรอง
+            </p>
+          )}
           {loading ? (
             <div className="grid min-h-52 place-content-center justify-items-center gap-3 text-sm text-slate-500">
               <LoaderCircle className="h-7 w-7 animate-spin text-orange-500" /> กำลังโหลดรายการจาก
@@ -194,8 +215,12 @@ export function LiveVideoPickerModal({
               <table className="w-full text-left text-sm">
                 <thead className="hidden bg-slate-50 text-xs text-slate-500 sm:table-header-group">
                   <tr>
-                    <th className="px-4 py-3 font-medium">ไลฟ์สด</th>
-                    <th className="px-4 py-3 font-medium">เวลาเริ่มไลฟ์</th>
+                    <th className="px-4 py-3 font-medium">
+                      {fallback ? 'วิดีโอล่าสุด' : 'ไลฟ์สด'}
+                    </th>
+                    <th className="px-4 py-3 font-medium">
+                      {fallback ? 'เวลาโพสต์' : 'เวลาเริ่มไลฟ์'}
+                    </th>
                     <th className="px-4 py-3">
                       <span className="sr-only">เลือก</span>
                     </th>
@@ -237,7 +262,7 @@ export function LiveVideoPickerModal({
                           onClick={() => onSelect(video)}
                           className="w-full whitespace-nowrap rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 sm:w-auto"
                         >
-                          เลือกไลฟ์นี้
+                          {video.isLive ? 'เลือกไลฟ์นี้' : 'เลือกวิดีโอนี้'}
                         </button>
                       </td>
                     </tr>

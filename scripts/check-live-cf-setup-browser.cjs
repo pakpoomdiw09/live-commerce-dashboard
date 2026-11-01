@@ -341,6 +341,31 @@ compiler.init()
     )
     await click('กรอกรหัสด้วยตนเอง')
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).readOnly`), false)
+    await evaluate('liveCfTest.liveFallback=true')
+    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await wait(`document.querySelector('dialog')?.textContent.includes('เลือกวิดีโอนี้')`)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('dialog').textContent.includes('แสดงวิดีโอล่าสุดไม่เกิน 3 รายการ')`,
+      ),
+      true,
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('dialog').textContent.includes('กำลังถ่ายทอดสด 1 รายการ')`,
+      ),
+      false,
+    )
+    await click('เลือกวิดีโอนี้')
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="ไลฟ์สดที่เลือก"]').textContent.includes('เลือกวิดีโอสำรองแล้ว')`,
+      ),
+      true,
+    )
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).value`), '456')
+    await evaluate('liveCfTest.liveFallback=false')
+    await click('กรอกรหัสด้วยตนเอง')
     await evaluate(
       `(()=>{const data=new DataTransfer();data.setData('text','https://www.facebook.com/shop/videos/123456789012345678/');document.querySelector(${JSON.stringify(link)}).dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));})()`,
     )
