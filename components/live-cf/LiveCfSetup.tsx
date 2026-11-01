@@ -42,10 +42,11 @@ function generateDefaultPrivateText(
   productName?: string,
   price?: number,
   variantLabel?: string | null,
+  customerSelectVariant = false,
 ) {
   const variantPart = variantLabel ? ' {variant_name}' : ''
   return displayLiveReplyTemplate(
-    `ยินดีด้วยครับ! คุณได้รับสินค้า {product_name}${variantPart}\nราคา: {price} บาท (ยอดชำระ: {total} บาท)\nชำระเงินและแนบสลิปเซลเพจได้ที่ลิงก์นี้: {payment_link}`,
+    `ยินดีด้วยครับ! คุณได้รับสินค้า {product_name}${variantPart}\nราคา: {price} บาท (ยอดชำระ: {total} บาท)${customerSelectVariant ? '\nกรุณาเลือกรูปแบบสินค้าและตรวจสอบยอดสุดท้ายในหน้าชำระเงินก่อนโอน' : ''}\nชำระเงินและแนบสลิปเซลเพจได้ที่ลิงก์นี้: {payment_link}`,
   )
 }
 
@@ -143,11 +144,8 @@ export function LiveCfSetup({
   const initialProduct = products.find(
     (item) => item.id === (initialRule?.live_product_id ?? products[0]?.id),
   )
-  const [variantId, setVariantId] = useState(
-    initialRule?.live_variant_id ?? initialProduct?.variants[0]?.id ?? '',
-  )
   const [codes, setCodes] = useState<string[]>(
-    initialRule?.keywords.length ? [...initialRule.keywords] : [initialProduct?.code ?? '159'],
+    initialRule?.keywords.length ? [...initialRule.keywords] : [],
   )
   const [codeDraft, setCodeDraft] = useState('')
   const [codeError, setCodeError] = useState<string | null>(null)
@@ -167,8 +165,9 @@ export function LiveCfSetup({
       ? displayLiveReplyTemplate(initialRule.inbox_text)
       : generateDefaultPrivateText(
           initialProduct?.name,
-          initialProduct?.variants[0]?.price ?? initialProduct?.price,
-          initialProduct?.variants[0]?.label,
+          initialProduct?.price,
+          null,
+          !!initialProduct?.variants.length,
         ),
   )
   const [publicText, setPublicText] = useState(
@@ -177,41 +176,31 @@ export function LiveCfSetup({
   const [bankAccountId, setBankAccountId] = useState(
     initialRule?.live_bank_account_id ?? bankAccounts[0]?.id ?? '',
   )
-  const [testText, setTestText] = useState(
-    matchMode === 'strict' ? (codes[0] ?? '') : `CF ${codes[0] ?? ''}`,
-  )
+  const [testText, setTestText] = useState('')
   const [active, setActive] = useState(initialRule?.is_active ?? false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(setupError)
   const privateTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const product = productOptions.find((item) => item.id === productId)
-  const variant = product?.variants.find((item) => item.id === variantId) ?? null
-  const selectedStock = variant
-    ? Math.min(product?.stock ?? 0, variant.stock)
-    : (product?.stock ?? 0)
-  const selectedPrice = variant?.price ?? product?.price ?? 0
+  const customerSelectVariant = !!product?.variants.length
+  const selectedStock = product?.stock ?? 0
+  const selectedPrice = product?.price ?? 0
   const matchedCode = matchLiveCfCode(testText, codes, matchMode)
   const examples = useMemo(() => liveCfCodeExamples(codes, matchMode), [codes, matchMode])
   const selectedBank = bankAccounts.find((item) => item.id === bankAccountId)
 
   function selectProduct(next: LiveProductOption | undefined) {
     setProductId(next?.id ?? '')
-    const firstVariant = next?.variants[0] ?? null
-    setVariantId(firstVariant?.id ?? '')
-    setStockLimit(Math.max(1, Math.min(firstVariant?.stock ?? next?.stock ?? 1, 5)))
+    setStockLimit(Math.max(1, Math.min(next?.stock ?? 1, 5)))
     if (next?.code) setCodes([next.code])
     setCodeDraft('')
     setCodeError(null)
-    if (next?.code) setTestText(matchMode === 'strict' ? next.code : `CF ${next.code}`)
+    if (next?.code) setTestText(next.code)
     // เติมข้อความเริ่มต้น (Default Template) ที่มีข้อมูลของสินค้านั้นให้อัตโนมัติทันที
     if (next) {
       setPrivateText(
-        generateDefaultPrivateText(
-          next.name,
-          firstVariant?.price ?? next.price,
-          firstVariant?.label,
-        ),
+        generateDefaultPrivateText(next.name, next.price, null, !!next.variants.length),
       )
     }
   }
@@ -284,11 +273,11 @@ export function LiveCfSetup({
       : 'https://snapbot.app/pay/live/sample.order123'
     return storedLiveReplyTemplate(privateText)
       .replaceAll('{product_name}', product.name)
-      .replaceAll('{variant_name}', variant?.label ?? 'มาตรฐาน')
+      .replaceAll('{variant_name}', customerSelectVariant ? 'ลูกค้าเลือกในหน้าชำระเงิน' : 'มาตรฐาน')
       .replaceAll('{price}', priceFormatted)
       .replaceAll('{total}', priceFormatted)
       .replaceAll('{payment_link}', sampleLink)
-  }, [privateText, product, selectedPrice, variant])
+  }, [privateText, product, selectedPrice, customerSelectVariant])
 
   async function save() {
     setNotice(null)
@@ -300,7 +289,6 @@ export function LiveCfSetup({
       return setNotice('กรุณาเลือกเพจ สินค้า และกรอกรหัสสั่งซื้อให้ครบ')
     if (product.is_active === false)
       return setNotice('สินค้านี้ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์')
-    if (product.variants.length && !variant) return setNotice('กรุณาเลือกตัวเลือกสินค้า')
     setSaving(true)
     try {
       const response = await fetch('/api/live-cf/setup', {
@@ -312,7 +300,8 @@ export function LiveCfSetup({
           pageId,
           livePostId: parsedLiveId,
           productId,
-          variantId: variant?.id ?? null,
+          variantId: null,
+          customerSelectVariant,
           codes: nextCodes,
           matchMode,
           stockLimit,
@@ -358,7 +347,8 @@ export function LiveCfSetup({
           pageId,
           livePostId: parsedLiveId,
           productId,
-          variantId: variant?.id ?? null,
+          variantId: null,
+          customerSelectVariant,
           codes: nextCodes,
           matchMode,
           stockLimit,
@@ -400,7 +390,7 @@ export function LiveCfSetup({
               ระบบดูดออเดอร์ไลฟ์สด
             </h1>
             <p className="mt-1 text-sm text-white/90 md:text-base">
-              เลือกสินค้า ตั้งรหัส CF และสร้างออเดอร์จากคอมเมนต์แบบเรียลไทม์
+              เลือกสินค้า ตั้งรหัสจอง และสร้างออเดอร์จากคอมเมนต์แบบเรียลไทม์
             </p>
           </div>
         </div>
@@ -590,22 +580,10 @@ export function LiveCfSetup({
               </div>
             )}
             {!!product?.variants.length && (
-              <label className="block text-sm font-semibold text-slate-800">
-                ตัวเลือกสินค้า (สี / ขนาด)
-                <select
-                  aria-label="ตัวเลือกสินค้า"
-                  className={field}
-                  value={variantId}
-                  onChange={(event) => setVariantId(event.target.value)}
-                >
-                  {product.variants.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label} • ฿{Number(item.price).toLocaleString('th-TH')} • {item.stock}{' '}
-                      ชิ้น
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
+                สินค้ามี {product.variants.length} รูปแบบ
+                ลูกค้าใช้รหัสจองหลักแล้วเลือกสีหรือขนาดในหน้าชำระเงิน
+              </div>
             )}
           </div>
 
@@ -616,7 +594,7 @@ export function LiveCfSetup({
             {/* โหมดการตรวจจับรหัส (Match Mode) */}
             <div className="space-y-2">
               <span className="block text-sm font-semibold text-slate-800">
-                รูปแบบการพิมพ์ CF ของลูกค้า
+                รูปแบบการพิมพ์จองของลูกค้า
               </span>
               <div className="grid gap-3 xl:grid-cols-2">
                 <label
@@ -636,13 +614,13 @@ export function LiveCfSetup({
                   />
                   <div>
                     <span className="block text-sm font-semibold text-slate-900">
-                      {"พิมพ์ติดคำอื่นก็ดูดได้ (เช่น 'CF 159', 'รับ 159')"}
+                      {"พิมพ์ติดคำอื่นก็ดูดได้ (เช่น 'รับ 159', 'เอา 159')"}
                       <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-700">
                         แนะนำ
                       </span>
                     </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
-                      จับคู่รหัสอัตโนมัติ แม้ลูกค้าพิมพ์ CF, FC, จอง, เอา, สนใจ นำหน้า
+                      จับคู่รหัสอัตโนมัติ แม้ลูกค้าพิมพ์ รับ, จอง, เอา, สนใจ นำหน้า
                       หรือพิมพ์เฉพาะรหัส
                     </span>
                   </div>
@@ -795,7 +773,7 @@ export function LiveCfSetup({
             </div>
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <span className="text-sm font-semibold text-slate-800">
-                จำนวนที่เปิดให้ CF ในไลฟ์นี้:
+                จำนวนที่เปิดให้จองในไลฟ์นี้:
               </span>
               <div className="flex overflow-hidden rounded-xl border border-slate-200 bg-white">
                 <button
@@ -831,7 +809,7 @@ export function LiveCfSetup({
                 className="mt-0.5 h-5 w-5 rounded accent-orange-500"
               />
               <span className="text-sm">
-                <b className="font-semibold text-slate-900">ตัดสต็อกหน้าร้านทันทีเมื่อ CF สำเร็จ</b>
+                <b className="font-semibold text-slate-900">ตัดสต็อกหน้าร้านทันทีเมื่อจองสำเร็จ</b>
                 <span className="mt-0.5 block text-xs text-slate-500">
                   ใช้ระบบตัดสต็อกแบบเรียลไทม์ร่วมกับหน้าร้านค้า เพื่อป้องกันการขายเกินสต็อก
                 </span>
@@ -869,8 +847,9 @@ export function LiveCfSetup({
                             setPrivateText(
                               generateDefaultPrivateText(
                                 product.name,
-                                variant?.price ?? product.price,
-                                variant?.label,
+                                product.price,
+                                null,
+                                customerSelectVariant,
                               ),
                             )
                           }
@@ -986,7 +965,9 @@ export function LiveCfSetup({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="break-words font-semibold text-slate-900">{product.name}</p>
-                    {variant && <p className="text-xs text-slate-500">{variant.label}</p>}
+                    {customerSelectVariant && (
+                      <p className="text-xs text-slate-500">ลูกค้าเลือกสีหรือขนาดก่อนชำระเงิน</p>
+                    )}
                     <p className="mt-1 text-lg font-bold text-orange-600">
                       ฿
                       {Number(selectedPrice).toLocaleString('th-TH', {
@@ -1004,7 +985,7 @@ export function LiveCfSetup({
                     ['รหัสสั่งซื้อ / รหัสจอง', codes.join(', ') || '—'],
                     ['สต็อกคงเหลือ', `${selectedStock} ชิ้น`],
                     [
-                      'รูปแบบการพิมพ์ CF',
+                      'รูปแบบการพิมพ์จอง',
                       matchMode === 'strict'
                         ? 'ต้องพิมพ์รหัสเป๊ะๆ เท่านั้น'
                         : 'พิมพ์ติดคำอื่นก็ดูดได้',
@@ -1056,7 +1037,7 @@ export function LiveCfSetup({
             <p className="mt-1 text-xs text-slate-500">
               {matchMode === 'strict'
                 ? 'โหมดตรงคำเป๊ะ: ต้องพิมพ์ตรงกับรหัสทุกตัวอักษรเท่านั้น ห้ามมีคำอื่นปน'
-                : 'โหมดยืดหยุ่น: พิมพ์รหัสล้วน หรือมี CF, FC, จอง, เอา, สนใจ นำหน้า ระบบจะดูดให้'}
+                : 'โหมดยืดหยุ่น: พิมพ์รหัสล้วน หรือมี รับ, จอง, เอา, สนใจ นำหน้า ระบบจะดูดให้'}
             </p>
             <input
               aria-label="ทดลองพิมพ์คอมเมนต์"
@@ -1066,7 +1047,7 @@ export function LiveCfSetup({
               placeholder={
                 matchMode === 'strict'
                   ? `พิมพ์ ${codes[0] || 'รหัสจอง'}`
-                  : `ลองพิมพ์ CF ${codes[0] || 'รหัสจอง'}`
+                  : `ลองพิมพ์ รับ ${codes[0] || 'รหัสจอง'}`
               }
             />
             <div
@@ -1088,7 +1069,7 @@ export function LiveCfSetup({
                 <>
                   <CircleStop className="h-5 w-5 shrink-0 text-slate-400" />
                   <span className="flex-1">
-                    ไม่สร้างออเดอร์ — ข้อความไม่ตรงกับรหัส CF ที่ตั้งไว้
+                    ไม่สร้างออเดอร์ — ข้อความไม่ตรงกับรหัสจองที่ตั้งไว้
                   </span>
                 </>
               )}

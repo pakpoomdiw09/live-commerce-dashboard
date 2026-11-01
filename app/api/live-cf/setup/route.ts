@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { isFeatureEnabled } from '@/lib/feature-flags'
-import { normalizeCfCode } from '@/lib/features/commerce/cf-code'
+import { normalizeCfText } from '@/lib/features/commerce/cf-code'
+import { LiveCfCodesError, parseLiveCfCodes } from '@/lib/features/commerce/live-cf-codes'
 import { liveCfPaymentLinksReady } from '@/lib/features/commerce/live-cf-payment-link'
 import { UUID } from '@/lib/utils'
 import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
@@ -31,9 +32,13 @@ export async function POST(req: NextRequest) {
     const pageId = text(input.pageId, 100)
     const postId = extractFacebookLiveId(input.livePostId ?? '')
     const productId = text(input.productId, 36)
-    const variantId = text(input.variantId, 36)
+    const customerSelectVariant = input.customerSelectVariant === true
+    const variantId = customerSelectVariant ? null : text(input.variantId, 36)
     const bankAccountId = text(input.bankAccountId, 36)
-    const code = normalizeCfCode(input.code)
+    // Keep older single-code clients working; an explicitly supplied invalid array must fail.
+    const codes = parseLiveCfCodes(Object.hasOwn(input, 'codes') ? input.codes : [input.code]).map(
+      normalizeCfText,
+    )
     const stockLimit = Number(input.stockLimit)
     if (
       !pageId ||
@@ -41,7 +46,6 @@ export async function POST(req: NextRequest) {
       !UUID.test(productId) ||
       (variantId && !UUID.test(variantId)) ||
       (bankAccountId && !UUID.test(bankAccountId)) ||
-      !code ||
       !Number.isSafeInteger(stockLimit) ||
       stockLimit < 1 ||
       stockLimit > 1_000_000 ||
@@ -92,6 +96,11 @@ export async function POST(req: NextRequest) {
       )
 
     const privateReply = input.privateReply === true
+    if (customerSelectVariant && !privateReply)
+      return NextResponse.json(
+        { error: 'กรุณาเปิดส่งข้อความส่วนตัว เพื่อให้ลูกค้าเลือกรูปแบบสินค้าในหน้าชำระเงิน' },
+        { status: 400 },
+      )
     const publicReply = input.publicReply === true
     if (privateReply && !bankAccountId)
       return NextResponse.json(
@@ -110,10 +119,10 @@ export async function POST(req: NextRequest) {
     const matchType = matchMode === 'strict' ? 'exact' : 'keyword'
     const row = {
       tenant_id: tenantId,
-      name: `Live CF ${code}`,
+      name: `Live CF ${codes[0]}`,
       page_ids: [pageId],
       match_type: matchType,
-      keywords: [code],
+      keywords: codes,
       reply_enabled: publicReply,
       reply_text: text(input.publicText, 2000),
       inbox_enabled: privateReply,
@@ -128,6 +137,7 @@ export async function POST(req: NextRequest) {
       live_post_id: postId || null,
       live_bank_account_id: bankAccountId,
       live_deduct_stock: input.deductStock !== false,
+      live_customer_select_variant: customerSelectVariant,
     }
     const existingId = text(input.id, 36)
     const saved =
@@ -147,6 +157,8 @@ export async function POST(req: NextRequest) {
       { headers: { 'Cache-Control': 'private, no-store' } },
     )
   } catch (error) {
+    if (error instanceof LiveCfCodesError)
+      return NextResponse.json({ error: error.message }, { status: 400 })
     console.error('[live-cf/setup] save failed', { code: (error as { code?: string }).code })
     return NextResponse.json(
       { error: 'บันทึกการตั้งค่าไม่สำเร็จ กรุณาให้ผู้ดูแลตรวจสอบการติดตั้งฐานข้อมูลแล้วลองใหม่' },

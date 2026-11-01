@@ -2,7 +2,7 @@
 
 ใช้ [complete_schema.sql](complete_schema.sql) เป็นไฟล์หลักสำหรับติดตั้ง schema ใหม่หรือเติม migrations ให้ฐานเดิม เปิด **ทั้งไฟล์** ใน Supabase SQL Editor เลือก role `postgres` แล้วกด Run ครั้งเดียว ไม่ต้องไล่รัน SQL ตามชื่อไฟล์
 
-ไฟล์นี้รวมต้นฉบับ 86 ไฟล์ตาม dependencies จาก SQL ต้นฉบับทั้งหมด 103 ไฟล์ อีก 17 ไฟล์เป็น diagnostics, reset, rollback, historical backfill หรือเครื่องมือเฉพาะงาน จึงแยกไว้พร้อมเหตุผลใน [Migration Registry](full_database_setup-manifest.md) หลัง generate จะมี SQL รวม 105 ไฟล์ รวมไฟล์ generated สองไฟล์ด้วย
+ไฟล์นี้รวมต้นฉบับ 87 ไฟล์ตาม dependencies จาก SQL ต้นฉบับทั้งหมด 104 ไฟล์ อีก 17 ไฟล์เป็น diagnostics, reset, rollback, historical backfill หรือเครื่องมือเฉพาะงาน จึงแยกไว้พร้อมเหตุผลใน [Migration Registry](full_database_setup-manifest.md) หลัง generate จะมี SQL รวม 106 ไฟล์ รวมไฟล์ generated สองไฟล์ด้วย
 
 ## ลำดับและการรันซ้ำ
 
@@ -10,11 +10,12 @@ Registry อยู่ใน `groups` และ `prerequisites` ของ [build-
 
 ตัวอย่างลำดับที่สำคัญ:
 
-| Migration                      | ต้องมีมาก่อน                                                                        |
-| ------------------------------ | ----------------------------------------------------------------------------------- |
-| `security.sql`                 | schema, tenants, comment rules, platform, orders, automation และ billing            |
-| `messenger-product-lookup.sql` | `commerce-v2.sql` และ `live-cf-variants.sql`                                        |
-| `standalone-slips.sql`         | security, payments, billing-auto-approval, bank-accounts และ facebook-webhook-queue |
+| Migration                       | ต้องมีมาก่อน                                                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `security.sql`                  | schema, tenants, comment rules, platform, orders, automation และ billing                                        |
+| `messenger-product-lookup.sql`  | `commerce-v2.sql` และ `live-cf-variants.sql`                                                                    |
+| `live-cf-customer-variants.sql` | `live-cf-setup.sql`, `payments.sql` และ `payment-pro.sql`; เพิ่มการเลือกตัวเลือกก่อนชำระเงินและล็อกราคา/หลักฐาน |
+| `standalone-slips.sql`          | security, payments, billing-auto-approval, bank-accounts และ facebook-webhook-queue                             |
 
 ตาราง คอลัมน์ และ index ใช้ `IF NOT EXISTS`; ฟังก์ชันใช้ `CREATE OR REPLACE` ส่วน policy/trigger/constraint ที่ไม่มี syntax ดังกล่าวใช้การตรวจ catalog หรือ `DROP ... IF EXISTS` ก่อนสร้างตามต้นฉบับ การติดตั้งรุ่นล่าสุดทับฐานเดิมยังรองรับ function definition รุ่นเก่าที่ถูกแทนด้วย definition รุ่นใหม่ในไฟล์เดียวกัน โดยไม่ข้ามข้อผิดพลาดของ definition สุดท้าย
 

@@ -7,11 +7,13 @@ export function ProductImageGrid({
   disabled,
   upload,
   onChange,
+  compact = false,
 }: {
   images: string[]
   disabled: boolean
   upload: (file: File) => Promise<string | null>
   onChange: (images: string[]) => void
+  compact?: boolean
 }) {
   const input = useRef<HTMLInputElement>(null),
     lock = useRef(false)
@@ -65,13 +67,14 @@ export function ProductImageGrid({
           if (file) void add(file)
         }}
       />
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {Array.from({ length: 8 }, (_, i) =>
+      <div className={compact ? 'flex flex-wrap gap-2.5' : 'grid grid-cols-2 gap-3 sm:grid-cols-4'}>
+        {Array.from({ length: compact ? Math.min(images.length + 1, 8) : 8 }, (_, i) =>
           images[i] ? (
             <div
               key={i}
-              className="group relative aspect-square overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+              className={`group relative overflow-hidden border border-slate-200 bg-slate-50 ${compact ? 'h-20 w-20 rounded-xl' : 'aspect-square rounded-2xl'}`}
             >
+              {/* eslint-disable-next-line @next/next/no-img-element -- validated tenant-owned upload URL */}
               <img
                 src={images[i]}
                 alt={`รูปสินค้าที่ ${i + 1}`}
@@ -99,12 +102,12 @@ export function ProductImageGrid({
               disabled={disabled || uploading}
               onClick={() => input.current?.click()}
               aria-label={`เพิ่มรูปสินค้าช่องที่ ${i + 1}`}
-              className="flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-2 text-slate-500 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 focus-visible:outline-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className={`flex flex-col items-center justify-center gap-2 border border-dashed border-slate-200 bg-slate-50/60 p-2 text-slate-500 transition focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-50 ${compact ? 'h-20 w-20 rounded-xl hover:border-slate-400 hover:bg-slate-100 focus-visible:outline-slate-500' : 'aspect-square rounded-2xl border-2 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 focus-visible:outline-blue-500'}`}
             >
               {uploading && i === images.length ? (
                 <Loader2 size={23} className="animate-spin" />
               ) : (
-                <ImagePlus size={23} />
+                <ImagePlus size={compact ? 20 : 23} />
               )}
               <span className="text-xs">
                 {uploading && i === images.length ? 'กำลังอัปโหลด…' : 'เพิ่มรูปภาพ'}

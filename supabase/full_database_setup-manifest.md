@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 103 ไฟล์: รวมตาม dependencies 86 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 105 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 104 ไฟล์: รวมตาม dependencies 87 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 106 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (709615 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (727502 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (608823 bytes, 10252 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (625054 bytes, 10480 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -123,6 +123,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 84. [standalone-slips.sql](standalone-slips.sql) — 21 statements retained
 85. [tenant-ai-quota.sql](tenant-ai-quota.sql) — 28 statements retained
 86. [vision-master-switch.sql](vision-master-switch.sql) — 6 statements retained
+87. [live-cf-customer-variants.sql](live-cf-customer-variants.sql) — 16 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -150,6 +151,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 
 | Migration | ต้องอยู่หลัง |
 | --- | --- |
+| live-cf-customer-variants.sql | live-cf-setup.sql, payments.sql, payment-pro.sql |
 | schema.sql |  |
 | tenants.sql | schema.sql |
 | comment-rules.sql | schema.sql |
@@ -391,3 +393,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - standalone-slips.sql: `96608fd194cf79cae1e2972b7bb8e8e93dc199b75029eb8305dc2576f9a2227b`
 - tenant-ai-quota.sql: `a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3`
 - vision-master-switch.sql: `137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6`
+- live-cf-customer-variants.sql: `c620b8852bf6067a70bc0cb265a285e3d9fddd0d05d55e9ed5a8a6c72fa6df29`

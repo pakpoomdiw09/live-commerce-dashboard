@@ -1,6 +1,54 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  parseLiveCfCodes,
+  addLiveCfCode,
+  matchLiveCfCode,
+  liveCfCodeExamples,
+} from '../../../lib/features/commerce/live-cf-codes'
+
+test('Live CF tags preserve display case, accept one to five codes and reject equivalent duplicates', () => {
+  assert.deepEqual(parseLiveCfCodes([' A1 ', '159', 'จอง', 'B2', 'รับ1']), [
+    'A1',
+    '159',
+    'จอง',
+    'B2',
+    'รับ1',
+  ])
+  assert.deepEqual(addLiveCfCode(['A1'], '159'), ['A1', '159'])
+  for (const input of [
+    null,
+    'A1',
+    [],
+    [''],
+    ['  '],
+    ['A1', 'a1'],
+    ['Ａ１', 'A1'],
+    ['A 1'],
+    ['a'.repeat(41)],
+    [159],
+    ['A1', 'B1', 'C1', 'D1', 'E1', 'F1'],
+  ])
+    assert.throws(() => parseLiveCfCodes(input))
+  assert.throws(() => addLiveCfCode(['A1'], ''), /กรุณากรอกรหัส/)
+  assert.throws(() => addLiveCfCode(['A1', 'B1', 'C1', 'D1', 'E1'], 'F1'), /เพิ่มได้สูงสุด 5 รหัส/)
+})
+
+test('all Live CF tag examples match using the webhook rules in flexible and strict mode', () => {
+  const codes = ['A1', '159', 'จอง']
+  for (const mode of ['flexible', 'strict'] as const) {
+    for (const code of codes) assert.equal(matchLiveCfCode(code, codes, mode), code)
+    for (const example of liveCfCodeExamples(codes, mode))
+      assert.ok(matchLiveCfCode(example, codes, mode), example)
+    assert.ok(liveCfCodeExamples(codes, mode).every((example) => !/\b(?:cf|fc)\b/i.test(example)))
+  }
+  assert.equal(matchLiveCfCode('CF 159', codes, 'strict'), null)
+  assert.equal(matchLiveCfCode('รับ A1', codes, 'flexible'), 'A1')
+  assert.equal(matchLiveCfCode('CF 1590', ['A1', '159'], 'flexible'), null)
+  assert.equal(matchLiveCfCode('ข้อความทั่วไป', codes, 'flexible'), null)
+  assert.equal(matchLiveCfCode('159', [], 'flexible'), null)
+})
+import {
   extractFacebookLiveId,
   quickLiveProduct,
   displayLiveReplyTemplate,

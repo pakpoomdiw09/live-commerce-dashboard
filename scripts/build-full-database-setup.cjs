@@ -110,6 +110,7 @@ const groups = [
       'standalone-slips.sql',
       'tenant-ai-quota.sql',
       'vision-master-switch.sql',
+      'live-cf-customer-variants.sql',
     ],
   ],
 ]
@@ -143,6 +144,7 @@ const excluded = {
 // Explicit edges document table/helper prerequisites and prevent accidental
 // reordering of patches whose latest function definitions must win.
 const prerequisites = {
+  'live-cf-customer-variants.sql': ['live-cf-setup.sql', 'payments.sql', 'payment-pro.sql'],
   'schema.sql': [],
   'tenants.sql': ['schema.sql'],
   'comment-rules.sql': ['schema.sql'],

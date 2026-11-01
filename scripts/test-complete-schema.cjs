@@ -226,7 +226,7 @@ test('dependency registry rejects security, Messenger or standalone migrations p
   }
 })
 
-test('complete schema upgrades the older schema lacking all 15 newly registered migrations', async () => {
+test('complete schema upgrades the older schema lacking newer Live CF, Messenger and banking migrations', async () => {
   const result = build()
   const newer = new Set([
     'bank-account-combined-save.sql',
@@ -238,6 +238,7 @@ test('complete schema upgrades the older schema lacking all 15 newly registered 
     'follow-up-manual-dispatch-fix.sql',
     'live-cf-mode.sql',
     'live-cf-setup.sql',
+    'live-cf-customer-variants.sql',
     'live-cf-variants.sql',
     'messenger-product-lookup.sql',
     'slip-confirmation-template.sql',

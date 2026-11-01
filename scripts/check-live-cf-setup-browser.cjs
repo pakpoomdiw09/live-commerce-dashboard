@@ -167,6 +167,22 @@ compiler.init()
       )
       await pause()
     }
+    const enterCode = async (value) => {
+      await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', value)
+      await call('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      })
+      await call('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      })
+      await pause()
+    }
     const resize = (width) =>
       call('Emulation.setDeviceMetricsOverride', {
         width,
@@ -205,6 +221,72 @@ compiler.init()
     await fill(link, 'https://facebook.com/watch/live/?v=456')
     await evaluate(`document.querySelector(${JSON.stringify(link)}).blur()`)
     await wait(`document.querySelector(${JSON.stringify(link)}).value==='456'`)
+    const tagCount = `document.querySelectorAll('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"] button').length`
+    assert.equal(await evaluate(tagCount), 0, 'New rules start without a prefilled product code')
+    assert.equal(
+      await evaluate(`document.querySelector('input[aria-label="เพิ่มรหัสสั่งซื้อ"]').value`),
+      '',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('input[aria-label="ทดลองพิมพ์คอมเมนต์"]').value`),
+      '',
+    )
+    await enterCode('')
+    assert.equal(await evaluate(tagCount), 0)
+    await enterCode('159')
+    assert.equal(await evaluate(tagCount), 1)
+    await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', 'A1')
+    await click('เพิ่มรหัส')
+    assert.equal(await evaluate(tagCount), 2)
+    await enterCode('a1')
+    assert.equal(await evaluate(tagCount), 2)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('#live-cf-code-status').textContent.includes('รหัสนี้มีอยู่แล้ว')`,
+      ),
+      true,
+    )
+    await enterCode('B2')
+    await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', 'จอง')
+    await evaluate(
+      `document.querySelector('input[aria-label="เพิ่มรหัสสั่งซื้อ"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true}))`,
+    )
+    assert.equal(await evaluate(tagCount), 3, 'IME confirmation must not add a partial tag')
+    await enterCode('จอง')
+    await enterCode('รับ1')
+    assert.equal(await evaluate(tagCount), 5)
+    assert.equal(
+      await evaluate(`document.querySelector('input[aria-label="เพิ่มรหัสสั่งซื้อ"]').disabled`),
+      true,
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('#live-cf-code-status').textContent.includes('เพิ่มได้สูงสุด 5 รหัส')`,
+      ),
+      true,
+    )
+    for (const code of ['A1', '159', 'จอง', 'B2', 'รับ1']) {
+      await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', `รับ ${code}`)
+      assert.equal(
+        await evaluate(
+          `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+        ),
+        true,
+        code,
+      )
+      assert.equal(
+        await evaluate(
+          `document.querySelector('[aria-label="ตัวอย่างคำสั่งซื้อ"]').textContent.includes(${JSON.stringify(code)})`,
+        ),
+        true,
+      )
+    }
+    assert.equal(
+      await evaluate(
+        `/(CF|FC)/i.test(document.querySelector('[aria-label="ตัวอย่างคำสั่งซื้อ"]').textContent)`,
+      ),
+      false,
+    )
     for (const width of [375, 768, 1440]) {
       await resize(width)
       await pause()
@@ -215,6 +297,16 @@ compiler.init()
       )
       await screenshot('page-' + width)
     }
+    while (await evaluate(tagCount)) {
+      await evaluate(
+        `document.querySelector('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"] button').click()`,
+      )
+      await pause()
+    }
+    await click('เริ่มเปิดระบบดูดออเดอร์')
+    assert.equal(await evaluate(`liveCfTest.requests.some(r=>r.url==='/api/live-cf/setup')`), false)
+    await enterCode('159')
+    await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', 'รับ 159')
     await evaluate(`document.querySelector('input[name="matchMode"][value="strict"]').click()`)
     await pause()
     assert.equal(
@@ -229,6 +321,10 @@ compiler.init()
         `document.querySelector('dialog').textContent.includes('ต้นทุน')||document.querySelector('dialog').textContent.includes('ราคาเปรียบเทียบ')`,
       ),
       false,
+    )
+    assert.equal(
+      await evaluate(`document.querySelectorAll('dialog input[type="checkbox"]').length`),
+      0,
     )
     await call('Input.dispatchKeyEvent', {
       type: 'keyDown',
@@ -260,7 +356,6 @@ compiler.init()
     await fill('dialog input[name="cf_code"]', 'A1')
     await fill('dialog select[name="category_id"]', '77777777-7777-4777-8777-777777777777')
     await fill('dialog textarea[name="description"]', 'รายละเอียดสินค้าใหม่ พร้อมรูปและตัวเลือก')
-    await evaluate(`document.querySelector('dialog input[name="featured"]').click()`)
     const attachImage = () =>
       evaluate(
         `(()=>{const data=new DataTransfer();const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY9sAAAAASUVORK5CYII='),c=>c.charCodeAt(0));data.items.add(new File([bytes],'product.png',{type:'image/png'}));const input=document.querySelector('input[aria-label="อัปโหลดรูปสินค้า"]');input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()`,
@@ -278,19 +373,35 @@ compiler.init()
       'Cannot save while uploading',
     )
     await wait(`document.querySelector('dialog img').naturalWidth>0`)
+    assert.ok(
+      await evaluate(`document.querySelector('dialog img').getBoundingClientRect().width<=81`),
+    )
     await click('เพิ่มตัวเลือก')
-    await fill('input[name="variant_label_0"]', 'พิมพ์ใหญ่ / เนื้อเงิน')
-    await fill('input[name="variant_code_0"]', 'A1-L')
+    await fill('input[name="option_name_0"]', 'สี')
+    await fill('input[name="option_values_0"]', 'ขาว, ดำ')
+    await click('เพิ่มค่า')
+    await click('เพิ่มตัวเลือก')
+    await fill('input[name="option_name_1"]', 'ขนาด')
+    await fill('input[name="option_values_1"]', 'S, M')
+    await evaluate(
+      `document.querySelector('input[name="option_values_1"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}))`,
+    )
+    await wait(`document.querySelectorAll('input[name^="variant_price_"]').length===4`)
+    assert.equal(
+      await evaluate(`document.querySelector('input[name="variant_price_0"]').required`),
+      false,
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('input[name="variant_stock_0"]').required`),
+      false,
+    )
+    assert.equal(await evaluate(`!!document.querySelector('input[name^="variant_code_"]')`), false)
     await fill('input[name="variant_price_0"]', '299.50')
-    await fill('input[name="variant_stock_0"]', '3')
-    await click('เพิ่มตัวเลือก')
-    await fill('input[name="variant_label_1"]', 'พิมพ์เล็ก / เนื้อทองแดง')
-    await fill('input[name="variant_price_1"]', '259.50')
-    await fill('input[name="variant_stock_1"]', '2')
-    assert.equal(await evaluate(`document.querySelector('dialog input[name="stock"]').value`), '5')
+    await fill('input[name="variant_stock_0"]', '0')
+    assert.equal(await evaluate(`document.querySelector('dialog input[name="stock"]').value`), '12')
     assert.equal(
       await evaluate(`document.querySelector('dialog input[name="stock"]').disabled`),
-      true,
+      false,
     )
     for (const width of [375, 768, 1440]) {
       await resize(width)
@@ -334,13 +445,13 @@ compiler.init()
     )
     assert.equal(
       await evaluate(
-        `document.querySelector('input[aria-label="รหัสสินค้าที่ให้ลูกค้าพิมพ์จอง"]').value`,
+        `document.querySelector('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"]').textContent.trim()`,
       ),
       'A1',
     )
     assert.equal(
       await evaluate(
-        `document.querySelector('aside').textContent.includes('299.50')&&document.querySelector('aside').textContent.includes('3 ชิ้น')`,
+        `document.querySelector('aside').textContent.includes('259.50')&&document.querySelector('aside').textContent.includes('12 ชิ้น')`,
       ),
       true,
     )
@@ -349,17 +460,40 @@ compiler.init()
     assert.equal(product.action, 'product')
     assert.equal(product.value.code, 'A1')
     assert.equal(product.value.is_active, true)
-    assert.equal(product.value.featured, true)
+    assert.equal(product.value.featured, false)
     assert.equal(product.value.category_id, '77777777-7777-4777-8777-777777777777')
     assert.deepEqual(product.value.images, ['https://storage.example/commerce/test/product.webp'])
     assert.equal(product.value.description, 'รายละเอียดสินค้าใหม่ พร้อมรูปและตัวเลือก')
-    assert.equal(product.value.stock, 5)
-    assert.equal(product.value.variants.length, 2)
+    assert.equal(product.value.stock, 12)
+    assert.equal(product.value.variants.length, 4)
+    assert.equal(product.value.variants[0].stock, 0)
+    assert.equal(product.value.variants[1].price, 259.5)
+    assert.ok(product.value.variants.every((v) => v.variant_code === null))
+    await enterCode('159')
+    await enterCode('จอง')
+    for (const code of ['A1', '159', 'จอง']) {
+      await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', code)
+      assert.equal(
+        await evaluate(
+          `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+        ),
+        true,
+      )
+    }
+    await fill('input[aria-label="ทดลองพิมพ์คอมเมนต์"]', 'รับ 159')
     assert.equal(
-      await evaluate(`document.querySelector('select[aria-label="ตัวเลือกสินค้า"]').value`),
-      product.value.variants[0].id,
+      await evaluate(
+        `document.querySelector('aside').textContent.includes('ระบบพร้อมสร้างออเดอร์')`,
+      ),
+      false,
     )
-    await fill('select[aria-label="ตัวเลือกสินค้า"]', product.value.variants[1].id)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[aria-label="ตัวอย่างคำสั่งซื้อ"]').querySelectorAll('button').length`,
+      ),
+      3,
+    )
+    await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', 'B2')
     await click('เริ่มเปิดระบบดูดออเดอร์')
     await wait(
       `liveCfTest.requests.some(r=>r.url==='/api/live-cf/setup')&&liveCfTest.refreshes===1`,
@@ -368,7 +502,14 @@ compiler.init()
     assert.equal(setup.livePostId, '456')
     assert.equal(setup.productId, await evaluate('liveCfTest.newProductId'))
     assert.equal(setup.matchMode, 'strict')
-    assert.equal(setup.variantId, product.value.variants[1].id)
+    assert.deepEqual(
+      setup.codes,
+      ['A1', '159', 'จอง', 'B2'],
+      'Save includes all tags and any typed pending tag',
+    )
+    assert.equal(Object.hasOwn(setup, 'code'), false)
+    assert.equal(setup.variantId, null)
+    assert.equal(setup.customerSelectVariant, true)
     assert.ok(setup.privateText.includes('{product_name}'))
     assert.ok(setup.privateText.includes('{payment_link}'))
     assert.equal(setup.privateText.includes('{ชื่อสินค้า}'), false)
@@ -389,23 +530,63 @@ compiler.init()
       true,
     )
     assert.equal(await evaluate('liveCfTest.refreshes'), 0)
-    await call('Page.navigate', { url: address + '/?empty=1' })
-    await wait(`!!document.querySelector('select[aria-label="สินค้าจากร้านค้า / เซลเพจ"]')`)
-    await click('เพิ่มสินค้าใหม่เข้าเซลล์เพจ')
-    await wait(`!!document.querySelector('dialog[open]')`)
-    await fill('dialog input[name="name"]', 'สินค้ายังไม่เปิดขาย')
-    await fill('dialog input[name="price"]', '99')
-    await fill('dialog input[name="cf_code"]', 'DRAFT')
-    await evaluate(`document.querySelector('dialog input[name="is_active"]').click()`)
-    await wait(`!document.querySelector('select[name="category_id"]').disabled`)
-    await click('บันทึกและเลือกสินค้านี้')
-    await wait(`!document.querySelector('dialog')`)
-    await click('เริ่มเปิดระบบดูดออเดอร์')
-    assert.equal(await evaluate(`liveCfTest.requests.some(r=>r.url==='/api/live-cf/setup')`), false)
-    assert.equal(await evaluate(`document.body.textContent.includes('ยังไม่เปิดขาย')`), true)
+    await call('Page.navigate', { url: address + '/?aliases=1' })
+    await wait(
+      `document.querySelectorAll('[aria-label="รหัสสั่งซื้อที่เพิ่มแล้ว"] button').length===3`,
+    )
+    for (const code of ['a1', '159', 'จอง'])
+      assert.equal(
+        await evaluate(`!!document.querySelector('button[aria-label="ลบรหัส ${code}"]')`),
+        true,
+      )
+    await call('Page.navigate', { url: address + '/?payment=1' })
+    await wait(`!!document.querySelector('select[aria-label="เลือกรูปแบบสินค้าเพื่อชำระเงิน"]')`)
+    assert.equal(
+      await evaluate(`document.body.textContent.includes('1234567890')`),
+      false,
+      'Bank details remain hidden until selection confirmation',
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('option[value="88888888-8888-4888-8888-888888888888"]').disabled`,
+      ),
+      true,
+    )
+    await fill(
+      'select[aria-label="เลือกรูปแบบสินค้าเพื่อชำระเงิน"]',
+      '99999999-9999-4999-8999-999999999999',
+    )
+    await evaluate('liveCfTest.failure=true')
+    await click('ยืนยันตัวเลือกและดูข้อมูลชำระเงิน')
+    await wait(`!!document.querySelector('[role="alert"]')`)
+    assert.equal(await evaluate(`document.body.textContent.includes('1234567890')`), false)
+    await evaluate('liveCfTest.failure=false')
+    await evaluate(
+      `(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent.includes('ยืนยันตัวเลือกและดูข้อมูลชำระเงิน'));button.click();button.click()})()`,
+    )
+    await wait(`document.body.textContent.includes('1234567890')`)
+    assert.equal(await evaluate(`document.body.textContent.includes('259.00')`), true)
+    assert.equal(
+      await evaluate(
+        `liveCfTest.requests.filter(r=>r.url==='/api/live-cf/payment-variant').length`,
+      ),
+      2,
+    )
+    assert.equal(
+      await evaluate(
+        `!!document.querySelector('select[aria-label="เลือกรูปแบบสินค้าเพื่อชำระเงิน"]')`,
+      ),
+      false,
+    )
+    for (const width of [375, 768, 1440]) {
+      await resize(width)
+      await pause()
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true)
+      await screenshot('payment-' + width)
+    }
     assert.deepEqual(errors, [])
     console.log(
-      'PASS: Live CF full product modal: categories/retry, image upload/retry, variants with stable IDs and stock totals, sale/featured flags, no cost/compare fields, immediate selection, no refresh, duplicate-submit guard, and 375/768/1440 layouts. Offline APIs only.',
+      'PASS: Minimal product modal, option groups, optional prices/stock, compact images, automatic flags, Live CF tags, and customer variant confirmation before payment at 375/768/1440px. Offline APIs only.',
     )
   } finally {
     socket?.close()

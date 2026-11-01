@@ -28,11 +28,12 @@ export type CommentRule = {
   live_post_id?: string | null
   live_bank_account_id?: string | null
   live_deduct_stock?: boolean
+  live_customer_select_variant?: boolean
 }
 
 export const RULE_COLUMNS =
   'id, tenant_id, name, page_ids, match_type, keywords, reply_enabled, reply_text, inbox_enabled, inbox_type, inbox_text, inbox_image_url, is_active, created_at, mode, live_product_id, live_variant_id, live_stock_limit, live_post_id'
-export const LIVE_CF_RULE_COLUMNS = `${RULE_COLUMNS}, live_bank_account_id, live_deduct_stock`
+export const LIVE_CF_RULE_COLUMNS = `${RULE_COLUMNS}, live_bank_account_id, live_deduct_stock, live_customer_select_variant`
 
 export type LiveProductOption = {
   id: string
