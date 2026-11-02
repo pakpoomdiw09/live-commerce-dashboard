@@ -128,7 +128,7 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
     ).status,
     200,
   )
-  assert.equal(calls.at(-1).name, 'live_auction_customer_dashboard')
+  assert.equal(calls.at(-1).name, 'live_auction_thai_dashboard')
   assert.equal(calls.at(-1).input.p_tenant, tenantId)
   assert.equal(
     (

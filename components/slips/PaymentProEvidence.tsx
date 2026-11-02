@@ -48,11 +48,11 @@ export function PaymentProEvidence({ slipId }: { slipId: string }) {
           className="max-h-96 w-full rounded-xl object-contain"
         />
       ) : (
-        <p className="text-sm text-slate-500">รายการนี้ใช้ข้อมูล QR ไม่มีไฟล์รูปภาพ</p>
+        <p className="text-sm text-slate-500">รายการนี้ตรวจจากรหัสในสลิป ไม่มีไฟล์รูปภาพ</p>
       )}
       <dl className="space-y-3 break-words text-sm">
         <div>
-          <dt className="text-slate-500">ยอดจาก Provider / ยอดออเดอร์</dt>
+          <dt className="text-slate-500">ยอดที่ตรวจได้ / ยอดตามบิล</dt>
           <dd>
             {detail.amount ?? '—'} / {detail.expected_amount ?? '—'} บาท
           </dd>
@@ -69,7 +69,7 @@ export function PaymentProEvidence({ slipId }: { slipId: string }) {
           </dd>
         </div>
         <div>
-          <dt className="text-slate-500">เวลาโอนจาก Provider</dt>
+          <dt className="text-slate-500">เวลาโอนที่ตรวจได้จากสลิป</dt>
           <dd>
             {detail.transferredAt
               ? new Date(detail.transferredAt).toLocaleString('th-TH')

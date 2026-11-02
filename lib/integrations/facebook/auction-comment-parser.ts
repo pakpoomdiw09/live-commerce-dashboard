@@ -11,12 +11,26 @@ export function parseAuctionComment(
   isHost = false,
   automation?: {
     keywords: string[]
+    closeKeywords?: string[]
     countEnabled: boolean
     closeEnabled: boolean
     heartCloses: boolean
   } | null,
 ): AuctionComment {
   const value = text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
+  if (automation?.closeKeywords) {
+    if (isHost)
+      return automation.closeKeywords.includes(value)
+        ? { type: 'HOST_CONTROL', action: 'close', count: null }
+        : { type: 'IGNORE' }
+    if (automation.keywords.includes(value)) return { type: 'STEP_BID' }
+    if (/^(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?(?:\s*บาท)?$/u.test(value)) {
+      const amount = Number(value.replace(/บาท|,|\s/g, ''))
+      if (Number.isFinite(amount) && amount > 0 && amount <= 999_999_999)
+        return { type: 'NUMERIC_BID', amount }
+    }
+    return { type: 'IGNORE' }
+  }
   if (isHost) {
     if (automation?.heartCloses && /^(?:❤\uFE0F?|♥\uFE0F?)$/u.test(value))
       return { type: 'HOST_CONTROL', action: 'close', count: null }

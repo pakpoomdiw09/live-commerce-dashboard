@@ -21,7 +21,7 @@ import {
   SessionRequired,
   SessionEmptyFinance,
 } from './AuctionSessionSections'
-import { LiveAuctionPanel } from './LiveAuctionPanel'
+import { AuctionRoundForm } from './AuctionRoundForm'
 import { ShippingDashboard } from '@/components/shipping/ShippingDashboard'
 import { AuctionSessionCustomers } from './AuctionSessionCustomers'
 
@@ -148,12 +148,12 @@ export function LiveSessionDashboard({
       <SessionFinance key={data.session.id} data={data} post={post} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         {[
-          ['คอมเมนต์ทั้งหมด', data.metrics.comments.toLocaleString('th-TH')],
-          ['ตรงคำดัก / ตรงบิด', data.metrics.matched.toLocaleString('th-TH')],
-          ['คนคอมเมนต์', `${data.metrics.commenters.toLocaleString('th-TH')} คน`],
-          ['สลิปที่ผ่าน', `${data.metrics.slips.toLocaleString('th-TH')} สลิป`],
-          ['ยอดโอนรวม', `฿${money(data.metrics.paid)}`],
-          ['ยอดที่ยังขาด', `฿${money(data.metrics.remaining)}`],
+          ['จำนวนคอมเมนต์ทั้งหมด', data.metrics.comments.toLocaleString('th-TH')],
+          ['คอมเมนต์ตรงคำดัก', data.metrics.matched.toLocaleString('th-TH')],
+          ['จำนวนคนคอมเมนต์', `${data.metrics.commenters.toLocaleString('th-TH')} คน`],
+          ['สลิปที่ตรวจผ่าน', `${data.metrics.slips.toLocaleString('th-TH')} สลิป`],
+          ['ยอดเงินโอนรวม', `฿${money(data.metrics.paid)}`],
+          ['ยอดเงินที่ยังขาด', `฿${money(data.metrics.remaining)}`],
         ].map(([label, value]) => (
           <div key={label} className="min-w-0 rounded-xl bg-slate-50 p-3">
             <p className="text-xs text-slate-500">{label}</p>
@@ -234,7 +234,7 @@ export function LiveSessionDashboard({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="flex items-center gap-2 font-bold text-slate-900">
             <Wallet className="h-4 w-4" />
-            ยอดลูกค้าใน Session
+            ยอดลูกค้าใน เซสชัน
           </h3>
           <button
             type="button"
@@ -253,7 +253,7 @@ export function LiveSessionDashboard({
                 <th className="p-3">
                   <input
                     type="checkbox"
-                    aria-label="เลือกทุกคนที่ยังค้างใน Session"
+                    aria-label="เลือกทุกคนที่ยังค้างใน เซสชัน"
                     checked={
                       (data?.tabs ?? []).some((tab) => Number(tab.remaining) > 0) &&
                       (data?.tabs ?? [])
@@ -353,7 +353,7 @@ export function LiveSessionDashboard({
             </tbody>
           </table>
           {!(data?.tabs ?? []).length && (
-            <p className="p-5 text-sm text-slate-500">ยังไม่มีบิลลูกค้าใน Session นี้</p>
+            <p className="p-5 text-sm text-slate-500">ยังไม่มีบิลลูกค้าใน เซสชัน นี้</p>
           )}
         </div>
       </div>
@@ -363,38 +363,41 @@ export function LiveSessionDashboard({
     <>
       {' '}
       <label className="block max-w-xl text-sm font-medium">
-        Session / ไลฟ์สด
+        เลือกเซสชันไลฟ์สดที่ต้องการดู
         <select
-          aria-label="เลือก Session ประมูล"
+          aria-label="เลือกเซสชันประมูล"
           className={field}
           value={sessionId}
           onChange={(event) => choose(event.target.value)}
         >
-          {!sessions.length && <option value="">ยังไม่มี Session</option>}
+          {!sessions.length && <option value="">ยังไม่มีเซสชันไลฟ์สด</option>}
           {sessionId && !sessions.some((session) => session.id === sessionId) && (
-            <option value={sessionId}>Session ที่เลือกไว้</option>
+            <option value={sessionId}>เซสชันที่เลือกไว้</option>
           )}
           {sessions.map((session) => (
             <option key={session.id} value={session.id}>
-              {session.ended_at ? 'จบไลฟ์แล้ว' : 'เปิด Session'} • {session.live_post_id} •{' '}
+              {session.ended_at ? 'จบไลฟ์แล้ว' : 'กำลังเปิดไลฟ์'} • {session.live_post_id} •{' '}
               {sessionTime(session.created_at)}
             </option>
           ))}
         </select>
+        <span className="mt-1 block text-xs font-normal text-slate-500">
+          เลือกไลฟ์ที่กำลังขายหรือไลฟ์ย้อนหลัง เพื่อดูบิล สลิป และการจัดส่งของไลฟ์เดียวกัน
+        </span>
       </label>
     </>
   )
   return (
     <section
       className="mb-6 min-w-0 shrink-0 space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-6"
-      aria-label={auction ? 'แดชบอร์ดไลฟ์สดการประมูลครบวงจร' : 'สรุป Session ประมูล'}
+      aria-label={auction ? 'จัดการประมูลและขายสินค้าผ่านไลฟ์สด' : 'สรุป เซสชัน ประมูล'}
       data-auction-dashboard={auction ? true : undefined}
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
             <BarChart3 className="h-5 w-5 text-orange-500" />
-            {auction ? 'ไลฟ์สดการประมูลครบวงจร' : 'สรุปยอดประมูลราย Session'}
+            {auction ? 'ไลฟ์สดการประมูลครบวงจร' : 'สรุปยอดประมูลรายเซสชัน'}
           </h2>
           <p className="mt-1 text-xs text-slate-500">
             ยอดจากบิลและสลิปที่ตรวจสอบผ่าน • อัปเดตทุก 5 วินาที{updated ? ` • ${updated}` : ''}
@@ -403,7 +406,7 @@ export function LiveSessionDashboard({
         <button
           type="button"
           className={button}
-          aria-label="โหลดสรุป Session ใหม่"
+          aria-label="โหลดข้อมูลไลฟ์ล่าสุด"
           onClick={() => setVersion((previous) => previous + 1)}
         >
           <RefreshCw className="inline h-4 w-4" /> โหลดใหม่
@@ -420,10 +423,10 @@ export function LiveSessionDashboard({
         </p>
       )}
 
-      {loading && !data && <p role="status">Loading Session...</p>}
+      {loading && !data && <p role="status">กำลังโหลดข้อมูลไลฟ์สด…</p>}
       {auction ? (
         <>
-          <AuctionDashboardSection number={1} title="Session & Financial Summary">
+          <AuctionDashboardSection number={1}>
             <AuctionSessionStart
               tenantId={tenantId}
               options={auction}
@@ -435,12 +438,16 @@ export function LiveSessionDashboard({
             {sessionSelector}
             {finance}
           </AuctionDashboardSection>
-          <AuctionDashboardSection number={2} title="Auction Round History">
-            {rounds}
-          </AuctionDashboardSection>
-          <AuctionDashboardSection number={3} title="Live Session Automation">
+          <AuctionDashboardSection number={2}>
             {data ? (
               <>
+                <AuctionRoundForm
+                  key={`round:${data.session.id}`}
+                  tenantId={tenantId}
+                  data={data}
+                  options={auction}
+                  onChanged={() => setVersion((v) => v + 1)}
+                />
                 <AuctionSessionAutomation
                   key={data.session.id}
                   tenantId={tenantId}
@@ -448,20 +455,12 @@ export function LiveSessionDashboard({
                   options={auction}
                   onSaved={() => setVersion((v) => v + 1)}
                 />
-                <LiveAuctionPanel
-                  key={data.session.id}
-                  tenantId={tenantId}
-                  pages={auction.pages}
-                  bankAccounts={auction.bankAccounts}
-                  session={data.session}
-                  onSessionEnded={() => setVersion((v) => v + 1)}
-                />
               </>
             ) : (
               <SessionRequired />
             )}
           </AuctionDashboardSection>
-          <AuctionDashboardSection number={4} title="Customer Orders & Billing">
+          <AuctionDashboardSection number={3}>
             <div
               data-customer-billing-grid
               className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-12"
@@ -482,7 +481,7 @@ export function LiveSessionDashboard({
               <AuctionSessionSlips key={`slips:${data?.session.id ?? 'empty'}`} data={data} />
             </div>
           </AuctionDashboardSection>
-          <AuctionDashboardSection number={5} title="Shipping & Fulfillment">
+          <AuctionDashboardSection number={4}>
             {data ? (
               <ShippingDashboard
                 key={data.session.id}

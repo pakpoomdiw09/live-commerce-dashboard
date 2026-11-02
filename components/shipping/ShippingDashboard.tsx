@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Download, Printer, RefreshCw, Settings, Truck } from 'lucide-react'
 import { SessionDialog } from '@/components/live-cf/SessionDialog'
+import { courierLabel } from './shipping-ui'
 import { ShippingAddressModal } from './ShippingAddressModal'
 import { ShippingSettingsModal } from './ShippingSettingsModal'
 import {
@@ -195,7 +196,7 @@ export function ShippingDashboard({
       })
       if (!response.ok) {
         const result = await response.json()
-        throw new Error(result.error || 'Export ไม่สำเร็จ')
+        throw new Error(result.error || 'ดาวน์โหลดไฟล์ไม่สำเร็จ')
       }
       const url = URL.createObjectURL(await response.blob())
       const link = document.createElement('a')
@@ -207,7 +208,7 @@ export function ShippingDashboard({
         `ดาวน์โหลด CSV ${targets.length} รายการแล้ว ยังไม่ได้จองขนส่งหรือเปลี่ยนสถานะเป็นส่งแล้ว`,
       )
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Export ไม่สำเร็จ')
+      setError(cause instanceof Error ? cause.message : 'ดาวน์โหลดไฟล์ไม่สำเร็จ')
     } finally {
       setBusy(false)
     }
@@ -238,6 +239,7 @@ export function ShippingDashboard({
           <p className="mt-1 text-sm text-slate-500">
             รวมพระจากบิลที่ชำระครบเป็นกล่องเดียว • อัปเดตทุก 5 วินาที {updated && `• ${updated}`}
           </p>
+          {embedded && <p className="mt-1 text-xs text-slate-500">ระบบช่วยอ่านชื่อ เบอร์โทร และที่อยู่จากข้อความ Messenger ของลูกค้า กรุณาตรวจข้อมูลให้ถูกต้องก่อนพิมพ์ใบปะหน้า</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -281,9 +283,9 @@ export function ShippingDashboard({
       <section className="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
         <div className="grid gap-4 md:grid-cols-2">
           <label className="text-sm font-semibold">
-            Session ไลฟ์สด
+            เซสชันไลฟ์สด
             <select
-              aria-label="Session จัดส่ง"
+              aria-label={embedded ? 'เซสชันจัดส่ง' : 'Session จัดส่ง'}
               disabled={!!sessionId}
               className={field}
               value={session}
@@ -295,12 +297,12 @@ export function ShippingDashboard({
             >
               {!sessionId && (
                 <>
-                  <option value="all">ทุก Session</option>
-                  <option value="legacy">ออเดอร์นอก Session</option>
+                  <option value="all">ทุกเซสชัน</option>
+                  <option value="legacy">รายการนอกไลฟ์สด</option>
                 </>
               )}
               {sessionId && !data.sessions.some((item) => item.id === sessionId) && (
-                <option value={sessionId}>Session ที่เลือกด้านบน</option>
+                <option value={sessionId}>เซสชันที่เลือกด้านบน</option>
               )}
               {data.sessions.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -308,6 +310,9 @@ export function ShippingDashboard({
                 </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              รายการส่งจะตรงกับไลฟ์ที่เลือกด้านบน
+            </span>
           </label>
           <label className="text-sm font-semibold">
             สถานะการจัดส่ง
@@ -326,6 +331,9 @@ export function ShippingDashboard({
                 </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              เลือกดูรายการรอที่อยู่ พร้อมส่ง หรือจัดส่งแล้ว
+            </span>
           </label>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -345,7 +353,9 @@ export function ShippingDashboard({
             onClick={() => void prepare('thermal')}
           >
             <Printer className="h-4 w-4" />
-            พิมพ์สติกเกอร์ 100×150 mm
+            {embedded
+              ? 'พิมพ์ใบปะหน้าพัสดุ (สติกเกอร์ความร้อน 100x150 มม.)'
+              : 'พิมพ์สติกเกอร์ 100×150 มม.'}
           </button>
           <button
             type="button"
@@ -354,7 +364,7 @@ export function ShippingDashboard({
             onClick={() => void prepare('a4')}
           >
             <Printer className="h-4 w-4" />
-            พิมพ์ A4 / 4 รายการ
+            {embedded ? 'พิมพ์ใบปะหน้าพัสดุ (กระดาษ A4 รวม 4 รายการ)' : 'พิมพ์ A4 / 4 รายการ'}
           </button>
           <button
             type="button"
@@ -363,7 +373,7 @@ export function ShippingDashboard({
             onClick={() => void exportCsv()}
           >
             <Download className="h-4 w-4" />
-            ดาวน์โหลด CSV สำหรับขนส่ง
+            {embedded ? 'ดาวน์โหลดไฟล์ CSV สำหรับระบบขนส่ง' : 'ดาวน์โหลด CSV สำหรับขนส่ง'}
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -397,8 +407,8 @@ export function ShippingDashboard({
         </div>
         <p className="text-xs leading-relaxed text-slate-500">
           ถ้าไม่ติ๊กเลือก จะใช้รายการพร้อมส่งที่แสดงสูงสุด 100 รายการ การลบเป็นการยกเลิกรายการจัดส่ง
-          ไม่ลบบิลหรือเงินที่ชำระ • CSV มี 10 คอลัมน์และ COD 0 สำหรับนำเข้า Excel
-          ให้ตั้งคอลัมน์เบอร์โทรและรหัสไปรษณีย์เป็นข้อความ
+          ไม่ลบบิลหรือเงินที่ชำระ • ไฟล์ CSV สำหรับแฟลช เอ็กซ์เพรส เจแอนด์ที และไปรษณีย์ไทย
+          ไม่เรียกเก็บเงินปลายทาง ให้ตั้งคอลัมน์เบอร์โทรและรหัสไปรษณีย์เป็นข้อความ
         </p>
         {!data.settings && (
           <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
@@ -482,7 +492,7 @@ export function ShippingDashboard({
                       href={`/inbox?customer=${shipment.customer_id}`}
                       className="mt-1 block text-xs text-blue-600 underline"
                     >
-                      เปิดแช็ต Messenger ใน Inbox
+                      เปิดข้อความของลูกค้า
                     </a>
                     <span className="mt-2 block text-[10px] text-slate-400">
                       พัสดุ #{shipment.id.slice(0, 8)}
@@ -540,9 +550,9 @@ export function ShippingDashboard({
                     )}
                   </td>
                   <td className="w-56 p-3 align-top">
-                    <p className="text-xs text-slate-500">{shipment.courier_name}</p>
+                    <p className="text-xs text-slate-500">{courierLabel(shipment.courier_name)}</p>
                     <input
-                      aria-label={`Tracking ${shipment.customer_name}`}
+                      aria-label={`เลขพัสดุ ${shipment.customer_name}`}
                       className={field}
                       maxLength={100}
                       value={tracking[shipment.id] ?? shipment.tracking_number ?? ''}
@@ -554,6 +564,9 @@ export function ShippingDashboard({
                         }))
                       }
                     />
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      กรอกเลขที่ได้รับจากขนส่ง แล้วกดบันทึกเลขพัสดุ
+                    </p>
                     <button
                       type="button"
                       className="mt-2 text-xs font-semibold text-orange-700 underline disabled:opacity-40"
@@ -650,23 +663,28 @@ export function ShippingDashboard({
           <label className="block text-sm font-semibold">
             ตัวเลือกขนส่ง
             <select
-              aria-label="ตัวเลือกขนส่ง Export"
+              aria-label="ตัวเลือกขนส่งสำหรับดาวน์โหลด"
               className={field}
               value={carrier}
               onChange={(event) => setCarrier(event.target.value)}
             >
               {COURIERS.map((courier) => (
-                <option key={courier}>{courier}</option>
+                <option key={courier} value={courier}>
+                  {courierLabel(courier)}
+                </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              เลือกขนส่งที่ต้องการเตรียมไฟล์ให้
+            </span>
           </label>
           <label className="block text-sm font-medium">
-            API Key สำหรับการเชื่อมต่อในอนาคต
+            กุญแจเชื่อมต่อ Bee Move (API Key สำหรับใช้ในอนาคต)
             <input
               type="password"
               disabled
               className={field}
-              placeholder="ยังไม่เปิดรับหรือบันทึก API Key"
+              placeholder="ใช้เมื่อติดตั้งการเชื่อมต่อขนส่งแล้ว"
             />
           </label>
           <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
@@ -688,7 +706,7 @@ export function ShippingDashboard({
               disabled={busy || !validTargets}
               onClick={() => void prepare('thermal')}
             >
-              ฉลาก 100×150 mm
+              ฉลาก 100×150 มม.
             </button>
             <button
               type="button"

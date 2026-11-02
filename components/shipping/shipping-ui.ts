@@ -9,6 +9,22 @@ export const shippingButton =
   'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50'
 export const shippingPrimary =
   'inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50'
+const courierNames: Record<string, string> = {
+  'Flash Express': 'แฟลช เอ็กซ์เพรส',
+  'J&T': 'เจแอนด์ที',
+  EMS: 'ไปรษณีย์ไทย',
+  'Bee Move': 'Bee Move',
+}
+export const courierLabel = (name: string) => courierNames[name] ?? name
+export const addressHelp: Record<string, string> = {
+  recipient_name: 'ชื่อผู้รับตามที่ลูกค้าแจ้ง',
+  phone_number: 'เบอร์โทรที่ขนส่งติดต่อผู้รับได้',
+  shipping_address: 'ระบุบ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด และรหัสไปรษณีย์ให้ครบ',
+  subdistrict: 'ชื่อตำบลหรือแขวงของผู้รับ',
+  district: 'ชื่ออำเภอหรือเขตของผู้รับ',
+  province: 'จังหวัดที่จัดส่ง',
+  zipcode: 'รหัสไปรษณีย์ 5 หลักของผู้รับ',
+}
 export type ShippingPost = (
   input: Record<string, unknown>,
   requestId?: string,

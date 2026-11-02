@@ -32,7 +32,7 @@ function failure(error: unknown) {
       400,
     )
   return auctionReply(
-    { error: 'โหลดหรือบันทึกไม่สำเร็จ กรุณาตรวจการติดตั้ง live-session-dashboard.sql' },
+    { error: 'โหลดหรือบันทึกไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ' },
     503,
   )
 }

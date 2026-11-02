@@ -3,25 +3,38 @@ import { useRef, useState } from 'react'
 import type { LiveSession } from '@/lib/features/commerce/live-session-types'
 import {
   defaultSessionAutomation,
+  displaySessionTemplate,
   normalizeBidKeyword,
   validSessionAutomation,
   type SessionAutomation,
 } from '@/lib/features/commerce/session-automation'
-import { LiveSwitch, LiveTemplateEditor, ReceivingBankPicker } from './LiveReplyControls'
+import { LiveSwitch, LiveTemplateEditor } from './LiveReplyControls'
 import type { AuctionDashboardOptions } from './AuctionSessionStart'
 import { field, orange } from './session-ui'
 
 const variables = [
-  { tag: '{name}', label: 'ชื่อลูกค้า', key: 'bidder_name' },
-  { tag: '{item}', label: 'ชื่อรายการ', key: 'product_name' },
-  { tag: '{price}', label: 'ราคาจบประมูล', key: 'price' },
-  { tag: '{total}', label: 'ยอดรวมสะสม', key: 'total' },
-  { tag: '{bank_account}', label: 'บัญชีรับเงิน', key: 'bank_account' },
-  { tag: '{remaining}', label: 'ยอดค้างสุทธิ', key: 'remaining' },
-  { tag: '{payment_link}', label: 'ลิงก์ชำระเงิน', key: 'payment_link' },
+  { tag: '{ชื่อลูกค้า}', label: 'ชื่อลูกค้า', key: 'bidder_name' },
+  { tag: '{รายการ}', label: 'รายการ', key: 'product_name' },
+  { tag: '{ราคา}', label: 'ราคา', key: 'price' },
+  { tag: '{ยอดรวมสะสม}', label: 'ยอดรวมสะสม', key: 'total' },
+  { tag: '{เลขบัญชี}', label: 'เลขบัญชี', key: 'bank_account' },
 ]
-const friendly = (text: string) =>
-  text.replaceAll('{bidder_name}', '{name}').replaceAll('{product_name}', '{item}')
+const words = (text: string) =>
+  text
+    .split(/[,\n]+/)
+    .map(normalizeBidKeyword)
+    .filter(Boolean)
+function draftFrom(session: LiveSession, bankId?: string): SessionAutomation {
+  const initial = session.auction_settings ?? defaultSessionAutomation(bankId)
+  return {
+    ...initial,
+    closeKeywords: initial.closeKeywords ?? ['ปิด', 'x'],
+    countEnabled: false,
+    heartCloses: false,
+    bidText: displaySessionTemplate(initial.closeKeywords ? initial.bidText : initial.closeText),
+    privateText: displaySessionTemplate(initial.privateText),
+  }
+}
 export function AuctionSessionAutomation({
   tenantId,
   session,
@@ -33,56 +46,33 @@ export function AuctionSessionAutomation({
   options: AuctionDashboardOptions
   onSaved: () => void
 }) {
-  const initial = session.auction_settings ?? defaultSessionAutomation(options.bankAccounts[0]?.id)
-  const [draft, setDraft] = useState<SessionAutomation>({
-    ...initial,
-    bidText: friendly(initial.bidText),
-    privateText: friendly(initial.privateText),
-    closeText: friendly(initial.closeText),
-  })
-  const [keyword, setKeyword] = useState(''),
-    [busy, setBusy] = useState(false),
+  const initial = draftFrom(session, options.bankAccounts[0]?.id)
+  const [draft, setDraft] = useState(initial),
+    [keywordText, setKeywordText] = useState(initial.keywords.join(', ')),
+    [closeText, setCloseText] = useState(initial.closeKeywords!.join(', '))
+  const [baseRevision, setBaseRevision] = useState(session.automation_revision ?? 0)
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('')
-  const [baseRevision, setBaseRevision] = useState(session.automation_revision ?? 0)
   const request = useRef({ key: '', id: '' })
   const disabled = busy || !!session.ended_at
-  const toggle = (
-    key: 'publicReply' | 'privateReply' | 'countEnabled' | 'closeEnabled' | 'heartCloses',
-    label: string,
-  ) => (
-    <div className="flex items-center gap-3">
-      <LiveSwitch
-        label={label}
-        checked={draft[key]}
-        disabled={disabled}
-        onChange={(checked) => setDraft((previous) => ({ ...previous, [key]: checked }))}
-      />
-      <span className="text-sm font-medium">{label}</span>
-    </div>
-  )
-  function add(value: string) {
-    const k = normalizeBidKeyword(value)
-    if (
-      !k ||
-      k.length > 40 ||
-      /[\r\n{}]/u.test(k) ||
-      draft.keywords.includes(k) ||
-      draft.keywords.length >= 30
-    )
-      return
-    setDraft((previous) => ({ ...previous, keywords: [...previous.keywords, k] }))
-    setKeyword('')
+  const settings = {
+    ...draft,
+    keywords: words(keywordText),
+    closeKeywords: words(closeText),
+    closeText: draft.bidText,
   }
   return (
     <form
-      className="space-y-5"
-      onSubmit={async (e) => {
-        e.preventDefault()
+      data-auction-automation
+      className="space-y-5 rounded-xl border border-slate-200 p-4"
+      onSubmit={async (event) => {
+        event.preventDefault()
+        if (!validSessionAutomation(settings)) return
         setBusy(true)
         setError('')
         setNotice('')
-        const key = JSON.stringify({ draft, baseRevision })
+        const key = JSON.stringify({ settings, baseRevision })
         if (request.current.key !== key) request.current = { key, id: crypto.randomUUID() }
         try {
           const response = await fetch('/api/live-auction/session', {
@@ -92,151 +82,135 @@ export function AuctionSessionAutomation({
               tenantId,
               sessionId: session.id,
               action: 'settings',
+              settings,
               revision: baseRevision,
-              settings: draft,
               requestId: request.current.id,
             }),
             signal: AbortSignal.timeout(30000),
           })
           const result = await response.json()
-          if (!response.ok) throw new Error(result.error || 'บันทึกค่าตั้งค่าไม่สำเร็จ')
+          if (!response.ok) throw new Error(result.error || 'บันทึกคำดักไม่สำเร็จ')
           setBaseRevision(result.revision)
           request.current = { key: '', id: '' }
-          setNotice('บันทึกแล้ว ใช้กับรอบที่กำลังเปิดและรอบใหม่ใน Session นี้')
+          setNotice('บันทึกแล้ว คำดักและข้อความนี้ใช้กับรอบปัจจุบันและรอบใหม่ในไลฟ์นี้')
           onSaved()
         } catch (cause) {
-          setError(cause instanceof Error ? cause.message : 'บันทึกค่าตั้งค่าไม่สำเร็จ')
+          setError(cause instanceof Error ? cause.message : 'บันทึกไม่สำเร็จ')
         } finally {
           setBusy(false)
         }
       }}
     >
-      <fieldset disabled={disabled} className="space-y-3">
-        <legend className="mb-2 text-sm font-semibold">คำดักเคาะบิด</legend>
-        <div className="flex flex-wrap gap-2">
-          {draft.keywords.map((k) => (
-            <button
-              type="button"
-              key={k}
-              aria-label={`ลบคำดัก ${k}`}
-              className="rounded-full bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-700 ring-1 ring-orange-200 disabled:opacity-50"
-              onClick={() =>
-                setDraft((previous) => ({
-                  ...previous,
-                  keywords: previous.keywords.filter((v) => v !== k),
-                }))
-              }
-            >
-              {k} ×
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {['1', '11', '111', '11111', '+1', '+10']
-            .filter((k) => !draft.keywords.includes(k))
-            .map((k) => (
-              <button
-                type="button"
-                key={k}
-                className="rounded-lg border px-3 py-2 text-sm"
-                onClick={() => add(k)}
-              >
-                เพิ่ม {k}
-              </button>
-            ))}
-        </div>
-        <div className="flex max-w-lg gap-2">
+      <h3 className="font-bold text-slate-900">ตั้งค่าคำดักและคำสั่งปิดรอบ</h3>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <label className="text-sm font-semibold">
+          คีย์เวิร์ดการดักคำ
           <input
-            aria-label="เพิ่มคำดักบิด"
-            maxLength={40}
+            aria-label="คีย์เวิร์ดการดักคำ"
             className={field}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                add(keyword)
-              }
-            }}
-            placeholder="คำดักใหม่"
+            maxLength={1200}
+            value={keywordText}
+            disabled={disabled}
+            onChange={(e) => setKeywordText(e.target.value)}
+            placeholder="เช่น 1"
           />
-          <button
-            type="button"
-            className={`${orange} shrink-0 whitespace-nowrap`}
-            disabled={!keyword.trim() || draft.keywords.length >= 30}
-            onClick={() => add(keyword)}
-          >
-            เพิ่มคำดัก
-          </button>
-        </div>
-        <p className="text-xs text-slate-500">
-          ทุกคำดักเพิ่มหนึ่งสเต็ปต่อคอมเมนต์ รวมถึง +10 ส่วนตัวเลขอื่นเป็นราคาเสนอโดยตรง
-        </p>
-      </fieldset>
-      <div className="grid gap-5 lg:grid-cols-2">
-        <div className="space-y-3 rounded-xl border border-slate-200 p-4">
-          {toggle('publicReply', 'ข้อความตอบกลับใต้คอมเมนต์')}
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            กำหนดคำที่ต้องการให้ลูกค้าพิมพ์ในคอมเมนต์เพื่อเคาะประมูล เช่น พิมพ์ 1
+            เมื่อชนะยอดจะส่งเข้า Messenger ทันที
+          </span>
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            ถ้ามีหลายคำให้คั่นด้วยเครื่องหมายจุลภาค เช่น 1, เคาะ · ค่าที่แก้มีผลเมื่อกดบันทึก
+          </span>
+        </label>
+        <label className="text-sm font-semibold">
+          คีย์เวิร์ดการปิดการประมูล
+          <input
+            aria-label="คีย์เวิร์ดการปิดการประมูล"
+            className={field}
+            maxLength={1200}
+            value={closeText}
+            disabled={disabled}
+            onChange={(e) => setCloseText(e.target.value)}
+            placeholder="เช่น ปิด, x"
+          />
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            กำหนดคำที่ผู้ขายจะพิมพ์ในคอมเมนต์ไลฟ์สดเพื่อปิดประมูล เช่น พิมพ์ ปิด หรือ x
+            เมื่อระบบพบคำนี้จะตัดสินผู้ชนะทันที
+          </span>
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            พิมพ์ในนามเพจที่เชื่อมต่อ คำสั่งของลูกค้าจะไม่ปิดรอบ · คำดักและคำปิดต้องไม่ซ้ำกัน
+          </span>
+        </label>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-3 rounded-xl bg-slate-50 p-4">
+          <div className="flex items-center gap-3">
+            <LiveSwitch
+              checked={draft.publicReply}
+              disabled={disabled}
+              label="เปิดข้อความตอบกลับใต้คอมเมนต์"
+              onChange={(publicReply) => setDraft((previous) => ({ ...previous, publicReply }))}
+            />
+            <h4 className="text-sm font-semibold">ข้อความตอบกลับใต้คอมเมนต์</h4>
+          </div>
           <LiveTemplateEditor
-            label="Template ตอบกลับใต้คอมเมนต์"
+            label="ข้อความตอบกลับใต้คอมเมนต์"
             value={draft.bidText}
             disabled={disabled || !draft.publicReply}
-            variables={variables.filter((v) =>
-              ['bidder_name', 'product_name', 'price'].includes(v.key),
-            )}
+            variables={variables.slice(0, 3)}
             maxLength={600}
             onChange={(bidText) => setDraft((previous) => ({ ...previous, bidText }))}
           />
+          <p className="text-xs text-slate-500">
+            ข้อความที่จะแท็กตอบกลับใต้คอมเมนต์ของผู้ชนะหน้าไลฟ์สด
+            ระหว่างเคาะประมูลระบบจะจำผู้ขึ้นนำให้เงียบ ๆ
+          </p>
         </div>
-        <div className="space-y-3 rounded-xl border border-slate-200 p-4">
-          {toggle('privateReply', 'ข้อความส่งเข้าแชท (Messenger)')}
+        <div className="space-y-3 rounded-xl bg-slate-50 p-4">
+          <div className="flex items-center gap-3">
+            <LiveSwitch
+              checked={draft.privateReply}
+              disabled={disabled}
+              label="เปิดข้อความแจ้งยอดเข้าแชทส่วนตัว"
+              onChange={(privateReply) => setDraft((previous) => ({ ...previous, privateReply }))}
+            />
+            <h4 className="text-sm font-semibold">ข้อความแจ้งยอดเข้าแชทส่วนตัว (Messenger)</h4>
+          </div>
           <LiveTemplateEditor
-            label="Template ข้อความส่งเข้าแชท (Messenger)"
+            label="ข้อความแจ้งยอดเข้าแชทส่วนตัว (Messenger)"
             value={draft.privateText}
             disabled={disabled || !draft.privateReply}
             variables={variables}
             onChange={(privateText) => setDraft((previous) => ({ ...previous, privateText }))}
           />
-          <ReceivingBankPicker
-            accounts={options.bankAccounts}
-            value={draft.bankAccountId}
-            required
-            disabled={disabled}
-            onChange={(bankAccountId) => setDraft((previous) => ({ ...previous, bankAccountId }))}
-          />
           <p className="text-xs text-slate-500">
-            {`{total}`} คือยอดรวมบิลสะสมล่าสุด และ {`{remaining}`} คือยอดที่ต้องโอนเพิ่ม
-            เมื่อเปิดสวิตช์ ระบบส่งทันทีทุกครั้งที่ปิดรายการและมีผู้ชนะ
-            พร้อมบัญชีรับเงินและลิงก์แนบสลิป บัญชีใหม่ใช้กับรอบใหม่ บิลเดิมคงบัญชีรับเงินเดิม
+            ส่งสรุปยอดสะสมและเลขบัญชีให้ผู้ชนะทันทีทาง Messenger รองรับตัวแปร{' '}
+            {'{ชื่อลูกค้า}, {รายการ}, {ราคา}, {ยอดรวมสะสม}, {เลขบัญชี}'}{' '}
+            ระบบแนบยอดค้างและลิงก์ชำระเงินให้ด้วย
           </p>
         </div>
       </div>
-      <div className="grid gap-3 rounded-xl bg-slate-50 p-4 md:grid-cols-3">
-        {toggle('countEnabled', 'รับคำสั่งนับ 3, 2, 1')}
-        {toggle('closeEnabled', 'รับคำสั่งปิดรอบ ❌ / ปิด')}
-        {toggle('heartCloses', 'ปิดรอบด้วยอิโมจิ ❤️')}
-      </div>
-      <p className="text-xs text-slate-500">
-        เฉพาะเพจและผู้ช่วยคุมประมูลเท่านั้นที่สั่งนับหรือปิดได้ คำสั่งของลูกค้าไม่ปิดรอบ
-      </p>
       {(session.automation_revision ?? 0) > baseRevision && (
         <p role="alert" className="text-sm text-amber-700">
-          ค่าตั้งค่ามีฉบับใหม่แล้ว กรุณาโหลดค่าล่าสุดก่อนบันทึก{' '}
+          มีคนแก้ไขคำดักแล้ว{' '}
           <button
             type="button"
             className="underline"
             onClick={() => {
-              const next = session.auction_settings ?? initial
-              setDraft({
-                ...next,
-                bidText: friendly(next.bidText),
-                privateText: friendly(next.privateText),
-                closeText: friendly(next.closeText),
-              })
+              const next = draftFrom(session, options.bankAccounts[0]?.id)
+              setDraft(next)
+              setKeywordText(next.keywords.join(', '))
+              setCloseText(next.closeKeywords!.join(', '))
               setBaseRevision(session.automation_revision ?? 0)
             }}
           >
-            โหลดค่าล่าสุด
+            ใช้ข้อมูลล่าสุด
           </button>
+        </p>
+      )}
+      {!validSessionAutomation(settings) && !disabled && (
+        <p className="text-xs text-orange-700">
+          กรอกคำดักและคำปิดอย่างน้อยช่องละหนึ่งคำ คำต้องไม่ซ้ำกัน และใช้ตัวแปรที่กำหนดในข้อความ
         </p>
       )}
       {error && (
@@ -250,19 +224,15 @@ export function AuctionSessionAutomation({
         </p>
       )}
       <button
-        className={orange}
         type="submit"
+        className={orange}
         disabled={
           disabled ||
-          !validSessionAutomation(draft) ||
+          !validSessionAutomation(settings) ||
           (session.automation_revision ?? 0) > baseRevision
         }
       >
-        {session.ended_at
-          ? 'Session นี้จบแล้ว'
-          : busy
-            ? 'กำลังบันทึก…'
-            : 'บันทึกค่าตั้งค่า Session'}
+        {session.ended_at ? 'ไลฟ์นี้จบแล้ว' : busy ? 'กำลังบันทึก…' : 'บันทึกคำดักและข้อความ'}
       </button>
     </form>
   )

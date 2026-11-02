@@ -242,7 +242,7 @@ async function checkInterface() {
     await click('พิมพ์สติกเกอร์')
     await wait(`shippingQA.opened.includes('/shipping/print/')`)
     assert.equal(await evaluate('shippingQA.requests.at(-1).format'), 'thermal')
-    await fill('input[aria-label="Tracking ลูกค้า Facebook 1"]', 'TH123456789')
+    await fill('input[aria-label="เลขพัสดุ ลูกค้า Facebook 1"]', 'TH123456789')
     await click('บันทึกเลขพัสดุ')
     await wait(`shippingQA.requests.at(-1)?.tracking==='TH123456789'`)
     await click('อัปเดตเป็นส่งพัสดุแล้ว')

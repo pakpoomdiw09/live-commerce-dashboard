@@ -63,8 +63,8 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'IGNORE',
   )
   assert.equal(
-    auctionParser.parseAuctionComment('❤️', true, { ...settings, heartCloses: true }).action,
-    'close',
+    auctionParser.parseAuctionComment('❤️', true, { ...settings, heartCloses: true }).type,
+    'IGNORE',
   )
   assert.equal(
     auctionParser.parseAuctionComment('❌', true, { ...settings, closeEnabled: false }).type,
@@ -75,6 +75,35 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'IGNORE',
   )
   assert.equal(automation.validSessionAutomation(settings), true)
+  assert.equal(
+    auctionParser.parseAuctionComment('จบรายการ', true, {
+      ...settings,
+      closeKeywords: ['จบรายการ'],
+    }).action,
+    'close',
+  )
+  assert.equal(
+    auctionParser.parseAuctionComment('จบรายการ', false, {
+      ...settings,
+      closeKeywords: ['จบรายการ'],
+    }).type,
+    'IGNORE',
+  )
+  assert.equal(auctionParser.parseAuctionComment('+10', false, settings).type, 'IGNORE')
+  assert.equal(
+    auctionParser.parseAuctionComment('❤️', true, {
+      ...settings,
+      closeKeywords: undefined,
+      heartCloses: true,
+    }).action,
+    'close',
+    'the separate legacy console keeps its parser',
+  )
+  assert.equal(automation.validSessionAutomation({ ...settings, closeKeywords: ['1'] }), false)
+  assert.equal(
+    automation.sessionAuctionTemplate('{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}'),
+    '{bidder_name} {product_name} {price} {total} {bank_account}',
+  )
   assert.equal(automation.validSessionAutomation({ ...settings, keywords: ['1', '１'] }), false)
   assert.equal(automation.validSessionAutomation({ ...settings, bidText: '{total}' }), false)
   assert.equal(
@@ -173,12 +202,12 @@ test('session financial transactions preserve proofs/payments, fence revisions a
           }),
         ],
       )
-    const open = async (post = '456') =>
+    const open = async (post = '456', receivingBank = bank) =>
       (
         await one(
           `insert into auctions(tenant_id,page_id,live_post_id,item_name,start_price,min_step,shipping_fee,bank_account_id,private_reply_enabled,public_reply_enabled)
       values($1,'100',$2,'Amulet',200,20,50,$3,false,false) returning id`,
-          [tenant, post, bank],
+          [tenant, post, receivingBank],
         )
       ).id
     const process = async (id, sender, text, kind, amount = null, control = null, post = '456') => {
@@ -510,7 +539,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     )
     await assert.rejects(configure({ ...start, livePostId: '988' }, startRequest), /REQUEST_REUSED/)
     await assert.rejects(configure(start, randomUUID(), other), /BANK_SCOPE|PAGE_SCOPE/)
-    const changed = { ...config, heartCloses: true, keywords: ['11', 'raise'] }
+    const changed = { ...config, closeKeywords: ['จบรายการ'], keywords: ['11', 'raise'] }
     const savedSettings = await configure({
       action: 'settings',
       sessionId: started.id,
@@ -561,7 +590,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       220,
       'changing automation cannot reset the accepted bid',
     )
-    await process(active, '100', '❤️', 'HOST_CONTROL', null, 'close', '987')
+    await process(active, '100', 'จบรายการ', 'HOST_CONTROL', null, 'close', '987')
     const dashboardOrder = await one('select * from orders where source_id=$1', [active])
     assert.equal(dashboardOrder.order_type, 'auction')
     assert.equal(dashboardOrder.live_session_id, started.id)
@@ -664,6 +693,99 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     ).result
     assert.ok(otherWorkspace.tabs.every((tab) => !tab.note))
     assert.deepEqual(await getTab(dashboardOrder.customer_tab_id), ledgerBeforeNotes)
+    const thaiStarted = await configure({
+      ...start,
+      livePostId: '989',
+      settings: {
+        ...config,
+        keywords: ['เคาะ'],
+        closeKeywords: ['ปิดร้าน'],
+        privateReply: true,
+        publicReply: true,
+      },
+    })
+    const alternateBank = (
+      await one(
+        "insert into bank_accounts(tenant_id,bank_code,account_name,account_number) values($1,'KBANK','Shop alternative','1234567890') returning id",
+        [tenant],
+      )
+    ).id
+    const thaiRound = await open('989', alternateBank)
+    assert.equal(
+      (await one('select bank_account_id from auctions where id=$1', [thaiRound])).bank_account_id,
+      alternateBank,
+    )
+    await configure({
+      action: 'settings',
+      sessionId: thaiStarted.id,
+      revision: thaiStarted.revision,
+      settings: {
+        ...config,
+        keywords: ['เคาะ'],
+        closeKeywords: ['ปิดร้าน'],
+        privateReply: true,
+        publicReply: true,
+      },
+    })
+    assert.equal(
+      (await one('select bank_account_id from auctions where id=$1', [thaiRound])).bank_account_id,
+      alternateBank,
+      'editing words does not change the bank selected for a running round',
+    )
+    let thaiSnapshot = (
+      await one('select live_auction_thai_dashboard($1,$2) result', [tenant, thaiStarted.id])
+    ).result
+    assert.equal(thaiSnapshot.activeAuction.id, thaiRound)
+    await process(thaiRound, '900', 'เคาะ', 'STEP_BID', null, null, '989')
+    await process(thaiRound, '904', 'เคาะ', 'STEP_BID', null, null, '989')
+    const winning = await one(
+      "select comment_id from auction_bids where auction_id=$1 and bidder_id='904'",
+      [thaiRound],
+    )
+    assert.equal(
+      (await one('select current_price from auctions where id=$1', [thaiRound])).current_price,
+      '220.00',
+    )
+    assert.equal(
+      (await process(thaiRound, '904', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')).status,
+      'ignored',
+    )
+    assert.equal(
+      (await process(thaiRound, '100', 'x', 'HOST_CONTROL', null, 'close', '989')).status,
+      'ignored',
+      'the transaction rejects a stale or unconfigured close word',
+    )
+    assert.equal(
+      (await one('select status from auctions where id=$1', [thaiRound])).status,
+      'active',
+    )
+    await process(thaiRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
+    assert.equal(
+      (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [thaiRound]))
+        .n,
+      2,
+    )
+    assert.equal(
+      (
+        await one(
+          "select comment_id from auction_deliveries where auction_id=$1 and channel='public'",
+          [thaiRound],
+        )
+      ).comment_id,
+      winning.comment_id,
+      'winner confirmation targets the customer comment, not the seller close command',
+    )
+    await process(thaiRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
+    assert.equal(
+      (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [thaiRound]))
+        .n,
+      2,
+    )
+    thaiSnapshot = (
+      await one('select live_auction_thai_dashboard($1,$2) result', [tenant, thaiStarted.id])
+    ).result
+    assert.equal(thaiSnapshot.activeAuction, null)
+    assert.equal(thaiSnapshot.tabs[0].total, 270)
     assert.equal(
       (
         await one(

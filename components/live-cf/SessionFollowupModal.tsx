@@ -13,6 +13,22 @@ import {
   type SessionTab,
 } from '@/lib/features/commerce/live-session-types'
 import { button, orange, stateText, type Post } from './session-ui'
+const followupLabels: Record<string, string> = {
+  name: 'ชื่อลูกค้า',
+  due: 'ยอดต้องโอน',
+  paid: 'ยอดโอนแล้ว',
+  short: 'ยอดค้างสุทธิ',
+  items: 'รายการสินค้า',
+}
+const displayFollowup = (text: string) =>
+  text.replace(/\{([^{}]+)\}/g, (match, key: string) =>
+    followupLabels[key] ? `{${followupLabels[key]}}` : match,
+  )
+const storeFollowup = (text: string) =>
+  text.replace(/\{([^{}]+)\}/g, (match, label: string) => {
+    const key = Object.keys(followupLabels).find((key) => followupLabels[key] === label)
+    return key ? `{${key}}` : match
+  })
 
 export function SessionFollowupModal({
   tabs,
@@ -26,7 +42,7 @@ export function SessionFollowupModal({
   onClose: () => void
 }) {
   const [scope, setScope] = useState<'all' | 'selected'>(selected.length ? 'selected' : 'all')
-  const [template, setTemplate] = useState(SESSION_FOLLOWUP_TEMPLATE),
+  const [template, setTemplate] = useState(displayFollowup(SESSION_FOLLOWUP_TEMPLATE)),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('')
   const request = useRef(crypto.randomUUID())
@@ -43,7 +59,7 @@ export function SessionFollowupModal({
         <legend className="mb-2 font-semibold">ส่งถึง</legend>
         {(
           [
-            { value: 'all', label: 'ทุกคนที่ยังโอนไม่ครบใน Session นี้' },
+            { value: 'all', label: 'ทุกคนที่ยังโอนไม่ครบในไลฟ์นี้' },
             { value: 'selected', label: `เฉพาะคนที่ติ๊กเลือก (${selected.length} คน)` },
           ] as const
         ).map((option) => (
@@ -66,9 +82,12 @@ export function SessionFollowupModal({
       <div>
         <p className="text-sm font-semibold">ข้อความทวงยอด</p>
         <LiveTemplateEditor
-          label="Template ทวงยอด Session"
+          label="ข้อความตามยอดค้างชำระ"
           value={template}
-          variables={SESSION_VARIABLES}
+          variables={SESSION_VARIABLES.map((variable) => {
+            const key = variable.tag.slice(1, -1)
+            return { tag: `{${followupLabels[key]}}`, label: followupLabels[key] }
+          })}
           disabled={busy}
           maxLength={1500}
           rows={6}
@@ -79,7 +98,7 @@ export function SessionFollowupModal({
         />
       </div>
       <p className="text-xs text-slate-500">
-        {'{due}'} แสดงสูตรบวกยอดรวมรวมค่าส่งครั้งเดียว • ระบบแนบเลขบัญชี ลิงก์ชำระเงิน
+        {'{ยอดต้องโอน}'} แสดงยอดรวมพร้อมค่าส่งครั้งเดียว ระบบแนบเลขบัญชีและลิงก์ชำระเงิน
         และยอดที่ตรวจสอบจากบิลให้เสมอ โดยตรวจยอดใหม่ก่อนส่งจริง
       </p>
       <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -131,18 +150,18 @@ export function SessionFollowupModal({
             พรีวิวข้อความ • {tab.name} • {tabFormula(tab)}
           </summary>
           <pre className="mt-3 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-slate-600">
-            {renderSessionFollowup(template, tab)}
-            {`\n\nบัญชีรับเงิน: ${tab.account || 'ตรวจสอบบัญชีรับเงินจากบิลจริง'}\nระบบแนบลิงก์ดูบิล / QR / แนบสลิปจากบิลจริง`}
+            {renderSessionFollowup(storeFollowup(template), tab)}
+            {`\n\nบัญชีรับเงิน: ${tab.account || 'ตรวจสอบบัญชีรับเงินจากบิลจริง'}\nระบบแนบลิงก์ดูบิลและแนบสลิปจากบิลจริง`}
           </pre>
         </details>
       ))}
-      {!validSessionTemplate(template) && (
+      {!validSessionTemplate(storeFollowup(template)) && (
         <p role="alert" className="text-sm text-red-700">
-          กรุณาใช้ข้อความไม่เกิน 1,500 ตัวอักษร และตัวแปร name, due, paid, short, items เท่านั้น
+          ใช้ข้อความไม่เกิน 1,500 ตัวอักษร และกดเลือกตัวแปรจากปุ่มใต้ช่องข้อความ
         </p>
       )}
       <p className="text-xs text-slate-500">
-        ส่งทีละคน ไม่เกิน 12 คนต่อนาทีต่อเพจ มีคิวป้องกันส่งซ้ำ
+        ส่งทีละคน ไม่เกิน 12 คนต่อนาทีต่อเพจ มีรายการรอส่งป้องกันส่งซ้ำ
         และพักรายการที่ส่งไม่ได้หรือไม่ทราบผลส่ง ข้อมูลยอดค้างจะส่งใน Messenger
       </p>
       {error && (
@@ -157,7 +176,7 @@ export function SessionFollowupModal({
         <button
           type="button"
           className={orange}
-          disabled={busy || !targets.length || !validSessionTemplate(template)}
+          disabled={busy || !targets.length || !validSessionTemplate(storeFollowup(template))}
           onClick={async () => {
             setBusy(true)
             setError('')
@@ -166,7 +185,7 @@ export function SessionFollowupModal({
                 {
                   action: 'remind',
                   tabIds: scope === 'all' ? null : targets.map((tab) => tab.id),
-                  template,
+                  template: storeFollowup(template),
                 },
                 request.current,
               )
@@ -178,7 +197,7 @@ export function SessionFollowupModal({
             }
           }}
         >
-          {busy ? 'กำลังเข้าคิว…' : 'ส่งแจ้งยอด'}
+          {busy ? 'กำลังเข้ารายการรอส่ง…' : 'ส่งแจ้งยอด'}
         </button>
       </div>
     </SessionDialog>

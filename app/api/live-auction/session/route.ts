@@ -16,18 +16,15 @@ function failure(error: unknown) {
   console.error('[live-auction/session]', { code: code ?? 'UNAVAILABLE' })
   if (error instanceof SyntaxError) return auctionReply({ error: 'ข้อมูลไม่ถูกต้อง' }, 400)
   if (code === 'P0002' || code === '42501')
-    return auctionReply({ error: 'ไม่พบ Session เพจ หรือบัญชีรับเงินของร้านนี้' }, 404)
+    return auctionReply({ error: 'ไม่พบ เซสชัน เพจ หรือบัญชีรับเงินของร้านนี้' }, 404)
   if (code === '40001')
     return auctionReply(
-      { error: 'Session จบแล้วหรือข้อมูลถูกแก้ไข กรุณาโหลดข้อมูลล่าสุด', reload: true },
+      { error: 'เซสชัน จบแล้วหรือข้อมูลถูกแก้ไข กรุณาโหลดข้อมูลล่าสุด', reload: true },
       409,
     )
   if (['P0001', '22P02', '23514'].includes(code ?? ''))
-    return auctionReply({ error: 'กรุณาตรวจค่าตั้งค่า Session' }, 400)
-  return auctionReply(
-    { error: 'ระบบ Session ยังไม่พร้อม กรุณาตรวจ migration live-auction-dashboard.sql' },
-    503,
-  )
+    return auctionReply({ error: 'กรุณาตรวจค่าตั้งค่า เซสชัน' }, 400)
+  return auctionReply({ error: 'ระบบไลฟ์สดยังไม่พร้อม กรุณาให้ผู้ดูแลตรวจการตั้งค่า' }, 503)
 }
 export async function GET(req: NextRequest) {
   try {
@@ -36,14 +33,11 @@ export async function GET(req: NextRequest) {
     if (denied) return denied
     const sessionId = req.nextUrl.searchParams.get('sessionId')
     if (!sessionId || !UUID.test(sessionId))
-      return auctionReply({ error: 'รหัส Session ไม่ถูกต้อง' }, 400)
-    const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc(
-      'live_auction_customer_dashboard',
-      {
-        p_tenant: tenantId!,
-        p_session: sessionId,
-      },
-    )
+      return auctionReply({ error: 'รหัส เซสชัน ไม่ถูกต้อง' }, 400)
+    const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc('live_auction_thai_dashboard', {
+      p_tenant: tenantId!,
+      p_session: sessionId,
+    })
     if (result.error) throw result.error
     return auctionReply(result.data)
   } catch (error) {
@@ -67,7 +61,7 @@ export async function POST(req: NextRequest) {
         input.fbIds.length > 500 ||
         input.fbIds.some((id: unknown) => typeof id !== 'string' || !/^\d{1,64}$/.test(id))
       )
-        return auctionReply({ error: 'กรุณาเลือกลูกค้าใน Session (สูงสุด 500 คน)' }, 400)
+        return auctionReply({ error: 'กรุณาเลือกลูกค้าใน เซสชัน (สูงสุด 500 คน)' }, 400)
       const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc(
         'collect_auction_session_customers',
         {
@@ -91,7 +85,7 @@ export async function POST(req: NextRequest) {
         input.revision < 0
       )
         return auctionReply(
-          { error: 'กรุณาตรวจลูกค้า Session และหมายเหตุ (ไม่เกิน 500 ตัวอักษร)' },
+          { error: 'กรุณาตรวจลูกค้า เซสชัน และหมายเหตุ (ไม่เกิน 500 ตัวอักษร)' },
           400,
         )
       const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc('save_auction_customer_note', {
@@ -121,10 +115,16 @@ export async function POST(req: NextRequest) {
       )
     const settings = {
       ...input.settings,
+      closeKeywords: (input.settings.closeKeywords ?? ['ปิด', 'x']).map(normalizeBidKeyword),
+      countEnabled: false,
+      heartCloses: false,
+      closeEnabled: true,
       keywords: input.settings.keywords.map(normalizeBidKeyword),
       privateText: sessionAuctionTemplate(input.settings.privateText),
       bidText: sessionAuctionTemplate(input.settings.bidText),
-      closeText: sessionAuctionTemplate(input.settings.closeText),
+      closeText: sessionAuctionTemplate(
+        input.settings.closeKeywords ? input.settings.bidText : input.settings.closeText,
+      ),
     }
     let payload: Record<string, unknown>
     if (input.action === 'start') {
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
         !Number.isSafeInteger(input.revision) ||
         input.revision < 0
       )
-        return auctionReply({ error: 'รหัส Session หรือ revision ไม่ถูกต้อง' }, 400)
+        return auctionReply({ error: 'รหัสเซสชันหรือข้อมูลล่าสุดไม่ถูกต้อง' }, 400)
       payload = {
         action: 'settings',
         sessionId: input.sessionId,

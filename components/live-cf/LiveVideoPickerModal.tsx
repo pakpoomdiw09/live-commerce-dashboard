@@ -21,11 +21,13 @@ export function LiveVideoPickerModal({
   pageName,
   onSelect,
   onDismiss,
+  thai = false,
 }: {
   pageId: string
   pageName: string
   onSelect: (video: FacebookLiveVideo) => void
   onDismiss: () => void
+  thai?: boolean
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -114,7 +116,7 @@ export function LiveVideoPickerModal({
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${fallback ? 'bg-slate-400' : 'animate-pulse bg-red-500 motion-reduce:animate-none'}`}
                 />{' '}
-                {fallback ? 'ตัวเลือกสำรอง' : 'LIVE'}
+                {fallback ? 'ตัวเลือกสำรอง' : thai ? 'กำลังออกอากาศ' : 'LIVE'}
               </span>
             </div>
             <p className="mt-1 break-words text-sm text-slate-500">{pageName}</p>

@@ -47,16 +47,17 @@ export function AuctionSessionStart({
             signal: AbortSignal.timeout(30000),
           })
           const result = await response.json()
-          if (!response.ok) throw new Error(result.error || 'เริ่ม Session ไม่สำเร็จ')
+          if (!response.ok) throw new Error(result.error || 'เริ่มเซสชันไลฟ์สด ไม่สำเร็จ')
           onStarted(result.id)
         } catch (cause) {
-          setError(cause instanceof Error ? cause.message : 'เริ่ม Session ไม่สำเร็จ')
+          setError(cause instanceof Error ? cause.message : 'เริ่มเซสชันไลฟ์สด ไม่สำเร็จ')
         } finally {
           setBusy(false)
         }
       }}
     >
       <LiveSourcePicker
+        thai
         pages={options.pages}
         pageId={pageId}
         livePostId={livePostId}
@@ -73,15 +74,15 @@ export function AuctionSessionStart({
           className={orange}
           disabled={busy || !pageId || !livePostId || !options.bankAccounts.length}
         >
-          {busy ? 'กำลังเริ่ม…' : 'เริ่ม Session'}
+          {busy ? 'กำลังเริ่ม…' : 'เริ่มเซสชันไลฟ์สด'}
         </button>
         <p className="text-xs text-slate-500">
-          เลือกไลฟ์เดิมเพื่อเปิด Session ต่อ โดยคงบิลและค่าตั้งค่าที่บันทึกไว้
+          เลือกไลฟ์เดิมเพื่อเปิดเซสชันเดิมต่อ โดยคงบิลและค่าตั้งค่าที่บันทึกไว้
         </p>
       </div>
       {!options.bankAccounts.length && (
         <p role="alert" className="text-sm text-red-700">
-          กรุณาเพิ่มบัญชีรับเงินในหน้าตั้งค่าก่อนเริ่ม Session
+          กรุณาเพิ่มบัญชีรับเงินในหน้าตั้งค่าก่อนเริ่มเซสชันไลฟ์สด
         </p>
       )}
       {error && (

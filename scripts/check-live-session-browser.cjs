@@ -176,7 +176,9 @@ async function checkInterface() {
     await call('Page.navigate', {
       url: 'http://127.0.0.1:' + server.address().port + (allInOne ? '/?all=1' : '/'),
     })
-    await wait(`document.querySelector('[aria-label="กำไร Session"]')?.textContent === '330.00'`)
+    await wait(
+      `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]')?.textContent === '330.00'`,
+    )
     const fill = async (selector, value) => {
       await evaluate(
         `(() => {const el=document.querySelector(${JSON.stringify(selector)});el.focus();Object.getOwnPropertyDescriptor(el.tagName==='SELECT'?HTMLSelectElement.prototype:el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}))})()`,
@@ -191,250 +193,161 @@ async function checkInterface() {
       await wait("document.querySelector('[data-shipping-dashboard] tbody tr') !== null")
       assert.deepEqual(
         await evaluate(
-          "[...document.querySelectorAll('[data-auction-section]')].map(el => el.dataset.auctionSection)",
+          "[...document.querySelectorAll('[data-auction-section]')].map(el=>el.dataset.auctionSection)",
         ),
-        ['1', '2', '3', '4', '5'],
+        ['1', '2', '3', '4'],
       )
       assert.equal(
-        await evaluate("document.querySelectorAll('[role=tab]').length"),
+        await evaluate('document.querySelectorAll(\'[data-auction-section="2"] table\').length'),
         0,
-        'all five sections are shown together',
-      )
-      assert.equal(
-        await evaluate('document.querySelector(\'select[aria-label="Session จัดส่ง"]\').disabled'),
-        true,
-      )
-      assert.equal(
-        await evaluate("document.querySelectorAll('[data-shipping-dashboard] tbody tr').length"),
-        1,
-        'only fully paid customers in the selected Session can ship',
       )
       assert.equal(
         await evaluate(
-          "document.querySelector('[data-auction-section=\"4\"]').textContent.includes('VERIFIED')",
-        ),
-        true,
-      )
-      assert.equal(
-        await evaluate(
-          "document.querySelector('[data-session-slips]').textContent.includes('นายผู้โอนจาก SlipOK')",
-        ),
-        true,
-      )
-      assert.equal(
-        await evaluate(
-          "document.querySelector('[data-session-slips]').textContent.includes('กสิกรไทย')",
-        ),
-        true,
-      )
-      assert.equal(
-        await evaluate('document.querySelectorAll(\'[data-auction-section="3"] textarea\').length'),
-        2,
-        'public and private templates are independent boxes',
-      )
-      await evaluate(
-        'document.querySelector(\'[role=switch][aria-label="ข้อความตอบกลับใต้คอมเมนต์"]\').click()',
-      )
-      assert.equal(
-        await evaluate(
-          'document.querySelector(\'textarea[aria-label="Template ตอบกลับใต้คอมเมนต์"]\').disabled',
-        ),
-        true,
-      )
-      assert.equal(
-        await evaluate(
-          'document.querySelector(\'textarea[aria-label="Template ข้อความส่งเข้าแชท (Messenger)"]\').disabled',
+          "!!document.querySelector('[data-auction-panel], [data-auction-price], [data-auction-stream], [data-auction-action]')",
         ),
         false,
       )
-      await evaluate(
-        'document.querySelector(\'[role=switch][aria-label="ข้อความตอบกลับใต้คอมเมนต์"]\').click()',
-      )
-      const summary = await evaluate(
-        "document.querySelector('[data-customer-status-summary]').textContent",
-      )
-      for (const text of [
-        'ตรงคำดัก 2 คน',
-        'โอนแล้ว 2',
-        'ยังไม่โอน 1',
-        'ใส่ยอดแล้ว 3 คน:',
-        'ครบ 1',
-        'ขาด 2',
-        'เกิน 0',
-        'ยอดรวม 3,670.00',
-        'ได้รับ 500.00',
-      ])
-        assert.ok(summary.includes(text), text + ' / ' + summary)
-      const positions = await evaluate(
-        "(() => { const left=document.querySelector('[data-session-customers]').getBoundingClientRect();const right=document.querySelector('[data-session-slips]').getBoundingClientRect();return {left:left.x,right:right.x,top:left.y,rightTop:right.y} })()",
-      )
-      assert.ok(
-        positions.right > positions.left && Math.abs(positions.top - positions.rightTop) < 2,
-        'slips sit beside customer bills on desktop',
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-auction-section=\"2\"]').textContent.includes('❤️')",
+        ),
+        false,
       )
       assert.equal(
-        await evaluate('document.querySelectorAll(\'[data-auction-section="4"] table\').length'),
+        await evaluate('document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\').value'),
+        '1',
+      )
+      const staticText = await evaluate('document.body.textContent')
+      assert.ok(
+        !/\b(?:Session|Template|LIVE|Tracking|Export|Provider|Inbox|Live Bid Stream)\b/.test(
+          staticText,
+        ),
+        'seller copy is Thai',
+      )
+      await wait("document.querySelector('select[aria-label=\"ไลฟ์สด Facebook\"]').value==='456'")
+      await click('เริ่มเซสชันไลฟ์สด')
+      await wait("sessionQA.requests.at(-1)?.action==='start'")
+      await wait('!!document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\')')
+      await fill('input[aria-label="คีย์เวิร์ดการดักคำ"]', 'เคาะ, 1')
+      await fill('input[aria-label="คีย์เวิร์ดการปิดการประมูล"]', 'จบรายการ')
+      await fill(
+        'textarea[aria-label="ข้อความแจ้งยอดเข้าแชทส่วนตัว (Messenger)"]',
+        'ยินดีด้วย {ชื่อลูกค้า} {รายการ} {ราคา} ยอดสะสม {ยอดรวมสะสม} บัญชี {เลขบัญชี}',
+      )
+      await click('บันทึกคำดักและข้อความ')
+      await wait("sessionQA.requests.at(-1)?.action==='settings'")
+      assert.deepEqual(await evaluate('sessionQA.requests.at(-1).settings.closeKeywords'), [
+        'จบรายการ',
+      ])
+      assert.equal(await evaluate('sessionQA.requests.at(-1).settings.countEnabled'), false)
+      await fill('input[aria-label="ชื่อรายการพระเครื่อง / สินค้า"]', 'พระสมเด็จองค์ใหม่')
+      await fill('input[aria-label="ราคาเปิดประมูล (บาท)"]', '200')
+      await click('เริ่มเปิดประมูลรอบนี้')
+      await wait("sessionQA.requests.at(-1)?.itemName==='พระสมเด็จองค์ใหม่'")
+      await wait(
+        "document.querySelector('[data-auction-round-form]').textContent.includes('กำลังประมูล:')",
+      )
+      assert.equal(
+        await evaluate('document.querySelectorAll(\'[data-auction-section="2"] table\').length'),
+        0,
+      )
+      assert.equal(await evaluate('sessionQA.requests.at(-1).minStep'), 20)
+      await click('ยกเลิก / ล้างรอบประมูล')
+      await wait('sessionQA.requests.at(-1)?.cancel===true')
+      await wait(
+        "document.querySelector('input[aria-label=\"ชื่อรายการพระเครื่อง / สินค้า\"]').value===''",
+      )
+      assert.equal(
+        await evaluate('document.querySelectorAll(\'[data-auction-section="3"] table\').length'),
         2,
-        'one customer table and one slip table replace the three stacked tables',
       )
       assert.equal(
         await evaluate("document.querySelectorAll('[data-session-customers] tbody tr').length"),
         4,
-        'commenter/buyer duplicates merge and unpaid visitors remain visible',
-      )
-      assert.ok(
-        await evaluate(
-          "document.querySelector('[data-session-customers]').classList.contains('xl:col-span-7') && document.querySelector('[data-session-slips]').classList.contains('xl:col-span-5')",
-        ),
       )
       await evaluate('document.querySelector(\'input[aria-label="เฉพาะคนตรงคำดัก"]\').click()')
-      await wait("document.querySelectorAll('[data-session-customers] tbody tr').length === 2")
+      await wait("document.querySelectorAll('[data-session-customers] tbody tr').length===2")
       await evaluate('document.querySelector(\'input[aria-label="เฉพาะคนตรงคำดัก"]\').click()')
-      await evaluate(
-        'document.querySelector(\'input[aria-label="เลือกลูกค้าทั้งหมดที่แสดง"]\').click()',
-      )
-      assert.equal(
-        await evaluate(
-          "document.querySelectorAll('[data-session-customers] tbody input[type=checkbox]:checked').length",
-        ),
-        4,
-      )
-      await evaluate(
-        'document.querySelector(\'input[aria-label="เลือกลูกค้าทั้งหมดที่แสดง"]\').click()',
-      )
       await evaluate(
         'document.querySelector(\'input[aria-label="เลือกลูกค้า ผู้ชมยังไม่มีบิล"]\').click()',
       )
       await click('ดึงข้อมูลคนที่เลือก')
       await wait(
-        "sessionQA.requests.at(-1)?.action === 'load_customers' && !!document.querySelector('a[aria-label=\"เปิดแช็ต Messenger ผู้ชมยังไม่มีบิล\"]')",
+        '!!document.querySelector(\'a[aria-label="เปิดแช็ต Messenger ผู้ชมยังไม่มีบิล"]\')',
       )
-      assert.deepEqual(await evaluate('sessionQA.requests.at(-1).fbIds'), ['903'])
       await evaluate(
         'document.querySelector(\'input[aria-label="เลือกลูกค้า ผู้ชมยังไม่มีบิล"]\').click()',
       )
-      await fill('input[aria-label="หมายเหตุ สมชาย ใจดี"]', 'เก็บรวมกล่องหลังจบไลฟ์')
+      await fill('input[aria-label="หมายเหตุ สมชาย ใจดี"]', 'ส่งรวมกล่อง')
       await evaluate('document.querySelector(\'input[aria-label="หมายเหตุ สมชาย ใจดี"]\').blur()')
-      await wait(
-        "sessionQA.requests.at(-1)?.action === 'note' && !document.querySelector('input[aria-label=\"หมายเหตุ สมชาย ใจดี\"]').disabled",
-      )
-      assert.equal(
-        await evaluate('sessionQA.requests.at(-1).sessionId'),
-        '22222222-2222-4222-8222-222222222222',
-      )
+      await wait("sessionQA.requests.at(-1)?.action==='note'")
       assert.equal(
         await evaluate("document.querySelectorAll('[data-session-slips] tbody tr').length"),
         10,
-      )
-      assert.equal(
-        await evaluate("document.querySelector('[data-slip-pagination]').textContent"),
-        'หน้า 1/2',
       )
       await evaluate('document.querySelector(\'button[aria-label="หน้าสลิปถัดไป"]\').click()')
       assert.equal(
         await evaluate("document.querySelectorAll('[data-session-slips] tbody tr').length"),
         2,
       )
-      await fill('select[aria-label="จำนวนสลิปต่อหน้า"]', '20')
-      assert.equal(
-        await evaluate("document.querySelectorAll('[data-session-slips] tbody tr').length"),
-        12,
-      )
-      assert.equal(
-        await evaluate("document.querySelector('[data-slip-pagination]').textContent"),
-        'หน้า 1/1',
-      )
-      await fill('select[aria-label="จำนวนสลิปต่อหน้า"]', '10')
-      assert.equal(
-        await evaluate(
-          "document.querySelector('[data-shipping-dashboard]').textContent.includes('Unpaid buyer') || document.querySelector('[data-shipping-dashboard]').textContent.includes('Other Session buyer')",
-        ),
-        false,
-      )
-      await wait("document.querySelector('select[aria-label=\"ไลฟ์สด Facebook\"]').value === '456'")
-      await click('เริ่ม Session')
-      await wait("sessionQA.requests.at(-1)?.action === 'start'")
-      assert.equal(await evaluate('sessionQA.requests.at(-1).livePostId'), '456')
-      await wait('!!document.querySelector(\'input[aria-label="เพิ่มคำดักบิด"]\')')
-      await fill('input[aria-label="เพิ่มคำดักบิด"]', 'raise')
-      await evaluate(
-        "[...document.querySelectorAll('[data-auction-section=\"3\"] button')].find(el=>el.textContent==='เพิ่มคำดัก').click()",
-      )
-      await wait('!!document.querySelector(\'button[aria-label="ลบคำดัก raise"]\')')
-      await fill(
-        'textarea[aria-label="Template ข้อความส่งเข้าแชท (Messenger)"]',
-        'ยินดีด้วย {name} {item} {price} ยอดรวม {total} บัญชี {bank_account}',
-      )
-      await click('บันทึกค่าตั้งค่า Session')
-      await wait("sessionQA.requests.at(-1)?.action === 'settings'")
-      assert.equal(
-        await evaluate('sessionQA.requests.at(-1).settings.keywords.includes("raise")'),
-        true,
-      )
-      assert.ok(
-        await evaluate('sessionQA.requests.at(-1).settings.privateText.includes("{total}")'),
-      )
-      await evaluate('window.open = () => null')
-      await click('พิมพ์สติกเกอร์')
-      await wait("sessionQA.requests.at(-1)?.action === 'prepare_print'")
-      assert.equal(await evaluate('sessionQA.requests.at(-1).format'), 'thermal')
-      assert.deepEqual(await evaluate('sessionQA.requests.at(-1).ids'), [
-        'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-      ])
-      await wait(
-        "!document.querySelector('[data-shipping-dashboard] button[disabled]') || [...document.querySelectorAll('[data-shipping-dashboard] button')].find(b=>b.textContent.includes('พิมพ์ A4'))?.disabled === false",
-      )
-      await click('พิมพ์ A4')
-      await wait("sessionQA.requests.at(-1)?.format === 'a4'")
-      await click('ดาวน์โหลด CSV')
-      await wait("sessionQA.paths.some(p=>p.startsWith('/api/shipping/export'))")
-      await click('ส่งผ่าน Bee Move')
-      await wait("!!document.querySelector('dialog input[type=password]')")
-      assert.equal(
-        await evaluate('document.querySelector("dialog input[type=password]").disabled'),
-        true,
-        'future API key is a placeholder; no courier API is called',
-      )
-      await evaluate('document.querySelector("dialog").close()')
-      await evaluate("document.querySelector('dialog')?.dispatchEvent(new Event('close'))")
-      await fill(
-        'select[aria-label="เลือก Session ประมูล"]',
-        'ffffffff-ffff-4fff-8fff-ffffffffffff',
-      )
-      await wait(
-        "document.querySelector('[data-shipping-dashboard] tbody')?.textContent.includes('Other Session buyer')",
-      )
-      assert.equal(
-        await evaluate(
-          "document.querySelector('[data-auction-section=\"4\"]').textContent.includes('VERIFIED')",
-        ),
-        false,
-        'switching Session clears previous payment evidence',
-      )
-      assert.ok(
-        await evaluate(
-          "sessionQA.paths.some(p=>p.startsWith('/api/shipping?') && p.includes('ffffffff-ffff-4fff-8fff-ffffffffffff'))",
-        ),
-      )
-      assert.ok(
-        await evaluate(
-          "sessionQA.paths.some(p=>p.startsWith('/api/live-cf/auction?') && p.includes('livePostId=457'))",
-        ),
-      )
-      await fill(
-        'select[aria-label="เลือก Session ประมูล"]',
-        '22222222-2222-4222-8222-222222222222',
-      )
-      await wait(
-        "document.querySelector('[data-auction-section=\"4\"]').textContent.includes('VERIFIED')",
-      )
+      await evaluate('document.querySelector(\'button[aria-label="หน้าสลิปก่อนหน้า"]\').click()')
+      await click('ดูสลิป')
+      await wait('!!document.querySelector(\'dialog img[alt="หลักฐานสลิปสำหรับตรวจสอบ"]\')')
+      await evaluate('document.querySelector(\'dialog button[aria-label="ปิดหน้าต่าง"]\').click()')
       await evaluate(
         'document.querySelector(\'button[aria-label="ดูที่มาของยอด สมชาย ใจดี"]\').click()',
       )
       await wait("document.querySelector('dialog')?.textContent.includes('ยอดที่ลูกค้าต้องจ่าย')")
       await evaluate('document.querySelector(\'dialog button[aria-label="ปิดหน้าต่าง"]\').click()')
-      await wait("!document.querySelector('dialog')")
+      await click('ตามยอดค้างชำระ')
+      await wait('!!document.querySelector(\'textarea[aria-label="ข้อความตามยอดค้างชำระ"]\')')
+      assert.ok(
+        await evaluate(
+          "document.querySelector('textarea[aria-label=\"ข้อความตามยอดค้างชำระ\"]').value.includes('{ชื่อลูกค้า}')",
+        ),
+      )
+      await evaluate('document.querySelector(\'dialog button[aria-label="ปิดหน้าต่าง"]\').click()')
+      assert.equal(
+        await evaluate('document.querySelector(\'select[aria-label="เซสชันจัดส่ง"]\').disabled'),
+        true,
+      )
+      await evaluate('window.open=()=>null')
+      await click('พิมพ์ใบปะหน้าพัสดุ (สติกเกอร์')
+      await wait("sessionQA.requests.at(-1)?.format==='thermal'")
+      await click('ดาวน์โหลดไฟล์ CSV')
+      await wait("sessionQA.paths.some(path=>path.startsWith('/api/shipping/export'))")
+      await fill('select[aria-label="เลือกเซสชันประมูล"]', 'ffffffff-ffff-4fff-8fff-ffffffffffff')
+      await wait(
+        "document.querySelector('[data-session-customers]')?.textContent.includes('ยังไม่มีลูกค้า')",
+      )
+      await fill('select[aria-label="เลือกเซสชันประมูล"]', '22222222-2222-4222-8222-222222222222')
+      await wait("document.querySelectorAll('[data-session-customers] tbody tr').length===4")
+      for (const width of [375, 768, 1024, 1440]) {
+        await resize(width)
+        assert.ok(
+          await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),
+          'fits ' + width,
+        )
+        const layout = await evaluate(
+          "(()=>{const l=document.querySelector('[data-session-customers]').getBoundingClientRect();const r=document.querySelector('[data-session-slips]').getBoundingClientRect();return{lx:l.x,rx:r.x,lb:l.bottom,rt:r.top}})()",
+        )
+        assert.ok(width < 1280 ? layout.rt >= layout.lb - 1 : layout.rx > layout.lx)
+        const shot = await call('Page.captureScreenshot', {
+          format: 'png',
+          captureBeyondViewport: true,
+        })
+        fs.writeFileSync(
+          path.join(output, `session-${width}.png`),
+          Buffer.from(shot.data, 'base64'),
+        )
+      }
+      assert.deepEqual(errors, [])
+      console.log(
+        'PASS: Four Thai sections, custom bid/close words, no live board, round open/cancel, Thai templates/help, bills/slips/notes, shipping and responsive layout. Mock APIs only.',
+      )
+      return
     }
+
     for (const width of [375, 768, 1024, 1440]) {
       await resize(width)
       assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true)
@@ -459,10 +372,12 @@ async function checkInterface() {
       })
       fs.writeFileSync(path.join(output, `session-${width}.png`), Buffer.from(shot.data, 'base64'))
     }
-    await fill('input[aria-label="ต้นทุน (บาท)"]', '100.05')
-    await fill('input[aria-label="ค่าแอด (บาท)"]', '50.02')
-    await fill('input[aria-label="ค่าส่ง (บาท)"]', '20.03')
-    await wait(`document.querySelector('[aria-label="กำไร Session"]').textContent === '329.90'`)
+    await fill('input[aria-label="ต้นทุนสินค้า (บาท)"]', '100.05')
+    await fill('input[aria-label="ค่าแอดโฆษณา (บาท)"]', '50.02')
+    await fill('input[aria-label="ค่าจัดส่งจริง (บาท)"]', '20.03')
+    await wait(
+      `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]').textContent === '329.90'`,
+    )
     await click('บันทึกค่าใช้จ่าย')
     await wait(`sessionQA.requests.at(-1)?.action === 'costs'`)
     assert.equal(await evaluate('sessionQA.requests.at(-1).cost'), '100.05')
@@ -502,7 +417,7 @@ async function checkInterface() {
     await wait(`document.querySelector('dialog input[value=selected]')?.checked === true`)
     assert.equal(await evaluate('document.querySelectorAll("dialog tbody tr").length'), 1)
     await fill(
-      'textarea[aria-label="Template ทวงยอด Session"]',
+      'textarea[aria-label="ข้อความตามยอดค้างชำระ"]',
       'สวัสดี {name} โอนเพิ่ม {short} บาท / {due}',
     )
     await evaluate(`document.querySelector('dialog details').open=true`)

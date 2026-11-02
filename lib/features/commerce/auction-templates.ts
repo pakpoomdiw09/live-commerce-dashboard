@@ -3,11 +3,17 @@ export const AUCTION_PRIVATE_TEMPLATE =
   'ยินดีด้วยครับ! คุณชนะประมูล {product_name} ราคา {price} บาท ยอดค้างชำระสุทธิ {total} บาท\nชำระเงิน / แนบสลิป: {payment_link}'
 export const SESSION_WINNER_TEMPLATE =
   'ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท\nยอดรวมบิลของคุณตอนนี้: {total} บาท\nเลขบัญชีรับเงิน: {bank_account}'
+export const SESSION_PUBLIC_WINNER_TEMPLATE =
+  'ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท'
 export const AUCTION_BID_TEMPLATE =
   '✅ ยืนยันคุณ {bidder_name} ขึ้นนำ {product_name} ที่ {price} บาท เคาะขั้นต่ำ +{min_step} บาท'
 export const AUCTION_CLOSE_TEMPLATE =
   '❌ ปิดประมูล {product_name} ผู้ชนะ: {bidder_name} ราคา {price} บาท'
 const aliases: Record<string, string> = {
+  ชื่อลูกค้า: 'bidder_name',
+  รายการ: 'product_name',
+  ยอดรวมสะสม: 'total',
+  เลขบัญชี: 'bank_account',
   ชื่อสินค้า: 'product_name',
   ราคา: 'price',
   ยอดชำระ: 'total',
@@ -16,6 +22,7 @@ const aliases: Record<string, string> = {
   ชื่อผู้ชนะ: 'bidder_name',
   ชื่อผู้ประมูล: 'bidder_name',
   สเต็ปขั้นต่ำ: 'min_step',
+  ราคาเคาะขั้นต่ำ: 'min_step',
   ยอดโอนแล้ว: 'paid',
   บัญชีรับเงิน: 'bank_account',
   ยอดค้างสุทธิ: 'remaining',

@@ -63,6 +63,7 @@ export type SessionSnapshot = {
   }
   rounds: SessionRound[]
   tabs: SessionTab[]
+  activeAuction?: { id: string; itemName: string } | null
   slips?: {
     id: string
     name: string
@@ -77,6 +78,7 @@ export type SessionSnapshot = {
     customerId?: string | null
     name: string
     at: string
+    lastText?: string | null
     comments: number
     matched?: boolean
     note?: string

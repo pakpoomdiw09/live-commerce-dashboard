@@ -19,6 +19,7 @@ export function LiveSourcePicker({
   disabled = false,
   active = true,
   allowManual = false,
+  thai = false,
 }: {
   pages: LiveSourcePage[]
   pageId: string
@@ -28,6 +29,7 @@ export function LiveSourcePicker({
   disabled?: boolean
   active?: boolean
   allowManual?: boolean
+  thai?: boolean
 }) {
   const id = useId()
   const [videos, setVideos] = useState<FacebookLiveVideo[]>([])
@@ -107,10 +109,15 @@ export function LiveSourcePicker({
             </option>
           ))}
         </select>
+        {thai && (
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            เลือกเพจที่ร้านกำลังใช้ขายสินค้า
+          </span>
+        )}
       </label>
       <div className="min-w-0 space-y-2 text-sm">
         <label className="block font-semibold text-slate-800">
-          ไลฟ์สด Facebook
+          {thai ? 'เลือกลิงก์ไลฟ์สดที่กำลังออกอากาศ' : 'ไลฟ์สด Facebook'}
           <select
             aria-label="ไลฟ์สด Facebook"
             className={field}
@@ -125,11 +132,16 @@ export function LiveSourcePicker({
             )}
             {options.map((video) => (
               <option key={video.id} value={video.id}>
-                {video.isLive ? '🔴 LIVE' : 'วิดีโอล่าสุด'} • {video.title} •{' '}
-                {liveVideoTime(video.createdAt)}
+                {video.isLive ? (thai ? 'กำลังออกอากาศ' : '🔴 LIVE') : 'วิดีโอล่าสุด'} •{' '}
+                {video.title} • {liveVideoTime(video.createdAt)}
               </option>
             ))}
           </select>
+          {thai && (
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              เลือกรายการที่กำลังขาย ระบบจะรับคอมเมนต์จากไลฟ์นี้เท่านั้น
+            </span>
+          )}
         </label>
         <div className="flex flex-wrap gap-2">
           <button
@@ -184,8 +196,12 @@ export function LiveSourcePicker({
             aria-label="ไลฟ์สดที่เลือก"
             className="break-words rounded-lg bg-slate-100 p-2 text-xs text-slate-700"
           >
-            {selected.isLive ? '🔴 LIVE • เลือกไลฟ์แล้ว' : 'เลือกวิดีโอสำรองแล้ว'} •{' '}
-            {selected.title} • รหัส {selected.id}
+            {selected.isLive
+              ? thai
+                ? 'กำลังออกอากาศ • เลือกไลฟ์แล้ว'
+                : '🔴 LIVE • เลือกไลฟ์แล้ว'
+              : 'เลือกวิดีโอสำรองแล้ว'}{' '}
+            • {selected.title} • รหัส {selected.id}
           </p>
         )}
         {allowManual && (
@@ -238,6 +254,7 @@ export function LiveSourcePicker({
         <LiveVideoPickerModal
           key={pageId}
           pageId={pageId}
+          thai={thai}
           pageName={pages.find((page) => page.id === pageId)?.name ?? 'เพจ Facebook'}
           onSelect={(video) => {
             setVideos((previous) => [video, ...previous.filter((row) => row.id !== video.id)])

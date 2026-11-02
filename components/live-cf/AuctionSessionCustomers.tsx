@@ -186,8 +186,7 @@ export function AuctionSessionCustomers({
       })
       const result: SessionSnapshot & { error?: string } = await response.json()
       if (!response.ok) throw new Error(result.error || 'ดึงข้อมูลไม่สำเร็จ')
-      if (result.session?.id !== data.session.id)
-        throw new Error('ข้อมูลไม่ตรงกับ Session ที่เลือก')
+      if (result.session?.id !== data.session.id) throw new Error('ข้อมูลไม่ตรงกับไลฟ์ที่เลือก')
       if (!abort.signal.aborted) {
         onSnapshot(result)
         setNotice(`ดึงข้อมูล ${checkedRows.length} คนแล้ว`)
@@ -205,7 +204,7 @@ export function AuctionSessionCustomers({
       className="min-w-0 space-y-3 rounded-xl border border-slate-200 bg-white p-3 xl:col-span-7"
     >
       <header className="space-y-3">
-        <h3 className="font-bold text-slate-900">รายชื่อคนคอมเมนต์ (ลูกค้าใน Session)</h3>
+        <h3 className="font-bold text-slate-900">รายชื่อลูกค้าและบิลสะสมในไลฟ์นี้</h3>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex min-h-10 items-center gap-2 text-xs">
             <input
@@ -224,7 +223,7 @@ export function AuctionSessionCustomers({
             disabled={!eligible.length || busy}
             onClick={() => onFollowup(eligible)}
           >
-            <Send className="h-4 w-4" /> ตามยอด
+            <Send className="h-4 w-4" /> ตามยอดค้างชำระ
           </button>
           <button
             type="button"
@@ -252,8 +251,14 @@ export function AuctionSessionCustomers({
             />
             เฉพาะคนตรงคำดัก
           </label>
+          <p className="text-[10px] text-slate-500">
+            เลือกเพื่อแสดงเฉพาะลูกค้าที่พิมพ์ตรงคำดักของไลฟ์นี้
+          </p>
         </div>
         <SessionCustomerStatus data={data} />
+        <p className="text-[10px] text-slate-500">
+          ส่งตามยอดไม่เกิน 12 ข้อความต่อนาทีต่อเพจ โดยตรวจยอดค้างล่าสุดก่อนส่ง
+        </p>
         <p className="text-xs text-slate-500">
           แสดง {visible.length} คน · เลือก {checkedRows.length} คน · คลิกยอดเงินเพื่อตรวจและปรับยอด
         </p>
@@ -310,14 +315,14 @@ export function AuctionSessionCustomers({
                       <a
                         href={`/inbox?customer=${encodeURIComponent(row.customerId)}`}
                         aria-label={`เปิดแช็ต Messenger ${row.name}`}
-                        title="เปิดแช็ต Messenger ใน Inbox"
+                        title="เปิดข้อความของลูกค้า"
                         className="shrink-0 text-blue-600"
                       >
                         <MessagesSquare className="h-4 w-4" />
                       </a>
                     ) : (
                       <span
-                        title="เลือกแล้วกดดึงข้อมูล เพื่อเปิดแช็ตใน Inbox"
+                        title="เลือกแล้วกดดึงข้อมูล เพื่อเปิดข้อความของลูกค้า"
                         className="shrink-0 text-slate-300"
                       >
                         <MessagesSquare className="h-4 w-4" />
@@ -329,7 +334,7 @@ export function AuctionSessionCustomers({
                   </span>
                   {row.matched && (
                     <span className="mt-1 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[10px] text-orange-700">
-                      ตรงคำดัก / บิด
+                      ตรงคำดัก
                     </span>
                   )}
                 </td>
@@ -347,7 +352,22 @@ export function AuctionSessionCustomers({
                       <ul className="mt-1 max-h-28 space-y-1 overflow-auto break-words text-[10px] text-slate-500">
                         {row.tab.items.map((item) => (
                           <li key={item.orderId}>
-                            {item.name} · {money(item.amount)} ฿
+                            {(() => {
+                              const tag = item.name.match(/^\[(ประมูล|CF(?:-[^\]]+)?)\]\s*/u)
+                              return tag ? (
+                                <>
+                                  <span
+                                    className={`mr-1 rounded px-1 py-0.5 ${tag[1] === 'ประมูล' ? 'bg-orange-50 text-orange-700' : 'bg-blue-50 text-blue-700'}`}
+                                  >
+                                    [{tag[1]}]
+                                  </span>
+                                  {item.name.slice(tag[0].length)}
+                                </>
+                              ) : (
+                                item.name
+                              )
+                            })()}{' '}
+                            · {money(item.amount)} บาท
                           </li>
                         ))}
                       </ul>
@@ -365,7 +385,9 @@ export function AuctionSessionCustomers({
                       <>
                         {Number(row.tab.paid) > 0 && (
                           <span className="block rounded-lg bg-emerald-50 px-2 py-1.5 font-semibold tabular-nums text-emerald-700">
-                            โอนแล้ว {money(row.tab.paid)} ฿
+                            {Number(row.tab.remaining) <= 0
+                              ? `โอนครบแล้ว ${money(row.tab.paid)} บาท`
+                              : `โอนแล้ว ${money(row.tab.paid)} บาท`}
                           </span>
                         )}
                         {Number(row.tab.remaining) > 0 && Number(row.tab.paid) > 0 && (
@@ -419,7 +441,7 @@ export function AuctionSessionCustomers({
         </table>
         {!visible.length && (
           <p className="p-6 text-center text-sm text-slate-500">
-            {onlyMatched ? 'ยังไม่มีคนตรงคำดักใน Session นี้' : 'ยังไม่มีลูกค้าใน Session นี้'}
+            {onlyMatched ? 'ยังไม่มีคนตรงคำดักในไลฟ์นี้' : 'ยังไม่มีลูกค้าในไลฟ์นี้'}
           </p>
         )}
       </div>

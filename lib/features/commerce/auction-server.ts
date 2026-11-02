@@ -277,7 +277,7 @@ export async function handleAuctionComment(input: {
   }
   const isHost = author.id === pageId || auction.host_ids.includes(author.id)
   const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
-  if (parsed.type === 'IGNORE') return true
+  if (parsed.type === 'IGNORE') return !auction.session_automation?.closeKeywords
   await execution.assertLease()
   const processed = await db.rpc('process_live_auction_comment', {
     p_auction: auction.id,
@@ -301,6 +301,8 @@ export async function handleAuctionComment(input: {
     if (parsed.action === 'close') await deliverAuctionNotifications(auction.id)
     return true
   }
+  // The simplified seller workspace records bids silently; only the winner is notified.
+  if (auction.session_automation?.closeKeywords) return true
   if (auction.public_reply_enabled === false) return true
   let message: string | null = null
   if (result.status === 'accepted')

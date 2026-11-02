@@ -170,6 +170,28 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   assert.equal(f.calls.rpc.at(-1).input.p_control, '3')
 })
 
+test('seller-defined bid words record silently and only a trusted host can use the configured close word', async () => {
+  const f = fixture()
+  f.tables.auctions[0].session_automation = {
+    keywords: ['เคาะ'],
+    closeKeywords: ['จบรายการ'],
+    countEnabled: false,
+    closeEnabled: true,
+    heartCloses: false,
+  }
+  await f.receive('เคาะ')
+  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'STEP_BID')
+  assert.equal(f.calls.public.length, 0)
+  assert.equal(await f.receive('CF A1'), false, 'unmatched CF codes may continue through the existing CF pipeline')
+  const count = f.calls.rpc.length
+  await f.receive('จบรายการ', '900')
+  await f.receive('❤️', '100')
+  await f.receive('3', '100')
+  assert.equal(f.calls.rpc.length, count)
+  await f.receive('จบรายการ', '100')
+  assert.equal(f.calls.rpc.at(-1).input.p_control, 'close')
+})
+
 test('Page-post resolution pins a verified alias; missing optional schema falls through to ordinary CF', async () => {
   const f = fixture()
   assert.equal(await f.receive('250', '900', '100_777'), true)

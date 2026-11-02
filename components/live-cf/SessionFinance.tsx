@@ -67,11 +67,23 @@ export function SessionFinance({ data, post }: { data: SessionSnapshot; post: Po
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(
           [
-            { key: 'cost', label: 'ต้นทุน (บาท)' },
-            { key: 'ads', label: 'ค่าแอด (บาท)' },
-            { key: 'shipping', label: 'ค่าส่ง (บาท)' },
+            {
+              key: 'cost',
+              label: 'ต้นทุนสินค้า (บาท)',
+              help: 'รวมราคาทุนของสินค้าที่นำมาขายในไลฟ์นี้',
+            },
+            {
+              key: 'ads',
+              label: 'ค่าแอดโฆษณา (บาท)',
+              help: 'เงินที่จ่ายเพื่อโฆษณาไลฟ์นี้ ถ้าไม่ได้โฆษณาให้ใส่ 0',
+            },
+            {
+              key: 'shipping',
+              label: 'ค่าจัดส่งจริง (บาท)',
+              help: 'เงินค่าส่งที่ร้านจ่ายจริง แยกจากค่าส่งที่เรียกเก็บจากลูกค้า',
+            },
           ] as const
-        ).map(({ key, label }) => (
+        ).map(({ key, label, help }) => (
           <label key={key} className="text-sm font-medium">
             {label}
             <input
@@ -90,13 +102,17 @@ export function SessionFinance({ data, post }: { data: SessionSnapshot; post: Po
                 request.current = crypto.randomUUID()
               }}
             />
+            <span className="mt-1 block text-xs font-normal text-slate-500">{help}</span>
           </label>
         ))}
         <div
           className={`rounded-xl p-3 ${profit !== null && profit < 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'}`}
         >
           <p className="text-xs">กำไรสุทธิ (บาท){dirty && ' • ยังไม่บันทึก'}</p>
-          <output aria-label="กำไร Session" className="mt-1 block text-2xl font-bold tabular-nums">
+          <output
+            aria-label="กำไรสุทธิของไลฟ์นี้"
+            className="mt-1 block text-2xl font-bold tabular-nums"
+          >
             {profit === null ? '—' : money(profit)}
           </output>
         </div>

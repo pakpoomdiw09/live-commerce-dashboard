@@ -1,6 +1,7 @@
 'use client'
 import { useRef, useState } from 'react'
 import { SessionDialog } from '@/components/live-cf/SessionDialog'
+import { addressHelp, courierLabel } from './shipping-ui'
 import {
   COURIERS,
   SHIPPING_FIELDS,
@@ -101,6 +102,9 @@ export function ShippingAddressModal({
                   }}
                 />
               )}
+              <span className="mt-1 block text-xs font-normal text-slate-500">
+                {addressHelp[spec.key]}
+              </span>
             </label>
           ))}
         </div>
@@ -118,14 +122,19 @@ export function ShippingAddressModal({
               }}
             >
               {COURIERS.map((value) => (
-                <option key={value}>{value}</option>
+                <option key={value} value={value}>
+                  {courierLabel(value)}
+                </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              เลือกบริษัทที่จะจัดส่งพัสดุชิ้นนี้
+            </span>
           </label>
           <label className="text-sm font-medium">
-            เลขพัสดุ Tracking
+            เลขพัสดุ
             <input
-              aria-label="เลขพัสดุ Tracking"
+              aria-label="เลขพัสดุ"
               maxLength={100}
               className={field}
               value={tracking}
@@ -135,6 +144,9 @@ export function ShippingAddressModal({
                 request.current = crypto.randomUUID()
               }}
             />
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              กรอกเลขพัสดุที่ขนส่งออกให้ หากยังไม่มีให้เว้นว่าง
+            </span>
           </label>
         </div>
         <label className="block text-sm font-medium">
@@ -150,6 +162,9 @@ export function ShippingAddressModal({
               request.current = crypto.randomUUID()
             }}
           />
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            บันทึกข้อมูลเพิ่มเติมสำหรับคนจัดส่ง เช่น ฝากส่งหลังวันที่กำหนด
+          </span>
         </label>
         <label className="flex items-start gap-2 text-sm">
           <input

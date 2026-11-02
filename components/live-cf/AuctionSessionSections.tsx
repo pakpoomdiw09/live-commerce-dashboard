@@ -11,19 +11,16 @@ import { SessionDialog } from './SessionDialog'
 import { button, field, sessionTime } from './session-ui'
 
 const titles: Record<number, string> = {
-  1: 'เริ่ม Session และสรุปตัวเลขรายไลฟ์',
-  2: 'ผลประมูลแต่ละรอบ',
-  3: 'ตั้งค่าอัตโนมัติและควบคุมประมูล',
-  4: 'รายชื่อลูกค้า บิลสะสม และสลิป',
-  5: 'จัดส่งพัสดุจากบิลที่ชำระครบ',
+  1: 'ข้อมูลเซสชันไลฟ์สดและสรุปบัญชี',
+  2: 'ห้องควบคุมการประมูลสดและตั้งค่าคำดักอัตโนมัติ',
+  3: 'ตารางจัดการบิลลูกค้าและสลิปโอนเงิน',
+  4: 'การจัดส่งพัสดุและพิมพ์ใบปะหน้า',
 }
 export function AuctionDashboardSection({
   number,
-  title,
   children,
 }: {
   number: number
-  title: string
   children: ReactNode
 }) {
   return (
@@ -38,7 +35,6 @@ export function AuctionDashboardSection({
         </span>
         <div>
           <h2 className="font-bold text-slate-900">{titles[number]}</h2>
-          <p className="text-xs text-slate-500">{title}</p>
         </div>
       </header>
       {children}
@@ -48,7 +44,7 @@ export function AuctionDashboardSection({
 export function SessionRequired() {
   return (
     <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
-      เริ่มหรือเลือก Session ด้านบนเพื่อจัดการข้อมูลไลฟ์นี้
+      เริ่มหรือเลือกเซสชันไลฟ์สดด้านบน เพื่อจัดการบิลและรายการของไลฟ์นี้
     </p>
   )
 }
@@ -56,10 +52,13 @@ export function SessionEmptyFinance() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {['ต้นทุน (บาท)', 'ค่าแอด (บาท)', 'ค่าส่ง (บาท)'].map((label) => (
+        {['ต้นทุนสินค้า (บาท)', 'ค่าแอดโฆษณา (บาท)', 'ค่าจัดส่งจริง (บาท)'].map((label) => (
           <label className="text-sm font-medium" key={label}>
             {label}
             <input disabled className={field} value="0" readOnly aria-label={label} />
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              เริ่มไลฟ์สดก่อน แล้วกรอกค่าใช้จ่ายของไลฟ์นี้
+            </span>
           </label>
         ))}
         <div className="rounded-xl bg-orange-50 p-3 text-sm">
@@ -68,12 +67,12 @@ export function SessionEmptyFinance() {
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         {[
-          'คอมเมนต์ทั้งหมด',
-          'ตรงคำดัก / ตรงบิด',
-          'คนคอมเมนต์',
-          'สลิปที่ผ่าน',
-          'ยอดโอนรวม',
-          'ยอดที่ยังขาด',
+          'จำนวนคอมเมนต์ทั้งหมด',
+          'คอมเมนต์ตรงคำดัก',
+          'จำนวนคนคอมเมนต์',
+          'สลิปที่ตรวจผ่าน',
+          'ยอดเงินโอนรวม',
+          'ยอดเงินที่ยังขาด',
         ].map((label) => (
           <div className="rounded-xl bg-slate-50 p-3" key={label}>
             <p className="text-xs text-slate-500">{label}</p>
@@ -99,9 +98,9 @@ export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) 
       data-session-slips
     >
       <div className="space-y-3">
-        <h3 className="font-bold">สลิปที่ตรวจผ่านใน Session นี้</h3>
+        <h3 className="font-bold">สลิปโอนเงินที่ตรวจผ่าน (เชื่อมต่อ SlipOK)</h3>
         <p className="text-xs text-slate-500">
-          สลิป SlipOK ที่ตรวจผ่านและลงบัญชีในบิลสะสมของ Session นี้
+          สลิป SlipOK ที่ตรวจผ่านและลงบัญชีในบิลสะสมของไลฟ์นี้
         </p>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2">
@@ -146,6 +145,7 @@ export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) 
             </select>
           </label>
           <span className="text-slate-400">{slips.length} สลิป</span>
+          <p className="text-[10px] text-slate-500">เลือกจำนวนสลิปที่ต้องการดูในแต่ละหน้า</p>
         </div>
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full min-w-[420px] text-left text-sm">
@@ -196,7 +196,9 @@ export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) 
             </tbody>
           </table>
           {!data?.slips?.length && (
-            <p className="p-4 text-sm text-slate-500">ยังไม่มีสลิปที่ตรวจผ่านใน Session นี้</p>
+            <p className="p-4 text-sm text-slate-500">
+              ยังไม่มีสลิปโอนเงินที่ตรวจผ่าน (เชื่อมต่อ SlipOK)
+            </p>
           )}
         </div>
         {(data?.metrics.slips ?? 0) > 500 && (
@@ -220,7 +222,7 @@ export function SessionCustomerStatus({ data }: { data: SessionSnapshot | null }
     <div
       data-customer-status-summary
       role="status"
-      aria-label="สรุปสถานะลูกค้า Session"
+      aria-label="สรุปสถานะลูกค้าในไลฟ์นี้"
       className="flex flex-wrap items-center gap-x-2 gap-y-2 rounded-xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm font-medium text-slate-800"
     >
       <span>ตรงคำดัก {data?.metrics.matchedPeople ?? '—'} คน</span>
@@ -229,14 +231,8 @@ export function SessionCustomerStatus({ data }: { data: SessionSnapshot | null }
       <span aria-hidden="true">·</span>
       <span>ยังไม่โอน {status.unpaid}</span>
       <span aria-hidden="true">|</span>
-      <span>ใส่ยอดแล้ว {status.assigned} คน:</span>
-      <span className="text-emerald-700">ครบ {status.full}</span>
-      <span aria-hidden="true">·</span>
-      <span className="text-orange-700">ขาด {status.short}</span>
-      <span aria-hidden="true">·</span>
-      <span className="text-blue-700">เกิน {status.over}</span>
       <span className="tabular-nums">
-        (ยอดรวม {sessionMoney(status.total)} / ได้รับ {sessionMoney(status.received)} ฿)
+        ยอดรวมสะสม {sessionMoney(status.total)} บาท / ได้รับแล้ว {sessionMoney(status.received)} บาท
       </span>
     </div>
   )

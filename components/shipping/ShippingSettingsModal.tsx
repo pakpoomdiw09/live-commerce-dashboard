@@ -1,6 +1,7 @@
 'use client'
 import { useRef, useState } from 'react'
 import { SessionDialog } from '@/components/live-cf/SessionDialog'
+import { courierLabel } from './shipping-ui'
 import {
   COURIERS,
   normalizeThaiPhone,
@@ -66,6 +67,13 @@ export function ShippingSettingsModal({
                 request.current = crypto.randomUUID()
               }}
             />
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              {spec.key === 'sender_name'
+                ? 'ชื่อที่จะแสดงบนใบปะหน้าพัสดุ'
+                : spec.key === 'sender_phone'
+                  ? 'เบอร์ติดต่อร้านเมื่อขนส่งต้องสอบถาม'
+                  : 'ระบุที่อยู่ร้านให้ครบ เพื่อใช้ส่งพัสดุตีกลับ'}
+            </span>
           </label>
         ))}
         <label className="block text-sm font-medium">
@@ -81,24 +89,29 @@ export function ShippingSettingsModal({
             }}
           >
             {COURIERS.map((courier) => (
-              <option key={courier}>{courier}</option>
+              <option key={courier} value={courier}>
+                {courierLabel(courier)}
+              </option>
             ))}
           </select>
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            เลือกขนส่งที่ร้านใช้เป็นประจำ
+          </span>
         </label>
         <div className="rounded-xl bg-slate-50 p-4">
           <label className="block text-sm font-medium">
-            Bee Move API Key (สำหรับการเชื่อมต่อในอนาคต)
+            กุญแจเชื่อมต่อ Bee Move (API Key สำหรับใช้ในอนาคต)
             <input
               type="password"
               autoComplete="off"
               aria-label="Bee Move API Key ในอนาคต"
               disabled
               className={field}
-              placeholder="ยังไม่เปิดรับหรือบันทึก API Key"
+              placeholder="ใช้เมื่อติดตั้งการเชื่อมต่อขนส่งแล้ว"
             />
           </label>
           <p className="mt-2 text-xs text-slate-500">
-            ตอนนี้ใช้ Export CSV และพิมพ์ใบปะหน้า ยังไม่มีการเรียก API จองขนส่ง
+            ขณะนี้ใช้ดาวน์โหลดไฟล์ CSV และพิมพ์ใบปะหน้า การจองขนส่งจะเปิดให้ใช้เมื่อเชื่อมต่อสำเร็จ
           </p>
         </div>
         {error && (

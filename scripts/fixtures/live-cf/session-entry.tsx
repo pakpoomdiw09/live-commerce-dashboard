@@ -114,6 +114,11 @@ const snapshot: SessionSnapshot = {
   ],
 }
 if (allInOne) {
+  for (const tab of tabs)
+    tab.items = tab.items.map((item) => ({
+      ...item,
+      name: `${tab === tabs[1] ? '[CF-A1]' : '[ประมูล]'} ${item.name}`,
+    }))
   snapshot.metrics.matchedPeople = 2
   snapshot.session.ended_at = null
   snapshot.session.auction_settings = defaultSessionAutomation(bankId)
@@ -240,15 +245,35 @@ window.fetch = async (input, init) => {
     return new Response('\uFEFFRecipient Name,Phone Number\r\nBuyer,0812345678', {
       headers: { 'Content-Type': 'text/csv;charset=utf-8' },
     })
-  if (url.pathname === '/api/live-cf/auction')
+  if (url.pathname === '/api/live-cf/auction' && init?.method !== 'POST')
     return Response.json({ auctions: [], bids: [], deliveries: [] })
   if (url.pathname.startsWith('/api/slips/'))
     return Response.json({
-      slip: { id: 'paid-slip', amount: 300, status: 'valid', raw: {}, image_url: null },
+      slip: {
+        id: 'paid-slip',
+        amount: 300,
+        expected_amount: 300,
+        status: 'valid',
+        raw: {},
+        imageUrl: '/logo-icon.png',
+        receiver: { name: 'ร้านพระ', bank: '006', account: '9260337828' },
+        transferredAt: '2026-11-02T15:50:00Z',
+      },
     })
   if (init?.method === 'POST') {
     const body = JSON.parse(String(init.body))
     state.requests.push(body)
+    if (url.pathname === '/api/live-cf/auction') {
+      snapshot.activeAuction = {
+        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        itemName: body.itemName,
+      }
+      return Response.json({ id: snapshot.activeAuction.id })
+    }
+    if (url.pathname === '/api/live-cf/auction/close') {
+      snapshot.activeAuction = null
+      return Response.json({ status: 'cancelled' })
+    }
     if (url.pathname === '/api/shipping') return Response.json({ batchId: 'print-batch', ok: true })
     if (url.pathname === '/api/live-auction/session') {
       if (body.action === 'load_customers') {

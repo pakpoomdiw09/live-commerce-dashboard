@@ -6,6 +6,7 @@ export type SessionCustomerRow = {
   customerId: string | null
   name: string
   at: string | null
+  lastText: string | null
   comments: number
   matched: boolean
   note: string
@@ -30,6 +31,7 @@ export function sessionCustomerRows(data: SessionSnapshot | null): SessionCustom
       customerId: tab?.customerId ?? person.customerId ?? null,
       name: person.name,
       at: person.at,
+      lastText: person.lastText ?? null,
       comments: person.comments,
       matched: person.matched === true || tab?.matched === true,
       note: tab?.note ?? person.note ?? '',
@@ -45,6 +47,7 @@ export function sessionCustomerRows(data: SessionSnapshot | null): SessionCustom
       customerId: tab.customerId,
       name: tab.name,
       at: null,
+      lastText: null,
       comments: 0,
       matched: tab.matched === true,
       note: tab.note ?? '',

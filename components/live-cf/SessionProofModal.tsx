@@ -177,6 +177,9 @@ export function SessionProofModal({
                         change()
                       }}
                     />
+                    <span className="mt-1 block text-[10px] font-normal text-slate-500">
+                      แก้ยอดตามหลักฐานในคอมเมนต์เท่านั้น
+                    </span>
                   </label>
                 </div>
                 <label className="mt-2 flex items-center gap-2 text-xs text-red-700">
@@ -214,6 +217,9 @@ export function SessionProofModal({
                 change()
               }}
             />
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              เรียกเก็บครั้งเดียว แม้ลูกค้าซื้อหลายรายการในไลฟ์นี้
+            </span>
           </label>
           <div className="space-y-2 rounded-xl bg-orange-50 p-4 text-sm text-orange-950">
             <p className="break-words font-semibold">
@@ -261,6 +267,9 @@ export function SessionProofModal({
               }}
               placeholder="เช่น แก้ราคาที่ตรวจจากคอมเมนต์ / ยกเว้นค่าส่ง"
             />
+            <span className="mt-1 block text-xs font-normal text-slate-500">
+              ระบุเหตุผลอย่างน้อย 3 ตัวอักษร เพื่อเก็บประวัติการแก้ยอด
+            </span>
           </label>
           <p className="text-xs text-slate-500">
             ลบยอดจะยกเลิกทุกรายการในบิลนี้และคืนสต็อก CF ที่เคยตัดไว้
