@@ -280,7 +280,7 @@ compiler.init()
     await evaluate(`document.querySelector('button[aria-label="ลบรหัส 159"]').click()`)
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).readOnly`), true)
     await evaluate('liveCfTest.liveFailure=true')
-    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await click('ดูภาพตัวอย่างไลฟ์')
     await wait(`!!document.querySelector('dialog[open] [role="alert"]')`)
     assert.equal(
       await evaluate(
@@ -316,7 +316,7 @@ compiler.init()
       true,
     )
     assert.equal(
-      await evaluate(`document.activeElement.textContent.includes('เลือกจากไลฟ์สดปัจจุบัน')`),
+      await evaluate(`document.activeElement.textContent.includes('ดูภาพตัวอย่างไลฟ์')`),
       true,
     )
     await fill('select[aria-label="เลือกเพจ Facebook"]', '200')
@@ -325,7 +325,7 @@ compiler.init()
       await evaluate(`document.querySelector('[aria-label="ไลฟ์สดที่เลือก"]')===null`),
       true,
     )
-    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await click('ดูภาพตัวอย่างไลฟ์')
     await wait(`document.querySelector('dialog')?.textContent.includes('ไลฟ์สดเพจที่สอง')`)
     await click('เลือกไลฟ์นี้')
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).value`), '654')
@@ -337,7 +337,7 @@ compiler.init()
       true,
     )
     await fill('select[aria-label="เลือกเพจ Facebook"]', '100')
-    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await click('ดูภาพตัวอย่างไลฟ์')
     await wait(`!!document.querySelector('dialog[open]')`)
     await call('Input.dispatchKeyEvent', {
       type: 'keyDown',
@@ -354,13 +354,13 @@ compiler.init()
     await wait(`!document.querySelector('dialog')`)
     assert.equal(
       await evaluate(`document.querySelector(${JSON.stringify(link)}).value`),
-      '',
-      'Closing picker never selects a live automatically',
+      '456',
+      'Closing the preview preserves the automatically selected live',
     )
     await click('กรอกรหัสด้วยตนเอง')
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(link)}).readOnly`), false)
     await evaluate('liveCfTest.liveFallback=true')
-    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await click('ดูภาพตัวอย่างไลฟ์')
     await wait(`document.querySelector('dialog')?.textContent.includes('เลือกวิดีโอนี้')`)
     assert.equal(
       await evaluate(
@@ -746,7 +746,7 @@ compiler.init()
     )
     await fill('input[aria-label="เพิ่มรหัสสั่งซื้อ"]', 'B2')
     await evaluate("liveCfTest.liveId='789'")
-    await click('เลือกจากไลฟ์สดปัจจุบัน')
+    await click('ดูภาพตัวอย่างไลฟ์')
     await wait(`document.querySelector('dialog')?.textContent.includes('รหัส 789')`)
     await click('เลือกไลฟ์นี้')
     await click('เริ่มเปิดระบบดูดออเดอร์')

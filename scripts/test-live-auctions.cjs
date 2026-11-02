@@ -25,6 +25,7 @@ test('live auctions execute against the complete schema: ordering, steps, close,
     `)
     await db.exec(build().completeSql)
     await db.exec(fs.readFileSync('supabase/live-auctions.sql', 'utf8'))
+    await db.exec(fs.readFileSync('supabase/auction-experience.sql', 'utf8'))
     const tenant = (
       await one("insert into tenants(name,page_id) values('Auction shop','100') returning id")
     ).id
@@ -143,6 +144,32 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       '904',
     )
     assert.equal((await one('select count(*)::int n from orders')).n, 1)
+    const quiet = await auction('666')
+    await db.query(
+      'update auctions set private_reply_enabled=false,public_reply_enabled=false where id=$1',
+      [quiet],
+    )
+    await process(quiet, await event('920', 'เปิด', 'completed', '666'), 'OPENING_BID')
+    await process(
+      quiet,
+      await event('100', '❌', 'completed', '666'),
+      'HOST_CONTROL',
+      null,
+      'close',
+    )
+    assert.equal(
+      (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [quiet])).n,
+      0,
+    )
+    assert.equal(
+      (
+        await one('select count(*)::int n from messages where external_id=$1', [
+          'auction-event:' + quiet,
+        ])
+      ).n,
+      1,
+      'switching off replies preserves the immediate local Inbox event and sale',
+    )
     assert.equal(
       (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [id])).n,
       2,
@@ -213,7 +240,7 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       (await one('select finalize_live_auction($1,$2,null,true) r', [cancelled, tenant])).r.status,
       'cancelled',
     )
-    assert.equal((await one('select count(*)::int n from orders')).n, 1)
+    assert.equal((await one('select count(*)::int n from orders')).n, 2)
     // The DB trigger also protects events enqueued by older application instances.
     const q1 = await event('910', 'เปิด', 'pending', '777')
     const q2 = await event('100', 'ปิด', 'pending', '777')

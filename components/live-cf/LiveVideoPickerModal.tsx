@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { LoaderCircle, Radio, RefreshCw, Video, X } from 'lucide-react'
 import type { FacebookLiveVideo } from '@/lib/integrations/facebook/live-videos'
+import { parseLiveVideoList } from '@/lib/features/commerce/live-source'
 
 export function liveVideoTime(value: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return 'ไม่ระบุเวลา'
@@ -65,27 +66,10 @@ export function LiveVideoPickerModal({
         )
         const result = await response.json()
         if (!response.ok) throw new Error(result.error ?? 'โหลดรายการไลฟ์สดไม่สำเร็จ')
-        if (
-          result.pageId !== pageId ||
-          typeof result.fallback !== 'boolean' ||
-          !Array.isArray(result.videos) ||
-          result.videos.some(
-            (row: FacebookLiveVideo) =>
-              !row ||
-              typeof row.id !== 'string' ||
-              !/^\d{1,40}$/.test(row.id) ||
-              typeof row.title !== 'string' ||
-              typeof row.isLive !== 'boolean' ||
-              (row.thumbnail !== null &&
-                (typeof row.thumbnail !== 'string' || !row.thumbnail.startsWith('https://'))) ||
-              (row.createdAt !== null &&
-                (typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt)))),
-          )
-        )
-          throw new Error('ข้อมูลไลฟ์สดไม่สมบูรณ์ กรุณาลองใหม่')
+        const parsed = parseLiveVideoList(result, pageId)
         if (!controller.signal.aborted) {
-          setVideos(result.videos)
-          setFallback(result.fallback)
+          setVideos(parsed.videos)
+          setFallback(parsed.fallback)
         }
       } catch (failure) {
         if (!controller.signal.aborted)

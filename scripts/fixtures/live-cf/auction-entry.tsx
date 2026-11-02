@@ -91,6 +91,20 @@ declare global {
 window.auctionQA = state
 window.fetch = async (input, init) => {
   const path = String(input)
+  if (path.startsWith('/api/facebook/live-videos?'))
+    return Response.json({
+      pageId: '100',
+      fallback: false,
+      videos: [
+        {
+          id: '456',
+          title: 'ไลฟ์สดพระเครื่อง',
+          thumbnail: null,
+          createdAt: '2026-11-02T10:00:00Z',
+          isLive: true,
+        },
+      ],
+    })
   if (path.startsWith('/api/customer-tabs?')) {
     if (new URL(path, 'https://test.invalid').searchParams.has('summary'))
       return Response.json({
@@ -167,7 +181,11 @@ createRoot(document.getElementById('root')!).render(
     <div className="fixed inset-x-0 top-0 flex h-dvh w-full overflow-hidden bg-slate-50">
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto" data-dashboard-main>
         <div className="flex min-h-0 flex-1 flex-col">
-          <LiveCfWorkspace tenantId={tenantId} bankAccounts={[bank]}>
+          <LiveCfWorkspace
+            tenantId={tenantId}
+            bankAccounts={[bank]}
+            pages={[{ id: '100', name: 'ดิว ไลฟ์สดพระเครื่อง' }]}
+          >
             <section className="min-h-[1800px] p-8" data-cf-setup>
               CF order setup
             </section>

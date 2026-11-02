@@ -89,6 +89,32 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
     assert.equal(Number(bill.paid_amount), 200)
     assert.equal(Number(bill.remaining_amount), 800)
     assert.equal(bill.status, 'pending_payment')
+    const inbox = await one('select count(*)::int n from messages where customer_id=$1', [customer])
+    assert.equal(
+      inbox.n,
+      6,
+      'each close immediately records a local win and a pending private bill',
+    )
+    assert.equal(
+      (await one('select last_message_at from customers where id=$1', [customer])).last_message_at,
+      null,
+      'auction activity never fabricates a Messenger inbound window',
+    )
+    const status = await one('select * from auction_inbox_status($1,array[$2::uuid])', [
+      tenant,
+      customer,
+    ])
+    assert.equal(Number(status.remaining_amount), 800)
+    assert.equal(
+      await one('select * from auction_inbox_status($1,array[$2::uuid])', [other, customer]),
+      undefined,
+    )
+    await one('select finalize_live_auction($1,$2)', [third.source_id, tenant])
+    assert.equal(
+      (await one('select count(*)::int n from messages where customer_id=$1', [customer])).n,
+      6,
+      'closing again cannot duplicate the bill or Inbox messages',
+    )
     const partial = await pay(tab, 250)
     assert.equal(partial.result.remainingAmount, 550)
     assert.equal(partial.result.paidAmount, 450)
@@ -107,6 +133,13 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
     await assert.rejects(pay(tab, 1, randomUUID(), stranger), /TAB_NOT_PAYABLE/)
     const rest = await pay(tab, 550)
     assert.equal(rest.result.remainingAmount, 0)
+    assert.equal(
+      Number(
+        (await one('select * from auction_inbox_status($1,array[$2::uuid])', [tenant, customer]))
+          .remaining_amount,
+      ),
+      0,
+    )
     assert.equal(
       (
         await one("select count(*)::int n from orders where customer_tab_id=$1 and status='paid'", [

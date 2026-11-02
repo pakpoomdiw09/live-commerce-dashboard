@@ -209,7 +209,7 @@ export function CustomerTabsPanel({
           onClick={() => void remind()}
           className="w-full rounded-lg border border-orange-200 p-2 text-xs font-semibold text-orange-700 disabled:opacity-50"
         >
-          ให้ AI แจ้งยอดค้างของลูกค้านี้
+          ส่งข้อความทวงยอด
         </button>
       )}
     </section>

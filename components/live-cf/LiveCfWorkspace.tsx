@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Gavel, ShoppingCart } from 'lucide-react'
 import { LiveAuctionPanel } from './LiveAuctionPanel'
+import type { LiveSourcePage } from './LiveSourcePicker'
 
 export type LiveCfMode = 'cf' | 'auction'
 
@@ -10,11 +11,13 @@ export type LiveCfMode = 'cf' | 'auction'
 export function LiveCfWorkspace({
   tenantId,
   bankAccounts,
+  pages = [],
   initialMode = 'cf',
   children,
 }: {
   tenantId: string
   bankAccounts: { id: string; bank_code: string; account_number: string }[]
+  pages?: LiveSourcePage[]
   initialMode?: LiveCfMode
   children: ReactNode
 }) {
@@ -92,6 +95,7 @@ export function LiveCfWorkspace({
         <LiveAuctionPanel
           tenantId={tenantId}
           bankAccounts={bankAccounts}
+          pages={pages}
           active={mode === 'auction'}
         />
       </div>

@@ -12,6 +12,7 @@ import { Avatar } from '@/components/inbox/Avatar'
 import type { ChatSummary, Preview } from '@/components/inbox/InboxClient'
 import type { InboxState } from '@/lib/features/inbox/inbox-types'
 import { FacebookIcon } from '@/components/ui/FacebookIcon'
+import { useAuctionStatuses } from './useAuctionStatuses'
 
 const SENDER = { customer: '', bot: 'ระบบอัตโนมัติ: ', agent: 'แอดมิน: ' } as const
 
@@ -56,6 +57,13 @@ export function ChatList({
   assignee: string
   onCounts: (counts: Partial<Record<InboxView, number>>) => void
 }) {
+  const auctionStatuses = useAuctionStatuses(
+    tenantId,
+    chats
+      .map((chat) => chat.customer.id)
+      .sort()
+      .join(','),
+  )
   const [metadataReady, setMetadataReady] = useState(false)
   const [paymentIds, setPaymentIds] = useState<string[]>([])
   const [stars, setStars] = useState<string[]>([])
@@ -334,6 +342,7 @@ export function ChatList({
           const active = c.id === selectedId
           const state = conversationStates.get(c.id)
           const badge: { label: string; tone: Tone } = chatBadge(c.order_status, latestSlip)
+          const auction = auctionStatuses[c.id]
           return (
             <li key={c.id} className="relative">
               {bulk && (
@@ -399,7 +408,16 @@ export function ChatList({
                             'มีผู้ดูแล'
                           : 'ยังไม่รับแชท'}
                     </span>
-                    {c.order_status !== 'new' || latestSlip === 'pending' ? (
+                    {auction ? (
+                      <span
+                        className={`w-full break-words text-[11px] font-semibold ${Number(auction.remaining_amount) > 0 ? 'text-orange-700' : 'text-emerald-700'}`}
+                      >
+                        ชนะประมูล {auction.item_name} -{' '}
+                        {Number(auction.remaining_amount) > 0
+                          ? `รอชำระเงิน • คงเหลือ ฿${Number(auction.remaining_amount).toLocaleString('th-TH')}`
+                          : 'ชำระครบแล้ว'}
+                      </span>
+                    ) : c.order_status !== 'new' || latestSlip === 'pending' ? (
                       <Badge tone={badge.tone}>{badge.label}</Badge>
                     ) : null}
                     {!c.bot_enabled && (

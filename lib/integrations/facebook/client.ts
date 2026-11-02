@@ -409,6 +409,16 @@ async function commentGraphResult(
 
 export type OutgoingMessage =
   | { text: string }
+  | {
+      attachment: {
+        type: 'template'
+        payload: {
+          template_type: 'button'
+          text: string
+          buttons: { type: 'web_url'; url: string; title: string }[]
+        }
+      }
+    }
   | { attachment: { type: 'image'; payload: { url: string; is_reusable: boolean } } }
   | {
       attachment: {
@@ -445,6 +455,44 @@ export async function privateReply(
 }
 
 /** Live CF private reply: one text payload only; payment media belongs on a signed HTTPS page. */
+export async function sendAuctionPrivateReply(
+  token: string | null,
+  commentId: string,
+  text: string,
+  buttonText: string,
+  link: string,
+  pageId: string,
+) {
+  if (buttonText.length > 640 || !link.startsWith('https://'))
+    return { ...(await sendPrivateReply(token, commentId, text, pageId)), auctionText: text }
+  try {
+    const receipt = await privateReply(token, commentId, {
+      attachment: {
+        type: 'template',
+        payload: {
+          template_type: 'button',
+          text: buttonText,
+          buttons: [{ type: 'web_url', url: link, title: 'ชำระเงิน / แนบสลิป' }],
+        },
+      },
+    })
+    return { ...receipt, auctionText: buttonText }
+  } catch (error) {
+    // Only a definitive template rejection permits the text/link fallback. A timeout
+    // may already have delivered the one allowed private reply and must not retry.
+    if (
+      !(error instanceof SendApiError) ||
+      error.status !== 400 ||
+      error.code !== 100 ||
+      !/(?:template|attachment|button)[^\n]*(?:not supported|unsupported|not allowed)/i.test(
+        error.providerMessage ?? '',
+      )
+    )
+      throw error
+    return { ...(await sendPrivateReply(token, commentId, text, pageId)), auctionText: text }
+  }
+}
+
 export function sendPrivateReply(
   token: string | null,
   commentId: string,

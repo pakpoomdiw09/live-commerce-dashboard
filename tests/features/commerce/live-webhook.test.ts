@@ -193,6 +193,65 @@ test('only a definitive unsupported private edge may fall back to Page messages 
   assert.equal(calls, 1)
 })
 
+test('auction private bills use one comment-addressed payment button and never retry uncertain sends', async () => {
+  const requests: { url: string; body: any }[] = []
+  const f = clientFixture(async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+    return Response.json({ message_id: 'auction-mid' })
+  })
+  const link = 'https://shop.example/pay/live/signed'
+  const receipt = await f.api.sendAuctionPrivateReply(
+    token,
+    commentId,
+    'Full bill',
+    'Net 800',
+    link,
+    '100',
+  )
+  assert.equal(receipt.auctionText, 'Net 800')
+  assert.equal(requests.length, 1)
+  assert.deepEqual(requests[0].body.recipient, { comment_id: commentId })
+  assert.equal(requests[0].body.message.attachment.payload.template_type, 'button')
+  assert.equal(requests[0].body.message.attachment.payload.buttons[0].url, link)
+  for (const response of ['timeout', 'permission']) {
+    let calls = 0
+    const failed = clientFixture(async () => {
+      calls++
+      if (response === 'timeout') throw new Error('provider timeout')
+      return Response.json({ error: { code: 200, message: 'Permission denied' } }, { status: 403 })
+    })
+    await assert.rejects(
+      failed.api.sendAuctionPrivateReply(token, commentId, 'Full bill', 'Net 800', link, '100'),
+    )
+    assert.equal(calls, 1)
+  }
+  const fallbackRequests: any[] = []
+  const fallback = clientFixture(async (_url, init) => {
+    fallbackRequests.push(JSON.parse(String(init?.body)))
+    return fallbackRequests.length === 1
+      ? Response.json(
+          { error: { code: 100, message: 'Button template not supported' } },
+          { status: 400 },
+        )
+      : Response.json({ id: 'fallback-mid' })
+  })
+  assert.equal(
+    (
+      await fallback.api.sendAuctionPrivateReply(
+        token,
+        commentId,
+        'Full bill',
+        'Net 800',
+        link,
+        '100',
+      )
+    ).auctionText,
+    'Full bill',
+  )
+  assert.equal(fallbackRequests.length, 2)
+  assert.deepEqual(fallbackRequests[1], { message: 'Full bill' })
+})
+
 test('live lookup accepts direct Video IDs and resolves Page post attachments without treating recordings as live', async () => {
   const direct = clientFixture(async (url) => {
     assert.match(String(url), /\/456\?fields=live_status$/)

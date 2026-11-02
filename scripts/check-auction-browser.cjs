@@ -193,6 +193,58 @@ async function checkInterface() {
       await evaluate("[...document.querySelectorAll('input[type=number]')].map(i=>i.value)"),
       ['200', '20', '50'],
     )
+    await wait(`document.querySelector('select[aria-label="ไลฟ์สด Facebook"]')?.value === '456'`)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('input[placeholder^="https://www.facebook.com"]') === null`,
+      ),
+      true,
+    )
+    assert.equal(
+      await evaluate(
+        `document.querySelector('select[aria-label="เลือกเพจ Facebook"]').selectedOptions[0].textContent`,
+      ),
+      'ดิว ไลฟ์สดพระเครื่อง',
+    )
+    await evaluate(`(() => {
+      const editor=document.querySelector('textarea[aria-label="ข้อความสรุปยอดผู้ชนะประมูล"]');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,'Winner: ');
+      editor.dispatchEvent(new Event('input',{bubbles:true}));
+    })()`)
+    await wait(
+      `document.querySelector('textarea[aria-label="ข้อความสรุปยอดผู้ชนะประมูล"]').value === 'Winner: '`,
+    )
+    await evaluate(`(() => {
+      const editor=document.querySelector('textarea[aria-label="ข้อความสรุปยอดผู้ชนะประมูล"]');
+      editor.focus();editor.setSelectionRange(8,8);
+      editor.parentElement.querySelector('button[title="ใส่ชื่อสินค้าในข้อความ"]').click();
+    })()`)
+    await wait(
+      `document.querySelector('textarea[aria-label="ข้อความสรุปยอดผู้ชนะประมูล"]').value === 'Winner: {ชื่อสินค้า}'`,
+    )
+    await evaluate(
+      `document.querySelector('[role=switch][aria-label="ตอบกลับใต้คอมเมนต์ประมูล"]').click()`,
+    )
+    await wait(`!document.querySelector('textarea[aria-label="ข้อความยืนยันผู้นำประมูล"]')`)
+    await evaluate(
+      `document.querySelector('[role=switch][aria-label="ตอบกลับใต้คอมเมนต์ประมูล"]').click()`,
+    )
+    await wait(`!!document.querySelector('textarea[aria-label="ข้อความประกาศผู้ชนะประมูล"]')`)
+    for (const width of [375, 768, 1440]) {
+      await resize(width)
+      assert.ok(
+        await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'),
+        'Setup form fits ' + width,
+      )
+      const screenshot = await call('Page.captureScreenshot', {
+        format: 'png',
+        captureBeyondViewport: true,
+      })
+      fs.writeFileSync(
+        path.join(output, 'auction-setup-' + width + '.png'),
+        Buffer.from(screenshot.data, 'base64'),
+      )
+    }
     assert.ok(
       await evaluate(
         "document.querySelector('section[aria-label]').getBoundingClientRect().height > 400",
@@ -271,7 +323,7 @@ async function checkInterface() {
     await evaluate(`(() => {
       const fields=document.querySelectorAll('form input:not([type=number])');
       const set=(el,value)=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}))};
-      set(fields[0],window.auctionQA.auctions[0].item_name+' QA');set(fields[1],'456');
+      set(fields[0],window.auctionQA.auctions[0].item_name+' QA');
     })()`)
     await evaluate("document.querySelector('form').requestSubmit()")
     await wait(
@@ -279,6 +331,14 @@ async function checkInterface() {
     )
     assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.startPrice'), 200)
     assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.minStep'), 20)
+    assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.pageId'), '100')
+    assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.livePostId'), '456')
+    assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.privateReply'), true)
+    assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.publicReply'), true)
+    assert.equal(
+      await evaluate('window.auctionQA.requests.at(-1).body.privateText'),
+      'Winner: {ชื่อสินค้า}',
+    )
     await evaluate("document.querySelector('[data-auction-action=close]').click()")
     await wait("document.querySelector('[data-auction-action=close]') === null")
     assert.equal(
@@ -312,6 +372,10 @@ async function checkInterface() {
       ),
       'manual bill summary uses the current total and net balance',
     )
+    await evaluate(
+      `[...document.querySelectorAll('[data-customer-tab-fixture] button')].find(button=>button.textContent.includes('ส่งข้อความทวงยอด')).click()`,
+    )
+    await wait(`window.auctionQA.requests.at(-1)?.body.action === 'remind'`)
     const billScreenshot = await call('Page.captureScreenshot', { format: 'png' })
     fs.writeFileSync(
       path.join(output, 'customer-tabs.png'),

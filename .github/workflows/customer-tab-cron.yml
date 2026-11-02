@@ -1,0 +1,26 @@
+name: Live customer tab reminders
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+concurrency:
+  group: customer-tab-reminders
+  cancel-in-progress: false
+permissions: {}
+jobs:
+  dispatch:
+    if: vars.APP_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch due reminders
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        shell: bash
+        run: |
+          test -n "$CRON_SECRET"
+          case "$APP_URL" in https://*) ;; *) exit 1 ;; esac
+          curl --fail-with-body --silent --show-error --max-time 240 \
+            --request POST --header "Authorization: Bearer $CRON_SECRET" \
+            "${APP_URL%/}/api/cron/customer-tabs"

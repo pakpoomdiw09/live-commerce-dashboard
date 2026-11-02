@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { PageBanner } from '@/components/ui/page-banner'
 import { QuickProductModal } from './QuickProductModal'
-import { LiveVideoPickerModal, liveVideoTime } from './LiveVideoPickerModal'
-import type { FacebookLiveVideo } from '@/lib/integrations/facebook/live-videos'
+import { LiveSourcePicker } from './LiveSourcePicker'
+import { LiveSwitch as Toggle, LiveTemplateEditor, ReceivingBankPicker } from './LiveReplyControls'
 import {
   BadgeCheck,
   ChevronDown,
@@ -15,7 +15,6 @@ import {
   ExternalLink,
   Eye,
   FlaskConical,
-  Link2,
   Minus,
   Package,
   Pencil,
@@ -75,31 +74,6 @@ const field =
   'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm outline-none transition focus:border-orange-400 focus:ring-3 focus:ring-orange-100'
 const card = 'rounded-2xl bg-white shadow-sm ring-1 ring-slate-200'
 
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean
-  onChange: (value: boolean) => void
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-7 w-12 shrink-0 rounded-full transition ${checked ? 'bg-orange-500' : 'bg-slate-300'}`}
-    >
-      <span
-        className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${checked ? 'left-6' : 'left-1'}`}
-      />
-    </button>
-  )
-}
-
 function StepTitle({ number, children }: { number: number; children: React.ReactNode }) {
   return (
     <h2 className="flex items-center gap-3 text-lg font-bold text-slate-900">
@@ -142,13 +116,7 @@ export function LiveCfSetup({
   const [id, setId] = useState(initialRule?.id ?? null)
   const [pageId, setPageId] = useState(initialRule?.page_ids[0] ?? pages[0]?.id ?? '')
   const [livePostId, setLivePostId] = useState(initialRule?.live_post_id ?? '')
-  const [showLivePicker, setShowLivePicker] = useState(false)
-  const [selectedLive, setSelectedLive] = useState<FacebookLiveVideo | null>(null)
-  const [manualLiveInput, setManualLiveInput] = useState(!!initialRule?.live_post_id)
-  const liveInputRef = useRef<HTMLInputElement>(null)
-  const [liveLinkTouched, setLiveLinkTouched] = useState(false)
   const parsedLiveId = extractFacebookLiveId(livePostId)
-  const liveLinkError = liveLinkTouched && parsedLiveId === null
   const [productId, setProductId] = useState('')
   const [codes, setCodes] = useState<string[]>(() => [...(initialRule?.keywords ?? [])])
   const [codeDraft, setCodeDraft] = useState('')
@@ -177,7 +145,6 @@ export function LiveCfSetup({
   const [active, setActive] = useState(initialRule?.is_active ?? false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(setupError)
-  const privateTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const product = productOptions.find((item) => item.id === productId)
   const customerSelectVariant = !!product?.variants.length
@@ -194,23 +161,6 @@ export function LiveCfSetup({
   function choosePage(nextId: string) {
     setPageId(nextId)
     setLivePostId('')
-    setSelectedLive(null)
-    setManualLiveInput(false)
-    setLiveLinkTouched(false)
-    setShowLivePicker(false)
-  }
-
-  function chooseLive(video: FacebookLiveVideo) {
-    setLivePostId(video.id)
-    setSelectedLive(video)
-    setManualLiveInput(false)
-    setLiveLinkTouched(false)
-    setShowLivePicker(false)
-  }
-
-  function changeLiveInput(value: string) {
-    setSelectedLive(null)
-    setLivePostId(value)
   }
 
   function syncProductKeywords(next: LiveProductOption | undefined) {
@@ -290,23 +240,6 @@ export function LiveCfSetup({
     }
   }
 
-  function insertVariable(tag: string) {
-    const textarea = privateTextareaRef.current
-    if (!textarea) {
-      setPrivateText((prev) => (prev ? `${prev} ${tag}` : tag))
-      return
-    }
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const text = privateText
-    const nextText = text.substring(0, start) + tag + text.substring(end)
-    setPrivateText(nextText)
-    setTimeout(() => {
-      textarea.focus()
-      textarea.setSelectionRange(start + tag.length, start + tag.length)
-    }, 0)
-  }
-
   const previewMessage = useMemo(() => {
     if (!product) return privateText
     const priceFormatted = Number(selectedPrice).toLocaleString('th-TH', {
@@ -325,7 +258,6 @@ export function LiveCfSetup({
 
   async function save() {
     setNotice(null)
-    setLiveLinkTouched(true)
     if (parsedLiveId === null) return
     const nextCodes = codesForSave()
     if (!nextCodes) return
@@ -376,7 +308,6 @@ export function LiveCfSetup({
     if (!product) return setNotice('กรุณาเลือกสินค้าก่อนเปลี่ยนสถานะระบบ')
     if (nextActive && product?.is_active === false)
       return setNotice('สินค้านี้ยังไม่เปิดขาย กรุณาเปิดขายที่หน้าร้านค้าก่อนเริ่มรับออเดอร์')
-    setLiveLinkTouched(true)
     if (parsedLiveId === null) return
     const nextCodes = codesForSave()
     if (!nextCodes) return
@@ -475,115 +406,16 @@ export function LiveCfSetup({
       )}
 
       {/* เลือกเพจ Facebook และ Live Video ID */}
-      <section className={`${card} grid gap-5 p-5 md:grid-cols-2 md:p-6`}>
-        <label className="text-sm font-semibold text-slate-800">
-          เลือกเพจ Facebook
-          <select
-            aria-label="เลือกเพจ Facebook"
-            className={field}
-            value={pageId}
-            onChange={(event) => choosePage(event.target.value)}
-          >
-            <option value="">เลือกเพจที่ใช้ไลฟ์สด</option>
-            {pages.map((page) => (
-              <option key={page.id} value={page.id}>
-                {page.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="min-w-0 text-sm text-slate-800">
-          <label htmlFor="facebook-live-id" className="font-semibold">
-            ไลฟ์สด Facebook
-          </label>
-          <div className="flex flex-col gap-2 xl:flex-row xl:items-start">
-            <input
-              ref={liveInputRef}
-              id="facebook-live-id"
-              aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"
-              aria-invalid={liveLinkError}
-              aria-describedby="live-link-help"
-              className={`${field} min-w-0 flex-1 read-only:bg-slate-50 read-only:text-slate-500`}
-              readOnly={!manualLiveInput}
-              value={livePostId}
-              onChange={(event) => changeLiveInput(event.target.value)}
-              onPaste={(event) => {
-                if (!manualLiveInput) return
-                const extracted = extractFacebookLiveId(event.clipboardData.getData('text'))
-                if (extracted) {
-                  event.preventDefault()
-                  changeLiveInput(extracted)
-                  setLiveLinkTouched(true)
-                }
-              }}
-              onBlur={() => {
-                if (!manualLiveInput) return
-                setLiveLinkTouched(true)
-                if (parsedLiveId !== null) setLivePostId(parsedLiveId)
-              }}
-              placeholder={
-                manualLiveInput ? 'วางลิงก์ Facebook หรือกรอกรหัสไลฟ์' : 'คลิกเลือกไลฟ์สดจากเพจ'
-              }
-            />
-            <button
-              type="button"
-              disabled={!pageId || saving}
-              onClick={() => setShowLivePicker(true)}
-              className="mt-1.5 inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-50 px-3.5 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-100 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="h-2 w-2 rounded-full bg-red-500" /> เลือกจากไลฟ์สดปัจจุบัน
-            </button>
-          </div>
-          <button
-            type="button"
-            aria-controls="facebook-live-id"
-            aria-pressed={manualLiveInput}
-            onClick={() => {
-              setManualLiveInput(true)
-              setTimeout(() => liveInputRef.current?.focus(), 0)
-            }}
-            className="mt-2 text-xs font-medium text-slate-500 underline decoration-slate-300 underline-offset-4 hover:text-orange-600"
-          >
-            กรอกรหัสด้วยตนเอง
-          </button>
-          <span
-            id="live-link-help"
-            className={`mt-1.5 flex items-center gap-1.5 text-xs font-normal ${liveLinkError ? 'text-red-600' : 'text-slate-500'}`}
-          >
-            <Link2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-            {liveLinkError
-              ? 'อ่านรหัสจากลิงก์นี้ไม่ได้ กรุณาคัดลอกลิงก์วิดีโอแบบเต็มจาก Facebook'
-              : 'เลือกไลฟ์จากรายการ หรือกรอกรหัสเอง เว้นว่างเพื่อรับทุกไลฟ์ของเพจ'}
-          </span>
-          {selectedLive && (
-            <div
-              aria-label="ไลฟ์สดที่เลือก"
-              className={`mt-3 flex items-center gap-3 rounded-xl border p-3 ${selectedLive.isLive ? 'border-red-100 bg-red-50/40' : 'border-slate-200 bg-slate-50'}`}
-            >
-              <div className="grid h-16 w-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-white text-red-300">
-                {selectedLive.thumbnail ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- Meta returns temporary video thumbnails.
-                  <img src={selectedLive.thumbnail} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <Radio className="h-6 w-6" />
-                )}
-              </div>
-              <div className="min-w-0">
-                <p
-                  className={`text-[11px] font-bold ${selectedLive.isLive ? 'text-red-600' : 'text-slate-500'}`}
-                >
-                  {selectedLive.isLive ? 'เลือกไลฟ์แล้ว' : 'เลือกวิดีโอสำรองแล้ว'}
-                </p>
-                <p className="mt-0.5 line-clamp-2 break-words font-semibold text-slate-800">
-                  {selectedLive.title}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  รหัส {selectedLive.id} · {liveVideoTime(selectedLive.createdAt)}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
+      <section className={`${card} p-5 md:p-6`}>
+        <LiveSourcePicker
+          pages={pages}
+          pageId={pageId}
+          livePostId={livePostId}
+          onPageChange={choosePage}
+          onLiveChange={setLivePostId}
+          disabled={saving}
+          allowManual
+        />
       </section>
 
       {/* Responsive Layout 2 คอลัมน์บน Desktop */}
@@ -951,58 +783,34 @@ export function LiveCfSetup({
               </div>
               {privateReply && (
                 <div className="space-y-3">
-                  <div className="relative">
-                    <textarea
-                      ref={privateTextareaRef}
-                      aria-label="ข้อความส่งแชทส่วนตัว"
-                      className={`${field} min-h-[110px] resize-y font-sans`}
-                      rows={4}
-                      value={privateText}
-                      onChange={(event) => setPrivateText(event.target.value)}
-                    />
-                    <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-                      <span>กดปุ่มด้านล่างเพื่อใส่ข้อมูลสินค้าในข้อความ</span>
-                      {product && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPrivateText(
-                              generateDefaultPrivateText(
-                                product.name,
-                                product.price,
-                                null,
-                                customerSelectVariant,
-                              ),
-                            )
-                          }
-                          className="inline-flex items-center gap-1 font-semibold text-orange-600 hover:text-orange-700 hover:underline"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" /> ใช้ข้อความเริ่มต้นของสินค้านี้
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* ปุ่มแทรกตัวแปรอัตโนมัติ (Chip Buttons) */}
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                    <p className="mb-2 text-xs font-semibold text-slate-700">
-                      เลือกข้อมูลที่จะใส่ในข้อความ ระบบจะเติมข้อมูลจริงเมื่อลูกค้าจอง:
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {VARIABLE_CHIPS.map((chip) => (
-                        <button
-                          key={chip.tag}
-                          type="button"
-                          onClick={() => insertVariable(displayLiveReplyTemplate(chip.tag))}
-                          className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-white px-2.5 py-1 text-xs font-semibold text-orange-700 shadow-2xs transition hover:bg-orange-50 active:scale-95"
-                          title={`ใส่${chip.label}ในข้อความ`}
-                        >
-                          <span className="font-mono font-bold text-orange-600">+</span>
-                          <span>{chip.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <LiveTemplateEditor
+                    label="ข้อความส่งแชทส่วนตัว"
+                    value={privateText}
+                    onChange={setPrivateText}
+                    maxLength={2000}
+                    variables={VARIABLE_CHIPS.map((chip) => ({
+                      ...chip,
+                      tag: displayLiveReplyTemplate(chip.tag),
+                    }))}
+                  />
+                  {product && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPrivateText(
+                          generateDefaultPrivateText(
+                            product.name,
+                            product.price,
+                            null,
+                            customerSelectVariant,
+                          ),
+                        )
+                      }
+                      className="inline-flex items-center gap-1 font-semibold text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" /> ใช้ข้อความเริ่มต้นของสินค้านี้
+                    </button>
+                  )}
 
                   {/* กล่อง Live Preview จำลองข้อความจริง */}
                   {product && (
@@ -1023,23 +831,11 @@ export function LiveCfSetup({
                   )}
 
                   <div className="grid gap-3 pt-1 sm:grid-cols-2">
-                    <label className="text-sm font-semibold text-slate-800">
-                      บัญชีรับเงิน
-                      <select
-                        aria-label="เลือกบัญชีรับเงิน"
-                        className={field}
-                        value={bankAccountId}
-                        onChange={(event) => setBankAccountId(event.target.value)}
-                      >
-                        <option value="">ยังไม่เลือกบัญชี</option>
-                        {bankAccounts.map((bank) => (
-                          <option key={bank.id} value={bank.id}>
-                            {bank.bank_code} • {bank.account_number}{' '}
-                            {bank.is_primary ? '• บัญชีหลัก' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <ReceivingBankPicker
+                      accounts={bankAccounts}
+                      value={bankAccountId}
+                      onChange={setBankAccountId}
+                    />
                     <div className="rounded-xl border border-orange-200/70 bg-orange-50/80 p-3.5 text-xs leading-relaxed text-orange-950">
                       <CreditCard className="mb-1.5 h-4 w-4 text-orange-600" />
                       ระบบจะส่งสรุปยอดและลิงก์ชำระเงินที่ปลอดภัยเข้ากล่องข้อความ Facebook
@@ -1244,15 +1040,7 @@ export function LiveCfSetup({
           </button>
         </div>
       </div>
-      {showLivePicker && pageId && (
-        <LiveVideoPickerModal
-          key={pageId}
-          pageId={pageId}
-          pageName={pages.find((page) => page.id === pageId)?.name ?? 'เพจ Facebook'}
-          onSelect={chooseLive}
-          onDismiss={() => setShowLivePicker(false)}
-        />
-      )}
+
       {showProductModal && (
         <QuickProductModal
           key={`${tenantId}:${editingProduct?.id ?? 'create'}`}

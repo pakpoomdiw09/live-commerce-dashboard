@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 106 ไฟล์: รวมตาม dependencies 89 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 108 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 107 ไฟล์: รวมตาม dependencies 90 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 109 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (775709 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (782332 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (669190 bytes, 11174 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (675069 bytes, 11258 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -126,6 +126,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 87. [live-cf-customer-variants.sql](live-cf-customer-variants.sql) — 16 statements retained
 88. [live-auctions.sql](live-auctions.sql) — 28 statements retained
 89. [customer-tabs.sql](customer-tabs.sql) — 40 statements retained
+90. [auction-experience.sql](auction-experience.sql) — 5 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -153,6 +154,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 
 | Migration | ต้องอยู่หลัง |
 | --- | --- |
+| auction-experience.sql | customer-tabs.sql |
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
 | live-auctions.sql | live-cf-customer-variants.sql, facebook-webhook-nonblocking.sql |
 | live-cf-customer-variants.sql | live-cf-setup.sql, payments.sql, payment-pro.sql |
@@ -401,3 +403,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-cf-customer-variants.sql: `c620b8852bf6067a70bc0cb265a285e3d9fddd0d05d55e9ed5a8a6c72fa6df29`
 - live-auctions.sql: `910202f12dfb75ce136dc66fe2d95ea645f9de96b03a69ef8e1b92b0fa89eeec`
 - customer-tabs.sql: `16b91f3b78245a76dacaa59840e6b4fa966193e938a71d36d56489c3a2e2e48a`
+- auction-experience.sql: `d63ebe3b3f87fa9678fdc0f92762b65f9a652a0fb15c4e36f06cd0cbe1b318f8`

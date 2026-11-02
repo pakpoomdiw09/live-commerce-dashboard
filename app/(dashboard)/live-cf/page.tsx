@@ -43,6 +43,7 @@ export default async function LiveCfPage({
     <LiveCfWorkspace
       key={tenant.id}
       tenantId={tenant.id}
+      pages={pages}
       bankAccounts={accounts.data ?? []}
       initialMode={mode}
     >

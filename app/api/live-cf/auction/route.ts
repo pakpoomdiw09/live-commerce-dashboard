@@ -4,6 +4,13 @@ import { authorizeAuction, auctionReply, auctionFailure } from '@/lib/features/c
 import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
 import { liveCfPaymentLinksReady } from '@/lib/features/commerce/live-cf-payment-link'
 import { UUID } from '@/lib/utils'
+import {
+  AUCTION_PRIVATE_TEMPLATE,
+  AUCTION_BID_TEMPLATE,
+  AUCTION_CLOSE_TEMPLATE,
+  validAuctionTemplate,
+  storeAuctionTemplate,
+} from '@/lib/features/commerce/auction-templates'
 
 export async function GET(req: NextRequest) {
   try {
@@ -60,6 +67,22 @@ export async function POST(req: NextRequest) {
     if (denied) return denied
     const postId = extractFacebookLiveId(input.livePostId)?.split('_').at(-1)
     const hostIds: unknown = input.hostIds ?? []
+    const privateReply = input.privateReply ?? true
+    const publicReply = input.publicReply ?? true
+    const privateText = input.privateText ?? AUCTION_PRIVATE_TEMPLATE
+    const bidText = input.bidText ?? AUCTION_BID_TEMPLATE
+    const closeText = input.closeText ?? AUCTION_CLOSE_TEMPLATE
+    if (
+      typeof privateReply !== 'boolean' ||
+      typeof publicReply !== 'boolean' ||
+      !validAuctionTemplate(privateText, 'private') ||
+      !validAuctionTemplate(bidText, 'public') ||
+      !validAuctionTemplate(closeText, 'public')
+    )
+      return auctionReply(
+        { error: 'กรุณาตรวจสอบสวิตช์ ข้อความ และตัวแปรที่ใช้ในข้อความตอบกลับ' },
+        400,
+      )
     if (
       !postId ||
       typeof input.itemName !== 'string' ||
@@ -78,7 +101,7 @@ export async function POST(req: NextRequest) {
         { error: 'กรุณาระบุรายการ ไลฟ์ ราคา สเต็ป ค่าส่ง และบัญชีรับเงินให้ถูกต้อง' },
         400,
       )
-    if (!liveCfPaymentLinksReady())
+    if (privateReply && !liveCfPaymentLinksReady())
       return auctionReply(
         { error: 'กรุณาตั้งค่า LIVE_CF_APP_URL และ LIVE_CF_PAYMENT_LINK_SECRET ก่อนเปิดประมูล' },
         503,
@@ -97,6 +120,8 @@ export async function POST(req: NextRequest) {
     if (tenant.error || bank.error) throw tenant.error || bank.error
     if (!tenant.data.page_id || !bank.data)
       return auctionReply({ error: 'กรุณาเชื่อมต่อเพจและเลือกบัญชีของร้านนี้' }, 400)
+    if (input.pageId !== undefined && input.pageId !== tenant.data.page_id)
+      return auctionReply({ error: 'เพจที่เลือกไม่ตรงกับร้านนี้ กรุณาเลือกเพจใหม่' }, 400)
     const saved = await db
       .from('auctions')
       .insert({
@@ -109,6 +134,11 @@ export async function POST(req: NextRequest) {
         shipping_fee: input.shippingFee,
         bank_account_id: bank.data.id,
         host_ids: hostIds,
+        private_reply_enabled: privateReply,
+        public_reply_enabled: publicReply,
+        private_reply_template: storeAuctionTemplate(privateText),
+        bid_reply_template: storeAuctionTemplate(bidText),
+        close_reply_template: storeAuctionTemplate(closeText),
       })
       .select('id')
       .single()

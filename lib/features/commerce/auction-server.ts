@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import {
   pageTokenFor,
   replyToComment,
-  sendPrivateReply,
+  sendAuctionPrivateReply,
   resolveLiveCommentVideo,
 } from '@/lib/integrations/facebook/client'
 import { createLiveCfPaymentLink } from './live-cf-payment-link'
@@ -11,6 +11,13 @@ import { parseAuctionComment } from '@/lib/integrations/facebook/auction-comment
 import { commentPostIds } from '@/lib/features/comments/live-comment-routing'
 import type { WebhookExecution } from '@/lib/integrations/facebook/webhook-worker'
 import type { Auction, AuctionResult } from './auction-types'
+import {
+  AUCTION_PRIVATE_TEMPLATE,
+  AUCTION_BID_TEMPLATE,
+  AUCTION_CLOSE_TEMPLATE,
+  renderAuctionTemplate,
+  auctionPrivateMessage,
+} from './auction-templates'
 
 const money = (value: number) => Number(value).toLocaleString('th-TH', { maximumFractionDigits: 2 })
 const safeCode = (error: unknown) => {
@@ -28,7 +35,16 @@ export async function deliverAuctionNotifications(auctionId?: string) {
     .update({ status: 'requires_review', error_code: 'DELIVERY_LEASE_EXPIRED' })
     .eq('status', 'sending')
     .lt('started_at', new Date(Date.now() - 5 * 60_000).toISOString())
+    .select('auction_id,channel')
   if (expired.error) throw expired.error
+  for (const delivery of expired.data ?? []) {
+    if (delivery.channel !== 'private') continue
+    const chat = await db
+      .from('messages')
+      .update({ delivery_status: 'unknown' })
+      .eq('external_id', `auction-bill:${delivery.auction_id}`)
+    if (chat.error) throw chat.error
+  }
   let query = db
     .from('auction_deliveries')
     .select('id,auction_id,channel,comment_id')
@@ -67,26 +83,57 @@ export async function deliverAuctionNotifications(auctionId?: string) {
       continue
     }
     const summary = auction.leading_bidder_id
-      ? `ปิดประมูล ${auction.item_name} ผู้ชนะ: ${auction.leading_bidder_name || 'ลูกค้า'} ราคา ${money(auction.current_price)} บาท`
+      ? renderAuctionTemplate(auction.close_reply_template || AUCTION_CLOSE_TEMPLATE, {
+          product_name: auction.item_name,
+          bidder_name: auction.leading_bidder_name || 'ลูกค้า',
+          price: money(auction.current_price),
+          min_step: money(auction.min_step),
+        })
       : `ปิดประมูล ${auction.item_name} ยังไม่มีผู้เสนอราคา`
     const message =
       delivery.channel === 'private'
         ? `🎉 ยินดีด้วยครับ! คุณชนะการประมูล\nรายการ: ${auction.item_name}\nยอดประมูล: ${money(auction.current_price)} บาท\nค่าจัดส่ง: ${money(auction.shipping_fee)} บาท\nยอดรวม: ${money(Number(auction.current_price) + Number(auction.shipping_fee))} บาท\nชำระเงิน / แนบสลิป: ${link}`
         : summary
     let billMessage = message
-    let tabCustomerId: string | null = null
+    let buttonMessage = message
     if (delivery.channel === 'private' && auction.order_id) {
       const { tabForOrder, customerTabSummary } = await import('./customer-tabs-server')
       const tab = await tabForOrder(db, auction.order_id)
       if (tab) {
-        billMessage = (
-          await customerTabSummary(
-            db,
-            tab,
-            `ยินดีด้วยครับ! รับรายการใหม่ ${auction.item_name} พร้อมสรุปยอดสะสมครับ`,
-          )
-        ).privateText
-        tabCustomerId = tab.customer_id
+        const bill = await customerTabSummary(db, tab)
+        const values = {
+          product_name: auction.item_name,
+          price: money(auction.current_price),
+          total: money(tab.remaining_amount),
+          paid: money(tab.paid_amount),
+          payment_link: bill.link,
+          bank_account: bill.account,
+          bidder_name: auction.leading_bidder_name || 'ลูกค้า',
+          min_step: money(auction.min_step),
+        }
+        const compact = `ยอดรวมสะสม ${money(tab.total_amount)} บาท\nโอนแล้ว ${money(tab.paid_amount)} บาท\nยอดค้างสุทธิ ${money(tab.remaining_amount)} บาท\n${bill.account}\nรายการทั้งหมด / QR / แนบสลิป: ${bill.link}`
+        billMessage = auctionPrivateMessage(
+          auction.private_reply_template || AUCTION_PRIVATE_TEMPLATE,
+          values,
+          bill.privateText,
+          compact,
+        )
+        const rendered = renderAuctionTemplate(
+          auction.private_reply_template || AUCTION_PRIVATE_TEMPLATE,
+          values,
+        )
+        const footer = `${auction.item_name.slice(0, 80)} • ${money(auction.current_price)} บาท\n${compact}`
+        const withoutDuplicateLink = rendered.includes(bill.link)
+          ? compact.slice(0, compact.lastIndexOf('\n'))
+          : compact
+        const item = rendered.includes(auction.item_name)
+          ? ''
+          : `${auction.item_name} • ${money(auction.current_price)} บาท\n`
+        const completeButton = `${rendered}\n${item}${withoutDuplicateLink}`
+        buttonMessage =
+          completeButton.length <= 640
+            ? completeButton
+            : `${rendered.slice(0, Math.max(0, 638 - footer.length))}\n\n${footer}`
       }
     }
     const claimed = await db
@@ -99,20 +146,27 @@ export async function deliverAuctionNotifications(auctionId?: string) {
     if (claimed.error) throw claimed.error
     if (!claimed.data) continue
     try {
-      if (delivery.channel === 'private')
-        await sendPrivateReply(token, delivery.comment_id, billMessage, auction.page_id)
-      else await replyToComment(token, delivery.comment_id, message)
-      if (tabCustomerId) {
+      if (delivery.channel === 'private') {
+        const receipt = await sendAuctionPrivateReply(
+          token,
+          delivery.comment_id,
+          billMessage,
+          buttonMessage,
+          link!,
+          auction.page_id,
+        )
         const chat = await db
           .from('messages')
-          .insert({
-            customer_id: tabCustomerId,
-            external_id: `auction-bill:${auction.id}`,
-            sender: 'bot',
-            body: billMessage,
+          .update({
+            body: receipt?.auctionText ?? billMessage,
             delivery_status: 'sent',
+            attachments: [{ type: 'link', payload: { url: link! } }],
+            ...(receipt?.message_id ? { provider_message_id: receipt.message_id } : {}),
           })
-        if (chat.error && chat.error.code !== '23505') throw chat.error
+          .eq('external_id', `auction-bill:${auction.id}`)
+        if (chat.error) throw chat.error
+      } else {
+        await replyToComment(token, delivery.comment_id, message)
       }
       const completed = await db
         .from('auction_deliveries')
@@ -127,6 +181,17 @@ export async function deliverAuctionNotifications(auctionId?: string) {
         .from('auction_deliveries')
         .update({ status: 'requires_review', error_code: code })
         .eq('id', delivery.id)
+      if (delivery.channel === 'private') {
+        const chat = await db
+          .from('messages')
+          .update({ body: billMessage, delivery_status: 'unknown' })
+          .eq('external_id', `auction-bill:${auction.id}`)
+        if (chat.error)
+          console.error('[auction/delivery] Inbox status update failed', {
+            auctionId: auction.id,
+            code: safeCode(chat.error),
+          })
+      }
       console.error('[auction/delivery] requires review', {
         auctionId: auction.id,
         channel: delivery.channel,
@@ -223,9 +288,15 @@ export async function handleAuctionComment(input: {
     if (parsed.action === 'close') await deliverAuctionNotifications(auction.id)
     return true
   }
+  if (auction.public_reply_enabled === false) return true
   let message: string | null = null
   if (result.status === 'accepted')
-    message = `✅ ยืนยันคุณ ${result.name || 'ลูกค้า'} ${result.isOpening ? 'เปิดประมูล' : 'เสนอราคา'}ที่ ${money(result.amount!)} บาท (ผู้นำปัจจุบัน) เคาะขั้นต่ำ +${money(auction.min_step)} บาท`
+    message = renderAuctionTemplate(auction.bid_reply_template || AUCTION_BID_TEMPLATE, {
+      product_name: auction.item_name,
+      bidder_name: result.name || 'ลูกค้า',
+      price: money(result.amount!),
+      min_step: money(auction.min_step),
+    })
   if (result.status === 'already_opened' || result.status === 'too_low')
     message = `มีผู้เปิดประมูลแล้วหรือราคาต่ำกว่าขั้นต่ำ กรุณาเสนอ ${money(result.minimum!)} บาทขึ้นไป`
   if (result.status === 'closed') message = 'รายการนี้ปิดประมูลแล้วครับ'

@@ -3,6 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Gavel, Radio, Trophy } from 'lucide-react'
 import type { Auction, AuctionBid } from '@/lib/features/commerce/auction-types'
+import { LiveSourcePicker, type LiveSourcePage } from './LiveSourcePicker'
+import { LiveSwitch, LiveTemplateEditor, ReceivingBankPicker } from './LiveReplyControls'
+import {
+  AUCTION_PRIVATE_TEMPLATE,
+  AUCTION_BID_TEMPLATE,
+  AUCTION_CLOSE_TEMPLATE,
+  displayAuctionTemplate,
+  auctionVariables,
+  auctionPublicVariables,
+} from '@/lib/features/commerce/auction-templates'
 
 type Delivery = { channel: string; status: string; error_code: string | null }
 type Snapshot = { auctions: Auction[]; bids: AuctionBid[]; deliveries: Delivery[] }
@@ -21,10 +31,12 @@ const statusLabel: Record<string, string> = {
 export function LiveAuctionPanel({
   tenantId,
   bankAccounts,
+  pages = [],
   active = true,
 }: {
   tenantId: string
   bankAccounts: { id: string; bank_code: string; account_number: string }[]
+  pages?: LiveSourcePage[]
   active?: boolean
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ auctions: [], bids: [], deliveries: [] })
@@ -39,12 +51,18 @@ export function LiveAuctionPanel({
   const [showForm, setShowForm] = useState(true)
   const [draft, setDraft] = useState({
     itemName: '',
+    pageId: pages[0]?.id ?? '',
     livePostId: '',
     startPrice: '200',
     minStep: '20',
     shippingFee: '50',
     bankAccountId: bankAccounts[0]?.id ?? '',
     hostIds: '',
+    privateReply: true,
+    publicReply: true,
+    privateText: displayAuctionTemplate(AUCTION_PRIVATE_TEMPLATE),
+    bidText: displayAuctionTemplate(AUCTION_BID_TEMPLATE),
+    closeText: displayAuctionTemplate(AUCTION_CLOSE_TEMPLATE),
   })
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
@@ -189,16 +207,19 @@ export function LiveAuctionPanel({
                 placeholder="เหรียญรุ่น 1"
               />
             </label>
-            <label className="text-sm font-medium sm:col-span-2">
-              ลิงก์ Facebook Live หรือรหัสวิดีโอ
-              <input
-                required
-                className={field}
-                value={draft.livePostId}
-                onChange={(e) => setDraft({ ...draft, livePostId: e.target.value })}
-                placeholder="https://www.facebook.com/.../videos/..."
+            <div className="sm:col-span-2 lg:col-span-3">
+              <LiveSourcePicker
+                pages={pages}
+                pageId={draft.pageId}
+                livePostId={draft.livePostId}
+                active={active}
+                disabled={busy}
+                onPageChange={(pageId) =>
+                  setDraft((previous) => ({ ...previous, pageId, livePostId: '' }))
+                }
+                onLiveChange={(livePostId) => setDraft((previous) => ({ ...previous, livePostId }))}
               />
-            </label>
+            </div>
             {(
               [
                 { key: 'startPrice', label: 'ราคาเปิด (บาท)', min: '0.01' },
@@ -220,22 +241,6 @@ export function LiveAuctionPanel({
                 />
               </label>
             ))}
-            <label className="text-sm font-medium">
-              บัญชีรับเงิน
-              <select
-                required
-                className={field}
-                value={draft.bankAccountId}
-                onChange={(e) => setDraft({ ...draft, bankAccountId: e.target.value })}
-              >
-                <option value="">เลือกบัญชี</option>
-                {bankAccounts.map((bank) => (
-                  <option key={bank.id} value={bank.id}>
-                    {bank.bank_code} • {bank.account_number}
-                  </option>
-                ))}
-              </select>
-            </label>
             <label className="text-sm font-medium sm:col-span-2">
               Facebook ID ผู้ช่วยคุมประมูล (ถ้ามี)
               <input
@@ -248,6 +253,97 @@ export function LiveAuctionPanel({
                 ID ที่เพิ่มมีสิทธิ์สั่งปิดผ่านคอมเมนต์ได้
               </span>
             </label>
+            <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2 lg:col-span-3">
+              <h2 className="font-bold text-slate-900">ข้อความตอบกลับอัตโนมัติ</h2>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <LiveSwitch
+                    checked={draft.privateReply}
+                    disabled={busy}
+                    label="ส่งสรุปยอดเข้า Messenger"
+                    onChange={(privateReply) =>
+                      setDraft((previous) => ({ ...previous, privateReply }))
+                    }
+                  />
+                  <span className="text-sm font-semibold">
+                    ส่งสรุปยอดและลิงก์ชำระเงินเข้ากล่องข้อความ Facebook (Messenger)
+                  </span>
+                </div>
+                {draft.privateReply && (
+                  <LiveTemplateEditor
+                    label="ข้อความสรุปยอดผู้ชนะประมูล"
+                    value={draft.privateText}
+                    disabled={busy}
+                    variables={auctionVariables}
+                    onChange={(privateText) =>
+                      setDraft((previous) => ({ ...previous, privateText }))
+                    }
+                  />
+                )}
+                <p className="text-xs text-slate-500">
+                  ยอดชำระ คือยอดค้างสุทธิของบิลสะสมหลังหักยอดโอนที่ตรวจสอบแล้ว
+                  ระบบแนบสรุปยอดและลิงก์แนบสลิปให้เสมอ ข้อความยาวจะย่อให้เหมาะกับปุ่ม Messenger
+                  โดยคงยอดเงินและลิงก์บิลครบถ้วน
+                </p>
+              </div>
+              <div className="space-y-3 border-t border-slate-100 pt-4">
+                <div className="flex items-center gap-3">
+                  <LiveSwitch
+                    checked={draft.publicReply}
+                    disabled={busy}
+                    label="ตอบกลับใต้คอมเมนต์ประมูล"
+                    onChange={(publicReply) =>
+                      setDraft((previous) => ({ ...previous, publicReply }))
+                    }
+                  />
+                  <span className="text-sm font-semibold">ตอบกลับใต้คอมเมนต์</span>
+                </div>
+                {draft.publicReply && (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <p className="text-sm font-medium">ยืนยันผู้เปิดราคา / ผู้นำล่าสุด</p>
+                      <LiveTemplateEditor
+                        label="ข้อความยืนยันผู้นำประมูล"
+                        value={draft.bidText}
+                        variables={auctionPublicVariables}
+                        rows={3}
+                        maxLength={600}
+                        disabled={busy}
+                        onChange={(bidText) => setDraft((previous) => ({ ...previous, bidText }))}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">ประกาศผู้ชนะเมื่อปิดประมูล (❌)</p>
+                      <LiveTemplateEditor
+                        label="ข้อความประกาศผู้ชนะประมูล"
+                        value={draft.closeText}
+                        variables={auctionPublicVariables}
+                        rows={3}
+                        maxLength={600}
+                        disabled={busy}
+                        onChange={(closeText) =>
+                          setDraft((previous) => ({ ...previous, closeText }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="max-w-lg">
+                <ReceivingBankPicker
+                  accounts={bankAccounts}
+                  value={draft.bankAccountId}
+                  required
+                  disabled={busy}
+                  onChange={(bankAccountId) =>
+                    setDraft((previous) => ({ ...previous, bankAccountId }))
+                  }
+                />
+              </div>
+              <p className="text-xs text-slate-500">
+                ใช้บัญชีนี้ในบิลสะสมและหน้าชำระเงิน คิดค่าจัดส่งครั้งเดียวต่อรอบไลฟ์
+              </p>
+            </div>
             <p className="text-sm text-slate-500 sm:col-span-2">
               ลูกค้าพิมพ์ “เปิดให้ 10 ลุ้น” เพื่อเปิดตามราคาตั้งต้น หรือ “1” / “+1”
               เพื่อเพิ่มหนึ่งสเต็ป ระหว่างรอบนี้คอมเมนต์ของไลฟ์จะเข้าระบบประมูล

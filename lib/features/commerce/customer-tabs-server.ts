@@ -88,5 +88,5 @@ export async function customerTabSummary(db: SupabaseClient, tab: CustomerTab, g
         ]
           .filter(Boolean)
           .join('\n')
-  return { link, text, privateText }
+  return { link, text, privateText, account }
 }
