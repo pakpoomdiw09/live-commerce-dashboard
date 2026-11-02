@@ -5,6 +5,9 @@ import {
   defaultSessionAutomation,
   displaySessionTemplate,
   normalizeBidKeyword,
+  normalizeCloseKeyword,
+  DEFAULT_AUCTION_CLOSE_KEYWORDS,
+  QUICK_AUCTION_CLOSE_EMOJIS,
   validSessionAutomation,
   type SessionAutomation,
 } from '@/lib/features/commerce/session-automation'
@@ -28,7 +31,7 @@ function draftFrom(session: LiveSession, bankId?: string): SessionAutomation {
   const initial = session.auction_settings ?? defaultSessionAutomation(bankId)
   return {
     ...initial,
-    closeKeywords: initial.closeKeywords ?? ['ปิด', 'x'],
+    closeKeywords: initial.closeKeywords ?? [...DEFAULT_AUCTION_CLOSE_KEYWORDS],
     countEnabled: false,
     heartCloses: false,
     bidText: displaySessionTemplate(initial.closeKeywords ? initial.bidText : initial.closeText),
@@ -49,7 +52,8 @@ export function AuctionSessionAutomation({
   const initial = draftFrom(session, options.bankAccounts[0]?.id)
   const [draft, setDraft] = useState(initial),
     [keywordText, setKeywordText] = useState(initial.keywords.join(', ')),
-    [closeText, setCloseText] = useState(initial.closeKeywords!.join(', '))
+    [closeKeywords, setCloseKeywords] = useState(initial.closeKeywords!),
+    [closeInput, setCloseInput] = useState('')
   const [baseRevision, setBaseRevision] = useState(session.automation_revision ?? 0)
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
@@ -59,8 +63,28 @@ export function AuctionSessionAutomation({
   const settings = {
     ...draft,
     keywords: words(keywordText),
-    closeKeywords: words(closeText),
+    closeKeywords,
     closeText: draft.bidText,
+  }
+  function addCloseKeyword(text: string) {
+    const word = normalizeCloseKeyword(text)
+    if (!word) return
+    if (word.length > 40 || /[\r\n{}]/u.test(word)) {
+      setError('คำปิดรอบต้องยาวไม่เกิน 40 ตัวอักษร และไม่มีวงเล็บปีกกาหรือการขึ้นบรรทัดใหม่')
+      return
+    }
+    if (closeKeywords.includes(word)) {
+      setCloseInput('')
+      return
+    }
+    if (closeKeywords.length >= 30) {
+      setError('เพิ่มคำปิดรอบได้ไม่เกิน 30 คำ กรุณาลบบางคำก่อน')
+      return
+    }
+    setCloseKeywords((previous) => [...previous, word])
+    setCloseInput('')
+    setError('')
+    setNotice('')
   }
   return (
     <form
@@ -122,25 +146,47 @@ export function AuctionSessionAutomation({
             ถ้ามีหลายคำให้คั่นด้วยเครื่องหมายจุลภาค เช่น 1, เคาะ · ค่าที่แก้มีผลเมื่อกดบันทึก
           </span>
         </label>
-        <label className="text-sm font-semibold">
-          คีย์เวิร์ดการปิดการประมูล
-          <input
-            aria-label="คีย์เวิร์ดการปิดการประมูล"
-            className={field}
-            maxLength={1200}
-            value={closeText}
-            disabled={disabled}
-            onChange={(e) => setCloseText(e.target.value)}
-            placeholder="เช่น ปิด, x"
-          />
-          <span className="mt-1 block text-xs font-normal text-slate-500">
-            กำหนดคำที่ผู้ขายจะพิมพ์ในคอมเมนต์ไลฟ์สดเพื่อปิดประมูล เช่น พิมพ์ ปิด หรือ x
-            เมื่อระบบพบคำนี้จะตัดสินผู้ชนะทันที
-          </span>
-          <span className="mt-1 block text-xs font-normal text-slate-500">
-            พิมพ์ในนามเพจที่เชื่อมต่อ คำสั่งของลูกค้าจะไม่ปิดรอบ · คำดักและคำปิดต้องไม่ซ้ำกัน
-          </span>
-        </label>
+        <div className="space-y-2 text-sm font-semibold">
+          <label htmlFor="auction-close-keyword">คีย์เวิร์ดการปิดการประมูล</label>
+          <div className="flex flex-wrap gap-1.5" aria-label="คำปิดรอบที่เลือก">
+            {closeKeywords.map((word) => (
+              <span key={word} className="inline-flex max-w-full items-center gap-1 break-all rounded-full bg-orange-50 py-1 pl-3 pr-1 text-orange-800">
+                {word}
+                <button type="button" disabled={disabled}
+                  aria-label={`ลบคำปิดรอบ ${word}`}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-orange-100 disabled:opacity-40"
+                  onClick={() => { setCloseKeywords((previous) => previous.filter((value) => value !== word)); setNotice('') }}>
+                  <span aria-hidden="true">×</span>
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input id="auction-close-keyword"
+              aria-label="คีย์เวิร์ดการปิดการประมูล" className={`${field} !mt-0`}
+              maxLength={40} value={closeInput} disabled={disabled}
+              onChange={(e) => setCloseInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); addCloseKeyword(closeInput) } }}
+              placeholder="พิมพ์คำหรือวางอีโมจิ แล้วกด +"
+            />
+            <button type="button" aria-label="เพิ่มคำปิดรอบ" className={orange}
+              disabled={disabled || !closeInput.trim()} onClick={() => addCloseKeyword(closeInput)}>+</button>
+          </div>
+          <div className="flex flex-wrap gap-1.5" aria-label="เพิ่มอีโมจิปิดรอบด่วน">
+            {QUICK_AUCTION_CLOSE_EMOJIS.map((emoji) => (
+              <button key={emoji} type="button" aria-label={`เพิ่มอีโมจิ ${emoji}`}
+                disabled={disabled || closeKeywords.includes(emoji)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg hover:border-orange-400 hover:bg-orange-50 disabled:opacity-40"
+                onClick={() => addCloseKeyword(emoji)}>{emoji}</button>
+            ))}
+          </div>
+          <p className="text-xs font-normal text-slate-500">
+            เมื่อคอมเมนต์ของเพจหรือผู้ดูแลมีคำหรืออีโมจิที่เลือกอยู่ในข้อความ เช่น ปิด ❌ หรือ 321 🛑 ระบบจะปิดรอบและตัดสินผู้ชนะทันที คำสั่งของลูกค้าจะไม่ปิดรอบ
+          </p>
+          <p className="text-xs font-normal text-slate-500">
+            กด × เพื่อลบ กดอีโมจิเพื่อเพิ่ม หรือพิมพ์คำแล้วกด + ได้สูงสุด 30 คำ · รองรับ x และ X · มีผลเมื่อกดบันทึก
+          </p>
+        </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl bg-slate-50 p-4">
@@ -200,7 +246,8 @@ export function AuctionSessionAutomation({
               const next = draftFrom(session, options.bankAccounts[0]?.id)
               setDraft(next)
               setKeywordText(next.keywords.join(', '))
-              setCloseText(next.closeKeywords!.join(', '))
+              setCloseKeywords(next.closeKeywords!)
+              setCloseInput('')
               setBaseRevision(session.automation_revision ?? 0)
             }}
           >

@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import type { SessionSnapshot } from '@/lib/features/commerce/live-session-types'
-import { defaultSessionAutomation } from '@/lib/features/commerce/session-automation'
+import { defaultSessionAutomation, DEFAULT_AUCTION_CLOSE_KEYWORDS } from '@/lib/features/commerce/session-automation'
 import type { AuctionDashboardOptions } from './AuctionSessionStart'
 import { field, orange, button } from './session-ui'
 
@@ -61,7 +61,7 @@ export function AuctionRoundForm({
               settings: {
                 ...settings,
                 bankAccountId: draft.bankAccountId,
-                closeKeywords: settings.closeKeywords ?? ['ปิด', 'x'],
+                closeKeywords: settings.closeKeywords ?? [...DEFAULT_AUCTION_CLOSE_KEYWORDS],
               },
             })
           const result = await post('/api/live-cf/auction', {

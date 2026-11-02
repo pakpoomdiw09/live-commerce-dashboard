@@ -20,7 +20,11 @@ export function parseAuctionComment(
   const value = text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
   if (automation?.closeKeywords) {
     if (isHost)
-      return automation.closeKeywords.includes(value)
+      return automation.closeEnabled !== false && automation.closeKeywords.some((keyword) => {
+        const token = keyword.normalize('NFKC').trim().toLowerCase()
+          .replace(/\s+/g, ' ').replace(/[\uFE0E\uFE0F]/gu, '')
+        return token.length > 0 && value.replace(/[\uFE0E\uFE0F]/gu, '').includes(token)
+      })
         ? { type: 'HOST_CONTROL', action: 'close', count: null }
         : { type: 'IGNORE' }
     if (automation.keywords.includes(value)) return { type: 'STEP_BID' }

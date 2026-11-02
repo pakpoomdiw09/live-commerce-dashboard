@@ -7,6 +7,8 @@ import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
 import { liveCfPaymentLinksReady } from '@/lib/features/commerce/live-cf-payment-link'
 import {
   normalizeBidKeyword,
+  normalizeCloseKeyword,
+  DEFAULT_AUCTION_CLOSE_KEYWORDS,
   sessionAuctionTemplate,
   validSessionAutomation,
 } from '@/lib/features/commerce/session-automation'
@@ -115,7 +117,7 @@ export async function POST(req: NextRequest) {
       )
     const settings = {
       ...input.settings,
-      closeKeywords: (input.settings.closeKeywords ?? ['ปิด', 'x']).map(normalizeBidKeyword),
+      closeKeywords: (input.settings.closeKeywords ?? DEFAULT_AUCTION_CLOSE_KEYWORDS).map(normalizeCloseKeyword),
       countEnabled: false,
       heartCloses: false,
       closeEnabled: true,

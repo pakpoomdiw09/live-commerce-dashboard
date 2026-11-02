@@ -243,6 +243,7 @@ test('complete schema upgrades the older schema lacking newer Live CF, Messenger
     'live-auction-customer-workspace.sql',
     'live-auction-thai-workflow.sql',
     'live-auction-customer-columns.sql',
+    'live-auction-close-presets.sql',
     'live-cf-setup.sql',
     'live-cf-customer-variants.sql',
     'live-cf-variants.sql',

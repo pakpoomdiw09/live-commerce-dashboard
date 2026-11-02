@@ -211,7 +211,7 @@ async function checkInterface() {
         await evaluate(
           "document.querySelector('[data-auction-section=\"2\"]').textContent.includes('❤️')",
         ),
-        false,
+        true,
       )
       assert.equal(
         await evaluate('document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\').value'),
@@ -229,7 +229,14 @@ async function checkInterface() {
       await wait("sessionQA.requests.at(-1)?.action==='start'")
       await wait('!!document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\')')
       await fill('input[aria-label="คีย์เวิร์ดการดักคำ"]', 'เคาะ, 1')
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').length"),19)
+      await evaluate('document.querySelector(\'button[aria-label="ลบคำปิดรอบ 🛑"]\').click()')
+      await evaluate('document.querySelector(\'button[aria-label="เพิ่มอีโมจิ 🛑"]\').click()')
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').length"),19)
+      await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').forEach(button=>button.click())")
       await fill('input[aria-label="คีย์เวิร์ดการปิดการประมูล"]', 'จบรายการ')
+      await evaluate('document.querySelector(\'button[aria-label="เพิ่มคำปิดรอบ"]\').click()')
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').length"),1)
       await fill(
         'textarea[aria-label="ข้อความแจ้งยอดเข้าแชทส่วนตัว (Messenger)"]',
         'ยินดีด้วย {ชื่อลูกค้า} {รายการ} {ราคา} ยอดสะสม {ยอดรวมสะสม} บัญชี {เลขบัญชี}',

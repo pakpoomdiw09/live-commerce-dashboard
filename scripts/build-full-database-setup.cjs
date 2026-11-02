@@ -122,6 +122,7 @@ const groups = [
       'live-auction-customer-workspace.sql',
       'live-auction-thai-workflow.sql',
       'live-auction-customer-columns.sql',
+      'live-auction-close-presets.sql',
     ],
   ],
 ]
@@ -161,6 +162,7 @@ const prerequisites = {
   'live-auction-customer-workspace.sql': ['live-auction-instant-winners.sql'],
   'live-auction-thai-workflow.sql': ['live-auction-customer-workspace.sql'],
   'live-auction-customer-columns.sql': ['live-auction-thai-workflow.sql'],
+  'live-auction-close-presets.sql': ['live-auction-customer-columns.sql'],
   'shipping-fulfillment.sql': ['live-session-dashboard.sql'],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],

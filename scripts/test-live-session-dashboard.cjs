@@ -64,7 +64,7 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
   )
   assert.equal(
     auctionParser.parseAuctionComment('❤️', true, { ...settings, heartCloses: true }).type,
-    'IGNORE',
+    'HOST_CONTROL',
   )
   assert.equal(
     auctionParser.parseAuctionComment('❌', true, { ...settings, closeEnabled: false }).type,
@@ -75,6 +75,14 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'IGNORE',
   )
   assert.equal(automation.validSessionAutomation(settings), true)
+  assert.deepEqual(Array.from(settings.closeKeywords), [
+    'ปิด','จบ','พอ','321','3 2 1','x','X','❌','🛑','⛔','🚫','✖️','🏁','🚩','🔨','🔔','⏰','❤️','🖤',
+  ])
+  for (const message of [...settings.closeKeywords, 'ปิด ❌', '321 🛑', 'สิ้นสุดรอบ 🔨 ครับ', '❤', '✖', '3   2  1']) {
+    assert.equal(auctionParser.parseAuctionComment(message, true, settings).action, 'close', message)
+    assert.notEqual(auctionParser.parseAuctionComment(message, false, settings).type, 'HOST_CONTROL', message)
+  }
+  assert.equal(auctionParser.parseAuctionComment('❌', true, {...settings, closeKeywords:['จบรายการ']}).type, 'IGNORE')
   assert.equal(
     auctionParser.parseAuctionComment('จบรายการ', true, {
       ...settings,
@@ -763,7 +771,11 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       (await one('select status from auctions where id=$1', [thaiRound])).status,
       'active',
     )
-    await process(thaiRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
+    for (const message of [...automation.DEFAULT_AUCTION_CLOSE_KEYWORDS, 'ปิด ❌', '321 🛑', '❤', '✖', '3  2  1']) {
+      assert.equal((await one('select auction_close_keyword_matches($1,default_auction_close_keywords()) matched',[message])).matched,true,message)
+    }
+    assert.equal((await one("select auction_close_keyword_matches('❌','[\"ปิดร้าน\"]') matched")).matched,false)
+    await process(thaiRound, '100', 'ปิดร้าน 🔨', 'HOST_CONTROL', null, 'close', '989')
     assert.equal(
       (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [thaiRound]))
         .n,
@@ -798,6 +810,17 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       ).allowed,
       false,
     )
+    const beforePresets = await getTab(dashboardOrder.customer_tab_id)
+    await db.query("update live_sessions set auction_settings=jsonb_set(auction_settings-'closeKeywordPresetsVersion','{closeKeywords}','[\"ปิด\",\"x\"]') where id=$1",[thaiStarted.id])
+    const presetMigration = fs.readFileSync('supabase/live-auction-close-presets.sql','utf8')
+    await db.exec(presetMigration)
+    assert.deepEqual((await one('select auction_settings from live_sessions where id=$1',[thaiStarted.id])).auction_settings.closeKeywords, Array.from(automation.DEFAULT_AUCTION_CLOSE_KEYWORDS))
+    assert.deepEqual((await one('select auction_settings from live_sessions where id=$1',[started.id])).auction_settings.closeKeywords,['จบรายการ'])
+    await db.query("update live_sessions set auction_settings=jsonb_set(auction_settings,'{closeKeywords}','[\"ปิด\",\"x\"]') where id=$1",[thaiStarted.id])
+    const beforeRerun = await one('select auction_settings,automation_revision from live_sessions where id=$1',[thaiStarted.id])
+    await db.exec(presetMigration)
+    assert.deepEqual(await one('select auction_settings,automation_revision from live_sessions where id=$1',[thaiStarted.id]),beforeRerun,'rerunning must not re-add presets deleted by the seller')
+    assert.deepEqual(await getTab(dashboardOrder.customer_tab_id),beforePresets)
     // The additive migration updates only the old built-in template and never balances.
     const templates = load('lib/features/commerce/auction-templates.ts')
     await db.query(
