@@ -18,6 +18,8 @@ import { AuctionSessionAutomation } from './AuctionSessionAutomation'
 import {
   AuctionDashboardSection,
   AuctionSessionEvidence,
+  AuctionSessionSlips,
+  SessionCustomerStatus,
   SessionRequired,
   SessionEmptyFinance,
 } from './AuctionSessionSections'
@@ -461,12 +463,21 @@ export function LiveSessionDashboard({
             )}
           </AuctionDashboardSection>
           <AuctionDashboardSection number={4} title="Customer Orders & Billing">
-            {billing}
-            <AuctionSessionEvidence
-              key={data?.session.id ?? 'empty'}
-              data={data}
-              onProof={(tab) => setModal({ kind: 'proof', tab })}
-            />
+            <SessionCustomerStatus data={data} />
+            <div
+              data-customer-billing-grid
+              className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]"
+            >
+              <div className="min-w-0 space-y-5" data-session-customers>
+                {billing}
+                <AuctionSessionEvidence
+                  key={data?.session.id ?? 'empty'}
+                  data={data}
+                  onProof={(tab) => setModal({ kind: 'proof', tab })}
+                />
+              </div>
+              <AuctionSessionSlips key={data?.session.id ?? 'empty'} data={data} />
+            </div>
           </AuctionDashboardSection>
           <AuctionDashboardSection number={5} title="Shipping & Fulfillment">
             {data ? (

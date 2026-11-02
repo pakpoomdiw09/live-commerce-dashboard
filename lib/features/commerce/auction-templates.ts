@@ -1,6 +1,8 @@
 /** Pure, single-pass templates shared by setup, webhook delivery and previews. */
 export const AUCTION_PRIVATE_TEMPLATE =
   'ยินดีด้วยครับ! คุณชนะประมูล {product_name} ราคา {price} บาท ยอดค้างชำระสุทธิ {total} บาท\nชำระเงิน / แนบสลิป: {payment_link}'
+export const SESSION_WINNER_TEMPLATE =
+  'ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท\nยอดรวมบิลของคุณตอนนี้: {total} บาท\nเลขบัญชีรับเงิน: {bank_account}'
 export const AUCTION_BID_TEMPLATE =
   '✅ ยืนยันคุณ {bidder_name} ขึ้นนำ {product_name} ที่ {price} บาท เคาะขั้นต่ำ +{min_step} บาท'
 export const AUCTION_CLOSE_TEMPLATE =
@@ -16,6 +18,7 @@ const aliases: Record<string, string> = {
   สเต็ปขั้นต่ำ: 'min_step',
   ยอดโอนแล้ว: 'paid',
   บัญชีรับเงิน: 'bank_account',
+  ยอดค้างสุทธิ: 'remaining',
 }
 const labels: Record<string, string> = {
   product_name: 'ชื่อสินค้า',
@@ -26,6 +29,7 @@ const labels: Record<string, string> = {
   min_step: 'สเต็ปขั้นต่ำ',
   paid: 'ยอดโอนแล้ว',
   bank_account: 'บัญชีรับเงิน',
+  remaining: 'ยอดค้างสุทธิ',
 }
 export const auctionVariables = Object.entries(labels).map(([key, label]) => ({
   tag: `{${label}}`,

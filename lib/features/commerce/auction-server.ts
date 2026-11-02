@@ -14,6 +14,7 @@ import type { WebhookExecution } from '@/lib/integrations/facebook/webhook-worke
 import type { Auction, AuctionResult } from './auction-types'
 import {
   AUCTION_PRIVATE_TEMPLATE,
+  SESSION_WINNER_TEMPLATE,
   AUCTION_BID_TEMPLATE,
   AUCTION_CLOSE_TEMPLATE,
   renderAuctionTemplate,
@@ -55,7 +56,11 @@ export async function deliverAuctionNotifications(auctionId?: string) {
   if (auctionId) query = query.eq('auction_id', auctionId)
   const pending = await query
   if (pending.error) throw pending.error
-  for (const delivery of pending.data ?? []) {
+  // A public comment must never hold up the winning buyer's Messenger bill.
+  const deliveries = [...(pending.data ?? [])].sort(
+    (a, b) => Number(b.channel === 'private') - Number(a.channel === 'private'),
+  )
+  for (const delivery of deliveries) {
     const saved = await db.from('auctions').select('*').eq('id', delivery.auction_id).single()
     if (saved.error) throw saved.error
     const auction = saved.data as Auction
@@ -100,12 +105,20 @@ export async function deliverAuctionNotifications(auctionId?: string) {
     if (delivery.channel === 'private' && auction.order_id) {
       const { tabForOrder, customerTabSummary } = await import('./customer-tabs-server')
       const tab = await tabForOrder(db, auction.order_id)
+      if (!tab && auction.session_automation) throw new Error('AUCTION_TAB_UNAVAILABLE')
       if (tab) {
         const bill = await customerTabSummary(db, tab)
+        const privateTemplate =
+          auction.session_automation &&
+          (!auction.private_reply_template ||
+            auction.private_reply_template === AUCTION_PRIVATE_TEMPLATE)
+            ? SESSION_WINNER_TEMPLATE
+            : auction.private_reply_template || AUCTION_PRIVATE_TEMPLATE
         const values = {
           product_name: auction.item_name,
           price: money(auction.current_price),
-          total: money(tab.remaining_amount),
+          total: money(auction.session_automation ? tab.total_amount : tab.remaining_amount),
+          remaining: money(tab.remaining_amount),
           paid: money(tab.paid_amount),
           payment_link: bill.link,
           bank_account: bill.account,
@@ -113,16 +126,8 @@ export async function deliverAuctionNotifications(auctionId?: string) {
           min_step: money(auction.min_step),
         }
         const compact = `ยอดรวมสะสม ${money(tab.total_amount)} บาท\nโอนแล้ว ${money(tab.paid_amount)} บาท\nยอดค้างสุทธิ ${money(tab.remaining_amount)} บาท\n${bill.account}\nรายการทั้งหมด / QR / แนบสลิป: ${bill.link}`
-        billMessage = auctionPrivateMessage(
-          auction.private_reply_template || AUCTION_PRIVATE_TEMPLATE,
-          values,
-          bill.privateText,
-          compact,
-        )
-        const rendered = renderAuctionTemplate(
-          auction.private_reply_template || AUCTION_PRIVATE_TEMPLATE,
-          values,
-        )
+        billMessage = auctionPrivateMessage(privateTemplate, values, bill.privateText, compact)
+        const rendered = renderAuctionTemplate(privateTemplate, values)
         const items = (tab.customer_tab_items ?? []).filter((item) => !item.cancelled)
         const itemLines = items.length
           ? items

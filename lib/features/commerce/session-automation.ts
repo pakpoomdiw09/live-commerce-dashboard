@@ -1,5 +1,5 @@
 import {
-  AUCTION_PRIVATE_TEMPLATE,
+  SESSION_WINNER_TEMPLATE,
   AUCTION_BID_TEMPLATE,
   AUCTION_CLOSE_TEMPLATE,
   storeAuctionTemplate,
@@ -24,7 +24,7 @@ export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation 
     publicReply: true,
     privateReply: true,
     bidText: AUCTION_BID_TEMPLATE,
-    privateText: AUCTION_PRIVATE_TEMPLATE,
+    privateText: SESSION_WINNER_TEMPLATE,
     closeText: AUCTION_CLOSE_TEMPLATE,
     bankAccountId,
     countEnabled: true,

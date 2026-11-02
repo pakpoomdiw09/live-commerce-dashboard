@@ -41,7 +41,7 @@ function fixture({
     auction_deliveries: [],
     messages: [],
   }
-  const calls = { rpc: [], public: [], private: [], resolve: [] }
+  const calls = { rpc: [], public: [], private: [], resolve: [], timeline: [] }
   const db = {
     from(table) {
       const predicates = []
@@ -86,6 +86,7 @@ function fixture({
       return q
     },
     async rpc(name, input) {
+      calls.timeline.push('rpc:' + name)
       calls.rpc.push({ name, input })
       return { data: result, error: null }
     },
@@ -99,9 +100,11 @@ function fixture({
       '@/lib/integrations/facebook/client': {
         pageTokenFor: (row) => row.page_access_token,
         replyToComment: async (...args) => {
+          calls.timeline.push('public')
           calls.public.push(args)
         },
         sendAuctionPrivateReply: async (...args) => {
+          calls.timeline.push('private')
           calls.private.push(args)
           if (privateFails) throw { code: 'PROVIDER_TIMEOUT' }
         },
@@ -274,6 +277,75 @@ test('auction templates and switches control replies and use the cumulative net 
   assert.ok(custom.calls.private[0][3].length <= 640)
   assert.equal(custom.calls.private[0][4], 'https://shop.example/pay/live/signed')
   assert.equal(custom.tables.messages[0].delivery_status, 'sent')
+})
+
+test('each Session win sends immediately after close with the latest cumulative tab, before public replies and without combining wins', async () => {
+  const tab = {
+    total_amount: 250,
+    paid_amount: 100,
+    remaining_amount: 150,
+    shipping_fee: 50,
+    customer_tab_items: [],
+  }
+  const f = fixture({ tab, result: { status: 'closed' } })
+  f.tables.auctions[0].session_automation = { privateReply: true }
+  f.tables.auctions[0].private_reply_template = templates.AUCTION_PRIVATE_TEMPLATE
+  f.tables.auction_deliveries.push(
+    {
+      id: 'public-first',
+      auction_id: auctionId,
+      channel: 'public',
+      comment_id: 'close-comment',
+      status: 'pending',
+    },
+    {
+      id: 'win-one',
+      auction_id: auctionId,
+      channel: 'private',
+      comment_id: 'winner-one',
+      status: 'pending',
+    },
+  )
+  f.tables.messages.push({ external_id: `auction-bill:${auctionId}`, delivery_status: 'pending' })
+  await f.receive('❌', '100')
+  assert.deepEqual(f.calls.timeline, ['rpc:process_live_auction_comment', 'private', 'public'])
+  assert.equal(
+    f.calls.private.length,
+    1,
+    'notification is dispatched before the close handler returns',
+  )
+  assert.match(f.calls.private[0][2], /ยอดรวมบิลของคุณตอนนี้: 250 บาท/)
+  assert.match(f.calls.private[0][2], /เลขบัญชีรับเงิน: KTB 9260337828/)
+  assert.match(f.calls.private[0][3], /ยอดค้างสุทธิ 150 บาท/)
+  const second = '44444444-4444-4444-8444-444444444444'
+  f.tables.auctions.push({
+    ...f.tables.auctions[0],
+    id: second,
+    item_name: 'พระองค์ที่สอง',
+    current_price: 300,
+    order_id: 'order-two',
+  })
+  Object.assign(tab, { total_amount: 550, remaining_amount: 450 })
+  f.tables.auction_deliveries.push({
+    id: 'win-two',
+    auction_id: second,
+    channel: 'private',
+    comment_id: 'winner-two',
+    status: 'pending',
+  })
+  f.tables.messages.push({ external_id: `auction-bill:${second}`, delivery_status: 'pending' })
+  await f.api.deliverAuctionNotifications(second)
+  assert.equal(f.calls.private.length, 2, 'the same customer receives a separate bill for each win')
+  assert.match(f.calls.private[1][2], /พระองค์ที่สอง ราคา 300 บาท/)
+  assert.match(f.calls.private[1][2], /ยอดรวมบิลของคุณตอนนี้: 550 บาท/)
+  assert.match(f.calls.private[1][3], /ยอดค้างสุทธิ 450 บาท/)
+  await f.api.deliverAuctionNotifications(auctionId)
+  await f.api.deliverAuctionNotifications(second)
+  assert.equal(
+    f.calls.private.length,
+    2,
+    'replaying a close does not send the same notification again',
+  )
 })
 
 test('Thai auction variables are single-pass, validated per channel, and preserve financial footers', () => {

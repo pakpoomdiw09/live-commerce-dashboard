@@ -2,10 +2,12 @@
 import { useState, type ReactNode } from 'react'
 import {
   sessionMoney,
+  sessionCustomerStatus,
   type SessionSnapshot,
   type SessionTab,
 } from '@/lib/features/commerce/live-session-types'
 import { PaymentProEvidence } from '@/components/slips/PaymentProEvidence'
+import { findBank } from '@/lib/features/banking/banks'
 import { SessionDialog } from './SessionDialog'
 import { button, field, sessionTime } from './session-ui'
 
@@ -91,7 +93,6 @@ export function AuctionSessionEvidence({
   data: SessionSnapshot | null
   onProof: (tab: SessionTab) => void
 }) {
-  const [slipId, setSlipId] = useState('')
   return (
     <div className="space-y-5">
       <div className="space-y-3">
@@ -172,31 +173,60 @@ export function AuctionSessionEvidence({
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) {
+  const [slipId, setSlipId] = useState('')
+  return (
+    <div className="min-w-0 space-y-4" data-session-slips>
       <div className="space-y-3">
         <h3 className="font-bold">สลิปที่ตรวจผ่านใน Session นี้</h3>
         <p className="text-xs text-slate-500">
-          ยอดจากสลิป SlipOK ที่ลงบัญชีในบิลสะสมแล้วเท่านั้น • ทวงยอดผ่านคิวจำกัด 12 คน/นาที/เพจ
+          สลิป SlipOK ที่ตรวจผ่านและลงบัญชีในบิลสะสมของ Session นี้
         </p>
         <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full min-w-[620px] text-left text-sm">
+          <table className="w-full min-w-[420px] text-left text-sm">
             <thead className="bg-slate-50">
               <tr>
-                {['เวลาที่โอน', 'ลูกค้า', 'ยอดเงิน', 'เลขอ้างอิง', 'หลักฐาน'].map((label) => (
-                  <th key={label} className="p-3">
-                    {label}
-                  </th>
-                ))}
+                {['เวลาที่โอน', 'ชื่อผู้โอน', 'ยอดเงิน (บาท)', 'ธนาคาร / เลขอ้างอิงสลิป'].map(
+                  (label) => (
+                    <th key={label} className="p-3">
+                      {label}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
               {(data?.slips ?? []).map((slip) => (
                 <tr key={slip.id} className="border-t">
-                  <td className="whitespace-nowrap p-3 text-xs">{sessionTime(slip.at)}</td>
-                  <td className="p-3">{slip.name}</td>
-                  <td className="p-3 font-semibold tabular-nums">฿{sessionMoney(slip.amount)}</td>
-                  <td className="break-all p-3 text-xs">{slip.transRef || '—'}</td>
+                  <td className="whitespace-nowrap p-3 text-xs">
+                    <time dateTime={slip.at}>
+                      {new Date(slip.at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}
+                      <span className="mt-1 block text-slate-500">
+                        {new Date(slip.at).toLocaleDateString('th-TH', {
+                          timeZone: 'Asia/Bangkok',
+                        })}
+                      </span>
+                    </time>
+                  </td>
                   <td className="p-3">
-                    <button type="button" className={button} onClick={() => setSlipId(slip.id)}>
+                    {slip.senderName || 'ไม่ระบุชื่อผู้โอน'}
+                    <span className="mt-1 block text-xs text-slate-500">ลูกค้า: {slip.name}</span>
+                  </td>
+                  <td className="p-3 font-semibold tabular-nums">฿{sessionMoney(slip.amount)}</td>
+                  <td className="break-all p-3 text-xs">
+                    <span className="mb-1 block font-medium">
+                      {findBank(slip.senderBank)?.name ?? slip.senderBank ?? 'ไม่ระบุธนาคาร'}
+                    </span>
+                    {slip.transRef || '—'}
+                    <button
+                      type="button"
+                      className={`${button} mt-2`}
+                      onClick={() => setSlipId(slip.id)}
+                    >
                       ดูสลิป
                     </button>
                   </td>
@@ -219,6 +249,33 @@ export function AuctionSessionEvidence({
           <PaymentProEvidence key={slipId} slipId={slipId} />
         </SessionDialog>
       )}
+    </div>
+  )
+}
+
+export function SessionCustomerStatus({ data }: { data: SessionSnapshot | null }) {
+  const status = sessionCustomerStatus(data?.tabs ?? [])
+  return (
+    <div
+      data-customer-status-summary
+      role="status"
+      aria-label="สรุปสถานะลูกค้า Session"
+      className="flex flex-wrap items-center gap-x-2 gap-y-2 rounded-xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm font-medium text-slate-800"
+    >
+      <span>ตรงคำดัก {data?.metrics.matchedPeople ?? '—'} คน</span>
+      <span aria-hidden="true">·</span>
+      <span>โอนแล้ว {status.paid}</span>
+      <span aria-hidden="true">·</span>
+      <span>ยังไม่โอน {status.unpaid}</span>
+      <span aria-hidden="true">|</span>
+      <span className="text-emerald-700">ครบ {status.full} คน</span>
+      <span aria-hidden="true">·</span>
+      <span className="text-orange-700">ขาด {status.short} คน</span>
+      <span aria-hidden="true">·</span>
+      <span className="text-blue-700">เกิน {status.over} คน</span>
+      <span className="tabular-nums">
+        (ยอดรวม {sessionMoney(status.total)} ฿ / ได้รับแล้ว {sessionMoney(status.received)} ฿)
+      </span>
     </div>
   )
 }

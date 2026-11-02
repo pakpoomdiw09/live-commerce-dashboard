@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 111 ไฟล์: รวมตาม dependencies 94 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 113 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 112 ไฟล์: รวมตาม dependencies 95 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 114 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (871989 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (876929 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (758532 bytes, 12326 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (762908 bytes, 12380 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -131,6 +131,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 92. [shipping-fulfillment.sql](shipping-fulfillment.sql) — 35 statements retained
 93. [live-order-types.sql](live-order-types.sql) — 7 statements retained
 94. [live-auction-dashboard.sql](live-auction-dashboard.sql) — 14 statements retained
+95. [live-auction-instant-winners.sql](live-auction-instant-winners.sql) — 1 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -160,6 +161,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | --- | --- |
 | live-order-types.sql | live-session-dashboard.sql |
 | live-auction-dashboard.sql | live-order-types.sql, shipping-fulfillment.sql |
+| live-auction-instant-winners.sql | live-auction-dashboard.sql |
 | shipping-fulfillment.sql | live-session-dashboard.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
@@ -302,6 +304,8 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | live-session-dashboard.sql | 14: `insert into public.live_sessions(tenant_id,page_id,live_post_id,created_at) sel…` | Historical business-data/settings/ledger backfill removed. |
 | live-session-dashboard.sql | 19: `update public.customer_tab_items i set auction_id=a.id,winning_bid_id=b.id from …` | Historical business-data backfill/repair removed. |
 | live-order-types.sql | 7: `update public.customer_tab_items i set order_type=o.order_type,source_code=o.sou…` | Historical business-data backfill/repair removed. |
+| live-auction-instant-winners.sql | 2: `update public.live_sessions set auction_settings=jsonb_set(auction_settings,'{pr…` | Historical business-data backfill/repair removed. |
+| live-auction-instant-winners.sql | 3: `update public.auctions a set session_automation=s.auction_settings,private_reply…` | Historical business-data backfill/repair removed. |
 
 ## วิธีใช้ไฟล์ bootstrap เดิม
 
@@ -419,3 +423,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - shipping-fulfillment.sql: `abc1f380707a3baf1bb18df305b7e06f1be6dbaf3e7eb148a8e20ecfcac486fe`
 - live-order-types.sql: `eb6171db344172c6b92c8fe04ee96f2a71afb4d15c1af599f59dab0c57a54d01`
 - live-auction-dashboard.sql: `7b17bf54411dc1c84510ecf2a204c12dafe82c56d28b960be0061e4898bb679e`
+- live-auction-instant-winners.sql: `d0788ad3f0cd0a402db298a6fedcdc6c1620e2f2e35a15f580f8153e081e7f65`

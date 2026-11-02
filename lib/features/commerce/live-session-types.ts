@@ -48,6 +48,7 @@ export type SessionSnapshot = {
   metrics: {
     comments: number
     matched: number
+    matchedPeople?: number
     commenters: number
     slips: number
     paid: number
@@ -58,8 +59,22 @@ export type SessionSnapshot = {
   }
   rounds: SessionRound[]
   tabs: SessionTab[]
-  slips?: { id: string; name: string; amount: number; at: string; transRef: string | null }[]
-  commenters?: { fbId: string; customerId?: string | null; name: string; at: string; comments: number }[]
+  slips?: {
+    id: string
+    name: string
+    amount: number
+    at: string
+    transRef: string | null
+    senderName?: string | null
+    senderBank?: string | null
+  }[]
+  commenters?: {
+    fbId: string
+    customerId?: string | null
+    name: string
+    at: string
+    comments: number
+  }[]
 }
 export type SessionProofItem = {
   orderId: string
@@ -108,6 +123,19 @@ export function inputMoney(value: unknown, max = 999_999_999_999.99): number | n
 }
 export const sumMoney = (values: number[]) =>
   values.reduce((sum, value) => sum + Math.round(Number(value) * 100), 0) / 100
+/** Counts use one current cumulative tab per customer, never the number of slips or items. */
+export function sessionCustomerStatus(tabs: SessionTab[]) {
+  const active = tabs.filter((tab) => Number(tab.total) > 0 || Number(tab.paid) > 0)
+  return {
+    paid: active.filter((tab) => Number(tab.paid) > 0).length,
+    unpaid: active.filter((tab) => Number(tab.paid) <= 0 && Number(tab.remaining) > 0).length,
+    full: active.filter((tab) => Number(tab.remaining) <= 0 && Number(tab.credit) <= 0).length,
+    short: active.filter((tab) => Number(tab.remaining) > 0).length,
+    over: active.filter((tab) => Number(tab.credit) > 0).length,
+    total: sumMoney(active.map((tab) => Number(tab.total))),
+    received: sumMoney(active.map((tab) => Number(tab.paid))),
+  }
+}
 export const sessionProfit = (paid: number, cost: number, ads: number, shipping: number) =>
   sumMoney([paid, -cost, -ads, -shipping])
 export function tabFormula(tab: Pick<SessionTab, 'items' | 'shipping' | 'total'>) {

@@ -216,6 +216,62 @@ async function checkInterface() {
       )
       assert.equal(
         await evaluate(
+          "document.querySelector('[data-session-slips]').textContent.includes('นายผู้โอนจาก SlipOK')",
+        ),
+        true,
+      )
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-session-slips]').textContent.includes('กสิกรไทย')",
+        ),
+        true,
+      )
+      assert.equal(
+        await evaluate('document.querySelectorAll(\'[data-auction-section="3"] textarea\').length'),
+        2,
+        'public and private templates are independent boxes',
+      )
+      await evaluate(
+        'document.querySelector(\'[role=switch][aria-label="ข้อความตอบกลับใต้คอมเมนต์"]\').click()',
+      )
+      assert.equal(
+        await evaluate(
+          'document.querySelector(\'textarea[aria-label="Template ตอบกลับใต้คอมเมนต์"]\').disabled',
+        ),
+        true,
+      )
+      assert.equal(
+        await evaluate(
+          'document.querySelector(\'textarea[aria-label="Template ข้อความส่งเข้าแชท (Messenger)"]\').disabled',
+        ),
+        false,
+      )
+      await evaluate(
+        'document.querySelector(\'[role=switch][aria-label="ข้อความตอบกลับใต้คอมเมนต์"]\').click()',
+      )
+      const summary = await evaluate(
+        "document.querySelector('[data-customer-status-summary]').textContent",
+      )
+      for (const text of [
+        'ตรงคำดัก 2 คน',
+        'โอนแล้ว 2',
+        'ยังไม่โอน 1',
+        'ครบ 1 คน',
+        'ขาด 2 คน',
+        'เกิน 0 คน',
+        'ยอดรวม 3,670.00',
+        'ได้รับแล้ว 500.00',
+      ])
+        assert.ok(summary.includes(text), text)
+      const positions = await evaluate(
+        "(() => { const left=document.querySelector('[data-session-customers]').getBoundingClientRect();const right=document.querySelector('[data-session-slips]').getBoundingClientRect();return {left:left.x,right:right.x,top:left.y,rightTop:right.y} })()",
+      )
+      assert.ok(
+        positions.right > positions.left && Math.abs(positions.top - positions.rightTop) < 2,
+        'slips sit beside customer bills on desktop',
+      )
+      assert.equal(
+        await evaluate(
           "document.querySelector('[data-shipping-dashboard]').textContent.includes('Unpaid buyer') || document.querySelector('[data-shipping-dashboard]').textContent.includes('Other Session buyer')",
         ),
         false,
@@ -231,8 +287,8 @@ async function checkInterface() {
       )
       await wait('!!document.querySelector(\'button[aria-label="ลบคำดัก raise"]\')')
       await fill(
-        'textarea[aria-label="ข้อความแจ้งสรุปยอด Session"]',
-        'ยินดีด้วย {name} {item} {price} ยอดค้าง {total}',
+        'textarea[aria-label="Template ข้อความส่งเข้าแชท (Messenger)"]',
+        'ยินดีด้วย {name} {item} {price} ยอดรวม {total} บัญชี {bank_account}',
       )
       await click('บันทึกค่าตั้งค่า Session')
       await wait("sessionQA.requests.at(-1)?.action === 'settings'")

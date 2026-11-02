@@ -110,6 +110,7 @@ const snapshot: SessionSnapshot = {
   ],
 }
 if (allInOne) {
+  snapshot.metrics.matchedPeople = 2
   snapshot.session.ended_at = null
   snapshot.session.auction_settings = defaultSessionAutomation(bankId)
   snapshot.session.automation_revision = 0
@@ -120,6 +121,8 @@ if (allInOne) {
       amount: 300,
       at: '2026-11-02T15:50:00Z',
       transRef: 'VERIFIED',
+      senderName: 'นายผู้โอนจาก SlipOK',
+      senderBank: '004',
     },
   ]
   snapshot.commenters = [

@@ -15,7 +15,10 @@ const variables = [
   { tag: '{name}', label: 'ชื่อลูกค้า', key: 'bidder_name' },
   { tag: '{item}', label: 'ชื่อรายการ', key: 'product_name' },
   { tag: '{price}', label: 'ราคาจบประมูล', key: 'price' },
-  { tag: '{total}', label: 'ยอดค้างสุทธิ', key: 'total' },
+  { tag: '{total}', label: 'ยอดรวมสะสม', key: 'total' },
+  { tag: '{bank_account}', label: 'บัญชีรับเงิน', key: 'bank_account' },
+  { tag: '{remaining}', label: 'ยอดค้างสุทธิ', key: 'remaining' },
+  { tag: '{payment_link}', label: 'ลิงก์ชำระเงิน', key: 'payment_link' },
 ]
 const friendly = (text: string) =>
   text.replaceAll('{bidder_name}', '{name}').replaceAll('{product_name}', '{item}')
@@ -172,30 +175,24 @@ export function AuctionSessionAutomation({
       </fieldset>
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-slate-200 p-4">
-          {toggle('publicReply', 'ตอบกลับใต้คอมเมนต์')}
+          {toggle('publicReply', 'ข้อความตอบกลับใต้คอมเมนต์')}
           <LiveTemplateEditor
-            label="ข้อความตอบกลับใต้คอมเมนต์ Session"
+            label="Template ตอบกลับใต้คอมเมนต์"
             value={draft.bidText}
-            disabled={disabled}
-            variables={variables.filter((v) => v.key !== 'total')}
+            disabled={disabled || !draft.publicReply}
+            variables={variables.filter((v) =>
+              ['bidder_name', 'product_name', 'price'].includes(v.key),
+            )}
             maxLength={600}
             onChange={(bidText) => setDraft((previous) => ({ ...previous, bidText }))}
           />
-          <LiveTemplateEditor
-            label="ข้อความประกาศปิดรอบ Session"
-            value={draft.closeText}
-            disabled={disabled}
-            variables={variables.filter((v) => v.key !== 'total')}
-            maxLength={600}
-            onChange={(closeText) => setDraft((previous) => ({ ...previous, closeText }))}
-          />
         </div>
         <div className="space-y-3 rounded-xl border border-slate-200 p-4">
-          {toggle('privateReply', 'ส่งสรุปยอดเข้า Messenger')}
+          {toggle('privateReply', 'ข้อความส่งเข้าแชท (Messenger)')}
           <LiveTemplateEditor
-            label="ข้อความแจ้งสรุปยอด Session"
+            label="Template ข้อความส่งเข้าแชท (Messenger)"
             value={draft.privateText}
-            disabled={disabled}
+            disabled={disabled || !draft.privateReply}
             variables={variables}
             onChange={(privateText) => setDraft((previous) => ({ ...previous, privateText }))}
           />
@@ -207,8 +204,9 @@ export function AuctionSessionAutomation({
             onChange={(bankAccountId) => setDraft((previous) => ({ ...previous, bankAccountId }))}
           />
           <p className="text-xs text-slate-500">
-            {`{total}`} คือยอดค้างสุทธิ ระบบแนบยอดโอนแล้วและลิงก์ชำระเงิน/แนบสลิปให้อัตโนมัติ
-            บัญชีใหม่ใช้กับรอบใหม่ บิลเดิมคงบัญชีรับเงินเดิม
+            {`{total}`} คือยอดรวมบิลสะสมล่าสุด และ {`{remaining}`} คือยอดที่ต้องโอนเพิ่ม
+            เมื่อเปิดสวิตช์ ระบบส่งทันทีทุกครั้งที่ปิดรายการและมีผู้ชนะ
+            พร้อมบัญชีรับเงินและลิงก์แนบสลิป บัญชีใหม่ใช้กับรอบใหม่ บิลเดิมคงบัญชีรับเงินเดิม
           </p>
         </div>
       </div>
@@ -220,7 +218,7 @@ export function AuctionSessionAutomation({
       <p className="text-xs text-slate-500">
         เฉพาะเพจและผู้ช่วยคุมประมูลเท่านั้นที่สั่งนับหรือปิดได้ คำสั่งของลูกค้าไม่ปิดรอบ
       </p>
-      {(session.automation_revision ?? 0) !== baseRevision && (
+      {(session.automation_revision ?? 0) > baseRevision && (
         <p role="alert" className="text-sm text-amber-700">
           ค่าตั้งค่ามีฉบับใหม่แล้ว กรุณาโหลดค่าล่าสุดก่อนบันทึก{' '}
           <button
@@ -257,7 +255,7 @@ export function AuctionSessionAutomation({
         disabled={
           disabled ||
           !validSessionAutomation(draft) ||
-          (session.automation_revision ?? 0) !== baseRevision
+          (session.automation_revision ?? 0) > baseRevision
         }
       >
         {session.ended_at

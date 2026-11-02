@@ -1,6 +1,7 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
+const fs = require('node:fs')
 const { PGlite } = require('@electric-sql/pglite')
 const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
 const { build } = require('./build-full-database-setup.cjs')
@@ -11,6 +12,25 @@ const automation = load('lib/features/commerce/session-automation.ts', {
   './auction-templates': load('lib/features/commerce/auction-templates.ts'),
 })
 const auctionParser = load('lib/integrations/facebook/auction-comment-parser.ts')
+
+test('customer status counts unique bills and separates unpaid, partial, exact and overpaid balances', () => {
+  const tabs = [
+    { total: 100.1, paid: 0, remaining: 100.1, credit: 0 },
+    { total: 200.2, paid: 50, remaining: 150.2, credit: 0 },
+    { total: 300.3, paid: 300.3, remaining: 0, credit: 0 },
+    { total: 400.4, paid: 500.5, remaining: 0, credit: 100.1 },
+    { total: 0, paid: 0, remaining: 0, credit: 0 },
+  ]
+  const status = types.sessionCustomerStatus(tabs)
+  assert.equal(status.paid, 3)
+  assert.equal(status.unpaid, 1)
+  assert.equal(status.full, 1)
+  assert.equal(status.short, 2)
+  assert.equal(status.over, 1)
+  assert.equal(status.total, 1001)
+  assert.equal(status.received, 850.8)
+  assert.equal(types.sessionCustomerStatus([]).total, 0)
+})
 
 test('Session bid shortcuts and host switches are deterministic and preserve legacy parsing', () => {
   const settings = automation.defaultSessionAutomation(randomUUID())
@@ -164,7 +184,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
         ])
       ).result
     const getTab = async (id) => one('select * from customer_tabs where id=$1', [id])
-    const pay = async (tab, amount) => {
+    const pay = async (tab, amount, raw = {}) => {
       const bill = await getTab(tab)
       const claim = (
         await one('select claim_customer_tab_slip($1,$2,$3,null) result', [
@@ -175,8 +195,8 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       ).result
       return (
         await one(
-          "select complete_customer_tab_slip($1,$2,$3,'valid',$4,$5,clock_timestamp(),'{}',null) result",
-          [claim.slipId, tenant, bill.customer_id, amount, randomUUID()],
+          "select complete_customer_tab_slip($1,$2,$3,'valid',$4,$5,clock_timestamp(),$6,null) result",
+          [claim.slipId, tenant, bill.customer_id, amount, randomUUID(), raw],
         )
       ).result
     }
@@ -525,11 +545,20 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     assert.equal(dashboardOrder.order_type, 'auction')
     assert.equal(dashboardOrder.live_session_id, started.id)
     assert.equal(Number((await getTab(dashboardOrder.customer_tab_id)).total_amount), 270)
-    await pay(dashboardOrder.customer_tab_id, 200)
+    await pay(dashboardOrder.customer_tab_id, 200, {
+      data: { sender: { displayName: 'ผู้โอนจริงจากสลิป' }, sendingBank: '004' },
+    })
     let all = (await one('select live_auction_dashboard($1,$2) result', [tenant, started.id]))
       .result
     assert.equal(all.slips.length, 1)
     assert.equal(all.slips[0].amount, 200)
+    assert.equal(all.slips[0].senderName, 'ผู้โอนจริงจากสลิป')
+    assert.equal(all.slips[0].senderBank, '004')
+    assert.equal(
+      all.metrics.matchedPeople,
+      1,
+      'multiple matched comments from one bidder count as one person',
+    )
     assert.equal(all.metrics.remaining, 70)
     assert.equal(all.commenters.length, 1, 'Page host is not a customer')
     assert.equal(all.commenters[0].fbId, '900')
@@ -547,6 +576,37 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     ).result
     assert.equal(fulfillment.length, 1, 'the paid tab automatically creates one shipping row')
     assert.equal(fulfillment[0].payment_ready, true)
+    // The additive migration updates only the old built-in template and never balances.
+    const templates = load('lib/features/commerce/auction-templates.ts')
+    await db.query(
+      "update live_sessions set auction_settings=jsonb_set(auction_settings,'{privateText}',to_jsonb($2::text)) where id=$1",
+      [started.id, templates.AUCTION_PRIVATE_TEMPLATE],
+    )
+    await db.query('update live_sessions set auction_settings=$2 where id=$1', [
+      session,
+      { ...config, privateText: 'Custom {total}' },
+    ])
+    const beforeUpgrade = await getTab(dashboardOrder.customer_tab_id)
+    await db.exec(fs.readFileSync('supabase/live-auction-instant-winners.sql', 'utf8'))
+    assert.equal(
+      (await one('select auction_settings from live_sessions where id=$1', [started.id]))
+        .auction_settings.privateText,
+      templates.SESSION_WINNER_TEMPLATE,
+    )
+    assert.equal(
+      (await one('select auction_settings from live_sessions where id=$1', [session]))
+        .auction_settings.privateText,
+      'Custom {total}',
+    )
+    assert.deepEqual(await getTab(dashboardOrder.customer_tab_id), beforeUpgrade)
+    const upgraded = await one('select automation_revision from live_sessions where id=$1', [
+      started.id,
+    ])
+    await db.exec(fs.readFileSync('supabase/live-auction-instant-winners.sql', 'utf8'))
+    assert.deepEqual(
+      await one('select automation_revision from live_sessions where id=$1', [started.id]),
+      upgraded,
+    )
     await assert.rejects(
       one('select live_auction_dashboard($1,$2)', [other, started.id]),
       /SESSION_NOT_FOUND/,

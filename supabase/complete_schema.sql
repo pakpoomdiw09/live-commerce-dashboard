@@ -12976,6 +12976,7 @@ execute $sql_93_11$drop trigger if exists auction_session_settings on public.auc
 execute $sql_93_12$create trigger auction_session_settings before insert on public.auctions for each row execute function public.inherit_auction_session_settings()$sql_93_12$;
 
 -- live-auction-dashboard.sql: source statement 13
+begin
 execute $sql_93_13$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; result jsonb; slips jsonb; commenters jsonb;
@@ -13004,6 +13005,10 @@ begin
  ) records;
  return result||jsonb_build_object('slips',slips,'commenters',commenters);
 end $$$sql_93_13$;
+exception when invalid_function_definition then
+  -- A newer signature of live_auction_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-dashboard.sql: source statement 14
 execute $sql_93_14$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.inherit_auction_session_settings(),public.live_auction_dashboard(uuid,uuid) from public,anon,authenticated$sql_93_14$;
@@ -13013,6 +13018,64 @@ execute $sql_93_15$grant execute on function public.configure_auction_session(uu
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-dashboard.sql','796c27727868b87ae7782c18a371dd3f5f613b4b6ed8f20764612fccb90c95e1','7b17bf54411dc1c84510ecf2a204c12dafe82c56d28b960be0061e4898bb679e');
 end $migration_93$;
+
+-- 95. live-auction-instant-winners.sql
+do $migration_94$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-instant-winners.sql';
+  if found then
+    if installed <> '5a085d82bf4a201c0a149e2c5c3b30a95d9c8e691c6ccba76a1cdd0888c6557a' then
+      raise exception 'Applied migration changed: live-auction-instant-winners.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-instant-winners.sql: source statement 4
+execute $sql_94_4$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
+returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
+declare s public.live_sessions; result jsonb; slips jsonb; commenters jsonb; matched_people bigint;
+begin
+ select * into s from public.live_sessions where id=p_session and tenant_id=p_tenant;
+ if not found then raise exception 'SESSION_NOT_FOUND' using errcode='P0002';end if;
+ result:=public.live_session_dashboard(p_tenant,p_session);
+ select coalesce(jsonb_agg(row order by row->>'at' desc,row->>'id'),'[]') into slips from (
+  select jsonb_build_object('id',p.slip_id,'name',coalesce(c.display_name,c.platform_user_id),'amount',p.amount,'at',p.transferred_at,'transRef',proof.trans_ref,
+   'senderName',coalesce(nullif(proof.raw->'data'->'sender'->>'displayName',''),nullif(proof.raw->'data'->'sender'->>'name','')),
+   'senderBank',nullif(proof.raw->'data'->>'sendingBank','')) row
+  from public.customer_tab_payments p join public.customer_tabs t on t.id=p.tab_id and t.tenant_id=p_tenant
+  join public.customers c on c.id=t.customer_id and c.tenant_id=p_tenant
+  join public.slips proof on proof.id=p.slip_id and proof.tenant_id=p_tenant and proof.status='valid'
+  where t.live_session_id=s.id order by p.transferred_at desc,p.slip_id limit 500
+ ) records;
+ select coalesce(jsonb_agg(row||jsonb_build_object('customerId',(select c.id from public.customers c where c.tenant_id=p_tenant and c.platform='facebook' and c.platform_user_id=row->>'fbId')) order by row->>'at' desc,row->>'fbId'),'[]') into commenters from (
+  select jsonb_build_object('fbId',v->'from'->>'id',
+   'name',coalesce((array_agg(v->'from'->>'name' order by created_at desc))[1],v->'from'->>'id'),'at',max(created_at),'comments',count(*)) row
+  from (select e.payload->'value' v,e.created_at from public.facebook_webhook_events e
+   where e.page_id=s.page_id and e.kind='change' and e.payload->'value'->>'verb'='add'
+   and e.payload->'value'->>'item' in ('comment','live_comment') and (
+    regexp_replace(e.payload->'value'->>'post_id','^.*_','')=s.live_post_id
+    or e.payload->'value'->>'video_id'=s.live_post_id or e.payload->'value'->>'live_video_id'=s.live_post_id
+    or exists(select 1 from public.auctions a where a.tenant_id=p_tenant and a.page_id=s.page_id and a.live_post_id=s.live_post_id and e.payload->'value'->>'post_id'=any(a.live_post_aliases)))) events
+  where v->'from'->>'id' is not null and v->'from'->>'id'<>s.page_id
+  group by v->'from'->>'id' order by max(created_at) desc limit 500
+ ) records;
+ with matched as (
+  select b.bidder_id fb_id from public.auction_bids b join public.auctions a on a.id=b.auction_id
+   where a.tenant_id=p_tenant and a.page_id=s.page_id and a.live_post_id=s.live_post_id and b.status in ('accepted','too_low','already_opened')
+  union
+  select e.payload->'value'->'from'->>'id' from public.facebook_webhook_events e join public.live_cf_webhook_receipts r
+   on r.comment_id=e.payload->'value'->>'comment_id' and r.page_id=e.page_id and r.tenant_id=p_tenant
+   where e.page_id=s.page_id and e.kind='change' and e.payload->'value'->>'verb'='add' and e.payload->'value'->>'item' in ('comment','live_comment') and (
+    regexp_replace(e.payload->'value'->>'post_id','^.*_','')=s.live_post_id
+    or e.payload->'value'->>'video_id'=s.live_post_id or e.payload->'value'->>'live_video_id'=s.live_post_id
+    or exists(select 1 from public.auctions a where a.tenant_id=p_tenant and a.page_id=s.page_id and a.live_post_id=s.live_post_id and e.payload->'value'->>'post_id'=any(a.live_post_aliases)))
+ ) select count(distinct fb_id) into matched_people from matched where fb_id is not null and fb_id<>s.page_id;
+ result:=jsonb_set(result,'{metrics}',(result->'metrics')||jsonb_build_object('matchedPeople',matched_people));
+ return result||jsonb_build_object('slips',slips,'commenters',commenters);
+end $$$sql_94_4$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-instant-winners.sql','5a085d82bf4a201c0a149e2c5c3b30a95d9c8e691c6ccba76a1cdd0888c6557a','d0788ad3f0cd0a402db298a6fedcdc6c1620e2f2e35a15f580f8153e081e7f65');
+end $migration_94$;
 
 notify pgrst,'reload schema';
 
