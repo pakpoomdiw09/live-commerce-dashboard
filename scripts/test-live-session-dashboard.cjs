@@ -75,6 +75,37 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'IGNORE',
   )
   assert.equal(automation.validSessionAutomation(settings), true)
+  assert.deepEqual(Array.from(automation.BID_KEYWORD_PRESETS), [
+    '1', '11', '12', 'F', 'f', '9', '99', 'เคาะ', 'บิด', '+1',
+  ])
+  assert.deepEqual(Array.from(automation.QUICK_AUCTION_CLOSE_EMOJIS), [
+    '❌', '🛑', '⛔', '🚫', '🏁', '🚩', '🔨', '🔔', '⏰', '❤️', '🖤',
+  ])
+  const manyKeywords = Array.from({ length: 40 }, (_, index) => `bid-${index}`)
+  const manyCloseKeywords = Array.from({ length: 40 }, (_, index) => `close-${index}`)
+  assert.equal(
+    automation.validSessionAutomation({
+      ...settings,
+      keywords: manyKeywords,
+      closeKeywords: manyCloseKeywords,
+    }),
+    true,
+    'bid and close keyword lists are not capped at 10 or 30 entries',
+  )
+  assert.equal(
+    auctionParser.parseAuctionComment('bid-39', false, {
+      ...settings,
+      keywords: manyKeywords,
+    }).type,
+    'STEP_BID',
+  )
+  assert.equal(
+    auctionParser.parseAuctionComment('close-39', true, {
+      ...settings,
+      closeKeywords: manyCloseKeywords,
+    }).action,
+    'close',
+  )
   assert.deepEqual(Array.from(settings.closeKeywords), [
     'ปิด','จบ','พอ','321','3 2 1','x','X','❌','🛑','⛔','🚫','✖️','🏁','🚩','🔨','🔔','⏰','❤️','🖤',
   ])
@@ -547,7 +578,16 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     )
     await assert.rejects(configure({ ...start, livePostId: '988' }, startRequest), /REQUEST_REUSED/)
     await assert.rejects(configure(start, randomUUID(), other), /BANK_SCOPE|PAGE_SCOPE/)
-    const changed = { ...config, closeKeywords: ['จบรายการ'], keywords: ['11', 'raise'] }
+    const manyBidKeywords = ['raise', ...Array.from({ length: 34 }, (_, index) => `bid-${index}`)]
+    const manyCloseKeywords = [
+      'จบรายการ',
+      ...Array.from({ length: 34 }, (_, index) => `close-${index}`),
+    ]
+    const changed = {
+      ...config,
+      closeKeywords: manyCloseKeywords,
+      keywords: manyBidKeywords,
+    }
     const savedSettings = await configure({
       action: 'settings',
       sessionId: started.id,
@@ -555,6 +595,14 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       settings: changed,
     })
     assert.equal(savedSettings.revision, started.revision + 1)
+    assert.equal(
+      (await one('select public.auction_close_keyword_matches($1,$2::jsonb) matched', [
+        'close-33',
+        JSON.stringify(manyCloseKeywords),
+      ])).matched,
+      true,
+      'a close command remains active when its keyword is beyond the old 30-word cap',
+    )
     await assert.rejects(
       configure({
         action: 'settings',
@@ -566,7 +614,8 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     )
     const active = await open('987')
     const configuredRound = await one('select * from auctions where id=$1', [active])
-    assert.deepEqual(configuredRound.session_automation.keywords, ['11', 'raise'])
+    assert.deepEqual(configuredRound.session_automation.keywords, manyBidKeywords)
+    assert.deepEqual(configuredRound.session_automation.closeKeywords, manyCloseKeywords)
     assert.equal(configuredRound.private_reply_enabled, false)
     await process(active, '900', '200', 'NUMERIC_BID', 200, null, '987')
     const intent = auctionParser.parseAuctionComment(
@@ -815,7 +864,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     const presetMigration = fs.readFileSync('supabase/live-auction-close-presets.sql','utf8')
     await db.exec(presetMigration)
     assert.deepEqual((await one('select auction_settings from live_sessions where id=$1',[thaiStarted.id])).auction_settings.closeKeywords, Array.from(automation.DEFAULT_AUCTION_CLOSE_KEYWORDS))
-    assert.deepEqual((await one('select auction_settings from live_sessions where id=$1',[started.id])).auction_settings.closeKeywords,['จบรายการ'])
+    assert.deepEqual((await one('select auction_settings from live_sessions where id=$1',[started.id])).auction_settings.closeKeywords,manyCloseKeywords)
     await db.query("update live_sessions set auction_settings=jsonb_set(auction_settings,'{closeKeywords}','[\"ปิด\",\"x\"]') where id=$1",[thaiStarted.id])
     const beforeRerun = await one('select auction_settings,automation_revision from live_sessions where id=$1',[thaiStarted.id])
     await db.exec(presetMigration)

@@ -9,7 +9,6 @@ import {
   DEFAULT_AUCTION_CLOSE_KEYWORDS,
   QUICK_AUCTION_CLOSE_EMOJIS,
   BID_KEYWORD_PRESETS,
-  MAX_SESSION_BID_KEYWORDS,
   validSessionAutomation,
   type SessionAutomation,
 } from '@/lib/features/commerce/session-automation'
@@ -110,7 +109,7 @@ export function AuctionSessionAutomation({
             label="คีย์เวิร์ดการดักคำ" kind="bid"
             keywords={bidKeywords} onChange={setBidKeywords}
             normalize={normalizeBidKeyword} presets={BID_KEYWORD_PRESETS}
-            limit={MAX_SESSION_BID_KEYWORDS} disabled={disabled}
+            disabled={disabled}
             onEdited={() => setNotice('')}
           />
           <p className="text-xs text-slate-500">
@@ -123,7 +122,7 @@ export function AuctionSessionAutomation({
             label="คีย์เวิร์ดการปิดการประมูล" kind="close"
             keywords={closeKeywords} onChange={setCloseKeywords}
             normalize={normalizeCloseKeyword} presets={QUICK_AUCTION_CLOSE_EMOJIS}
-            limit={30} disabled={disabled}
+            disabled={disabled}
             onEdited={() => setNotice('')}
           />
           <p className="text-xs text-slate-500">

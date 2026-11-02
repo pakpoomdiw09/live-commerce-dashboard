@@ -78,7 +78,6 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
   denied = false
   for (const settings of [
     { ...base.settings, keywords: ['1', '１'] },
-    { ...base.settings, keywords: Array.from({length:11},(_,index)=>'bid'+index) },
     { ...base.settings, bankAccountId: 'invalid' },
     { ...base.settings, privateReply: 'true' },
     { ...base.settings, bidText: '{total}' },
@@ -112,6 +111,16 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
     '{bidder_name} {product_name} {price} {total}',
   )
   assert.equal('paid_amount' in calls[0].input.p_input, false)
+  assert.equal(
+    (await post({
+      ...base,
+      settings: {
+        ...base.settings,
+        keywords: Array.from({ length: 40 }, (_, index) => `bid-${index}`),
+      },
+    })).status,
+    201,
+  )
   assert.equal((await post({ ...base, action: 'settings', sessionId, revision: -1 })).status, 400)
   assert.equal((await post({ ...base, action: 'settings', sessionId, revision: 0 })).status, 200)
   rpcError = { code: '40001' }

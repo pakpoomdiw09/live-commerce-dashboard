@@ -4,7 +4,7 @@ import { useId, useState, type Dispatch, type SetStateAction } from 'react'
 import { field, orange } from './session-ui'
 
 export function AuctionKeywordEditor({
-  label, kind, keywords, onChange, onEdited, normalize, presets, limit, disabled,
+  label, kind, keywords, onChange, onEdited, normalize, presets, disabled,
 }: {
   label: string
   kind: 'bid' | 'close'
@@ -13,7 +13,6 @@ export function AuctionKeywordEditor({
   onEdited: () => void
   normalize: (text: string) => string
   presets: string[]
-  limit: number
   disabled: boolean
 }) {
   const id = useId()
@@ -21,7 +20,6 @@ export function AuctionKeywordEditor({
   const [error, setError] = useState('')
   const closing = kind === 'close'
   const name = closing ? 'คำปิดรอบ' : 'คำดัก'
-  const full = keywords.length >= limit
   function add(text: string) {
     if (disabled) return
     const word = normalize(text)
@@ -30,13 +28,10 @@ export function AuctionKeywordEditor({
       setError('แต่ละคำยาวได้ไม่เกิน 40 ตัวอักษร และไม่มีวงเล็บปีกกาหรือการขึ้นบรรทัดใหม่')
       return
     }
-    if (full && !keywords.some((value) => normalize(value) === word)) {
-      setError(`ครบ ${limit} คำแล้ว กรุณาลบบางคำก่อนเพิ่มคำใหม่`)
-      return
-    }
     // Check inside the update as well: rapid clicks can share the same render.
-    onChange((previous) => previous.some((value) => normalize(value) === word) || previous.length >= limit
-      ? previous : [...previous, word])
+    onChange((previous) =>
+      previous.some((value) => normalize(value) === word) ? previous : [...previous, word],
+    )
     setInput('')
     setError('')
     onEdited()
@@ -45,8 +40,8 @@ export function AuctionKeywordEditor({
     <div className="min-w-0 space-y-2 text-sm font-semibold" data-auction-keyword-editor={kind}>
       <div className="flex items-center justify-between gap-2">
         <label htmlFor={id}>{label}</label>
-        <span className={`shrink-0 text-xs tabular-nums ${full ? 'text-orange-700' : 'text-slate-400'}`} aria-label={`จำนวน${name}`}>
-          {keywords.length}/{limit}
+        <span className="shrink-0 text-xs tabular-nums text-slate-400" aria-label={`จำนวน${name}`}>
+          {keywords.length} คำ
         </span>
       </div>
       <div className="flex min-h-9 flex-wrap gap-1.5" aria-label={`${name}ที่เลือก`}>
@@ -67,7 +62,7 @@ export function AuctionKeywordEditor({
       </div>
       <div className="flex items-center gap-2">
         <input id={id} aria-label={label} className={`${field} !mt-0`} maxLength={40}
-          value={input} disabled={disabled || full}
+          value={input} disabled={disabled}
           onChange={(event) => { setInput(event.target.value); setError('') }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
@@ -75,11 +70,11 @@ export function AuctionKeywordEditor({
               add(input)
             }
           }}
-          placeholder={full ? `ครบ ${limit} คำแล้ว` : closing ? 'พิมพ์คำหรือวางอีโมจิ แล้วกด +' : 'พิมพ์คำ เช่น 1, เคาะ แล้วกดเพิ่ม'}
+          placeholder={closing ? 'พิมพ์คำหรือวางอีโมจิ แล้วกด +' : 'พิมพ์คำ เช่น 1, เคาะ แล้วกด +'}
         />
         <button type="button" aria-label={`เพิ่ม${name}`} className={`${orange} shrink-0`}
-          disabled={disabled || full || !input.trim()} onClick={() => add(input)}>
-          {closing ? '+' : '+ เพิ่มคำดัก'}
+          disabled={disabled || !input.trim()} onClick={() => add(input)}>
+          +
         </button>
       </div>
       <div className={closing ? 'grid w-fit max-w-full grid-cols-6 gap-1.5 sm:grid-cols-8' : 'flex flex-wrap gap-1.5'}
@@ -92,12 +87,11 @@ export function AuctionKeywordEditor({
             onClick={() => add(word)}>{word}</button>
         ))}
       </div>
-      {full && <p role="status" className="text-xs font-normal text-orange-700">ครบ {limit} คำแล้ว ลบบางคำเพื่อเพิ่มคำใหม่</p>}
       {error && <p role="alert" className="text-xs font-normal text-red-700">{error}</p>}
       <p className="text-xs font-normal text-slate-500">
         {closing
           ? 'กดอีโมจิต่อเนื่องได้ ตัวเดิมจะไม่เพิ่มซ้ำ กด × เพื่อลบ หรือพิมพ์คำแล้วกด +'
-          : 'พิมพ์แล้วกด Enter หรือ + เพิ่มคำดัก เลือกคำแนะนำได้สูงสุด 10 คำ โดย F และ f นับเป็นคำเดียวกัน'}
+          : 'พิมพ์แล้วกด Enter หรือ + เพื่อเพิ่มคำดักได้ไม่จำกัด โดย F และ f จะนับเป็นคำเดียวกัน'}
       </p>
     </div>
   )
