@@ -278,9 +278,16 @@ async function checkInterface() {
       await evaluate(
         'document.querySelector(\'input[aria-label="เลือกลูกค้า ผู้ชมยังไม่มีบิล"]\').click()',
       )
-      await fill('input[aria-label="หมายเหตุ สมชาย ใจดี"]', 'ส่งรวมกล่อง')
-      await evaluate('document.querySelector(\'input[aria-label="หมายเหตุ สมชาย ใจดี"]\').blur()')
-      await wait("sessionQA.requests.at(-1)?.action==='note'")
+      assert.deepEqual(
+        await evaluate("Array.from(document.querySelectorAll('[data-session-customers] thead th')).map(th=>th.textContent.trim())"),
+        ['เลือก', 'ชื่อ', 'ยอดซื้อ', 'สถานะโอน', 'คอมเมนต์ล่าสุด', 'แชท', 'เวลา'],
+      )
+      assert.deepEqual(
+        await evaluate("Array.from(document.querySelector('[data-session-customers] tbody tr').cells).slice(4).map(td=>td.textContent.trim())"),
+        ['เคาะ 250', '', '22:50:00'],
+      )
+      assert.ok(await evaluate("document.querySelector('[data-session-customers] tbody').textContent.includes('📣 ชนะประมูล')"))
+      assert.equal(await evaluate("document.querySelectorAll('[data-session-customers] tbody tr td').length"), 28)
       assert.equal(
         await evaluate("document.querySelectorAll('[data-session-slips] tbody tr').length"),
         10,
@@ -343,7 +350,7 @@ async function checkInterface() {
       }
       assert.deepEqual(errors, [])
       console.log(
-        'PASS: Four Thai sections, custom bid/close words, no live board, round open/cancel, Thai templates/help, bills/slips/notes, shipping and responsive layout. Mock APIs only.',
+        'PASS: Four Thai sections, custom bid/close words, no live board, round open/cancel, Thai templates/help, seven customer columns, bills/slips, shipping and responsive layout. Mock APIs only.',
       )
       return
     }

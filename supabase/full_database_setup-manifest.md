@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 114 ไฟล์: รวมตาม dependencies 97 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 116 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 115 ไฟล์: รวมตาม dependencies 98 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 117 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (906926 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (910135 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (789964 bytes, 12747 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (792474 bytes, 12791 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -134,6 +134,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 95. [live-auction-instant-winners.sql](live-auction-instant-winners.sql) — 1 statements retained
 96. [live-auction-customer-workspace.sql](live-auction-customer-workspace.sql) — 12 statements retained
 97. [live-auction-thai-workflow.sql](live-auction-thai-workflow.sql) — 9 statements retained
+98. [live-auction-customer-columns.sql](live-auction-customer-columns.sql) — 3 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -166,6 +167,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | live-auction-instant-winners.sql | live-auction-dashboard.sql |
 | live-auction-customer-workspace.sql | live-auction-instant-winners.sql |
 | live-auction-thai-workflow.sql | live-auction-customer-workspace.sql |
+| live-auction-customer-columns.sql | live-auction-thai-workflow.sql |
 | shipping-fulfillment.sql | live-session-dashboard.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
@@ -432,3 +434,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-instant-winners.sql: `d0788ad3f0cd0a402db298a6fedcdc6c1620e2f2e35a15f580f8153e081e7f65`
 - live-auction-customer-workspace.sql: `dff1722d7bd0ef6404ac4d3c9e32a516d137f13a8dac3ce8cd3c9d5ea5fd5d34`
 - live-auction-thai-workflow.sql: `8b95f7dd616abca86ccfbc4395d0e28bb4f5c880792dde5d7b589f5cc6bb50e6`
+- live-auction-customer-columns.sql: `a0e96f4c674e920d1974403d19e64ed225e8b2cf2c9a3a625473e8b2767a8bc9`

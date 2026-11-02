@@ -11,120 +11,7 @@ import {
   type SessionTab,
 } from '@/lib/features/commerce/live-session-types'
 import { SessionCustomerStatus } from './AuctionSessionSections'
-import { button, field, orange, sessionTime } from './session-ui'
-
-function CustomerNote({
-  row,
-  tenantId,
-  sessionId,
-}: {
-  row: SessionCustomerRow
-  tenantId: string
-  sessionId: string
-}) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const [saved, setSaved] = useState<{ note: string; revision: number } | null>(null)
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState('')
-  const base = useRef(row.noteRevision),
-    pending = useRef({ key: '', id: '' })
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-  const current =
-    saved && saved.revision >= row.noteRevision
-      ? saved
-      : { note: row.note, revision: row.noteRevision }
-  async function save() {
-    if (draft === null || !row.fbId || busy) return
-    if (draft.trim() === current.note) {
-      setDraft(null)
-      return
-    }
-    setBusy(true)
-    setError('')
-    const key = `${base.current}:${draft}`
-    if (pending.current.key !== key) pending.current = { key, id: crypto.randomUUID() }
-    try {
-      const response = await fetch('/api/live-auction/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantId,
-          sessionId,
-          action: 'note',
-          fbId: row.fbId,
-          note: draft,
-          revision: base.current,
-          requestId: pending.current.id,
-        }),
-        signal: AbortSignal.timeout(20000),
-      })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error || 'บันทึกหมายเหตุไม่สำเร็จ')
-      if (mounted.current) {
-        setSaved(result)
-        setDraft(null)
-      }
-    } catch (cause) {
-      if (mounted.current) setError(cause instanceof Error ? cause.message : 'บันทึกไม่สำเร็จ')
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
-  }
-  return (
-    <div className="space-y-1">
-      <input
-        aria-label={`หมายเหตุ ${row.name}`}
-        className={`${field} !mt-0 min-w-24 !px-2 !py-2 !text-xs`}
-        maxLength={500}
-        placeholder="หมายเหตุ"
-        disabled={busy || !row.fbId}
-        value={draft ?? current.note}
-        onChange={(e) => {
-          if (draft === null) base.current = current.revision
-          setDraft(e.target.value)
-          setError('')
-        }}
-        onBlur={() => void save()}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            e.currentTarget.blur()
-          }
-        }}
-      />
-      <p className="text-[10px] text-slate-400">
-        {busy
-          ? 'กำลังบันทึก…'
-          : draft !== null
-            ? 'ออกจากช่องเพื่อบันทึก'
-            : current.revision > 0
-              ? 'บันทึกแล้ว'
-              : 'บันทึกเมื่อออกจากช่อง'}
-      </p>
-      {error && (
-        <div role="alert" className="text-xs text-red-700">
-          {error}
-          <button
-            type="button"
-            className="block underline"
-            onClick={() => {
-              setDraft(null)
-              setError('')
-            }}
-          >
-            ยกเลิกการแก้ไข
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
+import { button, orange } from './session-ui'
 
 export function AuctionSessionCustomers({
   tenantId,
@@ -283,7 +170,7 @@ export function AuctionSessionCustomers({
               <th className="w-8 p-2">
                 <span className="sr-only">เลือก</span>
               </th>
-              {['ชื่อ Facebook', 'ยอดซื้อ / รายการ', 'สถานะการเงิน', 'ยอด / หมายเหตุ'].map(
+              {['ชื่อ', 'ยอดซื้อ', 'สถานะโอน', 'คอมเมนต์ล่าสุด', 'แชท', 'เวลา'].map(
                 (label) => (
                   <th key={label} className="p-2">
                     {label}
@@ -309,34 +196,7 @@ export function AuctionSessionCustomers({
                   />
                 </td>
                 <td className="max-w-36 break-words p-2 align-top">
-                  <div className="flex items-start gap-2">
-                    <b className="min-w-0">{row.name}</b>
-                    {row.customerId ? (
-                      <a
-                        href={`/inbox?customer=${encodeURIComponent(row.customerId)}`}
-                        aria-label={`เปิดแช็ต Messenger ${row.name}`}
-                        title="เปิดข้อความของลูกค้า"
-                        className="shrink-0 text-blue-600"
-                      >
-                        <MessagesSquare className="h-4 w-4" />
-                      </a>
-                    ) : (
-                      <span
-                        title="เลือกแล้วกดดึงข้อมูล เพื่อเปิดข้อความของลูกค้า"
-                        className="shrink-0 text-slate-300"
-                      >
-                        <MessagesSquare className="h-4 w-4" />
-                      </span>
-                    )}
-                  </div>
-                  <span className="mt-1 block text-[10px] text-slate-400">
-                    {row.comments} คอมเมนต์{row.at ? ` · ${sessionTime(row.at)}` : ''}
-                  </span>
-                  {row.matched && (
-                    <span className="mt-1 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[10px] text-orange-700">
-                      ตรงคำดัก
-                    </span>
-                  )}
+                  <b>{row.name}</b>
                 </td>
                 <td className="max-w-48 p-2 align-top">
                   {row.tab ? (
@@ -347,32 +207,13 @@ export function AuctionSessionCustomers({
                         aria-label={`ดูที่มาของยอด ${row.name}`}
                         onClick={() => onProof(row.tab!)}
                       >
-                        ฿{money(row.tab.total)}
+                        {money(row.tab.total)} ฿
                       </button>
-                      <ul className="mt-1 max-h-28 space-y-1 overflow-auto break-words text-[10px] text-slate-500">
-                        {row.tab.items.map((item) => (
-                          <li key={item.orderId}>
-                            {(() => {
-                              const tag = item.name.match(/^\[(ประมูล|CF(?:-[^\]]+)?)\]\s*/u)
-                              return tag ? (
-                                <>
-                                  <span
-                                    className={`mr-1 rounded px-1 py-0.5 ${tag[1] === 'ประมูล' ? 'bg-orange-50 text-orange-700' : 'bg-blue-50 text-blue-700'}`}
-                                  >
-                                    [{tag[1]}]
-                                  </span>
-                                  {item.name.slice(tag[0].length)}
-                                </>
-                              ) : (
-                                item.name
-                              )
-                            })()}{' '}
-                            · {money(item.amount)} บาท
-                          </li>
-                        ))}
-                      </ul>
-                      <span className="mt-1 block text-[10px] text-slate-400">
-                        {row.tab.items.length} รายการ · ค่าส่ง {money(row.tab.shipping)} ฿
+                      <span className="mt-1 block text-[10px] text-slate-500">
+                        📣 ชนะประมูล {row.tab.items.filter((item) =>
+                          item.name.startsWith('[ประมูล]') ||
+                          data?.rounds.some((round) => round.orderId === item.orderId),
+                        ).length} รายการ
                       </span>
                     </>
                   ) : (
@@ -421,19 +262,38 @@ export function AuctionSessionCustomers({
                     )}
                   </div>
                 </td>
-                <td className="w-28 p-2 align-top">
-                  {data && (
-                    <CustomerNote row={row} tenantId={tenantId} sessionId={data.session.id} />
-                  )}
-                  {row.tab && (
-                    <button
-                      type="button"
-                      className="mt-2 text-[10px] font-semibold text-orange-600 underline"
-                      onClick={() => onProof(row.tab!)}
+                <td className="max-w-40 break-words p-2 align-top">
+                  {row.lastText ?? <span className="text-slate-400">—</span>}
+                </td>
+                <td className="p-2 align-top">
+                  {row.customerId ? (
+                    <a
+                      href={'/inbox?customer=' + encodeURIComponent(row.customerId)}
+                      aria-label={'เปิดแช็ต Messenger ' + row.name}
+                      title="เปิดข้อความของลูกค้า"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                     >
-                      ปรับยอด
-                    </button>
+                      <MessagesSquare className="h-4 w-4" />
+                    </a>
+                  ) : (
+                    <span
+                      title="เลือกแล้วกดดึงข้อมูล เพื่อเปิดข้อความของลูกค้า"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-400"
+                    >
+                      <MessagesSquare className="h-4 w-4" />
+                    </span>
                   )}
+                </td>
+                <td className="whitespace-nowrap p-2 align-top tabular-nums text-slate-500">
+                  {row.at && Number.isFinite(Date.parse(row.at))
+                    ? new Date(row.at).toLocaleTimeString('th-TH', {
+                        timeZone: 'Asia/Bangkok',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false,
+                      })
+                    : '—'}
                 </td>
               </tr>
             ))}

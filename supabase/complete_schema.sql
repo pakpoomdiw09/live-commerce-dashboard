@@ -13268,6 +13268,7 @@ begin
 end $$$sql_96_5$;
 
 -- live-auction-thai-workflow.sql: source statement 6
+begin
 execute $sql_96_6$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
 language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; active jsonb;
@@ -13278,6 +13279,10 @@ begin
  where a.tenant_id=p_tenant and a.status='active' order by a.created_at desc limit 1;
  return result||jsonb_build_object('activeAuction',active);
 end $$$sql_96_6$;
+exception when invalid_function_definition then
+  -- A newer signature of live_auction_thai_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-thai-workflow.sql: source statement 7
 execute $sql_96_7$revoke all on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_96_7$;
@@ -13475,6 +13480,54 @@ end $$$sql_96_12$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-thai-workflow.sql','bea925f85a4da7d5e81bda3e92aa689045c3306d7e2555b9a5cc6b7f2036df0b','8b95f7dd616abca86ccfbc4395d0e28bb4f5c880792dde5d7b589f5cc6bb50e6');
 end $migration_96$;
+
+-- 98. live-auction-customer-columns.sql
+do $migration_97$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-customer-columns.sql';
+  if found then
+    if installed <> '193605a75ceaaaff5d04fb3c07c00bb77fcb3e88a220e2d1faa0530464227d23' then
+      raise exception 'Applied migration changed: live-auction-customer-columns.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-customer-columns.sql: source statement 1
+execute $sql_97_1$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
+language plpgsql stable set search_path=pg_catalog,public as $$
+declare result jsonb; active jsonb; people jsonb; s public.live_sessions;
+begin
+ result:=public.live_auction_customer_dashboard(p_tenant,p_session);
+ select * into strict s from public.live_sessions where id=p_session and tenant_id=p_tenant;
+ select jsonb_build_object('id',a.id,'itemName',a.item_name) into active from public.auctions a
+ where a.tenant_id=p_tenant and a.page_id=s.page_id and a.live_post_id=s.live_post_id
+ and a.status='active' order by a.created_at desc limit 1;
+ with latest as (
+  select distinct on (e.payload->'value'->'from'->>'id')
+   e.payload->'value'->'from'->>'id' fb_id,e.payload->'value'->>'message' message
+  from public.facebook_webhook_events e
+  where e.page_id=s.page_id and e.kind='change' and e.payload->'value'->>'verb'='add'
+   and e.payload->'value'->>'item' in ('comment','live_comment') and (
+    regexp_replace(e.payload->'value'->>'post_id','^.*_','')=s.live_post_id
+    or e.payload->'value'->>'video_id'=s.live_post_id or e.payload->'value'->>'live_video_id'=s.live_post_id
+    or exists(select 1 from public.auctions a where a.tenant_id=p_tenant and a.page_id=s.page_id
+     and a.live_post_id=s.live_post_id and e.payload->'value'->>'post_id'=any(a.live_post_aliases)))
+  order by e.payload->'value'->'from'->>'id',e.created_at desc,e.id desc
+ )
+ select coalesce(jsonb_agg(x||jsonb_build_object('lastText',latest.message) order by pos),'[]'::jsonb) into people
+ from jsonb_array_elements(result->'commenters') with ordinality rows(x,pos)
+ left join latest on latest.fb_id=x->>'fbId';
+ return result||jsonb_build_object('activeAuction',active,'commenters',people);
+end $$$sql_97_1$;
+
+-- live-auction-customer-columns.sql: source statement 2
+execute $sql_97_2$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_97_2$;
+
+-- live-auction-customer-columns.sql: source statement 3
+execute $sql_97_3$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_97_3$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-customer-columns.sql','193605a75ceaaaff5d04fb3c07c00bb77fcb3e88a220e2d1faa0530464227d23','a0e96f4c674e920d1974403d19e64ed225e8b2cf2c9a3a625473e8b2767a8bc9');
+end $migration_97$;
 
 notify pgrst,'reload schema';
 

@@ -613,6 +613,10 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     assert.equal(all.commenters.length, 1, 'Page host is not a customer')
     assert.equal(all.commenters[0].fbId, '900')
     assert.equal(all.commenters[0].customerId, dashboardOrder.customer_id)
+    await event('900', 'ข้อความล่าสุดของลูกค้า', '987')
+    await event('900', 'ข้อความจากไลฟ์อื่น', '456')
+    const compact = (await one('select live_auction_thai_dashboard($1,$2) result', [tenant, started.id])).result
+    assert.equal(compact.commenters[0].lastText, 'ข้อความล่าสุดของลูกค้า')
     assert.ok(all.slips.every((s) => s.name === 'Buyer 900'))
     await pay(dashboardOrder.customer_tab_id, 70)
     all = (await one('select live_auction_dashboard($1,$2) result', [tenant, started.id])).result

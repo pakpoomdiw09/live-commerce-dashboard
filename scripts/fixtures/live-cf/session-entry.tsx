@@ -153,6 +153,7 @@ if (allInOne) {
       name: tabs[0].name,
       at: '2026-11-02T15:50:00Z',
       comments: 10,
+      lastText: 'เคาะ 250',
       matched: true,
     },
   ]
