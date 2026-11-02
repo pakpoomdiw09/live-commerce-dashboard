@@ -24,17 +24,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!UUID.test(id)) return bad('id must be a uuid')
 
   const db = supabaseAdmin()
-  const { data: slip, error } = await db
+  let lookup = await db
     .from('slips')
-    .select('id, tenant_id, status, customer_id, approved_at')
+    .select('id, tenant_id, status, customer_id, approved_at,customer_tab_id')
     .eq('id', id)
     .maybeSingle()
+  if (lookup.error && ['42703', 'PGRST204'].includes(lookup.error.code)) {
+    const legacy = await db
+      .from('slips')
+      .select('id,tenant_id,status,customer_id,approved_at')
+      .eq('id', id)
+      .maybeSingle()
+    lookup = legacy as typeof lookup
+  }
+  const { data: slip, error } = lookup
   if (error) return bad(error.message, 500)
   if (!slip || !(await canAccessTenant(actor, slip.tenant_id))) return bad('slip not found', 404)
   if (!(await hasFeature(db, slip.tenant_id, 'customer_management')))
     return featureLockedResponse('customer_management')
   if (!(await canAccessTenant(actor, slip.tenant_id, 'owner')))
     return bad('เฉพาะเจ้าของร้านหรือผู้ดูแลระบบเท่านั้นที่อนุมัติสลิปได้', 403)
+  if (slip.customer_tab_id) {
+    if (slip.status !== 'valid')
+      return bad('บิลสะสมต้องตรวจสลิปผ่าน SlipOK ก่อน ระบบจึงจะหักยอดได้', 409)
+    return NextResponse.json({ ok: true, alreadyApplied: true })
+  }
   // Pro proofs must never enter the legacy broad "pay every pending order" approval path,
   // including after flags are switched off. An uninstalled optional table is harmless.
   const pro = await db

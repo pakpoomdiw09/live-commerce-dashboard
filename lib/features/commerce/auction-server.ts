@@ -73,6 +73,22 @@ export async function deliverAuctionNotifications(auctionId?: string) {
       delivery.channel === 'private'
         ? `🎉 ยินดีด้วยครับ! คุณชนะการประมูล\nรายการ: ${auction.item_name}\nยอดประมูล: ${money(auction.current_price)} บาท\nค่าจัดส่ง: ${money(auction.shipping_fee)} บาท\nยอดรวม: ${money(Number(auction.current_price) + Number(auction.shipping_fee))} บาท\nชำระเงิน / แนบสลิป: ${link}`
         : summary
+    let billMessage = message
+    let tabCustomerId: string | null = null
+    if (delivery.channel === 'private' && auction.order_id) {
+      const { tabForOrder, customerTabSummary } = await import('./customer-tabs-server')
+      const tab = await tabForOrder(db, auction.order_id)
+      if (tab) {
+        billMessage = (
+          await customerTabSummary(
+            db,
+            tab,
+            `ยินดีด้วยครับ! รับรายการใหม่ ${auction.item_name} พร้อมสรุปยอดสะสมครับ`,
+          )
+        ).privateText
+        tabCustomerId = tab.customer_id
+      }
+    }
     const claimed = await db
       .from('auction_deliveries')
       .update({ status: 'sending', started_at: new Date().toISOString() })
@@ -84,8 +100,20 @@ export async function deliverAuctionNotifications(auctionId?: string) {
     if (!claimed.data) continue
     try {
       if (delivery.channel === 'private')
-        await sendPrivateReply(token, delivery.comment_id, message, auction.page_id)
+        await sendPrivateReply(token, delivery.comment_id, billMessage, auction.page_id)
       else await replyToComment(token, delivery.comment_id, message)
+      if (tabCustomerId) {
+        const chat = await db
+          .from('messages')
+          .insert({
+            customer_id: tabCustomerId,
+            external_id: `auction-bill:${auction.id}`,
+            sender: 'bot',
+            body: billMessage,
+            delivery_status: 'sent',
+          })
+        if (chat.error && chat.error.code !== '23505') throw chat.error
+      }
       const completed = await db
         .from('auction_deliveries')
         .update({ status: 'sent', completed_at: new Date().toISOString() })

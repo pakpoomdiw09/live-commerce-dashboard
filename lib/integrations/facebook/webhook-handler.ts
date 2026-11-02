@@ -658,6 +658,7 @@ async function onComment(
           sendPrivateReply(token, commentId, message, pageId),
         publicText: async (commentId, message) => replyToComment(token, commentId, message),
       })
+      let cumulativeBill = false
       const handled = await handleLiveCfComment(
         { text: v.message, commentId: v.comment_id, code: selection.code },
         {
@@ -686,6 +687,20 @@ async function onComment(
           getPendingTotal: async () =>
             (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
           getPaymentLink: (orderId) => createLiveCfPaymentLink(orderId),
+          getCumulativeBill: async (orderId) => {
+            const { tabForOrder, customerTabSummary } =
+              await import('@/lib/features/commerce/customer-tabs-server')
+            const tab = await tabForOrder(db, orderId)
+            if (!tab) return null
+            cumulativeBill = true
+            return (
+              await customerTabSummary(
+                db,
+                tab,
+                'รับรายการ CF ใหม่แล้วครับ สรุปยอดสะสมในไลฟ์นี้ดังนี้',
+              )
+            ).privateText
+          },
           privateTemplate: selectedRule.inbox_text,
           publicTemplate: selectedRule.reply_text,
           sendPrivateReply: selectedRule.inbox_enabled
@@ -700,6 +715,18 @@ async function onComment(
                   await sendWithMessageCredit(db, tenant.id, () =>
                     meta.sendPrivateText(v.comment_id, message),
                   )
+                  if (cumulativeBill) {
+                    const chat = await db
+                      .from('messages')
+                      .insert({
+                        customer_id: stored.customer!.id,
+                        external_id: `cf-bill:${v.comment_id}`,
+                        sender: 'bot',
+                        body: message,
+                        delivery_status: 'sent',
+                      })
+                    if (chat.error && chat.error.code !== '23505') throw chat.error
+                  }
                   console.info('[live-cf/reply] succeeded', {
                     commentId: v.comment_id,
                     channel: 'private',

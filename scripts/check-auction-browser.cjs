@@ -280,7 +280,7 @@ async function checkInterface() {
     assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.startPrice'), 200)
     assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.minStep'), 20)
     await evaluate("document.querySelector('[data-auction-action=close]').click()")
-    await wait("document.querySelector('section[aria-label] .space-y-1') !== null")
+    await wait("document.querySelector('[data-auction-action=close]') === null")
     assert.equal(
       await evaluate("document.querySelector('[data-auction-action=close]') === null"),
       true,
@@ -289,6 +289,34 @@ async function checkInterface() {
       `(() => {const input=document.querySelector('input[type=file]');const transfer=new DataTransfer();transfer.items.add(new File([new Uint8Array([255,216,255,224])],'slip.jpg',{type:'image/jpeg'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));input.closest('form').requestSubmit()})()`,
     )
     await wait("document.querySelector('input[type=file]') === null")
+    await wait(
+      "document.querySelector('[aria-label=\"บิลสะสมและยอดคงเหลือ\"]')?.textContent.includes('800.00')",
+    )
+    await evaluate(
+      'window.auctionQA.customerTabs[0].paid_amount=500; window.auctionQA.customerTabs[0].remaining_amount=500',
+    )
+    await wait(
+      "document.querySelector('[aria-label=\"บิลสะสมและยอดคงเหลือ\"]')?.textContent.includes('500.00') && !document.querySelector('[aria-label=\"บิลสะสมและยอดคงเหลือ\"]')?.textContent.includes('800.00')",
+    )
+    await evaluate(
+      "document.querySelector('[data-customer-tab-fixture]').scrollIntoView();document.querySelector('[data-customer-tab-fixture] article button').click()",
+    )
+    await wait("window.auctionQA.selectedSlipId === 'verified-slip'")
+    await evaluate(
+      "document.querySelector('[data-customer-tab-fixture] article button.bg-orange-500').click()",
+    )
+    await wait("window.auctionQA.requests.at(-1)?.path === '/api/messages/send'")
+    assert.ok(
+      await evaluate(
+        "window.auctionQA.requests.at(-1).body.text.includes('1,000.00') && window.auctionQA.requests.at(-1).body.text.includes('500.00')",
+      ),
+      'manual bill summary uses the current total and net balance',
+    )
+    const billScreenshot = await call('Page.captureScreenshot', { format: 'png' })
+    fs.writeFileSync(
+      path.join(output, 'customer-tabs.png'),
+      Buffer.from(billScreenshot.data, 'base64'),
+    )
     assert.deepEqual(errors, [])
     console.log(
       'PASS: CF/auction tabs, visible opening form, 375/768/1440px layouts, polled leader updates, 3/2/1/close shortcuts, API error visibility, inactive polling, numeric payload and slip form; no browser exceptions.',

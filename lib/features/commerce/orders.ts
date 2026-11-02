@@ -159,14 +159,25 @@ export async function pendingOrders(
   db: SupabaseClient,
   customerId: string,
   tenantId?: string,
-): Promise<{ ids: string[]; total: number }> {
+): Promise<{ ids: string[]; total: number; tabIds?: string[] }> {
   let query = db
     .from('orders')
-    .select('id, amount')
+    .select('id, amount, paid_amount, customer_tab_id')
     .eq('customer_id', customerId)
     .eq('status', 'pending_payment')
   if (tenantId) query = query.eq('tenant_id', tenantId)
-  const { data, error } = await query
+  let { data, error } = await query
+  if (error && ['42703', 'PGRST204'].includes(error.code)) {
+    let legacy = db
+      .from('orders')
+      .select('id,amount')
+      .eq('customer_id', customerId)
+      .eq('status', 'pending_payment')
+    if (tenantId) legacy = legacy.eq('tenant_id', tenantId)
+    const fallback = await legacy
+    data = fallback.data as typeof data
+    error = fallback.error
+  }
   if (error) {
     if (tenantId) throw new Error('อ่านยอดรวมออเดอร์ไม่ได้ กรุณาลองอีกครั้ง')
     // before supabase/orders.sql has run there is no orders table: carry on without orders
@@ -175,6 +186,20 @@ export async function pendingOrders(
   }
   const rows = data ?? []
   // sum in satang so 0.1 + 0.2 stays 0.30
-  const total = rows.reduce((s, o) => s + Math.round(Number(o.amount) * 100), 0) / 100
-  return { ids: rows.map((o) => o.id as string), total }
+  const total =
+    rows.reduce(
+      (s, o) =>
+        s +
+        Math.max(
+          0,
+          Math.round(Number(o.amount) * 100) - Math.round(Number(o.paid_amount ?? 0) * 100),
+        ),
+      0,
+    ) / 100
+  const tabIds = [
+    ...new Set(
+      rows.map((o) => o.customer_tab_id as string | null).filter((id): id is string => !!id),
+    ),
+  ]
+  return { ids: rows.map((o) => o.id as string), total, ...(tabIds.length ? { tabIds } : {}) }
 }

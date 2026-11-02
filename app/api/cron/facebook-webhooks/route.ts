@@ -27,6 +27,13 @@ async function run(req: NextRequest) {
         } catch {
           console.warn('[auction/delivery] outbox unavailable or not installed')
         }
+        try {
+          const { runCustomerTabReminders } =
+            await import('@/lib/features/commerce/customer-tab-reminders')
+          await runCustomerTabReminders(supabaseAdmin({ timeoutMs: 10000 }))
+        } catch {
+          console.warn('[customer-tabs/reminder] worker unavailable or not installed')
+        }
         return summary
       }),
       { headers: { 'Cache-Control': 'no-store' } },

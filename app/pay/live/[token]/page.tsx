@@ -5,6 +5,8 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { findBank } from '@/lib/features/banking/banks'
 import { LiveCfVariantPayment } from '@/components/live-cf/LiveCfVariantPayment'
 import { AuctionSlipUpload } from '@/components/live-cf/AuctionSlipUpload'
+import { tabForOrder } from '@/lib/features/commerce/customer-tabs-server'
+import { CustomerTabPayment } from '@/components/live-cf/CustomerTabPayment'
 
 export const metadata = { title: 'ชำระเงินออเดอร์ Live CF | SnapBot' }
 export const dynamic = 'force-dynamic'
@@ -27,6 +29,12 @@ export default async function LiveCfPaymentPage({
     .maybeSingle()
   if (order.error || !order.data) notFound()
   const orderData = order.data
+  const customerTab = await tabForOrder(db, orderData.id)
+  if (
+    customerTab &&
+    (!orderData.live_variant_selection_required || orderData.live_variant_confirmed_at)
+  )
+    return <CustomerTabPayment tab={customerTab} token={token} />
   const proof =
     orderData.source === 'live_auction'
       ? await db

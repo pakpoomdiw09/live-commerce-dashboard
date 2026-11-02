@@ -298,6 +298,7 @@ function handlerFixture(
       },
       '@/lib/features/commerce/messenger-product-server': {},
       '@/lib/features/commerce/live-cf-comment': { handleLiveCfComment },
+      '@/lib/features/commerce/customer-tabs-server': { tabForOrder: async () => null },
       '@/lib/features/commerce/auction-server': {
         handleAuctionComment: async (input: any) => {
           traces.push({ label: 'auction-route', data: input.value })

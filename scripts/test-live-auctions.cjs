@@ -171,24 +171,17 @@ test('live auctions execute against the complete schema: ordering, steps, close,
         [closed.orderId],
       )
     ).id
-    const approved = (
-      await one('select approve_auction_payment_proof($1,$2,$3) at', [proof.id, tenant, owner])
-    ).at
-    assert.ok(approved)
+    await assert.rejects(
+      one('select approve_auction_payment_proof($1,$2,$3)', [proof.id, tenant, owner]),
+      /TAB_PAYMENT_NOT_COVERED/,
+    )
     assert.equal(
       (await one('select status from orders where id=$1', [closed.orderId])).status,
-      'paid',
+      'pending_payment',
     )
     assert.equal(
       (await one('select status from orders where id=$1', [secondOrder])).status,
       'pending_payment',
-    )
-    assert.equal(
-      String(
-        (await one('select approve_auction_payment_proof($1,$2,$3) at', [proof.id, tenant, owner]))
-          .at,
-      ),
-      String(approved),
     )
     await assert.rejects(
       one('select approve_auction_payment_proof($1,$2,$3)', [proof.id, other, owner]),

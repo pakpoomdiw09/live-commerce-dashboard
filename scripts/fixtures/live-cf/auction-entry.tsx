@@ -2,6 +2,9 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { LiveCfWorkspace } from '@/components/live-cf/LiveCfWorkspace'
 import { AuctionSlipUpload } from '@/components/live-cf/AuctionSlipUpload'
+import { CustomerTabsPanel } from '@/components/inbox/CustomerTabsPanel'
+import type { CustomerTab } from '@/lib/features/commerce/customer-tab-types'
+import { customerTabText } from '@/lib/features/commerce/customer-tab-types'
 import type { Auction, AuctionBid } from '@/lib/features/commerce/auction-types'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -35,6 +38,38 @@ const state = {
   failOpen: false,
   loadFailure: false,
   reads: 0,
+  selectedSlipId: '',
+  customerTabs: [
+    {
+      id: '55555555-5555-4555-8555-555555555555',
+      tenant_id: tenantId,
+      customer_id: '900',
+      customer_fb_id: '900',
+      page_id: '100',
+      live_session_id: 'session',
+      bank_account_id: bank.id,
+      shipping_fee: 0,
+      total_amount: 1000,
+      paid_amount: 200,
+      remaining_amount: 800,
+      credit_amount: 0,
+      status: 'pending_payment',
+      revision: 1,
+      created_at: '2026-11-02T10:00:00Z',
+      updated_at: '2026-11-02T10:00:00Z',
+      customer_tab_items: [200, 300, 500].map((amount, index) => ({
+        order_id: `item-${index}`,
+        item_name: `พระรายการ ${index + 1}`,
+        variant_label: null,
+        amount,
+        cancelled: false,
+        closed_at: '2026-11-02T10:00:00Z',
+      })),
+      customer_tab_payments: [
+        { slip_id: 'verified-slip', amount: 200, transferred_at: '2026-11-02T10:00:00Z' },
+      ],
+    },
+  ] as CustomerTab[],
   requests: [] as { path: string; body: Record<string, unknown> }[],
   bids: [
     {
@@ -56,10 +91,25 @@ declare global {
 window.auctionQA = state
 window.fetch = async (input, init) => {
   const path = String(input)
+  if (path.startsWith('/api/customer-tabs?')) {
+    if (new URL(path, 'https://test.invalid').searchParams.has('summary'))
+      return Response.json({
+        text: customerTabText(
+          state.customerTabs[0],
+          'https://shop.example/pay/live/signed',
+          'KBANK 1234567890',
+        ),
+        link: 'https://shop.example/pay/live/signed',
+      })
+    return Response.json({ tabs: state.customerTabs, reminders: [] })
+  }
   if (init?.method === 'POST') {
     if (path.endsWith('/slip')) return Response.json({ submitted: true })
     const body = JSON.parse(String(init.body))
     state.requests.push({ path, body })
+    if (path === '/api/messages/send') return Response.json({ ok: true })
+    if (path === '/api/customer-tabs')
+      return Response.json({ queued: 1, message: 'Reminder queued' })
     if (path.endsWith('/host-action')) {
       const row = state.auctions.find((a) => a.id === body.auctionId)!
       if (body.action === 'close') row.status = 'closed'
@@ -124,6 +174,14 @@ createRoot(document.getElementById('root')!).render(
           </LiveCfWorkspace>
           <section className="mx-auto w-full max-w-lg shrink-0 p-4">
             <AuctionSlipUpload token="test-signed-token" initiallySubmitted={false} />
+            <div data-customer-tab-fixture className="mt-4">
+              <CustomerTabsPanel
+                customerId="900"
+                onSelectSlip={(id) => {
+                  state.selectedSlipId = id
+                }}
+              />
+            </div>
           </section>
         </div>
       </main>

@@ -18,6 +18,8 @@ export const SLIP_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 export type Tenant = { id: string; account_number: string | null; bank_code: string | null }
 
 type Input = {
+  /** Server-derived signed bill scope. Never trust a customer-supplied UUID. */
+  customerTabId?: string
   /** Server-derived signed-in admin exemption; never copied from form data. */
   adminBypass?: boolean
   file?: File
@@ -34,6 +36,7 @@ export type SlipInput = Input
 
 const NO_CREDIT_NOTE = 'เครดิตตรวจสลิปของร้านหมดแล้ว เติมเครดิตในหน้าตั้งค่าร้านค้า'
 export type ProcessedSlip = {
+  tabBalance?: import('@/lib/features/commerce/customer-tab-types').TabBalance
   paymentPro?: boolean
   automationAllowed?: boolean
   id?: string
@@ -61,10 +64,23 @@ export async function processSlip(
     expectedAmount,
     tenant = null,
     orderIds = [],
+    customerTabId,
   }: Input,
 ): Promise<ProcessedSlip> {
   if (!tenant) throw new Error('FEATURE_LOCKED: tenant required')
   await requireFeature(db, tenant.id, 'slip_auto_pilot')
+  if (customerId) {
+    const pending = await pendingOrders(db, customerId, tenant.id)
+    const tabIds = customerTabId ? [customerTabId] : pending.tabIds
+    if (tabIds?.length) {
+      const { processCustomerTabSlip } = await import('./customer-tab-slip')
+      return processCustomerTabSlip(
+        db,
+        { file, qr, customerId, messageId, tenant, customerTabId },
+        tabIds,
+      )
+    }
+  }
   if (process.env.PAYMENT_PRO_ENABLED === 'true') {
     const { processPaymentPro } = await import('@/lib/features/payments/payment-pro')
     const result = await processPaymentPro(db, {

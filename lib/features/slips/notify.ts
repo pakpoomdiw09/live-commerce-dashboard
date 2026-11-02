@@ -271,13 +271,34 @@ export async function notifySlipResult(
     // Share the durable receipt key with the admin's confirmation button. Neither a webhook
     // replay nor clicking the button afterwards may deliver/charge for the same receipt twice.
     const externalId = verified ? `slip-confirm:${slip.id}` : `slip:${slip.id}`
-    const body = verified
-      ? slipConfirmationText(
-          slip.amount,
-          shopName,
-          await customerSlipConfirmationTemplate(db, customer.id),
-        )
-      : slipReplyText(slip, shopName)
+    if (slip.tabBalance) {
+      const latest = await db
+        .from('customer_tabs')
+        .select('id,total_amount,paid_amount,remaining_amount,status')
+        .eq('id', slip.tabBalance.tabId)
+        .eq('customer_id', customer.id)
+        .single()
+      if (latest.error) throw latest.error
+      slip = {
+        ...slip,
+        tabBalance: {
+          tabId: latest.data.id,
+          totalAmount: Number(latest.data.total_amount),
+          paidAmount: Number(latest.data.paid_amount),
+          remainingAmount: Number(latest.data.remaining_amount),
+          status: latest.data.status,
+        },
+      }
+    }
+    const body = slip.tabBalance
+      ? `รับยอดโอน ${Number(slip.amount ?? 0).toLocaleString('th-TH')} บาท ตรวจสอบผ่านแล้วครับ\nยอดรวมสะสม ${Number(slip.tabBalance.totalAmount).toLocaleString('th-TH')} บาท\nโอนแล้ว ${Number(slip.tabBalance.paidAmount).toLocaleString('th-TH')} บาท\nยอดค้างชำระสุทธิ ${Number(slip.tabBalance.remainingAmount).toLocaleString('th-TH')} บาท\n${slip.tabBalance.remainingAmount === 0 ? 'ยอดครบถ้วนแล้ว ทางร้านเตรียมจัดส่งให้ครับ' : 'สามารถโอนส่วนที่เหลือเพิ่มเติมได้ครับ ขอบพระคุณครับ'}`
+      : verified
+        ? slipConfirmationText(
+            slip.amount,
+            shopName,
+            await customerSlipConfirmationTemplate(db, customer.id),
+          )
+        : slipReplyText(slip, shopName)
     const sent = await deliverTextOnce(db, customer, externalId, body, undefined, verified)
     if (sent && verified)
       await db.from('slips').update({ confirmed_at: new Date().toISOString() }).eq('id', slip.id)

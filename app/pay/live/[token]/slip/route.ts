@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyLiveCfPaymentToken } from '@/lib/features/commerce/live-cf-payment-link'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { isPaymentImage, PAYMENT_MAX_BYTES } from '@/lib/features/payments/payment-validation'
+import { tabForOrder } from '@/lib/features/commerce/customer-tabs-server'
+import { processSlip } from '@/lib/features/slips/process'
+import { notifyVerifiedSlipForCustomer } from '@/lib/features/slips/notify'
 
 export const runtime = 'nodejs'
 const reply = (data: unknown, status = 200) =>
@@ -17,6 +20,38 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   const db = supabaseAdmin()
   let imagePath: string | null = null
   try {
+    const tab = await tabForOrder(db, verified.orderId)
+    if (tab) {
+      if (Number(tab.remaining_amount) <= 0) return reply({ error: 'บิลนี้ชำระครบแล้ว' }, 409)
+      const form = await req.formData()
+      const file = form.get('file')
+      if (!(file instanceof File) || !(await isPaymentImage(file)))
+        return reply({ error: 'กรุณาเลือก JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB' }, 400)
+      const tenant = await db
+        .from('tenants')
+        .select('id,account_number,bank_code')
+        .eq('id', tab.tenant_id)
+        .eq('page_id', tab.page_id)
+        .eq('is_active', true)
+        .single()
+      if (tenant.error) throw tenant.error
+      const result = await processSlip(db, {
+        file,
+        customerId: tab.customer_id,
+        customerTabId: tab.id,
+        tenant: tenant.data,
+      })
+      if (result.status !== 'valid')
+        return reply(
+          {
+            error: result.note || 'ยังยืนยันสลิปไม่ได้ กรุณาตรวจสอบหลักฐานหรือติดต่อร้านค้า',
+            status: result.status,
+          },
+          422,
+        )
+      await notifyVerifiedSlipForCustomer(db, result, tab.customer_id, tab.tenant_id)
+      return reply({ submitted: true, balance: result.tabBalance })
+    }
     const order = await db
       .from('orders')
       .select('id,tenant_id,status')

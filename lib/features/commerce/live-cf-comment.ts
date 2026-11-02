@@ -52,6 +52,7 @@ export async function handleLiveCfComment(
     getPayment: () => Promise<LiveCfPayment | null>
     getPendingTotal: () => Promise<number>
     getPaymentLink: (orderId: string) => Promise<string | null> | string | null
+    getCumulativeBill?: (orderId: string) => Promise<string | null>
     sendPrivateReply?: (message: string) => Promise<unknown>
     replyToComment?: (message: string) => Promise<unknown>
     privateTemplate?: string | null
@@ -104,6 +105,11 @@ export async function handleLiveCfComment(
     jobs.push({
       channel: 'private',
       send: async () => {
+        const cumulative = await dependencies.getCumulativeBill?.(order.orderId)
+        if (cumulative) {
+          await dependencies.sendPrivateReply!(cumulative)
+          return
+        }
         // A failed total lookup or missing signed link must not produce an incorrect bill.
         const [payment, total, paymentLink] = await Promise.all([
           dependencies.getPayment(),

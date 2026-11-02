@@ -9,6 +9,7 @@ import { SLIP_STATUS } from '@/lib/status'
 import type { CustomerRow, SlipRow } from '@/lib/types'
 import { baht, cn } from '@/lib/utils'
 import { CustomerPanel } from '@/components/inbox/CustomerPanel'
+import { CustomerTabsPanel } from '@/components/inbox/CustomerTabsPanel'
 import { ConversationHistory } from '@/components/inbox/ConversationHistory'
 import type { InboxState } from '@/lib/features/inbox/inbox-types'
 import { FollowUpContactControl } from '@/components/inbox/FollowUpContactControl'
@@ -84,6 +85,17 @@ export function Inspector({
               </button>
             ))}
           </nav>
+          {(tab === 'profile' || tab === 'orders') && (
+            <CustomerTabsPanel
+              key={customer.id}
+              customerId={customer.id}
+              onSelectSlip={(id) => {
+                onSelectSlip(id)
+                setTab('profile')
+                if (slipSection.current) slipSection.current.open = true
+              }}
+            />
+          )}
           {tab === 'notes' && (
             <WorkspaceTools
               key={customer.id}

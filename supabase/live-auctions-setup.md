@@ -1,5 +1,10 @@
 # Live auctions
 
+For cumulative bills and automatic partial payments, continue with
+[customer-tabs-setup.md](customer-tabs-setup.md) after installing this base auction
+schema. Its payment flow replaces manual one-order proof submission for newly
+consolidated live orders; existing historical orders keep the legacy flow below.
+
 Apply `live-auctions.sql` after `live-cf-customer-variants.sql` and
 `facebook-webhook-nonblocking.sql`, before deploying the updated application.
 Fresh installations can use the regenerated `complete_schema.sql`.

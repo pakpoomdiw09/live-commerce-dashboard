@@ -110,6 +110,7 @@ function fixture({
         createLiveCfPaymentLink: () =>
           missingLink ? null : 'https://shop.example/pay/live/signed',
       },
+      './customer-tabs-server': { tabForOrder: async () => null },
       '@/lib/integrations/facebook/auction-comment-parser': parser,
       '@/lib/features/comments/live-comment-routing': routing,
     },

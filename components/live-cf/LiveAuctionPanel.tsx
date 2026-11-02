@@ -412,6 +412,36 @@ export function LiveAuctionPanel({
                 ))}
               </div>
             )}
+            <div className="flex flex-wrap gap-3 rounded-xl bg-slate-50 p-3">
+              <button
+                type="button"
+                disabled={busy || auction.status === 'active'}
+                onClick={() =>
+                  void mutate('/api/customer-tabs', {
+                    action: 'end_live',
+                    livePostId: auction.live_post_id,
+                    requestId: crypto.randomUUID(),
+                    reminders: true,
+                  })
+                }
+                className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs font-semibold text-orange-700 disabled:opacity-50"
+              >
+                จบไลฟ์และตั้งทวงยอด
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void mutate('/api/customer-tabs', {
+                    action: 'remind_all',
+                    requestId: crypto.randomUUID(),
+                  })
+                }
+                className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                ให้ AI แจ้งยอดค้างทั้งหมด
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-sm">
                 <caption className="mb-3 text-left font-semibold">ประวัติการเคาะล่าสุด</caption>
