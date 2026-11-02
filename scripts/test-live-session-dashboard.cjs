@@ -7,6 +7,47 @@ const { build } = require('./build-full-database-setup.cjs')
 const load = require('./helpers/load-typescript.cjs')
 const { NextRequest, NextResponse } = require('next/server')
 const types = load('lib/features/commerce/live-session-types.ts')
+const automation = load('lib/features/commerce/session-automation.ts', {
+  './auction-templates': load('lib/features/commerce/auction-templates.ts'),
+})
+const auctionParser = load('lib/integrations/facebook/auction-comment-parser.ts')
+
+test('Session bid shortcuts and host switches are deterministic and preserve legacy parsing', () => {
+  const settings = automation.defaultSessionAutomation(randomUUID())
+  for (const text of settings.keywords)
+    assert.equal(auctionParser.parseAuctionComment(text, false, settings).type, 'STEP_BID')
+  assert.equal(auctionParser.parseAuctionComment('11').type, 'NUMERIC_BID')
+  assert.equal(
+    auctionParser.parseAuctionComment('❤️', false, { ...settings, heartCloses: true }).type,
+    'IGNORE',
+  )
+  assert.equal(
+    auctionParser.parseAuctionComment('❤️', true, { ...settings, heartCloses: true }).action,
+    'close',
+  )
+  assert.equal(
+    auctionParser.parseAuctionComment('❌', true, { ...settings, closeEnabled: false }).type,
+    'IGNORE',
+  )
+  assert.equal(
+    auctionParser.parseAuctionComment('3', true, { ...settings, countEnabled: false }).type,
+    'IGNORE',
+  )
+  assert.equal(automation.validSessionAutomation(settings), true)
+  assert.equal(automation.validSessionAutomation({ ...settings, keywords: ['1', '１'] }), false)
+  assert.equal(automation.validSessionAutomation({ ...settings, bidText: '{total}' }), false)
+  assert.equal(
+    automation.validSessionAutomation({
+      ...settings,
+      privateText: '{name} {item} {price} {total}',
+    }),
+    true,
+  )
+  assert.equal(
+    automation.sessionAuctionTemplate('{name} {item} {price} {total}'),
+    '{bidder_name} {product_name} {price} {total}',
+  )
+})
 
 test('session money uses integer satang; follow-up formulas and placeholders never invent balances', () => {
   assert.equal(types.sumMoney([0.1, 0.2]), 0.3)
@@ -394,6 +435,132 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     assert.equal(snapshot.metrics.unpaidPeople, 0)
     assert.equal(snapshot.metrics.partialPeople, 2)
     assert.equal(snapshot.metrics.profit, 180)
+    // All-in-one Session start/settings reuse the ledger and existing Page dispatch slots.
+    const config = {
+      ...automation.defaultSessionAutomation(bank),
+      privateReply: false,
+      publicReply: false,
+    }
+    const configure = async (input, request = randomUUID(), shop = tenant) =>
+      (
+        await one('select configure_auction_session($1,$2,$3,$4) result', [
+          shop,
+          actor,
+          request,
+          input,
+        ])
+      ).result
+    const start = { action: 'start', pageId: '100', livePostId: '987', settings: config }
+    const startRequest = randomUUID()
+    const started = await configure(start, startRequest)
+    assert.deepEqual(
+      await configure(start, startRequest),
+      started,
+      'start retries cannot create another Session',
+    )
+    assert.equal(
+      (await configure({ ...start, settings: { ...config, keywords: ['custom'] } })).id,
+      started.id,
+    )
+    assert.deepEqual(
+      (await one('select auction_settings from live_sessions where id=$1', [started.id]))
+        .auction_settings.keywords,
+      Array.from(config.keywords),
+    )
+    await assert.rejects(configure({ ...start, livePostId: '988' }, startRequest), /REQUEST_REUSED/)
+    await assert.rejects(configure(start, randomUUID(), other), /BANK_SCOPE|PAGE_SCOPE/)
+    const changed = { ...config, heartCloses: true, keywords: ['11', 'raise'] }
+    const savedSettings = await configure({
+      action: 'settings',
+      sessionId: started.id,
+      revision: started.revision,
+      settings: changed,
+    })
+    assert.equal(savedSettings.revision, started.revision + 1)
+    await assert.rejects(
+      configure({
+        action: 'settings',
+        sessionId: started.id,
+        revision: started.revision,
+        settings: changed,
+      }),
+      /SETTINGS_CHANGED/,
+    )
+    const active = await open('987')
+    const configuredRound = await one('select * from auctions where id=$1', [active])
+    assert.deepEqual(configuredRound.session_automation.keywords, ['11', 'raise'])
+    assert.equal(configuredRound.private_reply_enabled, false)
+    await process(active, '900', '200', 'NUMERIC_BID', 200, null, '987')
+    const intent = auctionParser.parseAuctionComment(
+      'raise',
+      false,
+      configuredRound.session_automation,
+    )
+    assert.equal(
+      (await process(active, '900', 'raise', intent.type, null, null, '987')).amount,
+      220,
+    )
+    await configure({
+      action: 'settings',
+      sessionId: started.id,
+      revision: savedSettings.revision,
+      settings: { ...changed, countEnabled: false },
+    })
+    const updatedRound = await one(
+      'select current_price,session_automation from auctions where id=$1',
+      [active],
+    )
+    assert.equal(
+      updatedRound.session_automation.countEnabled,
+      false,
+      'saved settings reach an already active round',
+    )
+    assert.equal(
+      Number(updatedRound.current_price),
+      220,
+      'changing automation cannot reset the accepted bid',
+    )
+    await process(active, '100', '❤️', 'HOST_CONTROL', null, 'close', '987')
+    const dashboardOrder = await one('select * from orders where source_id=$1', [active])
+    assert.equal(dashboardOrder.order_type, 'auction')
+    assert.equal(dashboardOrder.live_session_id, started.id)
+    assert.equal(Number((await getTab(dashboardOrder.customer_tab_id)).total_amount), 270)
+    await pay(dashboardOrder.customer_tab_id, 200)
+    let all = (await one('select live_auction_dashboard($1,$2) result', [tenant, started.id]))
+      .result
+    assert.equal(all.slips.length, 1)
+    assert.equal(all.slips[0].amount, 200)
+    assert.equal(all.metrics.remaining, 70)
+    assert.equal(all.commenters.length, 1, 'Page host is not a customer')
+    assert.equal(all.commenters[0].fbId, '900')
+    assert.equal(all.commenters[0].customerId, dashboardOrder.customer_id)
+    assert.ok(all.slips.every((s) => s.name === 'Buyer 900'))
+    await pay(dashboardOrder.customer_tab_id, 70)
+    all = (await one('select live_auction_dashboard($1,$2) result', [tenant, started.id])).result
+    assert.equal(all.metrics.remaining, 0)
+    assert.equal(all.slips.length, 2)
+    const fulfillment = (
+      await one('select shipping_snapshot(p_tenant => $1,p_session => $2) result', [
+        tenant,
+        started.id,
+      ])
+    ).result
+    assert.equal(fulfillment.length, 1, 'the paid tab automatically creates one shipping row')
+    assert.equal(fulfillment[0].payment_ready, true)
+    await assert.rejects(
+      one('select live_auction_dashboard($1,$2)', [other, started.id]),
+      /SESSION_NOT_FOUND/,
+    )
+    await db.query('update live_sessions set ended_at=clock_timestamp() where id=$1', [started.id])
+    await assert.rejects(configure(start), /SESSION_ENDED/)
+    assert.equal(
+      (
+        await one(
+          "select has_function_privilege('authenticated','configure_auction_session(uuid,uuid,uuid,jsonb)','execute') allowed",
+        )
+      ).allowed,
+      false,
+    )
     for (const name of ['live_session_changes', 'live_reminder_dispatch_slots'])
       assert.equal(
         (await one("select has_table_privilege('authenticated',$1,'insert') allowed", [name]))

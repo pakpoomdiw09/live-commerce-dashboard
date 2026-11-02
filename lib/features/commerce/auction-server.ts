@@ -217,6 +217,7 @@ export async function handleAuctionComment(input: {
 }): Promise<boolean> {
   const { value, tenantId, pageId, token, execution } = input
   if (typeof value.message !== 'string' || typeof value.comment_id !== 'string') return false
+  const text = value.message
   const ids = commentPostIds(value)
   if (!ids.length) return false
   const db = supabaseAdmin({ timeoutMs: 15000 })
@@ -240,8 +241,11 @@ export async function handleAuctionComment(input: {
   if (
     !auction &&
     candidates.length &&
-    (parseAuctionComment(value.message).type !== 'IGNORE' ||
-      parseAuctionComment(value.message, true).type !== 'IGNORE')
+    candidates.some(
+      (a) =>
+        parseAuctionComment(text, false, a.session_automation).type !== 'IGNORE' ||
+        parseAuctionComment(text, true, a.session_automation).type !== 'IGNORE',
+    )
   ) {
     const resolved = await resolveLiveCommentVideo(token, ids[0])
     auction = candidates.find((a) =>
@@ -267,7 +271,7 @@ export async function handleAuctionComment(input: {
     return true
   }
   const isHost = author.id === pageId || auction.host_ids.includes(author.id)
-  const parsed = parseAuctionComment(value.message, isHost)
+  const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
   if (parsed.type === 'IGNORE') return true
   await execution.assertLease()
   const processed = await db.rpc('process_live_auction_comment', {

@@ -32,9 +32,19 @@ const filters = [
   { id: 'shipped', label: 'ส่งพัสดุแล้ว' },
   { id: 'cancelled', label: 'ยกเลิกรายการส่ง' },
 ]
-export function ShippingDashboard({ tenantId, shopName }: { tenantId: string; shopName: string }) {
+export function ShippingDashboard({
+  tenantId,
+  shopName,
+  sessionId,
+  embedded = false,
+}: {
+  tenantId: string
+  shopName: string
+  sessionId?: string
+  embedded?: boolean
+}) {
   const [data, setData] = useState<ShippingData>({ shipments: [], settings: null, sessions: [] })
-  const [session, setSession] = useState('all'),
+  const [session, setSession] = useState(sessionId ?? 'all'),
     [status, setStatus] = useState('all'),
     [selected, setSelected] = useState<string[]>([])
   const [error, setError] = useState(''),
@@ -122,7 +132,12 @@ export function ShippingDashboard({ tenantId, shopName }: { tenantId: string; sh
     [tenantId],
   )
   const sessionRows = data.shipments.filter(
-    (shipment) => session !== 'legacy' || !shipment.live_session_id,
+    (shipment) =>
+      (session === 'all' ||
+        (session === 'legacy'
+          ? !shipment.live_session_id
+          : shipment.live_session_id === session)) &&
+      (!embedded || shipment.payment_ready),
   )
   const rows = sessionRows.filter(
     (shipment) =>
@@ -210,7 +225,10 @@ export function ShippingDashboard({ tenantId, shopName }: { tenantId: string; sh
     }
   }
   return (
-    <div className="min-w-0 shrink-0 space-y-5 p-4 md:p-8" data-shipping-dashboard>
+    <div
+      className={`min-w-0 shrink-0 space-y-5 ${embedded ? '' : 'p-4 md:p-8'}`}
+      data-shipping-dashboard
+    >
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
@@ -266,6 +284,7 @@ export function ShippingDashboard({ tenantId, shopName }: { tenantId: string; sh
             Session ไลฟ์สด
             <select
               aria-label="Session จัดส่ง"
+              disabled={!!sessionId}
               className={field}
               value={session}
               onChange={(event) => {
@@ -274,8 +293,15 @@ export function ShippingDashboard({ tenantId, shopName }: { tenantId: string; sh
                 setLoading(true)
               }}
             >
-              <option value="all">ทุก Session</option>
-              <option value="legacy">ออเดอร์นอก Session</option>
+              {!sessionId && (
+                <>
+                  <option value="all">ทุก Session</option>
+                  <option value="legacy">ออเดอร์นอก Session</option>
+                </>
+              )}
+              {sessionId && !data.sessions.some((item) => item.id === sessionId) && (
+                <option value={sessionId}>Session ที่เลือกด้านบน</option>
+              )}
               {data.sessions.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.live_post_id} • {new Date(item.created_at).toLocaleDateString('th-TH')}

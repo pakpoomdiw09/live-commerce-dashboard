@@ -1,3 +1,4 @@
+import type { SessionAutomation } from './session-automation'
 export type Auction = {
   id: string
   tenant_id: string
@@ -22,6 +23,7 @@ export type Auction = {
   private_reply_template?: string
   bid_reply_template?: string
   close_reply_template?: string
+  session_automation?: SessionAutomation | null
 }
 
 export type AuctionBid = {

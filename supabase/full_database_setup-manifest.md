@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 110 ไฟล์: รวมตาม dependencies 93 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 112 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 111 ไฟล์: รวมตาม dependencies 94 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 113 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (860720 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (871989 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (748312 bytes, 12177 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (758532 bytes, 12326 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -130,6 +130,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 91. [live-session-dashboard.sql](live-session-dashboard.sql) — 31 statements retained
 92. [shipping-fulfillment.sql](shipping-fulfillment.sql) — 35 statements retained
 93. [live-order-types.sql](live-order-types.sql) — 7 statements retained
+94. [live-auction-dashboard.sql](live-auction-dashboard.sql) — 14 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -158,6 +159,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | Migration | ต้องอยู่หลัง |
 | --- | --- |
 | live-order-types.sql | live-session-dashboard.sql |
+| live-auction-dashboard.sql | live-order-types.sql, shipping-fulfillment.sql |
 | shipping-fulfillment.sql | live-session-dashboard.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
@@ -416,3 +418,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-session-dashboard.sql: `791015cacf4a17c065f2e08dd10287f3c2366b24259aea43f17e5e8988499ee5`
 - shipping-fulfillment.sql: `abc1f380707a3baf1bb18df305b7e06f1be6dbaf3e7eb148a8e20ecfcac486fe`
 - live-order-types.sql: `eb6171db344172c6b92c8fe04ee96f2a71afb4d15c1af599f59dab0c57a54d01`
+- live-auction-dashboard.sql: `7b17bf54411dc1c84510ecf2a204c12dafe82c56d28b960be0061e4898bb679e`

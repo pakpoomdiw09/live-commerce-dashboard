@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Gavel, Radio, Trophy } from 'lucide-react'
 import type { Auction, AuctionBid } from '@/lib/features/commerce/auction-types'
+import type { LiveSession } from '@/lib/features/commerce/live-session-types'
 import { LiveSourcePicker, type LiveSourcePage } from './LiveSourcePicker'
 import { LiveSwitch, LiveTemplateEditor, ReceivingBankPicker } from './LiveReplyControls'
 import {
@@ -39,12 +40,14 @@ export function LiveAuctionPanel({
   pages = [],
   active = true,
   onSessionEnded,
+  session,
 }: {
   tenantId: string
   bankAccounts: { id: string; bank_code: string; account_number: string }[]
   pages?: LiveSourcePage[]
   active?: boolean
   onSessionEnded?: () => void
+  session?: LiveSession
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ auctions: [], bids: [], deliveries: [] })
   const [selectedId, setSelectedId] = useState('')
@@ -72,11 +75,36 @@ export function LiveAuctionPanel({
     bidText: displayAuctionTemplate(AUCTION_BID_TEMPLATE),
     closeText: displayAuctionTemplate(AUCTION_CLOSE_TEMPLATE),
   })
+  const sessionPageId = session?.page_id
+  const sessionPostId = session?.live_post_id
+  const sessionSettings = session?.auction_settings
+  useEffect(() => {
+    if (!sessionPageId || !sessionPostId) return
+    setDraft((previous) => ({
+      ...previous,
+      pageId: sessionPageId,
+      livePostId: sessionPostId,
+      ...(sessionSettings
+        ? {
+            bankAccountId: sessionSettings.bankAccountId,
+            privateReply: sessionSettings.privateReply,
+            publicReply: sessionSettings.publicReply,
+            privateText: sessionSettings.privateText,
+            bidText: sessionSettings.bidText,
+            closeText: sessionSettings.closeText,
+          }
+        : {}),
+    }))
+  }, [sessionPageId, sessionPostId, sessionSettings])
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
       const version = ++requestVersion.current
       try {
         const params = new URLSearchParams({ tenantId })
+        if (sessionPageId && sessionPostId) {
+          params.set('pageId', sessionPageId)
+          params.set('livePostId', sessionPostId)
+        }
         if (selectedId) params.set('id', selectedId)
         const response = await fetch(`/api/live-cf/auction?${params}`, {
           cache: 'no-store',
@@ -100,7 +128,7 @@ export function LiveAuctionPanel({
         if (!signal?.aborted && version === requestVersion.current) setLoading(false)
       }
     },
-    [tenantId, selectedId],
+    [tenantId, selectedId, sessionPageId, sessionPostId],
   )
 
   useEffect(() => {
@@ -181,6 +209,7 @@ export function LiveAuctionPanel({
         </div>
         <button
           type="button"
+          disabled={!!session?.ended_at}
           onClick={() => setShowForm(!showForm)}
           className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
         >
@@ -201,20 +230,22 @@ export function LiveAuctionPanel({
             {notice}
           </p>
         )}
-        <div className="sm:col-span-2 lg:col-span-3">
-          <LiveSourcePicker
-            pages={pages}
-            pageId={showForm ? draft.pageId : (auction?.page_id ?? draft.pageId)}
-            livePostId={showForm ? draft.livePostId : (auction?.live_post_id ?? draft.livePostId)}
-            active={active}
-            disabled={busy || !showForm}
-            onPageChange={(pageId) =>
-              setDraft((previous) => ({ ...previous, pageId, livePostId: '' }))
-            }
-            onLiveChange={(livePostId) => setDraft((previous) => ({ ...previous, livePostId }))}
-          />
-        </div>
-        {showForm && (
+        {!session && (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <LiveSourcePicker
+              pages={pages}
+              pageId={showForm ? draft.pageId : (auction?.page_id ?? draft.pageId)}
+              livePostId={showForm ? draft.livePostId : (auction?.live_post_id ?? draft.livePostId)}
+              active={active}
+              disabled={busy || !showForm}
+              onPageChange={(pageId) =>
+                setDraft((previous) => ({ ...previous, pageId, livePostId: '' }))
+              }
+              onLiveChange={(livePostId) => setDraft((previous) => ({ ...previous, livePostId }))}
+            />
+          </div>
+        )}
+        {showForm && !session?.ended_at && (
           <form
             onSubmit={(event) => {
               event.preventDefault()
@@ -260,17 +291,19 @@ export function LiveAuctionPanel({
                 />
               </label>
             ))}
-            <div className="max-w-lg">
-              <ReceivingBankPicker
-                accounts={bankAccounts}
-                value={draft.bankAccountId}
-                required
-                disabled={busy}
-                onChange={(bankAccountId) =>
-                  setDraft((previous) => ({ ...previous, bankAccountId }))
-                }
-              />
-            </div>
+            {!session && (
+              <div className="max-w-lg">
+                <ReceivingBankPicker
+                  accounts={bankAccounts}
+                  value={draft.bankAccountId}
+                  required
+                  disabled={busy}
+                  onChange={(bankAccountId) =>
+                    setDraft((previous) => ({ ...previous, bankAccountId }))
+                  }
+                />
+              </div>
+            )}
             <label className="text-sm font-medium sm:col-span-2">
               Facebook ID ผู้ช่วยคุมประมูล (ถ้ามี)
               <input
@@ -283,86 +316,88 @@ export function LiveAuctionPanel({
                 ID ที่เพิ่มมีสิทธิ์สั่งปิดผ่านคอมเมนต์ได้
               </span>
             </label>
-            <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2 lg:col-span-3">
-              <h2 className="font-bold text-slate-900">ข้อความตอบกลับอัตโนมัติ</h2>
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <LiveSwitch
-                    checked={draft.privateReply}
-                    disabled={busy}
-                    label="ส่งสรุปยอดเข้า Messenger"
-                    onChange={(privateReply) =>
-                      setDraft((previous) => ({ ...previous, privateReply }))
-                    }
-                  />
-                  <span className="text-sm font-semibold">
-                    ส่งสรุปยอดและลิงก์ชำระเงินเข้ากล่องข้อความ Facebook (Messenger)
-                  </span>
+            {!session && (
+              <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2 lg:col-span-3">
+                <h2 className="font-bold text-slate-900">ข้อความตอบกลับอัตโนมัติ</h2>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <LiveSwitch
+                      checked={draft.privateReply}
+                      disabled={busy}
+                      label="ส่งสรุปยอดเข้า Messenger"
+                      onChange={(privateReply) =>
+                        setDraft((previous) => ({ ...previous, privateReply }))
+                      }
+                    />
+                    <span className="text-sm font-semibold">
+                      ส่งสรุปยอดและลิงก์ชำระเงินเข้ากล่องข้อความ Facebook (Messenger)
+                    </span>
+                  </div>
+                  {draft.privateReply && (
+                    <LiveTemplateEditor
+                      label="ข้อความสรุปยอดผู้ชนะประมูล"
+                      value={draft.privateText}
+                      disabled={busy}
+                      variables={auctionVariables}
+                      onChange={(privateText) =>
+                        setDraft((previous) => ({ ...previous, privateText }))
+                      }
+                    />
+                  )}
+                  <p className="text-xs text-slate-500">
+                    ยอดชำระ คือยอดค้างสุทธิของบิลสะสมหลังหักยอดโอนที่ตรวจสอบแล้ว
+                    ระบบแนบสรุปยอดและลิงก์แนบสลิปให้เสมอ ข้อความยาวจะย่อให้เหมาะกับปุ่ม Messenger
+                    โดยคงยอดเงินและลิงก์บิลครบถ้วน
+                  </p>
                 </div>
-                {draft.privateReply && (
-                  <LiveTemplateEditor
-                    label="ข้อความสรุปยอดผู้ชนะประมูล"
-                    value={draft.privateText}
-                    disabled={busy}
-                    variables={auctionVariables}
-                    onChange={(privateText) =>
-                      setDraft((previous) => ({ ...previous, privateText }))
-                    }
-                  />
-                )}
+                <div className="space-y-3 border-t border-slate-100 pt-4">
+                  <div className="flex items-center gap-3">
+                    <LiveSwitch
+                      checked={draft.publicReply}
+                      disabled={busy}
+                      label="ตอบกลับใต้คอมเมนต์ประมูล"
+                      onChange={(publicReply) =>
+                        setDraft((previous) => ({ ...previous, publicReply }))
+                      }
+                    />
+                    <span className="text-sm font-semibold">ตอบกลับใต้คอมเมนต์</span>
+                  </div>
+                  {draft.publicReply && (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <p className="text-sm font-medium">ยืนยันผู้เปิดราคา / ผู้นำล่าสุด</p>
+                        <LiveTemplateEditor
+                          label="ข้อความยืนยันผู้นำประมูล"
+                          value={draft.bidText}
+                          variables={auctionPublicVariables}
+                          rows={3}
+                          maxLength={600}
+                          disabled={busy}
+                          onChange={(bidText) => setDraft((previous) => ({ ...previous, bidText }))}
+                        />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">ประกาศผู้ชนะเมื่อปิดประมูล (❌)</p>
+                        <LiveTemplateEditor
+                          label="ข้อความประกาศผู้ชนะประมูล"
+                          value={draft.closeText}
+                          variables={auctionPublicVariables}
+                          rows={3}
+                          maxLength={600}
+                          disabled={busy}
+                          onChange={(closeText) =>
+                            setDraft((previous) => ({ ...previous, closeText }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500">
-                  ยอดชำระ คือยอดค้างสุทธิของบิลสะสมหลังหักยอดโอนที่ตรวจสอบแล้ว
-                  ระบบแนบสรุปยอดและลิงก์แนบสลิปให้เสมอ ข้อความยาวจะย่อให้เหมาะกับปุ่ม Messenger
-                  โดยคงยอดเงินและลิงก์บิลครบถ้วน
+                  ใช้บัญชีนี้ในบิลสะสมและหน้าชำระเงิน คิดค่าจัดส่งครั้งเดียวต่อรอบไลฟ์
                 </p>
               </div>
-              <div className="space-y-3 border-t border-slate-100 pt-4">
-                <div className="flex items-center gap-3">
-                  <LiveSwitch
-                    checked={draft.publicReply}
-                    disabled={busy}
-                    label="ตอบกลับใต้คอมเมนต์ประมูล"
-                    onChange={(publicReply) =>
-                      setDraft((previous) => ({ ...previous, publicReply }))
-                    }
-                  />
-                  <span className="text-sm font-semibold">ตอบกลับใต้คอมเมนต์</span>
-                </div>
-                {draft.publicReply && (
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div>
-                      <p className="text-sm font-medium">ยืนยันผู้เปิดราคา / ผู้นำล่าสุด</p>
-                      <LiveTemplateEditor
-                        label="ข้อความยืนยันผู้นำประมูล"
-                        value={draft.bidText}
-                        variables={auctionPublicVariables}
-                        rows={3}
-                        maxLength={600}
-                        disabled={busy}
-                        onChange={(bidText) => setDraft((previous) => ({ ...previous, bidText }))}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">ประกาศผู้ชนะเมื่อปิดประมูล (❌)</p>
-                      <LiveTemplateEditor
-                        label="ข้อความประกาศผู้ชนะประมูล"
-                        value={draft.closeText}
-                        variables={auctionPublicVariables}
-                        rows={3}
-                        maxLength={600}
-                        disabled={busy}
-                        onChange={(closeText) =>
-                          setDraft((previous) => ({ ...previous, closeText }))
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-slate-500">
-                ใช้บัญชีนี้ในบิลสะสมและหน้าชำระเงิน คิดค่าจัดส่งครั้งเดียวต่อรอบไลฟ์
-              </p>
-            </div>
+            )}
             <p className="text-sm text-slate-500 sm:col-span-2">
               ลูกค้าพิมพ์ “เปิดให้ 10 ลุ้น” เพื่อเปิดตามราคาตั้งต้น หรือ “1” / “+1”
               เพื่อเพิ่มหนึ่งสเต็ป ระหว่างรอบนี้คอมเมนต์ของไลฟ์จะเข้าระบบประมูล
@@ -470,7 +505,7 @@ export function LiveAuctionPanel({
                       key={action}
                       data-auction-action={action}
                       type="button"
-                      disabled={busy}
+                      disabled={busy || auction.session_automation?.countEnabled === false}
                       onClick={() =>
                         void mutate('/api/live-cf/auction/host-action', {
                           auctionId: auction.id,
@@ -485,7 +520,7 @@ export function LiveAuctionPanel({
                   <button
                     type="button"
                     data-auction-action="close"
-                    disabled={busy}
+                    disabled={busy || auction.session_automation?.closeEnabled === false}
                     onClick={() =>
                       void mutate('/api/live-cf/auction/host-action', {
                         auctionId: auction.id,

@@ -18,12 +18,14 @@ export async function GET(req: NextRequest) {
     const denied = await authorizeAuction(req, tenantId)
     if (denied) return denied
     const db = supabaseAdmin()
-    const auctions = await db
-      .from('auctions')
-      .select('*')
-      .eq('tenant_id', tenantId!)
-      .order('created_at', { ascending: false })
-      .limit(10)
+    const livePostId = req.nextUrl.searchParams.get('livePostId')
+    const pageId = req.nextUrl.searchParams.get('pageId')
+    if ((livePostId && !/^\d{1,64}$/.test(livePostId)) || (pageId && !/^\d{1,64}$/.test(pageId)))
+      return auctionReply({ error: 'รหัสไลฟ์ไม่ถูกต้อง' }, 400)
+    let query = db.from('auctions').select('*').eq('tenant_id', tenantId!)
+    if (livePostId) query = query.eq('live_post_id', livePostId)
+    if (pageId) query = query.eq('page_id', pageId)
+    const auctions = await query.order('created_at', { ascending: false }).limit(10)
     if (auctions.error) throw auctions.error
     const selected =
       req.nextUrl.searchParams.get('id') ||

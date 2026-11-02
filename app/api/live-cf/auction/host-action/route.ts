@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const db = supabaseAdmin({ timeoutMs: 15000 })
     const auction = await db
       .from('auctions')
-      .select('id,page_id,live_post_id,status')
+      .select('id,page_id,live_post_id,status,session_automation')
       .eq('id', input.auctionId)
       .eq('tenant_id', input.tenantId)
       .maybeSingle()
@@ -36,6 +36,14 @@ export async function POST(req: NextRequest) {
     if (!auction.data) return auctionReply({ error: 'ไม่พบรายการประมูลของร้านนี้' }, 404)
     if (auction.data.status !== 'active')
       return auctionReply({ error: 'รายการนี้ปิดหรือยกเลิกแล้ว' }, 409)
+    const automation = auction.data.session_automation
+    if (
+      automation &&
+      (input.action === 'close'
+        ? automation.closeEnabled === false
+        : automation.countEnabled === false)
+    )
+      return auctionReply({ error: 'คำสั่งนี้ปิดไว้ในค่าตั้งค่า Session' }, 409)
     const tenant = await db
       .from('tenants')
       .select('page_id,page_access_token')

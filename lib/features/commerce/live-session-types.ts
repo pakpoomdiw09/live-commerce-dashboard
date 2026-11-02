@@ -1,4 +1,5 @@
 import type { CustomerTab } from './customer-tab-types'
+import type { SessionAutomation } from './session-automation'
 
 export type LiveSession = {
   id: string
@@ -10,6 +11,8 @@ export type LiveSession = {
   ad_spent: number
   shipping_cost: number
   financial_revision: number
+  auction_settings?: SessionAutomation | null
+  automation_revision?: number
 }
 export type SessionRound = {
   id: string
@@ -55,6 +58,8 @@ export type SessionSnapshot = {
   }
   rounds: SessionRound[]
   tabs: SessionTab[]
+  slips?: { id: string; name: string; amount: number; at: string; transRef: string | null }[]
+  commenters?: { fbId: string; customerId?: string | null; name: string; at: string; comments: number }[]
 }
 export type SessionProofItem = {
   orderId: string

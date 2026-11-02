@@ -95,7 +95,7 @@ export function SessionFinance({ data, post }: { data: SessionSnapshot; post: Po
         <div
           className={`rounded-xl p-3 ${profit !== null && profit < 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'}`}
         >
-          <p className="text-xs">กำไร (บาท){dirty && ' • ยังไม่บันทึก'}</p>
+          <p className="text-xs">กำไรสุทธิ (บาท){dirty && ' • ยังไม่บันทึก'}</p>
           <output aria-label="กำไร Session" className="mt-1 block text-2xl font-bold tabular-nums">
             {profit === null ? '—' : money(profit)}
           </output>

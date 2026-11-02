@@ -1,6 +1,8 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { LiveSessionDashboard } from '@/components/live-cf/LiveSessionDashboard'
+import { defaultSessionAutomation } from '@/lib/features/commerce/session-automation'
+import type { ShippingShipment } from '@/lib/features/shipping/shipping-types'
 import {
   sessionProfit,
   sumMoney,
@@ -10,6 +12,14 @@ import {
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const sessionId = '22222222-2222-4222-8222-222222222222'
+const allInOne = new URL(location.href).searchParams.has('all')
+const bankId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+const secondSessionId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const options = {
+  pages: [{ id: '100', name: 'ดิว ไลฟ์สดพระเครื่อง' }],
+  bankAccounts: [{ id: bankId, bank_code: 'KTB', account_number: '9260337828' }],
+  shopName: 'SnapBot',
+}
 const ids = [
   '33333333-3333-4333-8333-333333333333',
   '44444444-4444-4444-8444-444444444444',
@@ -99,7 +109,65 @@ const snapshot: SessionSnapshot = {
     },
   ],
 }
-const state = { snapshot, requests: [] as Record<string, any>[], failAdjust: false, reads: 0 }
+if (allInOne) {
+  snapshot.session.ended_at = null
+  snapshot.session.auction_settings = defaultSessionAutomation(bankId)
+  snapshot.session.automation_revision = 0
+  snapshot.slips = [
+    {
+      id: 'paid-slip',
+      name: tabs[2].name,
+      amount: 300,
+      at: '2026-11-02T15:50:00Z',
+      transRef: 'VERIFIED',
+    },
+  ]
+  snapshot.commenters = [
+    {
+      fbId: '900',
+      customerId: tabs[0].customerId,
+      name: tabs[0].name,
+      at: '2026-11-02T15:50:00Z',
+      comments: 10,
+    },
+  ]
+}
+const secondSession = { ...snapshot.session, id: secondSessionId, live_post_id: '457' }
+const shipment: ShippingShipment = {
+  id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  tenant_id: tenantId,
+  customer_id: ids[2],
+  customer_tab_id: ids[2],
+  live_session_id: sessionId,
+  customer_name: tabs[2].name,
+  recipient_name: 'พรชัย',
+  phone_number: '0812345678',
+  shipping_address: '1 แขวงคลองถนน เขตสายไหม กรุงเทพมหานคร 10220',
+  subdistrict: 'คลองถนน',
+  district: 'สายไหม',
+  province: 'กรุงเทพมหานคร',
+  zipcode: '10220',
+  courier_name: 'Flash Express',
+  tracking_number: null,
+  fulfillment_status: 'ready_to_ship',
+  label_printed_at: null,
+  label_print_count: 0,
+  address_confirmed_at: '2026-11-02T15:50:00Z',
+  revision: 1,
+  created_at: '2026-11-02T15:50:00Z',
+  shipped_at: null,
+  paid_amount: 300,
+  payment_ready: true,
+  items: [{ order_id: tabs[2].items[0].orderId, item_name: 'พระสมเด็จ', amount: 300 }],
+  note: '',
+}
+const state = {
+  snapshot,
+  requests: [] as Record<string, any>[],
+  paths: [] as string[],
+  failAdjust: false,
+  reads: 0,
+}
 declare global {
   interface Window {
     sessionQA: typeof state
@@ -108,9 +176,57 @@ declare global {
 window.sessionQA = state
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
+  state.paths.push(url.pathname + url.search)
+  if (url.pathname === '/api/facebook/live-videos')
+    return Response.json({
+      pageId: '100',
+      fallback: false,
+      videos: [
+        {
+          id: '456',
+          title: 'ไลฟ์สดพระเครื่อง',
+          thumbnail: null,
+          createdAt: '2026-11-02T10:00:00Z',
+          isLive: true,
+        },
+      ],
+    })
+  if (url.pathname === '/api/shipping' && init?.method !== 'POST')
+    return Response.json({
+      shipments: [
+        shipment,
+        { ...shipment, id: 'unpaid', payment_ready: false, customer_name: 'Unpaid buyer' },
+        {
+          ...shipment,
+          id: 'foreign',
+          live_session_id: secondSessionId,
+          customer_name: 'Other Session buyer',
+        },
+      ],
+      settings: null,
+      sessions: [snapshot.session, secondSession],
+    })
+  if (url.pathname === '/api/shipping/export')
+    return new Response('\uFEFFRecipient Name,Phone Number\r\nBuyer,0812345678', {
+      headers: { 'Content-Type': 'text/csv;charset=utf-8' },
+    })
+  if (url.pathname === '/api/live-cf/auction')
+    return Response.json({ auctions: [], bids: [], deliveries: [] })
+  if (url.pathname.startsWith('/api/slips/'))
+    return Response.json({
+      slip: { id: 'paid-slip', amount: 300, status: 'valid', raw: {}, image_url: null },
+    })
   if (init?.method === 'POST') {
     const body = JSON.parse(String(init.body))
     state.requests.push(body)
+    if (url.pathname === '/api/shipping') return Response.json({ batchId: 'print-batch', ok: true })
+    if (url.pathname === '/api/live-auction/session') {
+      if (body.action === 'settings') {
+        snapshot.session.auction_settings = body.settings
+        snapshot.session.automation_revision = (snapshot.session.automation_revision ?? 0) + 1
+      }
+      return Response.json({ id: sessionId, revision: snapshot.session.automation_revision ?? 0 })
+    }
     if (body.action === 'costs') {
       Object.assign(snapshot.session, {
         cost_amount: Number(body.cost),
@@ -158,7 +274,19 @@ window.fetch = async (input, init) => {
     return Response.json({ ok: true })
   }
   state.reads++
-  if (!url.searchParams.has('sessionId')) return Response.json({ sessions: [snapshot.session] })
+  if (!url.searchParams.has('sessionId'))
+    return Response.json({
+      sessions: allInOne ? [snapshot.session, secondSession] : [snapshot.session],
+    })
+  if (url.searchParams.get('sessionId') === secondSessionId)
+    return Response.json({
+      ...snapshot,
+      session: secondSession,
+      tabs: [],
+      rounds: [],
+      slips: [],
+      commenters: [],
+    })
   if (url.searchParams.has('roundId'))
     return Response.json({
       bids: [
@@ -205,7 +333,7 @@ window.fetch = async (input, init) => {
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <main className="min-h-dvh min-w-0 bg-slate-50 p-4 md:p-8">
-      <LiveSessionDashboard tenantId={tenantId} />
+      <LiveSessionDashboard tenantId={tenantId} auction={allInOne ? options : undefined} />
     </main>
   </React.StrictMode>,
 )
