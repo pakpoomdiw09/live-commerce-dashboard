@@ -119,6 +119,7 @@ const groups = [
       'live-order-types.sql',
       'live-auction-dashboard.sql',
       'live-auction-instant-winners.sql',
+      'live-auction-customer-workspace.sql',
     ],
   ],
 ]
@@ -155,6 +156,7 @@ const prerequisites = {
   'live-order-types.sql': ['live-session-dashboard.sql'],
   'live-auction-dashboard.sql': ['live-order-types.sql', 'shipping-fulfillment.sql'],
   'live-auction-instant-winners.sql': ['live-auction-dashboard.sql'],
+  'live-auction-customer-workspace.sql': ['live-auction-instant-winners.sql'],
   'shipping-fulfillment.sql': ['live-session-dashboard.sql'],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],

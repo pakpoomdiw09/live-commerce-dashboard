@@ -128,6 +128,65 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
     ).status,
     200,
   )
-  assert.equal(calls.at(-1).name, 'live_auction_dashboard')
+  assert.equal(calls.at(-1).name, 'live_auction_customer_dashboard')
   assert.equal(calls.at(-1).input.p_tenant, tenantId)
+  assert.equal(
+    (
+      await post({
+        tenantId,
+        sessionId,
+        requestId: randomUUID(),
+        action: 'load_customers',
+        fbIds: ['900', '900'],
+      })
+    ).status,
+    200,
+  )
+  assert.equal(calls.at(-1).name, 'collect_auction_session_customers')
+  assert.equal(calls.at(-1).input.p_fb_ids.length, 1)
+  const before = calls.length
+  for (const invalid of [[], ['invalid'], Array(501).fill('900')])
+    assert.equal(
+      (
+        await post({
+          tenantId,
+          sessionId,
+          requestId: randomUUID(),
+          action: 'load_customers',
+          fbIds: invalid,
+        })
+      ).status,
+      400,
+    )
+  assert.equal(calls.length, before)
+  assert.equal(
+    (
+      await post({
+        tenantId,
+        sessionId,
+        requestId: randomUUID(),
+        action: 'note',
+        fbId: '900',
+        note: ' เก็บรวมกล่อง ',
+        revision: 0,
+      })
+    ).status,
+    200,
+  )
+  assert.equal(calls.at(-1).name, 'save_auction_customer_note')
+  assert.equal(calls.at(-1).input.p_note, 'เก็บรวมกล่อง')
+  assert.equal(
+    (
+      await post({
+        tenantId,
+        sessionId,
+        requestId: randomUUID(),
+        action: 'note',
+        fbId: '900',
+        note: 'x'.repeat(501),
+        revision: 0,
+      })
+    ).status,
+    400,
+  )
 })

@@ -62,6 +62,10 @@ const tabs: SessionTab[] = [
 ].map((tab, index) => ({
   ...tab,
   customerId: ids[index],
+  fbId: ['900', '901', '902'][index],
+  matched: index < 2,
+  note: '',
+  noteRevision: 0,
   credit: 0,
   slips: tab.paid ? 1 : 0,
   revision: 1,
@@ -125,6 +129,18 @@ if (allInOne) {
       senderBank: '004',
     },
   ]
+  for (let index = 1; index < 12; index++)
+    snapshot.slips.push({
+      id: `paid-slip-${index}`,
+      name: tabs[0].name,
+      amount: index === 11 ? 20 : 18,
+      at: new Date(Date.parse('2026-11-02T15:50:00Z') - index * 60000).toISOString(),
+      transRef: `VERIFIED-${index}`,
+      senderName: 'ผู้โอนส่วนที่เหลือ',
+      senderBank: '006',
+    })
+  snapshot.metrics.slips = 12
+  tabs[0].slips = 11
   snapshot.commenters = [
     {
       fbId: '900',
@@ -132,8 +148,19 @@ if (allInOne) {
       name: tabs[0].name,
       at: '2026-11-02T15:50:00Z',
       comments: 10,
+      matched: true,
     },
   ]
+  snapshot.commenters.push({
+    fbId: '903',
+    customerId: null,
+    name: 'ผู้ชมยังไม่มีบิล',
+    at: '2026-11-02T15:49:00Z',
+    comments: 1,
+    matched: false,
+    note: '',
+    noteRevision: 0,
+  })
 }
 const secondSession = { ...snapshot.session, id: secondSessionId, live_post_id: '457' }
 const shipment: ShippingShipment = {
@@ -224,6 +251,20 @@ window.fetch = async (input, init) => {
     state.requests.push(body)
     if (url.pathname === '/api/shipping') return Response.json({ batchId: 'print-batch', ok: true })
     if (url.pathname === '/api/live-auction/session') {
+      if (body.action === 'load_customers') {
+        for (const person of snapshot.commenters ?? [])
+          if (body.fbIds.includes(person.fbId) && !person.customerId)
+            person.customerId = 'abababab-abab-4bab-8bab-abababababab'
+        return Response.json(snapshot)
+      }
+      if (body.action === 'note') {
+        const tab = snapshot.tabs.find((tab) => tab.fbId === body.fbId)
+        const person = snapshot.commenters?.find((person) => person.fbId === body.fbId)
+        const revision = Number(tab?.noteRevision ?? person?.noteRevision ?? 0) + 1
+        if (tab) Object.assign(tab, { note: body.note, noteRevision: revision })
+        if (person) Object.assign(person, { note: body.note, noteRevision: revision })
+        return Response.json({ note: body.note, revision })
+      }
       if (body.action === 'settings') {
         snapshot.session.auction_settings = body.settings
         snapshot.session.automation_revision = (snapshot.session.automation_revision ?? 0) + 1

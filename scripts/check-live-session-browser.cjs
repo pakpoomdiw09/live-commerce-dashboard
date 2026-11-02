@@ -9,6 +9,7 @@ webpack.init()
 
 async function checkInterface() {
   const allInOne = process.argv.includes('--all-in-one')
+  const debugPort = allInOne ? 19479 : 19469
   const workspace = process.cwd()
   const output = path.join(
     workspace,
@@ -89,7 +90,7 @@ async function checkInterface() {
       '--disable-gpu',
       '--no-first-run',
       '--remote-debugging-address=127.0.0.1',
-      '--remote-debugging-port=19469',
+      '--remote-debugging-port=' + debugPort,
       '--user-data-dir=' + path.join(output, 'chrome-profile'),
       'about:blank',
     ],
@@ -100,7 +101,7 @@ async function checkInterface() {
     let target
     for (let attempt = 0; attempt < 100; attempt++) {
       try {
-        target = (await (await fetch('http://127.0.0.1:19469/json/list')).json()).find(
+        target = (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(
           (tab) => tab.type === 'page',
         )
       } catch {}
@@ -256,13 +257,14 @@ async function checkInterface() {
         'ตรงคำดัก 2 คน',
         'โอนแล้ว 2',
         'ยังไม่โอน 1',
-        'ครบ 1 คน',
-        'ขาด 2 คน',
-        'เกิน 0 คน',
+        'ใส่ยอดแล้ว 3 คน:',
+        'ครบ 1',
+        'ขาด 2',
+        'เกิน 0',
         'ยอดรวม 3,670.00',
-        'ได้รับแล้ว 500.00',
+        'ได้รับ 500.00',
       ])
-        assert.ok(summary.includes(text), text)
+        assert.ok(summary.includes(text), text + ' / ' + summary)
       const positions = await evaluate(
         "(() => { const left=document.querySelector('[data-session-customers]').getBoundingClientRect();const right=document.querySelector('[data-session-slips]').getBoundingClientRect();return {left:left.x,right:right.x,top:left.y,rightTop:right.y} })()",
       )
@@ -270,6 +272,79 @@ async function checkInterface() {
         positions.right > positions.left && Math.abs(positions.top - positions.rightTop) < 2,
         'slips sit beside customer bills on desktop',
       )
+      assert.equal(
+        await evaluate('document.querySelectorAll(\'[data-auction-section="4"] table\').length'),
+        2,
+        'one customer table and one slip table replace the three stacked tables',
+      )
+      assert.equal(
+        await evaluate("document.querySelectorAll('[data-session-customers] tbody tr').length"),
+        4,
+        'commenter/buyer duplicates merge and unpaid visitors remain visible',
+      )
+      assert.ok(
+        await evaluate(
+          "document.querySelector('[data-session-customers]').classList.contains('xl:col-span-7') && document.querySelector('[data-session-slips]').classList.contains('xl:col-span-5')",
+        ),
+      )
+      await evaluate('document.querySelector(\'input[aria-label="เฉพาะคนตรงคำดัก"]\').click()')
+      await wait("document.querySelectorAll('[data-session-customers] tbody tr').length === 2")
+      await evaluate('document.querySelector(\'input[aria-label="เฉพาะคนตรงคำดัก"]\').click()')
+      await evaluate(
+        'document.querySelector(\'input[aria-label="เลือกลูกค้าทั้งหมดที่แสดง"]\').click()',
+      )
+      assert.equal(
+        await evaluate(
+          "document.querySelectorAll('[data-session-customers] tbody input[type=checkbox]:checked').length",
+        ),
+        4,
+      )
+      await evaluate(
+        'document.querySelector(\'input[aria-label="เลือกลูกค้าทั้งหมดที่แสดง"]\').click()',
+      )
+      await evaluate(
+        'document.querySelector(\'input[aria-label="เลือกลูกค้า ผู้ชมยังไม่มีบิล"]\').click()',
+      )
+      await click('ดึงข้อมูลคนที่เลือก')
+      await wait(
+        "sessionQA.requests.at(-1)?.action === 'load_customers' && !!document.querySelector('a[aria-label=\"เปิดแช็ต Messenger ผู้ชมยังไม่มีบิล\"]')",
+      )
+      assert.deepEqual(await evaluate('sessionQA.requests.at(-1).fbIds'), ['903'])
+      await evaluate(
+        'document.querySelector(\'input[aria-label="เลือกลูกค้า ผู้ชมยังไม่มีบิล"]\').click()',
+      )
+      await fill('input[aria-label="หมายเหตุ สมชาย ใจดี"]', 'เก็บรวมกล่องหลังจบไลฟ์')
+      await evaluate('document.querySelector(\'input[aria-label="หมายเหตุ สมชาย ใจดี"]\').blur()')
+      await wait(
+        "sessionQA.requests.at(-1)?.action === 'note' && !document.querySelector('input[aria-label=\"หมายเหตุ สมชาย ใจดี\"]').disabled",
+      )
+      assert.equal(
+        await evaluate('sessionQA.requests.at(-1).sessionId'),
+        '22222222-2222-4222-8222-222222222222',
+      )
+      assert.equal(
+        await evaluate("document.querySelectorAll('[data-session-slips] tbody tr').length"),
+        10,
+      )
+      assert.equal(
+        await evaluate("document.querySelector('[data-slip-pagination]').textContent"),
+        'หน้า 1/2',
+      )
+      await evaluate('document.querySelector(\'button[aria-label="หน้าสลิปถัดไป"]\').click()')
+      assert.equal(
+        await evaluate("document.querySelectorAll('[data-session-slips] tbody tr').length"),
+        2,
+      )
+      await fill('select[aria-label="จำนวนสลิปต่อหน้า"]', '20')
+      assert.equal(
+        await evaluate("document.querySelectorAll('[data-session-slips] tbody tr').length"),
+        12,
+      )
+      assert.equal(
+        await evaluate("document.querySelector('[data-slip-pagination]').textContent"),
+        'หน้า 1/1',
+      )
+      await fill('select[aria-label="จำนวนสลิปต่อหน้า"]', '10')
       assert.equal(
         await evaluate(
           "document.querySelector('[data-shipping-dashboard]').textContent.includes('Unpaid buyer') || document.querySelector('[data-shipping-dashboard]').textContent.includes('Other Session buyer')",
@@ -354,7 +429,7 @@ async function checkInterface() {
         "document.querySelector('[data-auction-section=\"4\"]').textContent.includes('VERIFIED')",
       )
       await evaluate(
-        'document.querySelector(\'button[aria-label="ดูบิลผู้คอมเมนต์ สมชาย ใจดี"]\').click()',
+        'document.querySelector(\'button[aria-label="ดูที่มาของยอด สมชาย ใจดี"]\').click()',
       )
       await wait("document.querySelector('dialog')?.textContent.includes('ยอดที่ลูกค้าต้องจ่าย')")
       await evaluate('document.querySelector(\'dialog button[aria-label="ปิดหน้าต่าง"]\').click()')
@@ -363,6 +438,21 @@ async function checkInterface() {
     for (const width of [375, 768, 1024, 1440]) {
       await resize(width)
       assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), true)
+      if (allInOne) {
+        const layout = await evaluate(
+          "(() => {const l=document.querySelector('[data-session-customers]').getBoundingClientRect();const r=document.querySelector('[data-session-slips]').getBoundingClientRect();return {left:l.x,right:r.x,leftBottom:l.bottom,rightTop:r.top,leftWidth:l.width,rightWidth:r.width}})()",
+        )
+        if (width < 1280)
+          assert.ok(
+            layout.rightTop >= layout.leftBottom - 1 && Math.abs(layout.left - layout.right) < 2,
+            'mobile/tablet stack the slip table after customers',
+          )
+        else
+          assert.ok(
+            layout.right > layout.left && layout.leftWidth > layout.rightWidth,
+            'desktop uses a wider 7-column customer pane and a 5-column slip pane',
+          )
+      }
       const shot = await call('Page.captureScreenshot', {
         format: 'png',
         captureBeyondViewport: true,
@@ -408,7 +498,7 @@ async function checkInterface() {
     )
     assert.equal(await evaluate('sessionQA.requests.at(-1).items[0].amount'), 270)
     await evaluate(`document.querySelector('input[aria-label="เลือกลูกค้า สมชาย ใจดี"]').click()`)
-    await click('ตามยอด / แจ้งยอด')
+    await click(allInOne ? 'ตามยอด' : 'ตามยอด / แจ้งยอด')
     await wait(`document.querySelector('dialog input[value=selected]')?.checked === true`)
     assert.equal(await evaluate('document.querySelectorAll("dialog tbody tr").length'), 1)
     await fill(
@@ -426,7 +516,7 @@ async function checkInterface() {
     assert.deepEqual(await evaluate('sessionQA.requests.at(-1).tabIds'), [
       '33333333-3333-4333-8333-333333333333',
     ])
-    await click('ตามยอด / แจ้งยอด')
+    await click(allInOne ? 'ตามยอด' : 'ตามยอด / แจ้งยอด')
     await wait(`!!document.querySelector('dialog input[value=all]')`)
     await evaluate(`document.querySelector('dialog input[value=all]').click()`)
     await wait(`document.querySelectorAll('dialog tbody tr').length===2`)

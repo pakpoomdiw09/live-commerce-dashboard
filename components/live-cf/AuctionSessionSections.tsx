@@ -4,7 +4,6 @@ import {
   sessionMoney,
   sessionCustomerStatus,
   type SessionSnapshot,
-  type SessionTab,
 } from '@/lib/features/commerce/live-session-types'
 import { PaymentProEvidence } from '@/components/slips/PaymentProEvidence'
 import { findBank } from '@/lib/features/banking/banks'
@@ -86,106 +85,68 @@ export function SessionEmptyFinance() {
     </div>
   )
 }
-export function AuctionSessionEvidence({
-  data,
-  onProof,
-}: {
-  data: SessionSnapshot | null
-  onProof: (tab: SessionTab) => void
-}) {
-  return (
-    <div className="space-y-5">
-      <div className="space-y-3">
-        <h3 className="font-bold">คนคอมเมนต์ล่าสุด</h3>
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full min-w-[820px] text-left text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                {[
-                  'ชื่อ Facebook',
-                  'คอมเมนต์',
-                  'ชนะประมูล',
-                  'บิลสะสม',
-                  'ชำระเงิน',
-                  'เวลาล่าสุด',
-                ].map((label) => (
-                  <th className="p-3" key={label}>
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.commenters ?? []).map((person) => {
-                const tab = data?.tabs.find((item) => item.customerId === person.customerId)
-                const wins =
-                  data?.rounds.filter(
-                    (round) =>
-                      round.winnerId === person.fbId &&
-                      round.status === 'closed' &&
-                      round.orderStatus !== 'cancelled',
-                  ).length ?? 0
-                return (
-                  <tr key={person.fbId} className="border-t">
-                    <td className="break-words p-3">{person.name}</td>
-                    <td className="p-3 tabular-nums">{person.comments}</td>
-                    <td className="p-3 tabular-nums">{wins} รายการ</td>
-                    <td className="p-3">
-                      {tab ? (
-                        <button
-                          type="button"
-                          className="font-bold tabular-nums text-orange-600 underline"
-                          aria-label={`ดูบิลผู้คอมเมนต์ ${person.name}`}
-                          onClick={() => onProof(tab)}
-                        >
-                          ฿{sessionMoney(tab.total)}
-                        </button>
-                      ) : (
-                        <span className="text-slate-400">ยังไม่มีบิล</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-xs">
-                      {tab ? (
-                        Number(tab.remaining) <= 0 ? (
-                          <span className="text-emerald-700">โอนครบแล้ว</span>
-                        ) : Number(tab.paid) <= 0 ? (
-                          `ยังไม่โอน • ขาด ฿${sessionMoney(tab.remaining)}`
-                        ) : (
-                          `ยอดขาด ฿${sessionMoney(tab.remaining)}`
-                        )
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap p-3 text-xs">{sessionTime(person.at)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          {!data?.commenters?.length && (
-            <p className="p-4 text-sm text-slate-500">ยังไม่มีคอมเมนต์ใน Session นี้</p>
-          )}
-        </div>
-        {(data?.metrics.commenters ?? 0) > 500 && (
-          <p className="text-xs text-slate-500">
-            แสดงผู้คอมเมนต์ล่าสุด 500 คน จาก {data?.metrics.commenters} คน
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
 export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) {
   const [slipId, setSlipId] = useState('')
+  const [page, setPage] = useState(1),
+    [pageSize, setPageSize] = useState(10)
+  const slips = data?.slips ?? []
+  const pages = Math.max(1, Math.ceil(slips.length / pageSize))
+  const currentPage = Math.min(page, pages)
+  const visible = slips.slice((currentPage - 1) * pageSize, currentPage * pageSize)
   return (
-    <div className="min-w-0 space-y-4" data-session-slips>
+    <section
+      className="min-w-0 space-y-4 rounded-xl border border-slate-200 bg-white p-3 xl:col-span-5"
+      data-session-slips
+    >
       <div className="space-y-3">
         <h3 className="font-bold">สลิปที่ตรวจผ่านใน Session นี้</h3>
         <p className="text-xs text-slate-500">
           สลิป SlipOK ที่ตรวจผ่านและลงบัญชีในบิลสะสมของ Session นี้
         </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={button}
+              aria-label="หน้าสลิปก่อนหน้า"
+              disabled={currentPage <= 1}
+              onClick={() => setPage(currentPage - 1)}
+            >
+              ‹
+            </button>
+            <span aria-live="polite" data-slip-pagination>
+              หน้า {currentPage}/{pages}
+            </span>
+            <button
+              type="button"
+              className={button}
+              aria-label="หน้าสลิปถัดไป"
+              disabled={currentPage >= pages}
+              onClick={() => setPage(currentPage + 1)}
+            >
+              ›
+            </button>
+          </div>
+          <label className="flex items-center gap-2">
+            แสดง
+            <select
+              aria-label="จำนวนสลิปต่อหน้า"
+              className={`${field} !mt-0 !w-auto !py-2 !text-xs`}
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setPage(1)
+              }}
+            >
+              {[10, 20, 50].map((size) => (
+                <option key={size} value={size}>
+                  {size} แถว
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="text-slate-400">{slips.length} สลิป</span>
+        </div>
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full min-w-[420px] text-left text-sm">
             <thead className="bg-slate-50">
@@ -200,8 +161,8 @@ export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) 
               </tr>
             </thead>
             <tbody>
-              {(data?.slips ?? []).map((slip) => (
-                <tr key={slip.id} className="border-t">
+              {visible.map((slip) => (
+                <tr key={slip.id} className="border-t border-slate-100">
                   <td className="whitespace-nowrap p-3 text-xs">
                     <time dateTime={slip.at}>
                       {new Date(slip.at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}
@@ -249,7 +210,7 @@ export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) 
           <PaymentProEvidence key={slipId} slipId={slipId} />
         </SessionDialog>
       )}
-    </div>
+    </section>
   )
 }
 
@@ -268,13 +229,14 @@ export function SessionCustomerStatus({ data }: { data: SessionSnapshot | null }
       <span aria-hidden="true">·</span>
       <span>ยังไม่โอน {status.unpaid}</span>
       <span aria-hidden="true">|</span>
-      <span className="text-emerald-700">ครบ {status.full} คน</span>
+      <span>ใส่ยอดแล้ว {status.assigned} คน:</span>
+      <span className="text-emerald-700">ครบ {status.full}</span>
       <span aria-hidden="true">·</span>
-      <span className="text-orange-700">ขาด {status.short} คน</span>
+      <span className="text-orange-700">ขาด {status.short}</span>
       <span aria-hidden="true">·</span>
-      <span className="text-blue-700">เกิน {status.over} คน</span>
+      <span className="text-blue-700">เกิน {status.over}</span>
       <span className="tabular-nums">
-        (ยอดรวม {sessionMoney(status.total)} ฿ / ได้รับแล้ว {sessionMoney(status.received)} ฿)
+        (ยอดรวม {sessionMoney(status.total)} / ได้รับ {sessionMoney(status.received)} ฿)
       </span>
     </div>
   )

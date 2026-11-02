@@ -17,14 +17,13 @@ import { AuctionSessionStart, type AuctionDashboardOptions } from './AuctionSess
 import { AuctionSessionAutomation } from './AuctionSessionAutomation'
 import {
   AuctionDashboardSection,
-  AuctionSessionEvidence,
   AuctionSessionSlips,
-  SessionCustomerStatus,
   SessionRequired,
   SessionEmptyFinance,
 } from './AuctionSessionSections'
 import { LiveAuctionPanel } from './LiveAuctionPanel'
 import { ShippingDashboard } from '@/components/shipping/ShippingDashboard'
+import { AuctionSessionCustomers } from './AuctionSessionCustomers'
 
 export function LiveSessionDashboard({
   tenantId,
@@ -463,20 +462,24 @@ export function LiveSessionDashboard({
             )}
           </AuctionDashboardSection>
           <AuctionDashboardSection number={4} title="Customer Orders & Billing">
-            <SessionCustomerStatus data={data} />
             <div
               data-customer-billing-grid
-              className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]"
+              className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-12"
             >
-              <div className="min-w-0 space-y-5" data-session-customers>
-                {billing}
-                <AuctionSessionEvidence
-                  key={data?.session.id ?? 'empty'}
-                  data={data}
-                  onProof={(tab) => setModal({ kind: 'proof', tab })}
-                />
-              </div>
-              <AuctionSessionSlips key={data?.session.id ?? 'empty'} data={data} />
+              <AuctionSessionCustomers
+                key={`customers:${data?.session.id ?? 'empty'}`}
+                tenantId={tenantId}
+                data={data}
+                onProof={(tab) => setModal({ kind: 'proof', tab })}
+                onFollowup={(ids) => {
+                  setSelected(ids)
+                  setModal({ kind: 'followup' })
+                }}
+                onSnapshot={(result) => {
+                  if (result.session.id === sessionId) setSnapshot(result)
+                }}
+              />
+              <AuctionSessionSlips key={`slips:${data?.session.id ?? 'empty'}`} data={data} />
             </div>
           </AuctionDashboardSection>
           <AuctionDashboardSection number={5} title="Shipping & Fulfillment">

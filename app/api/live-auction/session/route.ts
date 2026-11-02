@@ -19,7 +19,7 @@ function failure(error: unknown) {
     return auctionReply({ error: 'ไม่พบ Session เพจ หรือบัญชีรับเงินของร้านนี้' }, 404)
   if (code === '40001')
     return auctionReply(
-      { error: 'Session จบแล้วหรือค่าตั้งค่าถูกแก้ไข กรุณาโหลดข้อมูลล่าสุด', reload: true },
+      { error: 'Session จบแล้วหรือข้อมูลถูกแก้ไข กรุณาโหลดข้อมูลล่าสุด', reload: true },
       409,
     )
   if (['P0001', '22P02', '23514'].includes(code ?? ''))
@@ -37,10 +37,13 @@ export async function GET(req: NextRequest) {
     const sessionId = req.nextUrl.searchParams.get('sessionId')
     if (!sessionId || !UUID.test(sessionId))
       return auctionReply({ error: 'รหัส Session ไม่ถูกต้อง' }, 400)
-    const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc('live_auction_dashboard', {
-      p_tenant: tenantId!,
-      p_session: sessionId,
-    })
+    const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc(
+      'live_auction_customer_dashboard',
+      {
+        p_tenant: tenantId!,
+        p_session: sessionId,
+      },
+    )
     if (result.error) throw result.error
     return auctionReply(result.data)
   } catch (error) {
@@ -55,6 +58,54 @@ export async function POST(req: NextRequest) {
     if (denied) return denied
     const actor = await getActor(req)
     if (!actor || actor.kind !== 'user') return auctionReply({ error: 'กรุณาเข้าสู่ระบบ' }, 403)
+    if (input.action === 'load_customers') {
+      if (
+        !UUID.test(input.requestId ?? '') ||
+        !UUID.test(input.sessionId ?? '') ||
+        !Array.isArray(input.fbIds) ||
+        !input.fbIds.length ||
+        input.fbIds.length > 500 ||
+        input.fbIds.some((id: unknown) => typeof id !== 'string' || !/^\d{1,64}$/.test(id))
+      )
+        return auctionReply({ error: 'กรุณาเลือกลูกค้าใน Session (สูงสุด 500 คน)' }, 400)
+      const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc(
+        'collect_auction_session_customers',
+        {
+          p_tenant: input.tenantId,
+          p_session: input.sessionId,
+          p_fb_ids: [...new Set(input.fbIds)],
+        },
+      )
+      if (result.error) throw result.error
+      return auctionReply(result.data)
+    }
+    if (input.action === 'note') {
+      if (
+        !UUID.test(input.requestId ?? '') ||
+        !UUID.test(input.sessionId ?? '') ||
+        typeof input.fbId !== 'string' ||
+        !/^\d{1,64}$/.test(input.fbId) ||
+        typeof input.note !== 'string' ||
+        input.note.length > 500 ||
+        !Number.isSafeInteger(input.revision) ||
+        input.revision < 0
+      )
+        return auctionReply(
+          { error: 'กรุณาตรวจลูกค้า Session และหมายเหตุ (ไม่เกิน 500 ตัวอักษร)' },
+          400,
+        )
+      const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc('save_auction_customer_note', {
+        p_tenant: input.tenantId,
+        p_session: input.sessionId,
+        p_actor: actor.id,
+        p_request: input.requestId,
+        p_fb_id: input.fbId,
+        p_note: input.note.trim(),
+        p_revision: input.revision,
+      })
+      if (result.error) throw result.error
+      return auctionReply(result.data)
+    }
     if (
       !UUID.test(input.requestId ?? '') ||
       !['start', 'settings'].includes(input.action) ||

@@ -240,6 +240,7 @@ test('complete schema upgrades the older schema lacking newer Live CF, Messenger
     'live-order-types.sql',
     'live-auction-dashboard.sql',
     'live-auction-instant-winners.sql',
+    'live-auction-customer-workspace.sql',
     'live-cf-setup.sql',
     'live-cf-customer-variants.sql',
     'live-cf-variants.sql',

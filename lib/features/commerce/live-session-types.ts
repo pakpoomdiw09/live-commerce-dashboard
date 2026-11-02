@@ -28,6 +28,10 @@ export type SessionRound = {
   tabRevision: number | null
 }
 export type SessionTab = {
+  fbId?: string
+  matched?: boolean
+  note?: string
+  noteRevision?: number
   id: string
   customerId: string
   name: string
@@ -74,6 +78,9 @@ export type SessionSnapshot = {
     name: string
     at: string
     comments: number
+    matched?: boolean
+    note?: string
+    noteRevision?: number
   }[]
 }
 export type SessionProofItem = {
@@ -132,6 +139,7 @@ export function sessionCustomerStatus(tabs: SessionTab[]) {
     full: active.filter((tab) => Number(tab.remaining) <= 0 && Number(tab.credit) <= 0).length,
     short: active.filter((tab) => Number(tab.remaining) > 0).length,
     over: active.filter((tab) => Number(tab.credit) > 0).length,
+    assigned: active.filter((tab) => Number(tab.total) > 0).length,
     total: sumMoney(active.map((tab) => Number(tab.total))),
     received: sumMoney(active.map((tab) => Number(tab.paid))),
   }

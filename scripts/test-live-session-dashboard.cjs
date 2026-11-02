@@ -8,6 +8,27 @@ const { build } = require('./build-full-database-setup.cjs')
 const load = require('./helpers/load-typescript.cjs')
 const { NextRequest, NextResponse } = require('next/server')
 const types = load('lib/features/commerce/live-session-types.ts')
+const customerRows = load('lib/features/commerce/session-customer-rows.ts')
+
+test('the customer grid merges identities once, retains billed-only customers, and never merges namesakes', () => {
+  const snapshot = {
+    tabs: [
+      { id: 'bill1', customerId: 'c1', fbId: '900', name: 'Same name', total: 100, matched: true },
+      { id: 'bill2', customerId: 'c2', fbId: '901', name: 'Same name', total: 200, matched: true },
+    ],
+    commenters: [
+      { fbId: '900', customerId: 'c1', name: 'Updated name', comments: 10, at: '2026-11-02' },
+      { fbId: '902', name: 'Visitor', comments: 1, at: '2026-11-01', matched: false },
+    ],
+  }
+  const rows = customerRows.sessionCustomerRows(snapshot)
+  assert.equal(rows.length, 3)
+  assert.equal(rows.filter((row) => row.tab?.id === 'bill1').length, 1)
+  assert.equal(rows.find((row) => row.fbId === '900').name, 'Updated name')
+  assert.equal(rows.find((row) => row.fbId === '902').tab, null)
+  assert.equal(rows.filter((row) => row.matched).length, 2)
+  assert.equal(customerRows.sessionCustomerRows(null).length, 0)
+})
 const automation = load('lib/features/commerce/session-automation.ts', {
   './auction-templates': load('lib/features/commerce/auction-templates.ts'),
 })
@@ -576,6 +597,81 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     ).result
     assert.equal(fulfillment.length, 1, 'the paid tab automatically creates one shipping row')
     assert.equal(fulfillment[0].payment_ready, true)
+    // Customer workspace merges profiles, saves Session-local notes and never invents an inbound window.
+    await event('955', 'สวัสดีครับ', '987')
+    let workspace = (
+      await one('select live_auction_customer_dashboard($1,$2) result', [tenant, started.id])
+    ).result
+    assert.equal(workspace.tabs[0].fbId, '900')
+    assert.equal(workspace.tabs[0].matched, true)
+    assert.equal(workspace.commenters.find((person) => person.fbId === '955').matched, false)
+    const noteRequest = randomUUID()
+    const noteArgs = [tenant, started.id, actor, noteRequest, '900', 'เก็บรวมกล่อง', 0]
+    const saveNote = (args) =>
+      one('select save_auction_customer_note($1,$2,$3,$4,$5,$6,$7) result', args)
+    const ledgerBeforeNotes = await getTab(dashboardOrder.customer_tab_id)
+    const noted = await saveNote(noteArgs)
+    assert.equal(noted.result.revision, 1)
+    assert.deepEqual(await saveNote(noteArgs), noted)
+    await assert.rejects(
+      saveNote([tenant, started.id, actor, randomUUID(), '900', 'overwrite', 0]),
+      /NOTE_CHANGED/,
+    )
+    await assert.rejects(
+      saveNote([tenant, started.id, actor, randomUUID(), '99999', 'foreign', 0]),
+      /SESSION_CUSTOMER_SCOPE/,
+    )
+    await assert.rejects(
+      saveNote([other, started.id, actor, randomUUID(), '900', 'foreign', 0]),
+      /SESSION_NOT_FOUND/,
+    )
+    const collected = (
+      await one('select collect_auction_session_customers($1,$2,$3) result', [
+        tenant,
+        started.id,
+        ['955'],
+      ])
+    ).result
+    const imported = collected.commenters.find((person) => person.fbId === '955')
+    assert.ok(imported.customerId)
+    const profile = await one(
+      'select last_message_at,window_expires_at from customers where id=$1',
+      [imported.customerId],
+    )
+    assert.equal(profile.last_message_at, null)
+    assert.equal(profile.window_expires_at, null)
+    await one('select collect_auction_session_customers($1,$2,$3)', [tenant, started.id, ['955']])
+    assert.equal(
+      (
+        await one(
+          "select count(*)::int n from customers where tenant_id=$1 and platform_user_id='955'",
+          [tenant],
+        )
+      ).n,
+      1,
+    )
+    await assert.rejects(
+      one('select collect_auction_session_customers($1,$2,$3)', [tenant, started.id, ['991199']]),
+      /SESSION_CUSTOMER_SCOPE/,
+    )
+    workspace = (
+      await one('select live_auction_customer_dashboard($1,$2) result', [tenant, started.id])
+    ).result
+    assert.equal(workspace.tabs[0].note, 'เก็บรวมกล่อง')
+    assert.equal(workspace.commenters.find((person) => person.fbId === '900').note, 'เก็บรวมกล่อง')
+    const otherWorkspace = (
+      await one('select live_auction_customer_dashboard($1,$2) result', [tenant, session])
+    ).result
+    assert.ok(otherWorkspace.tabs.every((tab) => !tab.note))
+    assert.deepEqual(await getTab(dashboardOrder.customer_tab_id), ledgerBeforeNotes)
+    assert.equal(
+      (
+        await one(
+          "select has_table_privilege('authenticated','live_session_customer_notes','insert') allowed",
+        )
+      ).allowed,
+      false,
+    )
     // The additive migration updates only the old built-in template and never balances.
     const templates = load('lib/features/commerce/auction-templates.ts')
     await db.query(
