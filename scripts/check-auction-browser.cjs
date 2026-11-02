@@ -222,7 +222,7 @@ async function checkInterface() {
       await evaluate("[...document.querySelectorAll('input[type=number]')].map(i=>i.value)"),
       ['200', '20', '50'],
     )
-    await wait(`document.querySelector('select[aria-label="ไลฟ์สด Facebook"]')?.value === '456'`)
+    await wait(`document.querySelector('[role="combobox"][aria-label="ไลฟ์สด Facebook"]')?.dataset.selectedVideoId === '456'`)
     assert.equal(
       await evaluate(
         `document.querySelector('input[placeholder^="https://www.facebook.com"]') === null`,

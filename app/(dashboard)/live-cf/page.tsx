@@ -1,13 +1,12 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { LiveCfSetup } from '@/components/live-cf/LiveCfSetup'
-import { LiveCfWorkspace } from '@/components/live-cf/LiveCfWorkspace'
 import { getActiveTenant, tenantPages } from '@/lib/tenant'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { liveProducts } from '@/lib/features/comments/live-products'
 import { LIVE_CF_RULE_COLUMNS, type CommentRule } from '@/lib/features/comments/comment-rules'
 import { isFeatureEnabled } from '@/lib/feature-flags'
 
-export const metadata = { title: 'ระบบไลฟ์สด CF และประมูล | SnapBot' }
+export const metadata = { title: 'ระบบไลฟ์สด CF | SnapBot' }
 export const dynamic = 'force-dynamic'
 
 export default async function LiveCfPage({
@@ -18,7 +17,7 @@ export default async function LiveCfPage({
   if (!isFeatureEnabled('live_cf')) notFound()
   const tenant = await getActiveTenant()
   if (!tenant) notFound()
-  const mode = (await searchParams).mode === 'auction' ? 'auction' : 'cf'
+  if ((await searchParams).mode === 'auction') redirect('/live-auction')
   const db = supabaseAdmin()
   const [pages, catalog, rule, accounts] = await Promise.all([
     tenantPages(tenant),
@@ -40,23 +39,15 @@ export default async function LiveCfPage({
   ])
   const setupError = rule.error?.message ?? accounts.error?.message ?? catalog.error
   return (
-    <LiveCfWorkspace
+    <LiveCfSetup
       key={tenant.id}
       tenantId={tenant.id}
       pages={pages}
+      products={catalog.products}
       bankAccounts={accounts.data ?? []}
-      initialMode={mode}
-    >
-      <LiveCfSetup
-        key={tenant.id}
-        tenantId={tenant.id}
-        pages={pages}
-        products={catalog.products}
-        bankAccounts={accounts.data ?? []}
-        initialRule={(rule.data as CommentRule | null) ?? null}
-        setupError={setupError}
-        salesPageUrl={catalog.salesPageUrl}
-      />
-    </LiveCfWorkspace>
+      initialRule={(rule.data as CommentRule | null) ?? null}
+      setupError={setupError}
+      salesPageUrl={catalog.salesPageUrl}
+    />
   )
 }

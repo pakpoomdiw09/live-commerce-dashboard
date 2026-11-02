@@ -383,12 +383,14 @@ export function AppShell({
   )
 }
 
-const rowClass = (active: boolean, collapsed = false) =>
+const rowClass = (active: boolean, collapsed = false, orangeActive = false) =>
   cn(
     'flex w-full items-center gap-3 rounded-lg py-2 text-sm transition-colors',
     collapsed ? 'justify-center px-0' : 'px-3',
     active
-      ? 'bg-white font-medium text-orange-600 shadow-sm'
+      ? orangeActive
+        ? 'rounded-xl bg-orange-500 font-semibold text-white shadow-md shadow-orange-900/20 ring-1 ring-white/50'
+        : 'bg-white font-medium text-orange-600 shadow-sm'
       : 'text-white/90 hover:bg-white/15 hover:text-white',
   )
 
@@ -404,6 +406,7 @@ function NavRow({
   collapsed?: boolean
 }) {
   const active = isActive(pathname, item.href)
+  const orangeActive = item.href === '/live-auction' || item.href === '/shipping'
   const Icon = item.icon
   return (
     <li>
@@ -411,9 +414,9 @@ function NavRow({
         href={item.href === '/slips' ? '/slips?tab=banks' : item.href}
         title={item.label}
         aria-current={active ? 'page' : undefined}
-        className={rowClass(active, collapsed)}
+        className={rowClass(active, collapsed, orangeActive)}
       >
-        <Icon className="h-4 w-4 shrink-0" aria-hidden />
+        <Icon className={cn('h-4 w-4 shrink-0', active && orangeActive && 'text-white')} aria-hidden />
         <span className={cn('whitespace-nowrap', collapsed && 'sr-only')}>{item.label}</span>
         {lockedPaths.includes(item.href) && (
           <LockKeyhole

@@ -55,7 +55,7 @@ async function checkInterface() {
     .join('\n')
   const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script>window.process={env:{NODE_ENV:'development'}};</script><script src="/bundle.js"></script></body></html>`
   const server = http.createServer((request, response) => {
-    if (request.url === '/') {
+    if (new URL(request.url, 'http://localhost').pathname === '/') {
       response.setHeader('Content-Type', 'text/html; charset=utf-8')
       response.end(html)
       return
@@ -256,6 +256,15 @@ async function checkInterface() {
       ),
       '1e-05s',
     )
+    await resize(1440)
+    for (const route of ['/live-auction','/shipping','/shipping/print/example']) {
+      await call('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/?path=${encodeURIComponent(route)}`})
+      const target = route.startsWith('/shipping') ? '/shipping' : route
+      await wait(`!!document.querySelector('a[href="${target}"][aria-current="page"]')`)
+      assert.ok(await evaluate(`document.querySelector('a[href="${target}"][aria-current="page"]').classList.contains('bg-orange-500')`))
+      assert.equal(await evaluate(`getComputedStyle(document.querySelector('a[href="${target}"][aria-current="page"]')).color`),'rgb(255, 255, 255)')
+      assert.equal(await evaluate(`getComputedStyle(document.querySelector('a[href="${target}"][aria-current="page"] svg')).color`),'rgb(255, 255, 255)')
+    }
     assert.deepEqual(errors, [])
     console.log(
       'PASS: 375/768/1440/1920px layouts, mobile drawer focus/escape/recovery, form sizing, switches, reduced motion; no browser exceptions.',

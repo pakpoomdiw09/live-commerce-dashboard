@@ -224,7 +224,13 @@ async function checkInterface() {
         ),
         'seller copy is Thai',
       )
-      await wait("document.querySelector('select[aria-label=\"ไลฟ์สด Facebook\"]').value==='456'")
+      await wait("document.querySelector('[role=combobox][aria-label=\"ไลฟ์สด Facebook\"]').dataset.selectedVideoId==='456'")
+      await evaluate('document.querySelector(\'[role="combobox"][aria-label="ไลฟ์สด Facebook"]\').click()')
+      await wait("!!document.querySelector('[role=listbox] [role=option]')")
+      assert.ok(await evaluate("document.querySelector('[role=listbox]').textContent.includes('🔴 สด')"))
+      assert.ok(await evaluate("document.querySelector('[role=listbox]').textContent.includes('รหัสวิดีโอ 456')"))
+      await call('Input.dispatchKeyEvent', {type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
+      await wait("!document.querySelector('[role=listbox]')")
       await click('เริ่มเซสชันไลฟ์สด')
       await wait("sessionQA.requests.at(-1)?.action==='start'")
       await wait('!!document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\')')

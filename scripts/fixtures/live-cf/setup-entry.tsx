@@ -18,6 +18,7 @@ const state = Object.assign(liveCfTest, {
   editStale: false,
   detailDelays: {} as Record<string, number>,
   saveDelay: 0,
+  liveExtra: false,
   savedCallbacks: [] as LiveProductOption[],
   details: {
     [productId]: {
@@ -114,6 +115,13 @@ window.fetch = async (input, init) => {
               createdAt: '2026-11-01T04:00:00.000Z',
               isLive: !state.liveFallback,
             },
+            ...(state.liveExtra ? [{
+              id: '987654321098765432',
+              title: 'รายการพระเครื่องชื่อยาวสำหรับตรวจหน้าจอ '.repeat(12),
+              thumbnail: null,
+              createdAt: '2026-11-01T13:30:00Z',
+              isLive: false,
+            }] : []),
           ],
     })
   }

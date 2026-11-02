@@ -266,6 +266,31 @@ compiler.init()
     await assertNoProductSelected()
     await fill(productSelect, '33333333-3333-4333-8333-333333333333')
     const link = 'input[aria-label="ลิงก์หรือรหัสไลฟ์สด Facebook"]'
+    const liveSelector = '[role="combobox"][aria-label="ไลฟ์สด Facebook"]'
+    await wait(`document.querySelector(${JSON.stringify(liveSelector)})?.dataset.selectedVideoId === '456'`)
+    await evaluate('liveCfTest.liveExtra=true')
+    await click('โหลดรายการใหม่')
+    await wait(`!document.querySelector(${JSON.stringify(liveSelector)}).disabled`)
+    await evaluate(`document.querySelector(${JSON.stringify(liveSelector)}).click()`)
+    await wait(`document.querySelectorAll('[role=listbox] [role=option]').length===2`)
+    assert.ok(await evaluate(`document.querySelector('[role=listbox]').textContent.includes('⚪ สิ้นสุดแล้ว')`))
+    assert.ok(await evaluate(`document.querySelector('[role=listbox]').textContent.includes('987654…5432')`))
+    for (const width of [375, 768, 1440]) {
+      await resize(width)
+      assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'))
+      assert.ok(await evaluate(`document.querySelector('[role=listbox]').getBoundingClientRect().right<=innerWidth`))
+      await screenshot('live-dropdown-'+width)
+    }
+    for (const key of ['End','Enter'])
+      await call('Input.dispatchKeyEvent',{type:'keyDown',key,code:key,windowsVirtualKeyCode:key==='End'?35:13})
+    await wait(`document.querySelector(${JSON.stringify(liveSelector)}).dataset.selectedVideoId==='987654321098765432'`)
+    await evaluate(`document.querySelector(${JSON.stringify(liveSelector)}).click()`)
+    await evaluate(`document.querySelector('[role=listbox] [role=option]').click()`)
+    await wait(`document.querySelector(${JSON.stringify(liveSelector)}).dataset.selectedVideoId==='456'`)
+    await evaluate(`document.querySelector(${JSON.stringify(liveSelector)}).click()`)
+    await evaluate(`document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`)
+    await wait(`!document.querySelector('[role=listbox]')`)
+    await evaluate('liveCfTest.liveExtra=false')
     assert.equal(
       await evaluate(`!!document.querySelector('button[aria-label="ลบรหัส 159"]')`),
       true,
@@ -377,7 +402,7 @@ compiler.init()
     await click('เลือกวิดีโอนี้')
     assert.equal(
       await evaluate(
-        `document.querySelector('[aria-label="ไลฟ์สดที่เลือก"]').textContent.includes('เลือกวิดีโอสำรองแล้ว')`,
+        `document.querySelector('[aria-label="ไลฟ์สดที่เลือก"]').textContent.includes('กำลังเชื่อมต่อ')`,
       ),
       true,
     )

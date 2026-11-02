@@ -4,7 +4,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { FacebookLiveVideo } from '@/lib/integrations/facebook/live-videos'
 import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
 import { parseLiveVideoList } from '@/lib/features/commerce/live-source'
-import { LiveVideoPickerModal, liveVideoTime } from './LiveVideoPickerModal'
+import { LiveVideoPickerModal } from './LiveVideoPickerModal'
+import { LiveVideoSelect } from './LiveVideoSelect'
 
 export type LiveSourcePage = { id: string; name: string; picture?: string | null }
 const field =
@@ -79,7 +80,6 @@ export function LiveSourcePicker({
     return () => controller.abort()
   }, [pageId, attempt, active])
   const options = loadedPage === pageId ? videos : []
-  const selected = options.find((video) => video.id === livePostId)
   function choose(value: string) {
     setAutomatic(false)
     setManual(false)
@@ -116,33 +116,22 @@ export function LiveSourcePicker({
         )}
       </label>
       <div className="min-w-0 space-y-2 text-sm">
-        <label className="block font-semibold text-slate-800">
-          {thai ? 'เลือกลิงก์ไลฟ์สดที่กำลังออกอากาศ' : 'ไลฟ์สด Facebook'}
-          <select
-            aria-label="ไลฟ์สด Facebook"
-            className={field}
+        <div className="font-semibold text-slate-800">
+          <p>{thai ? 'เลือกลิงก์ไลฟ์สดที่กำลังออกอากาศ' : 'ไลฟ์สด Facebook'}</p>
+          <LiveVideoSelect
+            key={pageId}
+            videos={options}
             value={manual ? '' : livePostId}
-            required={!allowManual}
+            loading={loading}
             disabled={disabled || !pageId || loading}
-            onChange={(event) => choose(event.target.value)}
-          >
-            <option value="">{loading ? 'กำลังโหลดไลฟ์…' : 'เลือกไลฟ์สดหรือวิดีโอล่าสุด'}</option>
-            {!manual && livePostId && !selected && (
-              <option value={livePostId}>รายการที่เลือกไว้ • {livePostId}</option>
-            )}
-            {options.map((video) => (
-              <option key={video.id} value={video.id}>
-                {video.isLive ? (thai ? 'กำลังออกอากาศ' : '🔴 LIVE') : 'วิดีโอล่าสุด'} •{' '}
-                {video.title} • {liveVideoTime(video.createdAt)}
-              </option>
-            ))}
-          </select>
+            onChange={choose}
+          />
           {thai && (
-            <span className="mt-1 block text-xs font-normal text-slate-500">
+            <p className="mt-1 text-xs font-normal text-slate-500">
               เลือกรายการที่กำลังขาย ระบบจะรับคอมเมนต์จากไลฟ์นี้เท่านั้น
-            </span>
+            </p>
           )}
-        </label>
+        </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -190,19 +179,6 @@ export function LiveSourcePicker({
         )}
         {options.filter((video) => video.isLive).length > 1 && (
           <p className="text-xs text-slate-500">มีหลายไลฟ์กำลังออกอากาศ กรุณาเลือกไลฟ์ที่ต้องการ</p>
-        )}
-        {selected && (
-          <p
-            aria-label="ไลฟ์สดที่เลือก"
-            className="break-words rounded-lg bg-slate-100 p-2 text-xs text-slate-700"
-          >
-            {selected.isLive
-              ? thai
-                ? 'กำลังออกอากาศ • เลือกไลฟ์แล้ว'
-                : '🔴 LIVE • เลือกไลฟ์แล้ว'
-              : 'เลือกวิดีโอสำรองแล้ว'}{' '}
-            • {selected.title} • รหัส {selected.id}
-          </p>
         )}
         {allowManual && (
           <>
