@@ -1,4 +1,6 @@
 export type CustomerTabItem = {
+  order_type?: 'auction' | 'cf' | null
+  source_code?: string | null
   requires_variant?: boolean
   selection_link?: string | null
   order_id: string
@@ -39,6 +41,18 @@ export type TabBalance = {
 export const tabMoney = (value: number) =>
   Number(value).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+export function customerTabItemLabel(
+  item: Pick<CustomerTabItem, 'item_name' | 'order_type' | 'source_code'>,
+) {
+  const prefix =
+    item.order_type === 'auction'
+      ? '[ประมูล] '
+      : item.order_type === 'cf'
+        ? `[CF${item.source_code ? `-${item.source_code.toUpperCase()}` : ''}] `
+        : ''
+  return `${prefix}${item.item_name}`
+}
+
 /** Financial lines are rendered from the ledger, never from model-generated amounts. */
 export function customerTabText(
   tab: CustomerTab,
@@ -52,7 +66,7 @@ export function customerTabText(
       .filter((i) => !i.cancelled)
       .map(
         (item, index) =>
-          `${index + 1}. ${item.item_name}${item.variant_label ? ` (${item.variant_label})` : ''} — ${tabMoney(item.amount)} บาท • ${new Date(item.closed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`,
+          `${index + 1}. ${customerTabItemLabel(item)}${item.variant_label ? ` (${item.variant_label})` : ''} — ${tabMoney(item.amount)} บาท • ${new Date(item.closed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`,
       ),
     `ค่าจัดส่งครั้งเดียวต่อไลฟ์: ${tabMoney(tab.shipping_fee)} บาท`,
     `ยอดรวมสะสม: ${tabMoney(tab.total_amount)} บาท`,

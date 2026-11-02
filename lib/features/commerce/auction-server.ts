@@ -1,4 +1,5 @@
 import 'server-only'
+import { customerTabItemLabel } from './customer-tab-types'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import {
   pageTokenFor,
@@ -122,18 +123,21 @@ export async function deliverAuctionNotifications(auctionId?: string) {
           auction.private_reply_template || AUCTION_PRIVATE_TEMPLATE,
           values,
         )
-        const footer = `${auction.item_name.slice(0, 80)} • ${money(auction.current_price)} บาท\n${compact}`
-        const withoutDuplicateLink = rendered.includes(bill.link)
-          ? compact.slice(0, compact.lastIndexOf('\n'))
-          : compact
-        const item = rendered.includes(auction.item_name)
-          ? ''
-          : `${auction.item_name} • ${money(auction.current_price)} บาท\n`
-        const completeButton = `${rendered}\n${item}${withoutDuplicateLink}`
-        buttonMessage =
-          completeButton.length <= 640
-            ? completeButton
-            : `${rendered.slice(0, Math.max(0, 638 - footer.length))}\n\n${footer}`
+        const items = (tab.customer_tab_items ?? []).filter((item) => !item.cancelled)
+        const itemLines = items.length
+          ? items
+              .map((item) => `${customerTabItemLabel(item)} • ${money(item.amount)} บาท`)
+              .join('\n')
+          : `[ประมูล] ${auction.item_name} • ${money(auction.current_price)} บาท`
+        const shipping = `ค่าจัดส่งครั้งเดียว: ${money(tab.shipping_fee ?? 0)} บาท`
+        const fullFooter = `${itemLines}\n${shipping}\n${compact}`
+        const footer =
+          fullFooter.length <= 638
+            ? fullFooter
+            : `[ประมูล] ${auction.item_name.slice(0, 80)} • ${money(auction.current_price)} บาท\nดูรายการทั้งหมดในบิล\n${shipping}\n${compact}`
+        // Keep ledger totals and the signed link intact when fitting Messenger's button limit.
+        const greeting = rendered.replaceAll(bill.link, '').trim()
+        buttonMessage = `${greeting.slice(0, Math.max(0, 638 - footer.length))}\n\n${footer}`.trim()
       }
     }
     const claimed = await db

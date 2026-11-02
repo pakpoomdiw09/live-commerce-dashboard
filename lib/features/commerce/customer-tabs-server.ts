@@ -1,7 +1,7 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CustomerTab } from './customer-tab-types'
-import { customerTabText } from './customer-tab-types'
+import { customerTabItemLabel, customerTabText } from './customer-tab-types'
 import { createLiveCfPaymentLink } from './live-cf-payment-link'
 import { findBank } from '@/lib/features/banking/banks'
 
@@ -20,12 +20,21 @@ export async function loadCustomerTab(
   if (tab) {
     const orders = await db
       .from('orders')
-      .select('id,live_variant_selection_required,live_variant_confirmed_at')
+      .select('id,source,source_code,live_variant_selection_required,live_variant_confirmed_at')
       .eq('customer_tab_id', tab.id)
       .eq('tenant_id', tab.tenant_id)
     if (orders.error) throw orders.error
     for (const item of tab.customer_tab_items) {
       const order = orders.data.find((row) => row.id === item.order_id)
+      item.order_type ??=
+        order?.source === 'live_auction'
+          ? 'auction'
+          : order?.source === 'live_comment' ||
+              order?.source === 'facebook_comment' ||
+              order?.source_code
+            ? 'cf'
+            : null
+      item.source_code ??= order?.source_code ?? null
       item.requires_variant =
         !!order?.live_variant_selection_required && !order.live_variant_confirmed_at
       item.selection_link = item.requires_variant ? createLiveCfPaymentLink(item.order_id) : null
@@ -78,7 +87,7 @@ export async function customerTabSummary(db: SupabaseClient, tab: CustomerTab, g
       : [
           greeting ?? 'สรุปบิลสะสมพระเครื่องครับ',
           latest
-            ? `รายการล่าสุด: ${latest.item_name} ${Number(latest.amount).toLocaleString('th-TH')} บาท`
+            ? `รายการล่าสุด: ${customerTabItemLabel(latest)} ${Number(latest.amount).toLocaleString('th-TH')} บาท`
             : '',
           `ยอดรวมสะสม ${Number(tab.total_amount).toLocaleString('th-TH')} บาท`,
           `ตรวจยอดโอนแล้ว ${Number(tab.paid_amount).toLocaleString('th-TH')} บาท`,

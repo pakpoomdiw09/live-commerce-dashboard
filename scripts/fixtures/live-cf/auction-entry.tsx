@@ -38,6 +38,7 @@ const state = {
   failOpen: false,
   loadFailure: false,
   reads: 0,
+  summaryReads: 0,
   selectedSlipId: '',
   customerTabs: [
     {
@@ -83,6 +84,7 @@ const state = {
     },
   ] as AuctionBid[],
 }
+const roundBids = new Map<string, AuctionBid[]>([[initial.id, state.bids]])
 declare global {
   interface Window {
     auctionQA: typeof state
@@ -91,7 +93,10 @@ declare global {
 window.auctionQA = state
 window.fetch = async (input, init) => {
   const path = String(input)
-  if (path.startsWith('/api/live-cf/sessions?')) return Response.json({ sessions: [] })
+  if (path.startsWith('/api/live-cf/sessions?')) {
+    state.summaryReads++
+    return Response.json({ sessions: [] })
+  }
   if (path.startsWith('/api/facebook/live-videos?'))
     return Response.json({
       pageId: '100',
@@ -129,7 +134,9 @@ window.fetch = async (input, init) => {
       const row = state.auctions.find((a) => a.id === body.auctionId)!
       if (body.action === 'close') row.status = 'closed'
       else row.host_count = body.action
-      state.bids.unshift({
+      const bids = roundBids.get(row.id) ?? []
+      roundBids.set(row.id, bids)
+      bids.unshift({
         id: `host-${state.requests.length}`,
         bidder_name: 'Host',
         comment_text: body.action === 'close' ? '❌' : body.action,
@@ -170,7 +177,8 @@ window.fetch = async (input, init) => {
   const selected = state.auctions.find((a) => a.id === params.get('id')) ?? state.auctions[0]
   return Response.json({
     auctions: state.auctions,
-    bids: state.bids,
+    selectedAuctionId: selected.id,
+    bids: roundBids.get(selected.id) ?? [],
     deliveries:
       selected.status === 'closed'
         ? [{ channel: 'private', status: 'sent', error_code: null }]

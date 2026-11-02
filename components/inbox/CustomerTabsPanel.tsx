@@ -1,7 +1,11 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import type { CustomerTab } from '@/lib/features/commerce/customer-tab-types'
-import { splitTabMessage, tabMoney } from '@/lib/features/commerce/customer-tab-types'
+import {
+  customerTabItemLabel,
+  splitTabMessage,
+  tabMoney,
+} from '@/lib/features/commerce/customer-tab-types'
 
 type Reminder = {
   id: string
@@ -150,7 +154,7 @@ export function CustomerTabsPanel({
               .map((item) => (
                 <li key={item.order_id} className="flex justify-between gap-2 text-xs">
                   <span>
-                    {item.item_name}
+                    {customerTabItemLabel(item)}
                     {item.variant_label ? ` • ${item.variant_label}` : ''}
                     <span className="block text-[10px] text-slate-400">
                       {new Date(item.closed_at).toLocaleString('th-TH', {

@@ -94,6 +94,7 @@ function fixture({
     'lib/features/commerce/auction-server.ts',
     {
       'server-only': {},
+      './customer-tab-types': load('lib/features/commerce/customer-tab-types.ts'),
       '@/lib/supabase/server': { supabaseAdmin: () => db },
       '@/lib/integrations/facebook/client': {
         pageTokenFor: (row) => row.page_access_token,
@@ -230,7 +231,24 @@ test('auction templates and switches control replies and use the cumulative net 
   await silentBid.receive('เปิด')
   assert.equal(silentBid.calls.public.length, 0)
   assert.equal(silentBid.calls.rpc.length, 1, 'bids still count while replies are disabled')
-  const custom = fixture({ tab: { total_amount: 1000, paid_amount: 200, remaining_amount: 800 } })
+  const custom = fixture({
+    tab: {
+      total_amount: 1000,
+      paid_amount: 200,
+      remaining_amount: 800,
+      shipping_fee: 50,
+      customer_tab_items: [
+        { item_name: 'พระสมเด็จ', amount: 500, order_type: 'auction', cancelled: false },
+        {
+          item_name: 'เหรียญหลวงพ่อทวด',
+          amount: 450,
+          order_type: 'cf',
+          source_code: 'a1',
+          cancelled: false,
+        },
+      ],
+    },
+  })
   custom.tables.auctions[0].bid_reply_template = '{bidder_name} leads {product_name}: {price}'
   await custom.receive('เปิด')
   assert.match(custom.calls.public[0][2], /Buyer leads .*200/)
@@ -250,6 +268,10 @@ test('auction templates and switches control replies and use the cumulative net 
   assert.match(custom.calls.private[0][2], /Pay 800/)
   assert.match(custom.calls.private[0][3], /KTB 9260337828/)
   assert.match(custom.calls.private[0][3], /1,000/)
+  assert.match(custom.calls.private[0][3], /\[ประมูล\] พระสมเด็จ/)
+  assert.match(custom.calls.private[0][3], /\[CF-A1\] เหรียญหลวงพ่อทวด/)
+  assert.match(custom.calls.private[0][3], /ค่าจัดส่งครั้งเดียว: 50 บาท/)
+  assert.ok(custom.calls.private[0][3].length <= 640)
   assert.equal(custom.calls.private[0][4], 'https://shop.example/pay/live/signed')
   assert.equal(custom.tables.messages[0].delivery_status, 'sent')
 })

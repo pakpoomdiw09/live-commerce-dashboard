@@ -13,6 +13,33 @@ const silent = { info() {}, warn() {}, error() {} }
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const customerId = '22222222-2222-4222-8222-222222222222'
 const tabId = '33333333-3333-4333-8333-333333333333'
+test('mixed auction/CF bills label provenance and retain the shared ledger total', () => {
+  const bill = tab()
+  bill.customer_tab_items = [
+    { ...bill.customer_tab_items[0], item_name: 'พระสมเด็จ', amount: 500, order_type: 'auction' },
+    {
+      ...bill.customer_tab_items[1],
+      item_name: 'เหรียญหลวงพ่อทวด',
+      amount: 300,
+      order_type: 'cf',
+      source_code: 'a1',
+    },
+  ]
+  Object.assign(bill, {
+    shipping_fee: 50,
+    total_amount: 850,
+    paid_amount: 200,
+    remaining_amount: 650,
+  })
+  const text = types.customerTabText(bill, 'https://shop.example/bill')
+  assert.match(text, /\[ประมูล\] พระสมเด็จ/)
+  assert.match(text, /\[CF-A1\] เหรียญหลวงพ่อทวด/)
+  assert.match(text, /ยอดรวมสะสม: 850\.00/)
+  assert.match(text, /โอนแล้วและตรวจสอบผ่าน: 200\.00/)
+  assert.match(text, /ยอดค้างชำระสุทธิที่ต้องโอนเพิ่ม: 650\.00/)
+  assert.equal((text.match(/ค่าจัดส่งครั้งเดียว/g) ?? []).length, 1)
+  assert.equal(types.customerTabItemLabel({ item_name: 'Legacy' }), 'Legacy')
+})
 function tab() {
   return {
     id: tabId,

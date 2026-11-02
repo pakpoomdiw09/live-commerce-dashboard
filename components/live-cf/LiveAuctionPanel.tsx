@@ -15,7 +15,12 @@ import {
 } from '@/lib/features/commerce/auction-templates'
 
 type Delivery = { channel: string; status: string; error_code: string | null }
-type Snapshot = { auctions: Auction[]; bids: AuctionBid[]; deliveries: Delivery[] }
+type Snapshot = {
+  selectedAuctionId?: string
+  auctions: Auction[]
+  bids: AuctionBid[]
+  deliveries: Delivery[]
+}
 const field =
   'mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100'
 const money = (value: number) => Number(value).toLocaleString('th-TH', { maximumFractionDigits: 2 })
@@ -33,11 +38,13 @@ export function LiveAuctionPanel({
   bankAccounts,
   pages = [],
   active = true,
+  onSessionEnded,
 }: {
   tenantId: string
   bankAccounts: { id: string; bank_code: string; account_number: string }[]
   pages?: LiveSourcePage[]
   active?: boolean
+  onSessionEnded?: () => void
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ auctions: [], bids: [], deliveries: [] })
   const [selectedId, setSelectedId] = useState('')
@@ -46,6 +53,7 @@ export function LiveAuctionPanel({
   const [notice, setNotice] = useState('')
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const requestVersion = useRef(0)
+  const initialized = useRef(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(true)
@@ -78,6 +86,10 @@ export function LiveAuctionPanel({
         if (!response.ok) throw new Error(data.error || 'โหลดข้อมูลประมูลไม่สำเร็จ')
         if (!signal?.aborted && version === requestVersion.current) {
           setSnapshot(data)
+          if (!initialized.current) {
+            initialized.current = true
+            if (data.auctions?.some((a: Auction) => a.status === 'active')) setShowForm(false)
+          }
           setLoadError('')
           setLastUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }))
         }
@@ -85,7 +97,7 @@ export function LiveAuctionPanel({
         if (!signal?.aborted && version === requestVersion.current)
           setLoadError(cause instanceof Error ? cause.message : 'โหลดข้อมูลไม่สำเร็จ')
       } finally {
-        if (!signal?.aborted) setLoading(false)
+        if (!signal?.aborted && version === requestVersion.current) setLoading(false)
       }
     },
     [tenantId, selectedId],
@@ -118,7 +130,9 @@ export function LiveAuctionPanel({
     }
   }, [refresh, active])
 
-  const auction = snapshot.auctions.find((a) => a.id === selectedId) ?? snapshot.auctions[0]
+  const auction =
+    snapshot.auctions.find((a) => a.id === (selectedId || snapshot.selectedAuctionId)) ??
+    (!selectedId ? snapshot.auctions[0] : undefined)
   async function mutate(path: string, input: Record<string, unknown>) {
     setBusy(true)
     setError('')
@@ -133,9 +147,13 @@ export function LiveAuctionPanel({
       if (!response.ok) throw new Error(data.error || 'ดำเนินการไม่สำเร็จ')
       if (typeof data.message === 'string') setNotice(data.message)
       if (data.id) {
+        ++requestVersion.current
+        setLoading(true)
+        setSnapshot((previous) => ({ ...previous, bids: [], deliveries: [] }))
         setSelectedId(data.id)
         setShowForm(false)
       } else await refresh()
+      if (input.action === 'end_live') onSessionEnded?.()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'ดำเนินการไม่สำเร็จ')
     } finally {
@@ -155,7 +173,7 @@ export function LiveAuctionPanel({
             <Gavel className="h-5 w-5" />
           </span>
           <div>
-            <h1 className="text-lg font-bold text-slate-900">ประมูลสด</h1>
+            <h1 className="text-lg font-bold text-slate-900">ห้องควบคุมการประมูลสด</h1>
             <p className="text-sm text-slate-500">
               ผู้ขายคุมจังหวะผ่านคอมเมนต์ • ไม่มีเวลานับถอยหลัง
             </p>
@@ -183,6 +201,19 @@ export function LiveAuctionPanel({
             {notice}
           </p>
         )}
+        <div className="sm:col-span-2 lg:col-span-3">
+          <LiveSourcePicker
+            pages={pages}
+            pageId={showForm ? draft.pageId : (auction?.page_id ?? draft.pageId)}
+            livePostId={showForm ? draft.livePostId : (auction?.live_post_id ?? draft.livePostId)}
+            active={active}
+            disabled={busy || !showForm}
+            onPageChange={(pageId) =>
+              setDraft((previous) => ({ ...previous, pageId, livePostId: '' }))
+            }
+            onLiveChange={(livePostId) => setDraft((previous) => ({ ...previous, livePostId }))}
+          />
+        </div>
         {showForm && (
           <form
             onSubmit={(event) => {
@@ -208,19 +239,6 @@ export function LiveAuctionPanel({
                 placeholder="เหรียญรุ่น 1"
               />
             </label>
-            <div className="sm:col-span-2 lg:col-span-3">
-              <LiveSourcePicker
-                pages={pages}
-                pageId={draft.pageId}
-                livePostId={draft.livePostId}
-                active={active}
-                disabled={busy}
-                onPageChange={(pageId) =>
-                  setDraft((previous) => ({ ...previous, pageId, livePostId: '' }))
-                }
-                onLiveChange={(livePostId) => setDraft((previous) => ({ ...previous, livePostId }))}
-              />
-            </div>
             {(
               [
                 { key: 'startPrice', label: 'ราคาเปิด (บาท)', min: '0.01' },
@@ -242,6 +260,17 @@ export function LiveAuctionPanel({
                 />
               </label>
             ))}
+            <div className="max-w-lg">
+              <ReceivingBankPicker
+                accounts={bankAccounts}
+                value={draft.bankAccountId}
+                required
+                disabled={busy}
+                onChange={(bankAccountId) =>
+                  setDraft((previous) => ({ ...previous, bankAccountId }))
+                }
+              />
+            </div>
             <label className="text-sm font-medium sm:col-span-2">
               Facebook ID ผู้ช่วยคุมประมูล (ถ้ามี)
               <input
@@ -330,17 +359,6 @@ export function LiveAuctionPanel({
                   </div>
                 )}
               </div>
-              <div className="max-w-lg">
-                <ReceivingBankPicker
-                  accounts={bankAccounts}
-                  value={draft.bankAccountId}
-                  required
-                  disabled={busy}
-                  onChange={(bankAccountId) =>
-                    setDraft((previous) => ({ ...previous, bankAccountId }))
-                  }
-                />
-              </div>
               <p className="text-xs text-slate-500">
                 ใช้บัญชีนี้ในบิลสะสมและหน้าชำระเงิน คิดค่าจัดส่งครั้งเดียวต่อรอบไลฟ์
               </p>
@@ -350,7 +368,7 @@ export function LiveAuctionPanel({
               เพื่อเพิ่มหนึ่งสเต็ป ระหว่างรอบนี้คอมเมนต์ของไลฟ์จะเข้าระบบประมูล
             </p>
             <button
-              disabled={busy}
+              disabled={busy || !draft.pageId || !draft.livePostId}
               className="rounded-xl bg-orange-500 px-4 py-3 font-semibold text-white disabled:opacity-50"
             >
               {busy ? 'กำลังบันทึก…' : 'เริ่มเปิดประมูลรายการนี้'}
@@ -370,7 +388,12 @@ export function LiveAuctionPanel({
               <select
                 className={field}
                 value={auction.id}
-                onChange={(e) => setSelectedId(e.target.value)}
+                onChange={(e) => {
+                  ++requestVersion.current
+                  setLoading(true)
+                  setSnapshot((previous) => ({ ...previous, bids: [], deliveries: [] }))
+                  setSelectedId(e.target.value)
+                }}
               >
                 {snapshot.auctions.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -384,7 +407,7 @@ export function LiveAuctionPanel({
                 ))}
               </select>
             </label>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-[1fr_2fr] xl:grid-cols-[1fr_2fr_1fr]">
               <div className="rounded-xl bg-slate-50 p-4">
                 <p className="flex items-center gap-2 text-sm text-slate-500">
                   <Radio className="h-4 w-4" />
@@ -405,12 +428,12 @@ export function LiveAuctionPanel({
                   <Trophy className="h-4 w-4" />
                   {auction.status === 'closed' ? 'ผู้ชนะ' : 'ผู้นำปัจจุบัน'}
                 </p>
-                <p className="mt-2 text-xl font-bold" data-auction-leader>
+                <p className="mt-2 break-words text-2xl font-bold" data-auction-leader>
                   {auction.leading_bidder_name ||
                     (auction.leading_bidder_id ? 'ลูกค้า Facebook' : 'รอผู้เปิดประมูล')}
                 </p>
                 <p
-                  className="mt-2 text-4xl font-bold tabular-nums text-orange-600 md:text-5xl"
+                  className="mt-2 break-words text-5xl font-bold tabular-nums text-orange-600 sm:text-7xl"
                   data-auction-price
                 >
                   {money(auction.current_price)} <span className="text-sm">บาท</span>
@@ -418,7 +441,7 @@ export function LiveAuctionPanel({
               </div>
               <div className="rounded-xl bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">ผู้ขายนับเคาะ</p>
-                <p className="mt-2 text-3xl font-bold" data-auction-count>
+                <p className="mt-2 text-6xl font-bold" data-auction-count>
                   {auction.host_count || '—'}
                 </p>
                 <div className="mt-3 flex gap-2" aria-label="สถานะนับเคาะ 3 2 1">
@@ -454,7 +477,7 @@ export function LiveAuctionPanel({
                           action,
                         })
                       }
-                      className="rounded-xl border border-orange-200 bg-orange-50 px-5 py-2.5 text-sm font-semibold text-orange-700 disabled:opacity-50"
+                      className="min-h-20 flex-1 rounded-xl border border-orange-200 bg-orange-50 px-5 py-3 text-2xl font-bold text-orange-700 disabled:opacity-50"
                     >
                       นับ {action}
                     </button>
@@ -469,7 +492,7 @@ export function LiveAuctionPanel({
                         action: 'close',
                       })
                     }
-                    className="rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                    className="min-h-20 grow rounded-xl bg-orange-600 px-5 py-3 text-xl font-bold text-white disabled:opacity-50"
                   >
                     ปิดประมูล (❌)
                   </button>
@@ -509,39 +532,11 @@ export function LiveAuctionPanel({
                 ))}
               </div>
             )}
-            <div className="flex flex-wrap gap-3 rounded-xl bg-slate-50 p-3">
-              <button
-                type="button"
-                disabled={busy || auction.status === 'active'}
-                onClick={() =>
-                  void mutate('/api/customer-tabs', {
-                    action: 'end_live',
-                    livePostId: auction.live_post_id,
-                    requestId: crypto.randomUUID(),
-                    reminders: true,
-                  })
-                }
-                className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs font-semibold text-orange-700 disabled:opacity-50"
-              >
-                จบไลฟ์และตั้งทวงยอด
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  void mutate('/api/customer-tabs', {
-                    action: 'remind_all',
-                    requestId: crypto.randomUUID(),
-                  })
-                }
-                className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                ให้ AI แจ้งยอดค้างทั้งหมด
-              </button>
-            </div>
-            <div className="overflow-x-auto">
+            <div data-auction-stream className="max-h-[480px] overflow-auto">
               <table className="w-full min-w-[560px] text-left text-sm">
-                <caption className="mb-3 text-left font-semibold">ประวัติการเคาะล่าสุด</caption>
+                <caption className="mb-3 text-left font-semibold">
+                  Live Bid Stream • {auction.item_name} • เฉพาะรอบนี้
+                </caption>
                 <thead>
                   <tr className="border-b text-xs text-slate-400">
                     <th className="p-2">เวลา</th>
@@ -577,6 +572,23 @@ export function LiveAuctionPanel({
               {!snapshot.bids.length && (
                 <p className="p-4 text-center text-sm text-slate-400">ยังไม่มีคอมเมนต์ประมูล</p>
               )}
+            </div>
+            <div className="flex flex-wrap gap-3 rounded-xl bg-slate-50 p-3">
+              <button
+                type="button"
+                disabled={busy || auction.status === 'active'}
+                onClick={() =>
+                  void mutate('/api/customer-tabs', {
+                    action: 'end_live',
+                    livePostId: auction.live_post_id,
+                    requestId: crypto.randomUUID(),
+                    reminders: true,
+                  })
+                }
+                className="rounded-lg border border-orange-200 bg-white px-3 py-2 text-xs font-semibold text-orange-700 disabled:opacity-50"
+              >
+                จบไลฟ์และตั้งทวงยอด
+              </button>
             </div>
           </>
         )}

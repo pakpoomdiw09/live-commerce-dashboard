@@ -116,6 +116,7 @@ const groups = [
       'auction-experience.sql',
       'live-session-dashboard.sql',
       'shipping-fulfillment.sql',
+      'live-order-types.sql',
     ],
   ],
 ]
@@ -149,6 +150,7 @@ const excluded = {
 // Explicit edges document table/helper prerequisites and prevent accidental
 // reordering of patches whose latest function definitions must win.
 const prerequisites = {
+  'live-order-types.sql': ['live-session-dashboard.sql'],
   'shipping-fulfillment.sql': ['live-session-dashboard.sql'],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],

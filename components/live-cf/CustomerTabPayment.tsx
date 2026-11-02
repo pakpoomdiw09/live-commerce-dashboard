@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { findBank } from '@/lib/features/banking/banks'
 import type { CustomerTab } from '@/lib/features/commerce/customer-tab-types'
-import { tabMoney } from '@/lib/features/commerce/customer-tab-types'
+import { tabMoney, customerTabItemLabel } from '@/lib/features/commerce/customer-tab-types'
 import { AuctionSlipUpload } from './AuctionSlipUpload'
 
 export async function CustomerTabPayment({ tab, token }: { tab: CustomerTab; token: string }) {
@@ -46,7 +46,7 @@ export async function CustomerTabPayment({ tab, token }: { tab: CustomerTab; tok
             .map((item) => (
               <li key={item.order_id} className="flex justify-between gap-3 py-3 text-sm">
                 <span>
-                  {item.item_name}
+                  {customerTabItemLabel(item)}
                   {item.variant_label ? ` • ${item.variant_label}` : ''}
                   {item.requires_variant && item.selection_link && (
                     <a

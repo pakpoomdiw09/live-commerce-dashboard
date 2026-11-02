@@ -7,7 +7,7 @@ import { pageTokenFor } from '@/lib/integrations/facebook/client'
 import { deliverRichOnce } from '@/lib/features/slips/notify'
 import { assertInboxPolicy } from '@/lib/features/inbox/inbox-policy-server'
 import { loadCustomerTab, customerTabSummary } from './customer-tabs-server'
-import { splitTabMessage } from './customer-tab-types'
+import { customerTabItemLabel, splitTabMessage } from './customer-tab-types'
 import { renderSessionFollowup, validSessionTemplate, type SessionTab } from './live-session-types'
 
 async function reminderGreeting(
@@ -176,7 +176,11 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
           lastReminder: null,
           items: tab.customer_tab_items
             .filter((item) => !item.cancelled)
-            .map((item) => ({ orderId: item.order_id, name: item.item_name, amount: item.amount })),
+            .map((item) => ({
+              orderId: item.order_id,
+              name: customerTabItemLabel(item),
+              amount: item.amount,
+            })),
         }
         text = `${renderSessionFollowup(job.message_template, preview)}\n\n${summary.text}`
       }

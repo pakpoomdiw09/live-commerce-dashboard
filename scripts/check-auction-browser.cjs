@@ -185,6 +185,35 @@ async function checkInterface() {
     )
     assert.equal(await evaluate("new URL(location.href).searchParams.get('mode')"), 'auction')
     assert.equal(await evaluate("document.querySelector('#live-panel-cf').hidden"), true)
+    assert.equal(
+      await evaluate(
+        "document.querySelector('#auction-view-console').getAttribute('aria-selected')",
+      ),
+      'true',
+    )
+    assert.equal(
+      await evaluate('window.auctionQA.summaryReads'),
+      0,
+      'accounting never loads before requested',
+    )
+    assert.equal(
+      await evaluate('document.querySelector(\'input[maxlength="200"]\') === null'),
+      true,
+      'existing active round opens directly on the board',
+    )
+    await evaluate("document.querySelector('#auction-view-summary').click()")
+    await wait('window.auctionQA.summaryReads > 0')
+    assert.equal(await evaluate("document.querySelector('#auction-surface-console').hidden"), true)
+    const consoleReads = await evaluate('window.auctionQA.reads')
+    await new Promise((resolve) => setTimeout(resolve, 3300))
+    assert.equal(
+      await evaluate('window.auctionQA.reads'),
+      consoleReads,
+      'console stops polling while accounting is visible',
+    )
+    await evaluate("document.querySelector('#auction-view-console').click()")
+    await wait("!document.querySelector('#auction-surface-console').hidden")
+    await evaluate("document.querySelector('section[data-auction-panel] header button').click()")
     assert.ok(
       await evaluate('document.querySelector(\'input[maxlength="200"]\') !== null'),
       'opening form is visible on entry',
@@ -338,6 +367,14 @@ async function checkInterface() {
     assert.equal(
       await evaluate('window.auctionQA.requests.at(-1).body.privateText'),
       'Winner: {ชื่อสินค้า}',
+    )
+    await wait("document.querySelector('[data-auction-action=close]') !== null")
+    assert.equal(
+      await evaluate(
+        "document.querySelector('[data-auction-stream]').textContent.includes('เปิดให้ 10 ลุ้น')",
+      ),
+      false,
+      'new round cannot display the previous round bids',
     )
     await evaluate("document.querySelector('[data-auction-action=close]').click()")
     await wait("document.querySelector('[data-auction-action=close]') === null")

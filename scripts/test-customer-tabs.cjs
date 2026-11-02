@@ -299,6 +299,64 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
       (await one('select status from orders where id=$1', [selected.r_order_id])).status,
       'paid',
     )
+    // Mixed-mode example: one shared tab, one fee, explicit item provenance.
+    const mixed = await win(500, { shipping: 50, post: '888' })
+    const mixedProduct = (
+      await one(
+        "insert into products(tenant_id,code,name,price,stock) values($1,'A1','เหรียญหลวงพ่อทวด',300,5) returning id",
+        [tenant],
+      )
+    ).id
+    const mixedRule = (
+      await one(
+        "insert into comment_rules(tenant_id,name,page_ids,keywords,mode,live_product_id,live_post_id) values($1,'Mixed CF',array['100'],array['a1'],'live_cf',$2,'888') returning id",
+        [tenant, mixedProduct],
+      )
+    ).id
+    const cfArgs = [tenant, customer, mixedRule]
+    const mixedCf = await one(
+      "select * from place_cf_order($1,$2,$3,'a1','mixed-comment','888','100')",
+      cfArgs,
+    )
+    await one("select * from place_cf_order($1,$2,$3,'a1','mixed-comment','888','100')", cfArgs)
+    const mixedOrder = await one('select * from orders where id=$1', [mixedCf.r_order_id])
+    assert.equal(mixed.order_type, 'auction')
+    assert.equal(mixedOrder.order_type, 'cf')
+    assert.equal(mixedOrder.customer_tab_id, mixed.customer_tab_id)
+    const mixedBill = await one('select * from customer_tabs where id=$1', [mixed.customer_tab_id])
+    assert.equal(Number(mixedBill.total_amount), 850)
+    assert.equal(Number(mixedBill.shipping_fee), 50)
+    const mixedItems = (
+      await db.query('select * from customer_tab_items where tab_id=$1 order by amount desc', [
+        mixedBill.id,
+      ])
+    ).rows
+    assert.equal(mixedItems.length, 2, 'replayed CF cannot duplicate amounts')
+    assert.deepEqual(
+      mixedItems.map((i) => i.order_type),
+      ['auction', 'cf'],
+    )
+    assert.equal(mixedItems[1].source_code.toLowerCase(), 'a1')
+    const dashboard = (
+      await one('select live_session_dashboard($1,$2) data', [tenant, mixedBill.live_session_id])
+    ).data
+    const names = dashboard.tabs.find((t) => t.id === mixedBill.id).items.map((i) => i.name)
+    assert.ok(names.some((name) => name.startsWith('[ประมูล]')))
+    assert.ok(names.some((name) => name.startsWith('[CF-A1]')))
+    assert.equal((await pay(mixedBill.id, 200)).result.remainingAmount, 650)
+    const beforeMigration = await one(
+      'select total_amount,paid_amount,remaining_amount,shipping_fee,revision from customer_tabs where id=$1',
+      [mixedBill.id],
+    )
+    await db.exec(fs.readFileSync('supabase/live-order-types.sql', 'utf8'))
+    assert.deepEqual(
+      await one(
+        'select total_amount,paid_amount,remaining_amount,shipping_fee,revision from customer_tabs where id=$1',
+        [mixedBill.id],
+      ),
+      beforeMigration,
+      'reapplying type metadata cannot change balances or ledger revisions',
+    )
     for (const table of [
       'customer_tabs',
       'customer_tab_items',

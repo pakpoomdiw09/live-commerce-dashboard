@@ -25,7 +25,10 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(10)
     if (auctions.error) throw auctions.error
-    const selected = req.nextUrl.searchParams.get('id') || auctions.data[0]?.id
+    const selected =
+      req.nextUrl.searchParams.get('id') ||
+      auctions.data.find((a) => a.status === 'active')?.id ||
+      auctions.data[0]?.id
     if (selected && !auctions.data.some((a) => a.id === selected))
       return auctionReply({ error: 'ไม่พบรายการ' }, 404)
     const [bids, deliveries] = selected
@@ -46,7 +49,12 @@ export async function GET(req: NextRequest) {
           { data: [], error: null },
         ]
     if (bids.error || deliveries.error) throw bids.error || deliveries.error
-    return auctionReply({ auctions: auctions.data, bids: bids.data, deliveries: deliveries.data })
+    return auctionReply({
+      selectedAuctionId: selected,
+      auctions: auctions.data,
+      bids: bids.data,
+      deliveries: deliveries.data,
+    })
   } catch (error) {
     return auctionFailure(error)
   }

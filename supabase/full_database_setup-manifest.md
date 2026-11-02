@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 109 ไฟล์: รวมตาม dependencies 92 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 111 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 110 ไฟล์: รวมตาม dependencies 93 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 112 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (853473 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (860720 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (741881 bytes, 12086 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (748312 bytes, 12177 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -129,6 +129,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 90. [auction-experience.sql](auction-experience.sql) — 5 statements retained
 91. [live-session-dashboard.sql](live-session-dashboard.sql) — 31 statements retained
 92. [shipping-fulfillment.sql](shipping-fulfillment.sql) — 35 statements retained
+93. [live-order-types.sql](live-order-types.sql) — 7 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -156,6 +157,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 
 | Migration | ต้องอยู่หลัง |
 | --- | --- |
+| live-order-types.sql | live-session-dashboard.sql |
 | shipping-fulfillment.sql | live-session-dashboard.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
@@ -297,6 +299,7 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | live-auctions.sql | 22: `update public.facebook_webhook_events set ordering_key='comments:'//page_id whe…` | Historical business-data backfill/repair removed. |
 | live-session-dashboard.sql | 14: `insert into public.live_sessions(tenant_id,page_id,live_post_id,created_at) sel…` | Historical business-data/settings/ledger backfill removed. |
 | live-session-dashboard.sql | 19: `update public.customer_tab_items i set auction_id=a.id,winning_bid_id=b.id from …` | Historical business-data backfill/repair removed. |
+| live-order-types.sql | 7: `update public.customer_tab_items i set order_type=o.order_type,source_code=o.sou…` | Historical business-data backfill/repair removed. |
 
 ## วิธีใช้ไฟล์ bootstrap เดิม
 
@@ -412,3 +415,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - auction-experience.sql: `d63ebe3b3f87fa9678fdc0f92762b65f9a652a0fb15c4e36f06cd0cbe1b318f8`
 - live-session-dashboard.sql: `791015cacf4a17c065f2e08dd10287f3c2366b24259aea43f17e5e8988499ee5`
 - shipping-fulfillment.sql: `abc1f380707a3baf1bb18df305b7e06f1be6dbaf3e7eb148a8e20ecfcac486fe`
+- live-order-types.sql: `eb6171db344172c6b92c8fe04ee96f2a71afb4d15c1af599f59dab0c57a54d01`
