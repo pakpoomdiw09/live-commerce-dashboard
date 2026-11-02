@@ -229,6 +229,34 @@ async function checkInterface() {
       await wait("!!document.querySelector('[role=listbox] [role=option]')")
       assert.ok(await evaluate("document.querySelector('[role=listbox]').textContent.includes('🔴 สด')"))
       assert.ok(await evaluate("document.querySelector('[role=listbox]').textContent.includes('รหัสวิดีโอ 456')"))
+      assert.equal(
+        await evaluate("document.querySelector('[role=listbox] [role=option] img')?.getAttribute('src')"),
+        'https://storage.example/live.webp',
+      )
+      assert.equal(
+        await evaluate("document.querySelector('[role=listbox] [role=option] img')?.className.includes('object-cover')"),
+        true,
+      )
+      assert.equal(
+        await evaluate("document.querySelector('[role=listbox] [role=option] img')?.parentElement?.className.includes('w-20')"),
+        true,
+      )
+      assert.equal(
+        await evaluate("document.querySelector('[role=combobox] > span.h-8') !== null"),
+        true,
+      )
+      assert.equal(
+        await evaluate("document.querySelector('[role=listbox]').textContent.includes('วิดีโอไลฟ์ที่จบแล้ว')"),
+        true,
+      )
+      assert.equal(
+        await evaluate("document.querySelector('[role=listbox] svg.lucide-video') !== null"),
+        true,
+      )
+      assert.equal(
+        await evaluate("document.body.textContent.includes('ดูภาพตัวอย่างไลฟ์')"),
+        false,
+      )
       await call('Input.dispatchKeyEvent', {type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
       await wait("!document.querySelector('[role=listbox]')")
       await click('เริ่มเซสชันไลฟ์สด')

@@ -221,9 +221,16 @@ window.fetch = async (input, init) => {
         {
           id: '456',
           title: 'ไลฟ์สดพระเครื่อง',
-          thumbnail: null,
+          thumbnail: 'https://storage.example/live.webp',
           createdAt: '2026-11-02T10:00:00Z',
           isLive: true,
+        },
+        {
+          id: '457',
+          title: 'วิดีโอไลฟ์ที่จบแล้ว',
+          thumbnail: null,
+          createdAt: '2026-11-01T10:00:00Z',
+          isLive: false,
         },
       ],
     })

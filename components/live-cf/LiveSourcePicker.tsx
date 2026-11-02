@@ -4,7 +4,6 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { FacebookLiveVideo } from '@/lib/integrations/facebook/live-videos'
 import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
 import { parseLiveVideoList } from '@/lib/features/commerce/live-source'
-import { LiveVideoPickerModal } from './LiveVideoPickerModal'
 import { LiveVideoSelect } from './LiveVideoSelect'
 
 export type LiveSourcePage = { id: string; name: string; picture?: string | null }
@@ -40,7 +39,6 @@ export function LiveSourcePicker({
   const [attempt, setAttempt] = useState(0)
   const [automatic, setAutomatic] = useState(true)
   const [manual, setManual] = useState(false)
-  const [modal, setModal] = useState(false)
   // A ref keeps asynchronous Page responses from overwriting an explicit selection.
   const current = useRef({ pageId, livePostId, automatic, onLiveChange })
   current.current = { pageId, livePostId, automatic, onLiveChange }
@@ -95,7 +93,6 @@ export function LiveSourcePicker({
           value={pageId}
           disabled={disabled}
           onChange={(event) => {
-            setModal(false)
             setManual(false)
             setAutomatic(true)
             onPageChange(event.target.value)
@@ -158,14 +155,6 @@ export function LiveSourcePicker({
           >
             โหลดรายการใหม่
           </button>
-          <button
-            type="button"
-            disabled={disabled || !pageId}
-            onClick={() => setModal(true)}
-            className="text-xs text-slate-600 underline disabled:opacity-50"
-          >
-            ดูภาพตัวอย่างไลฟ์
-          </button>
         </div>
         {error && (
           <p role="alert" className="text-xs text-red-700">
@@ -226,21 +215,6 @@ export function LiveSourcePicker({
           </>
         )}
       </div>
-      {modal && pageId && (
-        <LiveVideoPickerModal
-          key={pageId}
-          pageId={pageId}
-          thai={thai}
-          pageName={pages.find((page) => page.id === pageId)?.name ?? 'เพจ Facebook'}
-          onSelect={(video) => {
-            setVideos((previous) => [video, ...previous.filter((row) => row.id !== video.id)])
-            setLoadedPage(pageId)
-            choose(video.id)
-            setModal(false)
-          }}
-          onDismiss={() => setModal(false)}
-        />
-      )}
     </div>
   )
 }
