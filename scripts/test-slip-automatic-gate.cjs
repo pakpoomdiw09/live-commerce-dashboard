@@ -15,6 +15,7 @@ function fixture({
   orderError = false,
   autoReply = true,
   standaloneSuccess = true,
+  shipping = false,
 } = {}) {
   const calls = {
     downloads: 0,
@@ -26,6 +27,7 @@ function fixture({
     persisted: 0,
     standaloneChecks: 0,
     standaloneReplies: [],
+    shipping: 0,
   }
   const steps = new Map()
   const db = {
@@ -92,6 +94,14 @@ function fixture({
         replyToMessengerProduct: async () => false,
       },
       '@/lib/features/commerce/live-cf-comment': {},
+      '@/lib/features/commerce/auction-server': { handleAuctionComment: async () => false },
+      '@/lib/features/shipping/shipping-messenger': {
+        shippingMessageIntent: () => true,
+        handleShippingMessage: async () => {
+          calls.shipping++
+          return true
+        },
+      },
       '@/lib/features/commerce/live-cf-payment-link': {},
       '@/lib/integrations/facebook/live-cf-adapter': {},
       '@/lib/feature-flags': {},
@@ -170,6 +180,9 @@ function fixture({
       payload: {
         message: {
           mid: 'mid',
+          ...(shipping
+            ? { text: 'ส่งที่อยู่ ตำบลบางรัก อำเภอเมือง นนทบุรี 11000 โทร 0812345678' }
+            : {}),
           attachments: [{ type: 'image', payload: { url: 'https://example.test/photo.png' } }],
         },
       },
@@ -197,6 +210,20 @@ const pending = () => ({
   customer_id: 'customer-a',
   status: 'pending_payment',
   amount: 100,
+})
+
+test('shipping address text is handled before chat AI while attached slips still complete the payment route', async () => {
+  const withSlip = fixture({ rows: [pending()], shipping: true })
+  await withSlip.run()
+  assert.equal(withSlip.calls.shipping, 1)
+  assert.equal(withSlip.calls.checks, 1)
+  assert.equal(withSlip.calls.ai, 0)
+  const textOnly = fixture({ shipping: true })
+  textOnly.execution.event.payload.message.attachments = []
+  await textOnly.run()
+  assert.equal(textOnly.calls.shipping, 1)
+  assert.equal(textOnly.calls.ai, 0)
+  assert.equal(textOnly.calls.checks, 0)
 })
 
 test('no pending order, paid/cancelled orders and unrelated orders route images to standalone without paying orders', async () => {

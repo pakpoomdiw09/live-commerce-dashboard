@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:shipping": "node --test scripts/test-shipping.cjs",
+    "test:shipping:ui": "node scripts/check-shipping-browser.cjs",
     "test:live-sessions": "node --test scripts/test-live-session-dashboard.cjs",
     "test:live-sessions:ui": "node scripts/check-live-session-browser.cjs",
     "test:auctions": "node --test scripts/test-live-auctions.cjs scripts/test-auction-server.cjs scripts/test-auction-host-actions.cjs",

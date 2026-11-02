@@ -272,6 +272,32 @@ async function onMessage(
     }
   }
 
+  let shippingHandled = false
+  // Load the optional shipping module only for address-like text or its confirmation button.
+  if (
+    tenant &&
+    typeof m.text === 'string' &&
+    (/ที่อยู่|ตำบล|ต\.|แขวง|อำเภอ|อ\.|เขต|จังหวัด|จ\.|รหัสไปรษณีย์|[๐-๙]{5}|\d{5}|(?:^|\s)(?:0[1-9][\d\s-]{7,12}|\+66)/.test(
+      m.text,
+    ) ||
+      String(m.quick_reply?.payload || '').startsWith('SHIPPING_CONFIRM:'))
+  ) {
+    const { shippingMessageIntent, handleShippingMessage } =
+      await import('@/lib/features/shipping/shipping-messenger')
+    if (shippingMessageIntent(m.text, m.quick_reply?.payload))
+      shippingHandled = await handleShippingMessage({
+        db,
+        tenantId: tenant.id,
+        pageId,
+        recipient: { id: customer.id, psid, token },
+        messageId: message.id,
+        text: m.text,
+        quickReply: m.quick_reply?.payload,
+        mayReply: customer.bot_enabled && tenant.auto_reply_enabled,
+        execution,
+      })
+    if (shippingHandled && !m.attachments?.length) return
+  }
   if (tenant) {
     try {
       const profile = await getCustomerProfile(token, psid)
@@ -405,7 +431,7 @@ async function onMessage(
     return
   }
 
-  if (visionQueued || (!m.text && !imageChat)) return
+  if (shippingHandled || visionQueued || (!m.text && !imageChat)) return
   if (!autoReply) return
   const currentBot = await db
     .from('customers')
@@ -716,15 +742,13 @@ async function onComment(
                     meta.sendPrivateText(v.comment_id, message),
                   )
                   if (cumulativeBill) {
-                    const chat = await db
-                      .from('messages')
-                      .insert({
-                        customer_id: stored.customer!.id,
-                        external_id: `cf-bill:${v.comment_id}`,
-                        sender: 'bot',
-                        body: message,
-                        delivery_status: 'sent',
-                      })
+                    const chat = await db.from('messages').insert({
+                      customer_id: stored.customer!.id,
+                      external_id: `cf-bill:${v.comment_id}`,
+                      sender: 'bot',
+                      body: message,
+                      delivery_status: 'sent',
+                    })
                     if (chat.error && chat.error.code !== '23505') throw chat.error
                   }
                   console.info('[live-cf/reply] succeeded', {
