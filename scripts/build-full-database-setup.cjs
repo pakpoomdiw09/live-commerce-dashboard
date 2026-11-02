@@ -114,6 +114,7 @@ const groups = [
       'live-auctions.sql',
       'customer-tabs.sql',
       'auction-experience.sql',
+      'live-session-dashboard.sql',
     ],
   ],
 ]
@@ -147,6 +148,7 @@ const excluded = {
 // Explicit edges document table/helper prerequisites and prevent accidental
 // reordering of patches whose latest function definitions must win.
 const prerequisites = {
+  'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],
   'customer-tabs.sql': ['live-auctions.sql', 'live-cf-customer-variants.sql'],
   'live-auctions.sql': ['live-cf-customer-variants.sql', 'facebook-webhook-nonblocking.sql'],

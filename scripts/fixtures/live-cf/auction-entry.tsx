@@ -91,6 +91,7 @@ declare global {
 window.auctionQA = state
 window.fetch = async (input, init) => {
   const path = String(input)
+  if (path.startsWith('/api/live-cf/sessions?')) return Response.json({ sessions: [] })
   if (path.startsWith('/api/facebook/live-videos?'))
     return Response.json({
       pageId: '100',

@@ -145,6 +145,7 @@ export function LiveAuctionPanel({
 
   return (
     <section
+      data-auction-panel
       className="mb-8 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
       aria-label="ระบบประมูลสด"
     >

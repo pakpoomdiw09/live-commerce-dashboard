@@ -247,14 +247,14 @@ async function checkInterface() {
     }
     assert.ok(
       await evaluate(
-        "document.querySelector('section[aria-label]').getBoundingClientRect().height > 400",
+        "document.querySelector('section[data-auction-panel]').getBoundingClientRect().height > 400",
       ),
       'auction controls cannot collapse inside the fixed dashboard flex layout',
     )
     const flexRegression = await evaluate(`(() => {
       const frame=document.createElement('div');frame.style.cssText='position:fixed;visibility:hidden;display:flex;flex-direction:column;width:600px;height:400px';
       const content=document.createElement('div');content.style.cssText='display:flex;flex:1;min-height:0;flex-direction:column';
-      const panel=document.querySelector('section[aria-label]').cloneNode(true);panel.style.flexShrink='1';
+      const panel=document.querySelector('section[data-auction-panel]').cloneNode(true);panel.style.flexShrink='1';
       const cf=document.createElement('div');cf.style.cssText='height:1800px;flex-shrink:0';
       content.append(panel,cf);frame.append(content);document.body.append(frame);
       const before=panel.getBoundingClientRect().height;panel.style.flexShrink='0';const after=panel.getBoundingClientRect().height;frame.remove();return {before,after};
@@ -264,7 +264,7 @@ async function checkInterface() {
       'reproduce the original flex collapse and verify its fix',
     )
     // Hide the form to inspect the leader, count and history at each viewport size.
-    await evaluate("document.querySelector('section[aria-label] header button').click()")
+    await evaluate("document.querySelector('section[data-auction-panel] header button').click()")
     for (const width of [375, 768, 1440]) {
       await resize(width)
       assert.ok(
@@ -318,7 +318,7 @@ async function checkInterface() {
     )
     assert.equal(await evaluate("document.querySelector('#live-panel-cf').hidden"), false)
     await evaluate("document.querySelector('#live-mode-auction').click()")
-    await evaluate("document.querySelector('section[aria-label] header button').click()")
+    await evaluate("document.querySelector('section[data-auction-panel] header button').click()")
     await wait('document.querySelector(\'input[maxlength="200"]\') !== null')
     await evaluate(`(() => {
       const fields=document.querySelectorAll('form input:not([type=number])');

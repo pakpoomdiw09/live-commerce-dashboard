@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
 const load = require('./helpers/load-typescript.cjs')
 const types = load('lib/features/commerce/customer-tab-types.ts')
+const sessionTypes = load('lib/features/commerce/live-session-types.ts')
 const banks = load('lib/features/banking/banks.ts')
 const receiver = load('lib/features/slips/receiver-matching.ts', {
   '@/lib/features/banking/banks': banks,
@@ -244,9 +245,16 @@ function reminderFixture({
   paused = false,
   optedOut = false,
   killSwitch = false,
+  template = null,
 } = {}) {
   const bill = tab()
-  const job = { id: randomUUID(), tab_id: tabId, claim_token: 'claim', status: 'pending' }
+  const job = {
+    id: randomUUID(),
+    tab_id: tabId,
+    claim_token: 'claim',
+    status: 'pending',
+    message_template: template,
+  }
   const tables = {
     customers: [
       {
@@ -333,6 +341,7 @@ function reminderFixture({
         }),
       },
       './customer-tab-types': types,
+      './live-session-types': sessionTypes,
     },
     {
       Date,
@@ -367,6 +376,22 @@ test('AI reminders append authoritative items and net balance, reject invented m
   await f.run()
   assert.equal(f.calls.sends.length, 1)
 })
+test('session reminders render custom variables from current balances and always append the verified bill/account', async () => {
+  const f = reminderFixture({
+    template: 'คุณ {name} ค้าง {short} บาท / {due} / จ่ายแล้ว {paid}\n{items}',
+  })
+  assert.equal((await f.run()).sent, 1)
+  assert.equal(f.calls.ai, 0)
+  const body = f.calls.sends[0][3]
+  assert.match(body, /ค้าง 800\.00/)
+  assert.match(body, /200\.00 \+ 300\.00 \+ 500\.00 = 1,000\.00/)
+  assert.match(body, /KBANK 1234567890/)
+  assert.match(body, /https:\/\/shop.example\/pay\/live\/signed/)
+  const invalid = reminderFixture({ template: '{invented_total}' })
+  assert.equal((await invalid.run()).blocked, 1)
+  assert.equal(invalid.calls.sends.length, 0)
+})
+
 test('reminders respect paused conversations/24-hour policy and recheck payment after AI generation', async () => {
   for (const options of [{ windowClosed: true }, { paused: true }, { payDuringAI: true }]) {
     const f = reminderFixture(options)

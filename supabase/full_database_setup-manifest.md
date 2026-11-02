@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 107 ไฟล์: รวมตาม dependencies 90 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 109 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 108 ไฟล์: รวมตาม dependencies 91 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 110 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (782332 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (817586 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (675069 bytes, 11258 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (707959 bytes, 11678 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -127,6 +127,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 88. [live-auctions.sql](live-auctions.sql) — 28 statements retained
 89. [customer-tabs.sql](customer-tabs.sql) — 40 statements retained
 90. [auction-experience.sql](auction-experience.sql) — 5 statements retained
+91. [live-session-dashboard.sql](live-session-dashboard.sql) — 31 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -154,6 +155,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 
 | Migration | ต้องอยู่หลัง |
 | --- | --- |
+| live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
 | live-auctions.sql | live-cf-customer-variants.sql, facebook-webhook-nonblocking.sql |
@@ -291,6 +293,8 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | standalone-slips.sql | 18: `insert into public.payment_transfer_ledger(trans_ref,source,source_id) select …` | Historical business-data/settings/ledger backfill removed. |
 | tenant-ai-quota.sql | 6: `update public.tenants set ai_quota_limit=coalesce(ai_quota_limit,1000),ai_quota_…` | Historical business-data backfill/repair removed. |
 | live-auctions.sql | 22: `update public.facebook_webhook_events set ordering_key='comments:'//page_id whe…` | Historical business-data backfill/repair removed. |
+| live-session-dashboard.sql | 14: `insert into public.live_sessions(tenant_id,page_id,live_post_id,created_at) sel…` | Historical business-data/settings/ledger backfill removed. |
+| live-session-dashboard.sql | 19: `update public.customer_tab_items i set auction_id=a.id,winning_bid_id=b.id from …` | Historical business-data backfill/repair removed. |
 
 ## วิธีใช้ไฟล์ bootstrap เดิม
 
@@ -404,3 +408,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auctions.sql: `910202f12dfb75ce136dc66fe2d95ea645f9de96b03a69ef8e1b92b0fa89eeec`
 - customer-tabs.sql: `16b91f3b78245a76dacaa59840e6b4fa966193e938a71d36d56489c3a2e2e48a`
 - auction-experience.sql: `d63ebe3b3f87fa9678fdc0f92762b65f9a652a0fb15c4e36f06cd0cbe1b318f8`
+- live-session-dashboard.sql: `791015cacf4a17c065f2e08dd10287f3c2366b24259aea43f17e5e8988499ee5`

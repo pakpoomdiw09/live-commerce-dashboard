@@ -8,6 +8,7 @@ import { deliverRichOnce } from '@/lib/features/slips/notify'
 import { assertInboxPolicy } from '@/lib/features/inbox/inbox-policy-server'
 import { loadCustomerTab, customerTabSummary } from './customer-tabs-server'
 import { splitTabMessage } from './customer-tab-types'
+import { renderSessionFollowup, validSessionTemplate, type SessionTab } from './live-session-types'
 
 async function reminderGreeting(
   db: SupabaseClient,
@@ -84,7 +85,15 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
   for (let count = 0; count < 10 && Date.now() < deadline; count++) {
     const claimed = await db.rpc('claim_customer_tab_reminder')
     if (claimed.error) throw claimed.error
-    const job = claimed.data?.[0] as { id: string; tab_id: string; claim_token: string } | undefined
+    const job = claimed.data?.[0] as
+      | {
+          id: string
+          tab_id: string
+          claim_token: string
+          message_template?: string | null
+          send_after?: string | null
+        }
+      | undefined
     if (!job) break
     let customerId: string | null = null
     let deliveryStarted = false
@@ -98,6 +107,11 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
       if (saved.error) throw saved.error
     }
     try {
+      if (job.send_after) {
+        const delay = Math.max(0, Date.parse(job.send_after) - Date.now())
+        if (!Number.isFinite(delay) || delay > 5500) throw new Error('TAB_DISPATCH_SLOT_INVALID')
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      }
       let tab = await loadCustomerTab(db, job.tab_id)
       if (!tab || Number(tab.remaining_amount) <= 0) {
         await finish('cancelled')
@@ -108,7 +122,7 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
       const [customer, tenant] = await Promise.all([
         db
           .from('customers')
-          .select('id,platform_user_id,bot_enabled,agent_opted_out')
+          .select('id,platform_user_id,display_name,bot_enabled,agent_opted_out')
           .eq('id', tab.customer_id)
           .eq('tenant_id', tab.tenant_id)
           .single(),
@@ -134,7 +148,9 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
       if (!token) throw new Error('PAGE_NOT_READY')
       // Automated reminders never use HUMAN_AGENT or another exception outside the normal window.
       await assertInboxPolicy(db, tab.tenant_id, tab.customer_id, tab.page_id, token, false)
-      const greeting = await reminderGreeting(db, tab.tenant_id, tab.customer_id, job.id)
+      const greeting = job.message_template
+        ? undefined
+        : await reminderGreeting(db, tab.tenant_id, tab.customer_id, job.id)
       tab = await loadCustomerTab(db, job.tab_id, tab.tenant_id)
       if (!tab || Number(tab.remaining_amount) <= 0) {
         await finish('cancelled')
@@ -142,7 +158,29 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
         continue
       }
       const summary = await customerTabSummary(db, tab, greeting)
-      const parts: object[] = splitTabMessage(summary.text).map((text) => ({ text }))
+      let text = summary.text
+      if (job.message_template) {
+        if (!validSessionTemplate(job.message_template)) throw new Error('TAB_TEMPLATE_INVALID')
+        const preview: SessionTab = {
+          id: tab.id,
+          customerId: tab.customer_id,
+          name: customer.data.display_name || customer.data.platform_user_id,
+          total: tab.total_amount,
+          paid: tab.paid_amount,
+          remaining: tab.remaining_amount,
+          credit: tab.credit_amount,
+          shipping: tab.shipping_fee,
+          revision: tab.revision,
+          slips: tab.customer_tab_payments.length,
+          canMessage: true,
+          lastReminder: null,
+          items: tab.customer_tab_items
+            .filter((item) => !item.cancelled)
+            .map((item) => ({ orderId: item.order_id, name: item.item_name, amount: item.amount })),
+        }
+        text = `${renderSessionFollowup(job.message_template, preview)}\n\n${summary.text}`
+      }
+      const parts: object[] = splitTabMessage(text).map((part) => ({ text: part }))
       parts.push({
         attachment: {
           type: 'template',
@@ -158,7 +196,7 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
         db,
         { id: tab.customer_id, psid: customer.data.platform_user_id, token },
         `tab-reminder:${job.id}`,
-        summary.text,
+        text,
         parts,
       )
       if (!sent) {
