@@ -214,7 +214,7 @@ async function checkInterface() {
         true,
       )
       assert.equal(
-        await evaluate('document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\').value'),
+        await evaluate('document.querySelector(\'[aria-label="คำดักที่เลือก"]\').textContent.replace("×", "").trim()'),
         '1',
       )
       const staticText = await evaluate('document.body.textContent')
@@ -233,12 +233,37 @@ async function checkInterface() {
       await wait("!document.querySelector('[role=listbox]')")
       await click('เริ่มเซสชันไลฟ์สด')
       await wait("sessionQA.requests.at(-1)?.action==='start'")
+      await wait("new URL(location.href).searchParams.has('session')")
+      await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
       await wait('!!document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\')')
-      await fill('input[aria-label="คีย์เวิร์ดการดักคำ"]', 'เคาะ, 1')
+      await evaluate("document.querySelectorAll('[aria-label=\"คำดักแนะนำ\"] button').forEach(button=>{button.click();button.click()})")
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำดักที่เลือก\"] button').length"),9)
+      await fill('input[aria-label="คีย์เวิร์ดการดักคำ"]', 'พิเศษ')
+      await evaluate('document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\').dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))')
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำดักที่เลือก\"] button').length"),10)
+      assert.equal(await evaluate('document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\').disabled'),true)
+      await evaluate('document.querySelector(\'button[aria-label="ลบคำดัก พิเศษ"]\').click()')
+      assert.equal(await evaluate('document.querySelector(\'input[aria-label="คีย์เวิร์ดการดักคำ"]\').disabled'),false)
+      await evaluate("document.querySelectorAll('[aria-label=\"คำดักที่เลือก\"] button').forEach(button=>button.click())")
+      await evaluate('document.querySelector(\'button[aria-label="ใช้คำดัก 1"]\').click()')
+      await fill('input[aria-label="คีย์เวิร์ดการดักคำ"]', 'เคาะ')
+      await evaluate('document.querySelector(\'button[aria-label="เพิ่มคำดัก"]\').click()')
       assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').length"),19)
       await evaluate('document.querySelector(\'button[aria-label="ลบคำปิดรอบ 🛑"]\').click()')
       await evaluate('document.querySelector(\'button[aria-label="เพิ่มอีโมจิ 🛑"]\').click()')
       assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').length"),19)
+      await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').forEach(button=>button.click())")
+      await evaluate("for(let i=0;i<10;i++)document.querySelectorAll('[aria-label=\"เพิ่มอีโมจิปิดรอบด่วน\"] button').forEach(button=>button.click())")
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').length"),12)
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"เพิ่มอีโมจิปิดรอบด่วน\"] button:disabled').length"),0)
+      await evaluate('document.querySelector(\'button[aria-label="ลบคำปิดรอบ ❤️"]\').click()')
+      await evaluate('document.querySelector(\'button[aria-label="เพิ่มอีโมจิ ❤️"]\').click()')
+      assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').length"),12)
+      await click('บันทึกคำดักและข้อความ')
+      await wait("document.querySelector('[data-auction-automation]').textContent.includes('บันทึกแล้ว')")
+      assert.equal(await evaluate('sessionQA.requests.at(-1).settings.closeKeywords.length'),12)
+      assert.equal(await evaluate('new Set(sessionQA.requests.at(-1).settings.closeKeywords).size'),12)
+      assert.deepEqual(await evaluate('sessionQA.requests.at(-1).settings.keywords'),['1','เคาะ'])
       await evaluate("document.querySelectorAll('[aria-label=\"คำปิดรอบที่เลือก\"] button').forEach(button=>button.click())")
       await fill('input[aria-label="คีย์เวิร์ดการปิดการประมูล"]', 'จบรายการ')
       await evaluate('document.querySelector(\'button[aria-label="เพิ่มคำปิดรอบ"]\').click()')
@@ -249,6 +274,7 @@ async function checkInterface() {
       )
       await click('บันทึกคำดักและข้อความ')
       await wait("sessionQA.requests.at(-1)?.action==='settings'")
+      assert.deepEqual(await evaluate('sessionQA.requests.at(-1).settings.keywords'),['1','เคาะ'])
       assert.deepEqual(await evaluate('sessionQA.requests.at(-1).settings.closeKeywords'), [
         'จบรายการ',
       ])
@@ -344,6 +370,7 @@ async function checkInterface() {
       await wait("document.querySelectorAll('[data-session-customers] tbody tr').length===4")
       for (const width of [375, 768, 1024, 1440]) {
         await resize(width)
+        assert.equal(await evaluate("getComputedStyle(document.querySelector('[aria-label=\"เพิ่มอีโมจิปิดรอบด่วน\"]')).gridTemplateColumns.split(' ').length"),width < 640 ? 6 : 8)
         assert.ok(
           await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),
           'fits ' + width,

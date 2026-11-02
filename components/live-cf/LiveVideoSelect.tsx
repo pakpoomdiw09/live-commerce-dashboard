@@ -5,18 +5,34 @@ import { ChevronDown, Check } from 'lucide-react'
 import type { FacebookLiveVideo } from '@/lib/integrations/facebook/live-videos'
 
 const timeZone = 'Asia/Bangkok'
-function videoTime(value: string | null) {
-  if (!value || !Number.isFinite(Date.parse(value))) return 'ไม่ระบุเวลาเริ่มไลฟ์'
-  const date = new Date(value)
-  const day = new Intl.DateTimeFormat('en-CA', { timeZone })
-  if (day.format(date) === day.format(new Date()))
-    return `วันนี้ ${date.toLocaleTimeString('th-TH', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false })} น.`
-  return date.toLocaleString('th-TH-u-ca-gregory', {
-    timeZone, day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
+function videoStatus(video: FacebookLiveVideo) {
+  if (!video.createdAt || !Number.isFinite(Date.parse(video.createdAt)))
+    return video.isLive ? '🔴 สด • ไม่ระบุเวลา' : '⚪ สิ้นสุดแล้ว • ไม่ระบุวันที่'
+
+  const date = new Date(video.createdAt)
+  const time = date.toLocaleTimeString('th-TH', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   })
+  if (video.isLive) return `🔴 สด • วันนี้ ${time} น.`
+
+  const day = date.toLocaleDateString('th-TH-u-ca-buddhist', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  })
+  return `⚪ สิ้นสุดแล้ว • ${day} (${time} น.)`
 }
-const shortId = (id: string) => id.length > 12 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id
+
+function videoTitle(video: FacebookLiveVideo | undefined) {
+  if (!video) return ''
+  return video.title?.trim() || 'ไลฟ์สดไม่มีชื่อ'
+}
+
+const shortId = (id: string) => (id.length > 12 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id)
 
 /** Shared by CF and auction; selection is a video ID, never the displayed caption. */
 export function LiveVideoSelect({
@@ -77,13 +93,20 @@ export function LiveVideoSelect({
         }}
         className="flex min-h-16 w-full min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-sm transition hover:border-orange-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60">
         <span className="min-w-0 flex-1" aria-label={value && !loading ? 'ไลฟ์สดที่เลือก' : undefined}>
-          <span className="block truncate font-semibold text-slate-800">
-            {loading ? 'กำลังโหลดไลฟ์…' : selected?.title || (value ? 'รายการที่เลือกไว้' : 'เลือกไลฟ์สดหรือวิดีโอล่าสุด')}
-          </span>
-          {value && !loading && (
-            <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-normal">
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">กำลังเชื่อมต่อ</span>
-              <span title={value} className="text-slate-400">รหัสวิดีโอ {shortId(value)}</span>
+          {loading ? (
+            <span className="block truncate font-semibold text-slate-800">กำลังโหลดไลฟ์…</span>
+          ) : selected ? (
+            <>
+              <span className="block truncate text-xs font-semibold text-slate-600">
+                {videoStatus(selected)}
+              </span>
+              <span title={videoTitle(selected)} className="mt-1 block truncate font-semibold text-slate-800">
+                {videoTitle(selected)}
+              </span>
+            </>
+          ) : (
+            <span className="block truncate font-semibold text-slate-800">
+              {value ? 'รายการที่เลือกไว้' : 'เลือกไลฟ์สดหรือวิดีโอล่าสุด'}
             </span>
           )}
         </span>
@@ -98,13 +121,14 @@ export function LiveVideoSelect({
               aria-selected={video.id === value} tabIndex={-1}
               onPointerMove={() => setCursor(index)} onClick={() => choose(video)}
               className={`flex w-full min-w-0 items-start gap-2 rounded-lg p-3 text-left transition ${index === cursor ? 'bg-orange-50' : 'hover:bg-slate-50'} ${video.id === value ? 'ring-1 ring-inset ring-orange-200' : ''}`}>
-              <span className="min-w-0 flex-1 space-y-1.5">
-                <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-bold ${video.isLive ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                  {video.isLive ? '🔴 สด' : '⚪ สิ้นสุดแล้ว'}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-semibold text-slate-600">
+                  {videoStatus(video)}
                 </span>
-                <span className="line-clamp-2 break-words text-sm font-semibold text-slate-800">{video.title}</span>
-                <span className="block text-xs font-normal text-slate-500">{videoTime(video.createdAt)}</span>
-                <span title={video.id} className="block text-[10px] font-normal text-slate-400">รหัสวิดีโอ {shortId(video.id)}</span>
+                <span title={videoTitle(video)} className="mt-1 block truncate text-sm font-semibold text-slate-800">
+                  {videoTitle(video)}
+                </span>
+                <span className="sr-only">รหัสวิดีโอ {shortId(video.id)}</span>
               </span>
               {video.id === value && <Check aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-orange-600" />}
             </button>

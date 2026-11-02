@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Download, Printer, RefreshCw, Settings, Truck } from 'lucide-react'
 import { SessionDialog } from '@/components/live-cf/SessionDialog'
+import { PageBanner } from '@/components/ui/page-banner'
 import { courierLabel } from './shipping-ui'
 import { ShippingAddressModal } from './ShippingAddressModal'
 import { ShippingSettingsModal } from './ShippingSettingsModal'
@@ -225,37 +226,52 @@ export function ShippingDashboard({
       setBusy(false)
     }
   }
+  const headerContent = (
+    <>
+      <div>
+        <h1
+          className={`flex items-center gap-2 text-xl font-bold ${embedded ? 'text-slate-900' : 'text-white'}`}
+        >
+          {embedded ? <Truck className="h-6 w-6 text-orange-500" /> : <span aria-hidden="true">📦</span>}
+          {embedded ? 'ระบบจัดส่งพัสดุ' : 'ระบบจัดส่งพัสดุ (Shipping & Fulfillment)'}
+        </h1>
+        <p className={`mt-1 text-sm ${embedded ? 'text-slate-500' : 'text-white/90'}`}>
+          รวมพระจากบิลที่ชำระครบเป็นกล่องเดียว • อัปเดตทุก 5 วินาที {updated && `• ${updated}`}
+        </p>
+        {embedded && (
+          <p className="mt-1 text-xs text-slate-500">
+            ระบบช่วยอ่านชื่อ เบอร์โทร และที่อยู่จากข้อความ Messenger ของลูกค้า กรุณาตรวจข้อมูลให้ถูกต้องก่อนพิมพ์ใบปะหน้า
+          </p>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          className={button}
+          type="button"
+          onClick={() => setVersion((previous) => previous + 1)}
+        >
+          <RefreshCw className="h-4 w-4" />
+          โหลดใหม่
+        </button>
+        <button className={button} type="button" onClick={() => setModal({ kind: 'settings' })}>
+          <Settings className="h-4 w-4" />
+          ตั้งค่าผู้ส่ง
+        </button>
+      </div>
+    </>
+  )
   return (
     <div
       className={`min-w-0 shrink-0 space-y-5 ${embedded ? '' : 'p-4 md:p-8'}`}
       data-shipping-dashboard
     >
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
-            <Truck className="h-6 w-6 text-orange-500" />
-            ระบบจัดส่งพัสดุ
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            รวมพระจากบิลที่ชำระครบเป็นกล่องเดียว • อัปเดตทุก 5 วินาที {updated && `• ${updated}`}
-          </p>
-          {embedded && <p className="mt-1 text-xs text-slate-500">ระบบช่วยอ่านชื่อ เบอร์โทร และที่อยู่จากข้อความ Messenger ของลูกค้า กรุณาตรวจข้อมูลให้ถูกต้องก่อนพิมพ์ใบปะหน้า</p>}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className={button}
-            type="button"
-            onClick={() => setVersion((previous) => previous + 1)}
-          >
-            <RefreshCw className="h-4 w-4" />
-            โหลดใหม่
-          </button>
-          <button className={button} type="button" onClick={() => setModal({ kind: 'settings' })}>
-            <Settings className="h-4 w-4" />
-            ตั้งค่าผู้ส่ง
-          </button>
-        </div>
-      </header>
+      {embedded ? (
+        <header className="flex flex-wrap items-start justify-between gap-4">{headerContent}</header>
+      ) : (
+        <PageBanner className="flex flex-wrap items-start justify-between gap-4 bg-gradient-to-r from-orange-500 to-amber-500">
+          {headerContent}
+        </PageBanner>
+      )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           [

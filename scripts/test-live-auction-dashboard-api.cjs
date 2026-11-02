@@ -78,6 +78,7 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
   denied = false
   for (const settings of [
     { ...base.settings, keywords: ['1', '１'] },
+    { ...base.settings, keywords: Array.from({length:11},(_,index)=>'bid'+index) },
     { ...base.settings, bankAccountId: 'invalid' },
     { ...base.settings, privateReply: 'true' },
     { ...base.settings, bidText: '{total}' },

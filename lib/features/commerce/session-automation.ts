@@ -23,7 +23,9 @@ export const DEFAULT_AUCTION_CLOSE_KEYWORDS = [
   'ปิด', 'จบ', 'พอ', '321', '3 2 1', 'x', 'X',
   '❌', '🛑', '⛔', '🚫', '✖️', '🏁', '🚩', '🔨', '🔔', '⏰', '❤️', '🖤',
 ]
-export const QUICK_AUCTION_CLOSE_EMOJIS = ['❌', '🛑', '⛔', '🚫', '🏁', '🚩', '🔨', '🔔', '❤️', '🖤']
+export const MAX_SESSION_BID_KEYWORDS = 10
+export const BID_KEYWORD_PRESETS = ['1', '11', '12', 'F', 'f', '9', '99', 'เคาะ', 'บิด', '+1']
+export const QUICK_AUCTION_CLOSE_EMOJIS = ['❌', '🛑', '⛔', '🚫', '✖️', '🏁', '🚩', '🔨', '🔔', '⏰', '❤️', '🖤']
 export const normalizeCloseKeyword = (text: string) =>
   text.normalize('NFKC').trim().replace(/\s+/g, ' ')
 export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation {
@@ -61,7 +63,7 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
     /^[a-f0-9-]{36}$/i.test(v.bankAccountId) &&
     Array.isArray(v.keywords) &&
     v.keywords.length > 0 &&
-    v.keywords.length <= 30 &&
+    v.keywords.length <= MAX_SESSION_BID_KEYWORDS &&
     v.keywords.every(
       (k) =>
         typeof k === 'string' &&

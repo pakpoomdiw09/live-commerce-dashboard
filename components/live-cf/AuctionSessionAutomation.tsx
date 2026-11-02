@@ -8,12 +8,15 @@ import {
   normalizeCloseKeyword,
   DEFAULT_AUCTION_CLOSE_KEYWORDS,
   QUICK_AUCTION_CLOSE_EMOJIS,
+  BID_KEYWORD_PRESETS,
+  MAX_SESSION_BID_KEYWORDS,
   validSessionAutomation,
   type SessionAutomation,
 } from '@/lib/features/commerce/session-automation'
 import { LiveSwitch, LiveTemplateEditor } from './LiveReplyControls'
 import type { AuctionDashboardOptions } from './AuctionSessionStart'
-import { field, orange } from './session-ui'
+import { orange } from './session-ui'
+import { AuctionKeywordEditor } from './AuctionKeywordEditor'
 
 const variables = [
   { tag: '{ชื่อลูกค้า}', label: 'ชื่อลูกค้า', key: 'bidder_name' },
@@ -22,11 +25,6 @@ const variables = [
   { tag: '{ยอดรวมสะสม}', label: 'ยอดรวมสะสม', key: 'total' },
   { tag: '{เลขบัญชี}', label: 'เลขบัญชี', key: 'bank_account' },
 ]
-const words = (text: string) =>
-  text
-    .split(/[,\n]+/)
-    .map(normalizeBidKeyword)
-    .filter(Boolean)
 function draftFrom(session: LiveSession, bankId?: string): SessionAutomation {
   const initial = session.auction_settings ?? defaultSessionAutomation(bankId)
   return {
@@ -51,9 +49,8 @@ export function AuctionSessionAutomation({
 }) {
   const initial = draftFrom(session, options.bankAccounts[0]?.id)
   const [draft, setDraft] = useState(initial),
-    [keywordText, setKeywordText] = useState(initial.keywords.join(', ')),
-    [closeKeywords, setCloseKeywords] = useState(initial.closeKeywords!),
-    [closeInput, setCloseInput] = useState('')
+    [bidKeywords, setBidKeywords] = useState(initial.keywords),
+    [closeKeywords, setCloseKeywords] = useState(initial.closeKeywords!)
   const [baseRevision, setBaseRevision] = useState(session.automation_revision ?? 0)
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
@@ -62,29 +59,9 @@ export function AuctionSessionAutomation({
   const disabled = busy || !!session.ended_at
   const settings = {
     ...draft,
-    keywords: words(keywordText),
+    keywords: bidKeywords,
     closeKeywords,
     closeText: draft.bidText,
-  }
-  function addCloseKeyword(text: string) {
-    const word = normalizeCloseKeyword(text)
-    if (!word) return
-    if (word.length > 40 || /[\r\n{}]/u.test(word)) {
-      setError('คำปิดรอบต้องยาวไม่เกิน 40 ตัวอักษร และไม่มีวงเล็บปีกกาหรือการขึ้นบรรทัดใหม่')
-      return
-    }
-    if (closeKeywords.includes(word)) {
-      setCloseInput('')
-      return
-    }
-    if (closeKeywords.length >= 30) {
-      setError('เพิ่มคำปิดรอบได้ไม่เกิน 30 คำ กรุณาลบบางคำก่อน')
-      return
-    }
-    setCloseKeywords((previous) => [...previous, word])
-    setCloseInput('')
-    setError('')
-    setNotice('')
   }
   return (
     <form
@@ -127,64 +104,30 @@ export function AuctionSessionAutomation({
     >
       <h3 className="font-bold text-slate-900">ตั้งค่าคำดักและคำสั่งปิดรอบ</h3>
       <div className="grid gap-4 lg:grid-cols-2">
-        <label className="text-sm font-semibold">
-          คีย์เวิร์ดการดักคำ
-          <input
-            aria-label="คีย์เวิร์ดการดักคำ"
-            className={field}
-            maxLength={1200}
-            value={keywordText}
-            disabled={disabled}
-            onChange={(e) => setKeywordText(e.target.value)}
-            placeholder="เช่น 1"
+        <div className="min-w-0 space-y-2">
+          <AuctionKeywordEditor
+            key={'bid-' + baseRevision}
+            label="คีย์เวิร์ดการดักคำ" kind="bid"
+            keywords={bidKeywords} onChange={setBidKeywords}
+            normalize={normalizeBidKeyword} presets={BID_KEYWORD_PRESETS}
+            limit={MAX_SESSION_BID_KEYWORDS} disabled={disabled}
+            onEdited={() => setNotice('')}
           />
-          <span className="mt-1 block text-xs font-normal text-slate-500">
-            กำหนดคำที่ต้องการให้ลูกค้าพิมพ์ในคอมเมนต์เพื่อเคาะประมูล เช่น พิมพ์ 1
-            เมื่อชนะยอดจะส่งเข้า Messenger ทันที
-          </span>
-          <span className="mt-1 block text-xs font-normal text-slate-500">
-            ถ้ามีหลายคำให้คั่นด้วยเครื่องหมายจุลภาค เช่น 1, เคาะ · ค่าที่แก้มีผลเมื่อกดบันทึก
-          </span>
-        </label>
-        <div className="space-y-2 text-sm font-semibold">
-          <label htmlFor="auction-close-keyword">คีย์เวิร์ดการปิดการประมูล</label>
-          <div className="flex flex-wrap gap-1.5" aria-label="คำปิดรอบที่เลือก">
-            {closeKeywords.map((word) => (
-              <span key={word} className="inline-flex max-w-full items-center gap-1 break-all rounded-full bg-orange-50 py-1 pl-3 pr-1 text-orange-800">
-                {word}
-                <button type="button" disabled={disabled}
-                  aria-label={`ลบคำปิดรอบ ${word}`}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-orange-100 disabled:opacity-40"
-                  onClick={() => { setCloseKeywords((previous) => previous.filter((value) => value !== word)); setNotice('') }}>
-                  <span aria-hidden="true">×</span>
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <input id="auction-close-keyword"
-              aria-label="คีย์เวิร์ดการปิดการประมูล" className={`${field} !mt-0`}
-              maxLength={40} value={closeInput} disabled={disabled}
-              onChange={(e) => setCloseInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); addCloseKeyword(closeInput) } }}
-              placeholder="พิมพ์คำหรือวางอีโมจิ แล้วกด +"
-            />
-            <button type="button" aria-label="เพิ่มคำปิดรอบ" className={orange}
-              disabled={disabled || !closeInput.trim()} onClick={() => addCloseKeyword(closeInput)}>+</button>
-          </div>
-          <div className="flex flex-wrap gap-1.5" aria-label="เพิ่มอีโมจิปิดรอบด่วน">
-            {QUICK_AUCTION_CLOSE_EMOJIS.map((emoji) => (
-              <button key={emoji} type="button" aria-label={`เพิ่มอีโมจิ ${emoji}`}
-                disabled={disabled || closeKeywords.includes(emoji)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg hover:border-orange-400 hover:bg-orange-50 disabled:opacity-40"
-                onClick={() => addCloseKeyword(emoji)}>{emoji}</button>
-            ))}
-          </div>
-          <p className="text-xs font-normal text-slate-500">
-            เมื่อคอมเมนต์ของเพจหรือผู้ดูแลมีคำหรืออีโมจิที่เลือกอยู่ในข้อความ เช่น ปิด ❌ หรือ 321 🛑 ระบบจะปิดรอบและตัดสินผู้ชนะทันที คำสั่งของลูกค้าจะไม่ปิดรอบ
+          <p className="text-xs text-slate-500">
+            กำหนดคำที่ลูกค้าพิมพ์เพื่อเคาะประมูล เช่น 1 เมื่อชนะจะส่งยอดเข้า Messenger ทันที · มีผลเมื่อกดบันทึก
           </p>
-          <p className="text-xs font-normal text-slate-500">
-            กด × เพื่อลบ กดอีโมจิเพื่อเพิ่ม หรือพิมพ์คำแล้วกด + ได้สูงสุด 30 คำ · รองรับ x และ X · มีผลเมื่อกดบันทึก
+        </div>
+        <div className="min-w-0 space-y-2">
+          <AuctionKeywordEditor
+            key={'close-' + baseRevision}
+            label="คีย์เวิร์ดการปิดการประมูล" kind="close"
+            keywords={closeKeywords} onChange={setCloseKeywords}
+            normalize={normalizeCloseKeyword} presets={QUICK_AUCTION_CLOSE_EMOJIS}
+            limit={30} disabled={disabled}
+            onEdited={() => setNotice('')}
+          />
+          <p className="text-xs text-slate-500">
+            เมื่อคอมเมนต์ของเพจหรือผู้ดูแลมีคำหรืออีโมจิที่เลือก เช่น ปิด ❌ หรือ 321 🛑 ระบบจะปิดรอบและตัดสินผู้ชนะทันที คำสั่งของลูกค้าจะไม่ปิดรอบ · มีผลเมื่อกดบันทึก
           </p>
         </div>
       </div>
@@ -245,9 +188,8 @@ export function AuctionSessionAutomation({
             onClick={() => {
               const next = draftFrom(session, options.bankAccounts[0]?.id)
               setDraft(next)
-              setKeywordText(next.keywords.join(', '))
+              setBidKeywords(next.keywords)
               setCloseKeywords(next.closeKeywords!)
-              setCloseInput('')
               setBaseRevision(session.automation_revision ?? 0)
             }}
           >

@@ -25,6 +25,38 @@ import { AuctionRoundForm } from './AuctionRoundForm'
 import { ShippingDashboard } from '@/components/shipping/ShippingDashboard'
 import { AuctionSessionCustomers } from './AuctionSessionCustomers'
 
+function sessionLabel(session: LiveSession) {
+  const date = new Date(session.created_at)
+  if (!Number.isFinite(date.getTime()))
+    return session.ended_at ? '⚪ สิ้นสุดแล้ว • ไม่ระบุวันที่' : '🔴 สด • ไม่ระบุเวลา'
+
+  const time = date.toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  if (session.ended_at) {
+    const day = date.toLocaleDateString('th-TH-u-ca-buddhist', {
+      timeZone: 'Asia/Bangkok',
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+    })
+    return `⚪ สิ้นสุดแล้ว • ${day} (${time} น.)`
+  }
+
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' })
+  return today.format(date) === today.format(new Date())
+    ? `🔴 สด • วันนี้ ${time} น.`
+    : `🔴 สด • ${date.toLocaleDateString('th-TH-u-ca-buddhist', {
+        timeZone: 'Asia/Bangkok',
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+      })} (${time} น.)`
+}
+
 export function LiveSessionDashboard({
   tenantId,
   active = true,
@@ -376,8 +408,7 @@ export function LiveSessionDashboard({
           )}
           {sessions.map((session) => (
             <option key={session.id} value={session.id}>
-              {session.ended_at ? 'จบไลฟ์แล้ว' : 'กำลังเปิดไลฟ์'} • {session.live_post_id} •{' '}
-              {sessionTime(session.created_at)}
+              {sessionLabel(session)}
             </option>
           ))}
         </select>
@@ -393,25 +424,27 @@ export function LiveSessionDashboard({
       aria-label={auction ? 'จัดการประมูลและขายสินค้าผ่านไลฟ์สด' : 'สรุป เซสชัน ประมูล'}
       data-auction-dashboard={auction ? true : undefined}
     >
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
-            <BarChart3 className="h-5 w-5 text-orange-500" />
-            {auction ? 'ไลฟ์สดการประมูลครบวงจร' : 'สรุปยอดประมูลรายเซสชัน'}
-          </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            ยอดจากบิลและสลิปที่ตรวจสอบผ่าน • อัปเดตทุก 5 วินาที{updated ? ` • ${updated}` : ''}
-          </p>
-        </div>
-        <button
-          type="button"
-          className={button}
-          aria-label="โหลดข้อมูลไลฟ์ล่าสุด"
-          onClick={() => setVersion((previous) => previous + 1)}
-        >
-          <RefreshCw className="inline h-4 w-4" /> โหลดใหม่
-        </button>
-      </header>
+      {!auction && (
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+              <BarChart3 className="h-5 w-5 text-orange-500" />
+              สรุปยอดประมูลรายเซสชัน
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              ยอดจากบิลและสลิปที่ตรวจสอบผ่าน • อัปเดตทุก 5 วินาที{updated ? ` • ${updated}` : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={button}
+            aria-label="โหลดข้อมูลไลฟ์ล่าสุด"
+            onClick={() => setVersion((previous) => previous + 1)}
+          >
+            <RefreshCw className="inline h-4 w-4" /> โหลดใหม่
+          </button>
+        </header>
+      )}
       {error && (
         <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
           {error}
