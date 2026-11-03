@@ -6946,6 +6946,7 @@ execute $sql_57_14$grant select,insert,update,delete on public.facebook_webhook_
 execute $sql_57_15$grant usage,select on sequence public.facebook_webhook_events_sequence_seq to service_role$sql_57_15$;
 
 -- facebook-webhook-queue.sql: source statement 16
+begin
 execute $sql_57_16$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare receipt uuid; item jsonb; accepted integer:=0; affected integer;
@@ -6966,6 +6967,10 @@ begin
  end loop;
  return jsonb_build_object('id',receipt,'accepted',accepted);
 end $$$sql_57_16$;
+exception when invalid_function_definition then
+  -- A newer signature of enqueue_facebook_webhook(text,text,jsonb) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- facebook-webhook-queue.sql: source statement 17
 begin
@@ -13825,6 +13830,164 @@ execute $sql_100_13$grant execute on function public.hold_auction_winner_notific
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-winner-confirmation.sql','2f858d9ce9ccb510e54eb5bcceb55d2da7a9745101ca139787d50499c4721abe','47e7d6763ce50cd5feb959f2282c7b8341dac01a33df6d6b7c007cca4186b259');
 end $migration_100$;
+
+-- 102. facebook-webhook-comment-ordering.sql
+do $migration_101$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='facebook-webhook-comment-ordering.sql';
+  if found then
+    if installed <> '44d316710f134f9d5de7b096753ec8706fceab050177af7a61ebb4c54268f331' then
+      raise exception 'Applied migration changed: facebook-webhook-comment-ordering.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- facebook-webhook-comment-ordering.sql: source statement 2
+execute $sql_101_2$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
+language plpgsql set search_path=pg_catalog,public as $$
+declare receipt uuid; item jsonb; accepted integer:=0; affected integer;
+begin
+ if p_raw is null or octet_length(p_raw)>2097152 or p_hash is null or p_hash !~ '^[a-f0-9]{64}$'
+ or (p_raw::jsonb)->>'object' is distinct from 'page' or jsonb_typeof(p_events) is distinct from 'array' or jsonb_array_length(p_events)>1000 then
+  raise exception 'Invalid webhook envelope' using errcode='22023';
+ end if;
+ insert into public.facebook_webhook_payloads(raw_payload,payload_sha256) values(p_raw,p_hash)
+ on conflict(payload_sha256) do update set last_received_at=clock_timestamp(),delivery_count=facebook_webhook_payloads.delivery_count+1 returning id into receipt;
+ for item in select value from jsonb_array_elements(p_events) loop
+  if item->>'pageId' is null or item->>'pageId' !~ '^\d{1,64}$' or item->>'orderingKey' is null
+  or not (item->>'orderingKey' ~ '^\d{1,64}$' or
+    coalesce((item->>'kind'='change' and item->'payload'->'value'->>'item'='comment'
+      and item->>'orderingKey'='comments:'||(item->>'pageId')),false))
+  or item->>'eventKey' is null or item->>'eventKey' !~ '^[a-f0-9]{64}$' or item->>'kind' is null or item->>'kind' not in ('message','change')
+  or jsonb_typeof(item->'payload') is distinct from 'object' then raise exception 'Invalid webhook event' using errcode='22023';end if;
+  insert into public.facebook_webhook_events(payload_id,page_id,event_key,ordering_key,kind,payload)
+  values(receipt,item->>'pageId',item->>'eventKey',item->>'orderingKey',item->>'kind',item->'payload') on conflict(page_id,event_key) do nothing;
+  get diagnostics affected=row_count;accepted:=accepted+affected;
+ end loop;
+ return jsonb_build_object('id',receipt,'accepted',accepted);
+end $$$sql_101_2$;
+
+-- facebook-webhook-comment-ordering.sql: source statement 3
+execute $sql_101_3$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb) from public,anon,authenticated$sql_101_3$;
+
+-- facebook-webhook-comment-ordering.sql: source statement 4
+execute $sql_101_4$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb) to service_role$sql_101_4$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('facebook-webhook-comment-ordering.sql','44d316710f134f9d5de7b096753ec8706fceab050177af7a61ebb4c54268f331','fc95a23e41f2d2fb46548cdc4ac306538dca0ae681433328fe555f184e6d4787');
+end $migration_101$;
+
+-- 103. live-auction-workspace.sql
+do $migration_102$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-workspace.sql';
+  if found then
+    if installed <> '6437003646e809fd0c5846ec0dd8603195e3e2110bb23f3f356af1473609a26a' then
+      raise exception 'Applied migration changed: live-auction-workspace.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-workspace.sql: source statement 2
+execute $sql_102_2$create table if not exists public.auction_workspace_requests (
+ tenant_id uuid not null references public.tenants(id), request_id uuid not null,
+ actor_id uuid not null references auth.users(id), input jsonb not null, result jsonb not null,
+ created_at timestamptz not null default clock_timestamp(), primary key(tenant_id,request_id)
+)$sql_102_2$;
+
+-- live-auction-workspace.sql: source statement 3
+execute $sql_102_3$alter table public.auction_workspace_requests enable row level security$sql_102_3$;
+
+-- live-auction-workspace.sql: source statement 4
+execute $sql_102_4$revoke all on public.auction_workspace_requests from public,anon,authenticated$sql_102_4$;
+
+-- live-auction-workspace.sql: source statement 5
+execute $sql_102_5$grant all on public.auction_workspace_requests to service_role$sql_102_5$;
+
+-- live-auction-workspace.sql: source statement 6
+execute $sql_102_6$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare prior public.auction_workspace_requests; s public.live_sessions; a public.auctions;
+ settings jsonb; result jsonb; page text; round_id uuid;
+begin
+ if p_request is null or p_actor is null then raise exception 'INVALID_REQUEST';end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
+ select * into prior from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request;
+ if found then
+  if prior.actor_id<>p_actor or prior.input<>p_input then raise exception 'REQUEST_REUSED' using errcode='40001';end if;
+  return prior.result;
+ end if;
+ select page_id into page from public.tenants where id=p_tenant and is_active;
+ if page is null or p_input->>'pageId' is distinct from page or coalesce(p_input->>'livePostId','') !~ '^[0-9]{1,64}$'
+  then raise exception 'PAGE_SCOPE' using errcode='42501';end if;
+ if length(trim(coalesce(p_input->>'itemName',''))) not between 1 and 200
+  or (p_input->>'startPrice')::numeric not between 0.01 and 999999999
+  or (p_input->>'minStep')::numeric not between 0.01 and 999999999
+  or (p_input->>'shippingFee')::numeric not between 0 and 999999 then raise exception 'INVALID_ROUND';end if;
+ -- Match finalization lock order: auction before session.
+ select * into a from public.auctions where tenant_id=p_tenant and page_id=page
+  and live_post_id=p_input->>'livePostId' and status='active' for update;
+ if a.id is not null and a.id is distinct from (p_input->>'roundId')::uuid then
+  raise exception 'ACTIVE_ROUND_CHANGED' using errcode='40001';end if;
+ if a.id is null and p_input->>'roundId' is not null then raise exception 'ROUND_CLOSED' using errcode='40001';end if;
+ select * into s from public.live_sessions where tenant_id=p_tenant and page_id=page
+  and live_post_id=p_input->>'livePostId' for update;
+ if s.id is not null then
+  if s.id is distinct from (p_input->>'sessionId')::uuid or s.ended_at is not null
+   or s.automation_revision<>(p_input->>'revision')::bigint
+   or s.financial_revision<>(p_input->>'financialRevision')::bigint then
+   raise exception 'SESSION_CHANGED' using errcode='40001';end if;
+  perform public.configure_auction_session(p_tenant,p_actor,gen_random_uuid(),jsonb_build_object(
+   'action','settings','sessionId',s.id,'revision',s.automation_revision,'settings',p_input->'settings'));
+ else
+  if p_input->>'sessionId' is not null then raise exception 'SESSION_SCOPE' using errcode='42501';end if;
+  perform public.configure_auction_session(p_tenant,p_actor,gen_random_uuid(),jsonb_build_object(
+   'action','start','pageId',page,'livePostId',p_input->>'livePostId','settings',p_input->'settings'));
+ end if;
+ select * into strict s from public.live_sessions where tenant_id=p_tenant and page_id=page and live_post_id=p_input->>'livePostId' for update;
+ settings:=s.auction_settings;
+ if exists(select 1 from jsonb_each(p_input->'finance') v where (v.value#>>'{}')::numeric<0
+  or (v.value#>>'{}')::numeric>999999999999.99 or (v.value#>>'{}')::numeric<>round((v.value#>>'{}')::numeric,2)) then
+  raise exception 'INVALID_FINANCE';end if;
+ update public.live_sessions set cost_amount=(p_input->'finance'->>'cost')::numeric,
+  ad_spent=(p_input->'finance'->>'ads')::numeric,shipping_cost=(p_input->'finance'->>'shipping')::numeric,
+  financial_revision=financial_revision+1 where id=s.id returning * into s;
+ insert into public.live_session_changes(tenant_id,session_id,actor_id,request_id,payload,result)
+  values(p_tenant,s.id,p_actor,p_request,
+   p_input->'finance'||jsonb_build_object('action','costs','revision',s.financial_revision-1),
+   jsonb_build_object('sessionId',s.id,'revision',s.financial_revision));
+ if a.id is null then
+  insert into public.auctions(tenant_id,page_id,live_post_id,item_name,start_price,min_step,shipping_fee,bank_account_id,host_ids)
+   values(p_tenant,page,p_input->>'livePostId',trim(p_input->>'itemName'),(p_input->>'startPrice')::numeric,
+    (p_input->>'minStep')::numeric,(p_input->>'shippingFee')::numeric,(settings->>'bankAccountId')::uuid,
+    array(select jsonb_array_elements_text(p_input->'hostIds'))) returning id into round_id;
+ else
+  if a.leading_bidder_id is not null and (a.item_name is distinct from trim(p_input->>'itemName')
+   or a.start_price<>(p_input->>'startPrice')::numeric or a.min_step<>(p_input->>'minStep')::numeric
+   or a.shipping_fee<>(p_input->>'shippingFee')::numeric or a.bank_account_id<>(settings->>'bankAccountId')::uuid) then
+   raise exception 'BIDS_ALREADY_ACCEPTED';end if;
+  update public.auctions set item_name=trim(p_input->>'itemName'),start_price=(p_input->>'startPrice')::numeric,
+   min_step=(p_input->>'minStep')::numeric,shipping_fee=(p_input->>'shippingFee')::numeric,
+   bank_account_id=(settings->>'bankAccountId')::uuid,
+   session_automation=settings,private_reply_enabled=(settings->>'privateReply')::boolean,
+   public_reply_enabled=(settings->>'publicReply')::boolean,private_reply_template=settings->>'privateText',
+   bid_reply_template=settings->>'bidText',close_reply_template=settings->>'closeText',
+   host_ids=array(select distinct unnest(a.host_ids||array(select jsonb_array_elements_text(p_input->'hostIds'))))
+   where id=a.id;
+  round_id:=a.id;
+ end if;
+ result:=jsonb_build_object('sessionId',s.id,'auctionId',round_id,'revision',s.automation_revision,'financialRevision',s.financial_revision);
+ insert into public.auction_workspace_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
+ return result;
+end $$$sql_102_6$;
+
+-- live-auction-workspace.sql: source statement 7
+execute $sql_102_7$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_102_7$;
+
+-- live-auction-workspace.sql: source statement 8
+execute $sql_102_8$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_102_8$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-workspace.sql','6437003646e809fd0c5846ec0dd8603195e3e2110bb23f3f356af1473609a26a','17cac8d5dbc0f9c994014d2d95ad288d9a8db55dc6698d608a6847a000a1ff6d');
+end $migration_102$;
 
 notify pgrst,'reload schema';
 

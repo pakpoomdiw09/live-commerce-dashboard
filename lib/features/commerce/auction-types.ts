@@ -8,6 +8,7 @@ export type Auction = {
   start_price: number
   min_step: number
   shipping_fee: number
+  bank_account_id?: string
   current_price: number
   leading_bidder_id: string | null
   leading_bidder_name: string | null

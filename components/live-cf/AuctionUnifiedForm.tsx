@@ -1,0 +1,502 @@
+'use client'
+
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import type { Auction } from '@/lib/features/commerce/auction-types'
+import type { LiveSession, SessionSnapshot } from '@/lib/features/commerce/live-session-types'
+import { sessionMoney, sessionProfit } from '@/lib/features/commerce/live-session-types'
+import {
+  defaultSessionAutomation,
+  displaySessionTemplate,
+  normalizeBidKeyword,
+  normalizeCloseKeyword,
+  DEFAULT_AUCTION_CLOSE_KEYWORDS,
+  QUICK_AUCTION_CLOSE_EMOJIS,
+  type SessionAutomation,
+} from '@/lib/features/commerce/session-automation'
+import { LiveSourcePicker } from './LiveSourcePicker'
+import { LiveSwitch, LiveTemplateEditor } from './LiveReplyControls'
+import { AuctionKeywordEditor } from './AuctionKeywordEditor'
+import type { AuctionDashboardOptions } from './AuctionSessionStart'
+import { field, button, orange, read } from './session-ui'
+
+type Config = {
+  session: LiveSession | null
+  round: Auction | null
+  settings: SessionAutomation | null
+  preferencesOnly: boolean
+}
+type Draft = {
+  pageId: string
+  livePostId: string
+  itemName: string
+  startPrice: string
+  minStep: string
+  shippingFee: string
+  settings: SessionAutomation
+  finance: { cost: string; ads: string; shipping: string }
+}
+const variables = [
+  { tag: '{ชื่อลูกค้า}', label: 'ชื่อลูกค้า' },
+  { tag: '{รายการ}', label: 'รายการ' },
+  { tag: '{ราคา}', label: 'ราคา' },
+  { tag: '{ยอดรวมสะสม}', label: 'ยอดรวมสะสม' },
+  { tag: '{เลขบัญชี}', label: 'เลขบัญชี' },
+]
+
+export function AuctionUnifiedForm({
+  tenantId,
+  sessionId,
+  data,
+  options,
+  onSaved,
+}: {
+  tenantId: string
+  sessionId: string
+  data: SessionSnapshot | null
+  options: AuctionDashboardOptions
+  onSaved: (sessionId: string) => void
+}) {
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [base, setBase] = useState<Config | null>(null)
+  const [source, setSource] = useState<{ pageId: string; livePostId: string } | null>(null)
+  const [reload, setReload] = useState(0)
+  const [loading, setLoading] = useState(true),
+    [busy, setBusy] = useState(false)
+  const [error, setError] = useState(''),
+    [notice, setNotice] = useState('')
+  const dirty = useRef(false)
+  const savedCallback = useRef(onSaved)
+  savedCallback.current = onSaved
+  const request = useRef({ key: '', id: '' })
+
+  const hydrate = useCallback(
+    (config: Config, selected?: { pageId: string; livePostId: string } | null) => {
+      const settings =
+        config.settings ?? defaultSessionAutomation(options.bankAccounts[0]?.id ?? '')
+      const session = config.session
+      setBase(config)
+      setDraft({
+        pageId: selected?.pageId ?? session?.page_id ?? options.pages[0]?.id ?? '',
+        livePostId: selected?.livePostId || session?.live_post_id || '',
+        itemName: config.round?.item_name ?? '',
+        startPrice: config.round ? String(config.round.start_price) : '',
+        minStep: config.round ? String(config.round.min_step) : '',
+        shippingFee: config.round ? String(config.round.shipping_fee) : '',
+        settings: {
+          ...settings,
+          bankAccountId: config.round?.bank_account_id ?? settings.bankAccountId,
+          closeKeywords: settings.closeKeywords ?? [...DEFAULT_AUCTION_CLOSE_KEYWORDS],
+          bidText: displaySessionTemplate(
+            settings.closeKeywords ? settings.bidText : settings.closeText,
+          ),
+          privateText: displaySessionTemplate(settings.privateText),
+        },
+        finance: {
+          cost: String(session?.cost_amount ?? 0),
+          ads: String(session?.ad_spent ?? 0),
+          shipping: String(session?.shipping_cost ?? 0),
+        },
+      })
+      dirty.current = false
+    },
+    [options.bankAccounts, options.pages],
+  )
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError('')
+    const params = new URLSearchParams({ tenantId })
+    if (source?.pageId) {
+      params.set('pageId', source.pageId)
+      if (source.livePostId) params.set('livePostId', source.livePostId)
+    } else if (sessionId) params.set('sessionId', sessionId)
+    void read(`/api/live-auction/workspace?${params}`, controller.signal)
+      .then((config: Config) => {
+        if (!controller.signal.aborted) {
+          hydrate(config, source)
+          if (config.session && config.session.id !== sessionId)
+            savedCallback.current(config.session.id)
+        }
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : 'โหลดค่าที่บันทึกไว้ไม่สำเร็จ')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+    // Hydrate only on explicit selection/reload, never on the dashboard polling interval.
+  }, [tenantId, sessionId, source, reload, hydrate])
+
+  const liveActiveId = data?.activeAuction?.id
+  const liveSessionId = data?.session.id
+  const savedSessionId = base?.session?.id
+  const savedActiveId = base?.round?.status === 'active' ? base.round.id : undefined
+  useEffect(() => {
+    if (
+      liveSessionId &&
+      savedSessionId === liveSessionId &&
+      !dirty.current &&
+      savedActiveId !== liveActiveId
+    ) {
+      setReload((n) => n + 1)
+    }
+  }, [liveActiveId, liveSessionId, savedSessionId, savedActiveId])
+
+  function edit(patch: Partial<Draft>) {
+    dirty.current = true
+    setNotice('')
+    setDraft((previous) => (previous ? { ...previous, ...patch } : previous))
+  }
+  function setKeywords(kind: 'keywords' | 'closeKeywords', value: React.SetStateAction<string[]>) {
+    dirty.current = true
+    setDraft((previous) => {
+      if (!previous) return previous
+      const words = previous.settings[kind] ?? []
+      return {
+        ...previous,
+        settings: {
+          ...previous.settings,
+          [kind]: typeof value === 'function' ? value(words) : value,
+        },
+      }
+    })
+  }
+  async function handleSubmitAll(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!draft || loading || busy) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    const input = {
+      tenantId,
+      pageId: draft.pageId,
+      livePostId: draft.livePostId,
+      sessionId: base?.session?.id ?? null,
+      roundId: !base?.preferencesOnly && base?.round?.status === 'active' ? base.round.id : null,
+      revision: base?.session?.automation_revision ?? 0,
+      financialRevision: base?.session?.financial_revision ?? 0,
+      itemName: draft.itemName,
+      startPrice: draft.startPrice,
+      minStep: draft.minStep,
+      shippingFee: draft.shippingFee,
+      settings: { ...draft.settings, closeText: draft.settings.bidText },
+      finance: draft.finance,
+    }
+    const key = JSON.stringify(input)
+    if (request.current.key !== key) request.current = { key, id: crypto.randomUUID() }
+    try {
+      const response = await fetch('/api/live-auction/workspace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...input, requestId: request.current.id }),
+        signal: AbortSignal.timeout(45000),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'บันทึกไม่สำเร็จ')
+      const config: Config = await read(
+        `/api/live-auction/workspace?${new URLSearchParams({ tenantId, sessionId: result.sessionId })}`,
+      )
+      hydrate(config)
+      setSource(null)
+      request.current = { key: '', id: '' }
+      setNotice('บันทึกครบแล้ว ระบบพร้อมรับบิดในไลฟ์ที่เลือก')
+      onSaved(result.sessionId)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'บันทึกไม่สำเร็จ')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const disabled = loading || busy || !!base?.session?.ended_at
+  const locked =
+    disabled ||
+    (!base?.preferencesOnly && base?.round?.status === 'active' && !!base.round.leading_bidder_id)
+  const metrics = data && data.session.id === base?.session?.id ? data.metrics : null
+  const net = metrics?.paid ?? 0
+  const profit = draft
+    ? sessionProfit(
+        net,
+        Number(draft.finance.cost),
+        Number(draft.finance.ads),
+        Number(draft.finance.shipping),
+      )
+    : 0
+
+  return (
+    <form onSubmit={handleSubmitAll} data-auction-unified-form className="min-w-0 space-y-5">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4" data-auction-header-cards>
+        {(
+          [
+            { label: 'ต้นทุนสินค้า (บาท)', key: 'cost' },
+            { label: 'ค่าจัดส่งจริง (บาท)', key: 'shipping' },
+          ] as const
+        ).map(({ label, key }) => (
+          <label
+            key={key}
+            className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs font-medium text-slate-600"
+          >
+            {label}
+            <input
+              type="number"
+              min="0"
+              max="999999999999.99"
+              step="0.01"
+              required
+              aria-label={label}
+              className={`${field} !border-0 !bg-transparent !px-0 text-xl font-bold tabular-nums text-slate-900`}
+              value={draft?.finance[key] ?? ''}
+              disabled={disabled || !draft}
+              onChange={(e) =>
+                draft && edit({ finance: { ...draft.finance, [key]: e.target.value } })
+              }
+            />
+          </label>
+        ))}
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs text-slate-500">ยอดสุทธิรับแล้ว</p>
+          <p className="mt-3 text-xl font-bold tabular-nums">฿{sessionMoney(net)}</p>
+          <p className="mt-1 text-xs text-slate-500">จากยอดชำระที่ตรวจสอบแล้ว</p>
+        </div>
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+          <p className="text-xs text-orange-700">กำไรสุทธิ</p>
+          <p className="mt-3 text-xl font-bold tabular-nums text-orange-800">
+            ฿{Number.isFinite(profit) ? sessionMoney(profit) : '—'}
+          </p>
+          <p className="mt-1 text-xs text-orange-700">ยอดรับ − ต้นทุน − ค่าแอด − ค่าส่งจริง</p>
+        </div>
+      </div>
+      <header>
+        <h1 className="text-xl font-bold text-slate-900">ไลฟ์สดการประมูล</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          เลือกไลฟ์ ตั้งราคา และข้อความตอบกลับ แล้วบันทึกทุกอย่างในครั้งเดียว
+        </p>
+      </header>
+      {loading && (
+        <p role="status" className="text-sm text-slate-500">
+          กำลังโหลดค่าที่บันทึกไว้…
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
+          {notice}
+        </p>
+      )}
+      {draft && (
+        <div className="grid min-w-0 gap-4 xl:grid-cols-12">
+          <section
+            data-auction-zone="A"
+            className="min-w-0 space-y-4 rounded-2xl border border-slate-200 p-4 xl:col-span-12"
+          >
+            <h2 className="font-bold">A · เลือกไลฟ์สด</h2>
+            <LiveSourcePicker
+              thai
+              pages={options.pages}
+              pageId={draft.pageId}
+              livePostId={draft.livePostId}
+              disabled={busy || loading}
+              onPageChange={(pageId) => {
+                setSource({ pageId, livePostId: '' })
+                edit({ pageId, livePostId: '' })
+              }}
+              onLiveChange={(livePostId) => {
+                if (livePostId !== draft.livePostId) {
+                  setSource({ pageId: draft.pageId, livePostId })
+                  edit({ livePostId })
+                }
+              }}
+            />
+          </section>
+          <section
+            data-auction-zone="B"
+            className="min-w-0 space-y-4 rounded-2xl border border-slate-200 p-4 xl:col-span-4"
+          >
+            <h2 className="font-bold">B · เงื่อนไขการประมูล</h2>
+            <label className="block text-sm font-semibold">
+              ชื่อสินค้า
+              <input
+                className={field}
+                aria-label="ชื่อสินค้า"
+                required
+                maxLength={200}
+                disabled={locked}
+                value={draft.itemName}
+                onChange={(e) => edit({ itemName: e.target.value })}
+              />
+            </label>
+            {(
+              [
+                { key: 'startPrice', label: 'ราคาเปิดประมูล (บาท)', min: '0.01', max: 999999999 },
+                {
+                  key: 'minStep',
+                  label: 'ราคาเคาะขั้นต่ำต่อครั้ง (บาท)',
+                  min: '0.01',
+                  max: 999999999,
+                },
+                { key: 'shippingFee', label: 'ค่าจัดส่งที่เรียกเก็บ (บาท)', min: '0', max: 999999 },
+              ] as const
+            ).map(({ key, label, min, max }) => (
+              <label key={key} className="block text-sm font-semibold">
+                {label}
+                <input
+                  className={field}
+                  aria-label={label}
+                  type="number"
+                  min={min}
+                  max={max}
+                  step="0.01"
+                  required
+                  disabled={locked}
+                  value={draft[key]}
+                  onChange={(e) => edit({ [key]: e.target.value })}
+                />
+              </label>
+            ))}
+            <label className="block text-sm font-semibold">
+              บัญชีธนาคารรับเงิน
+              <select
+                aria-label="บัญชีธนาคารรับเงิน"
+                className={field}
+                required
+                disabled={locked}
+                value={draft.settings.bankAccountId}
+                onChange={(e) =>
+                  edit({ settings: { ...draft.settings, bankAccountId: e.target.value } })
+                }
+              >
+                <option value="">เลือกบัญชีรับเงิน</option>
+                {options.bankAccounts.map((bank) => (
+                  <option key={bank.id} value={bank.id}>
+                    {bank.bank_code} · {bank.account_number}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold">
+              ค่าแอดโฆษณา (บาท)
+              <input
+                aria-label="ค่าแอดโฆษณา (บาท)"
+                className={field}
+                type="number"
+                min="0"
+                max="999999999999.99"
+                step="0.01"
+                required
+                disabled={disabled}
+                value={draft.finance.ads}
+                onChange={(e) => edit({ finance: { ...draft.finance, ads: e.target.value } })}
+              />
+            </label>
+            <p className="text-xs text-slate-500">
+              ค่าส่งที่เรียกเก็บจากลูกค้าแยกจากค่าส่งจริงของร้าน รอบที่รับบิดแล้วจะล็อกเงื่อนไขราคา
+            </p>
+          </section>
+          <section
+            data-auction-zone="C"
+            className="min-w-0 space-y-5 rounded-2xl border border-slate-200 p-4 xl:col-span-8"
+          >
+            <h2 className="font-bold">C · คำดักข้อความ & ระบบตอบกลับ</h2>
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+              <AuctionKeywordEditor
+                key={`bid:${base?.session?.id}:${reload}`}
+                label="คำดักบิด / ยืนยันผู้ชนะ"
+                kind="bid"
+                keywords={draft.settings.keywords}
+                onChange={(value) => setKeywords('keywords', value)}
+                onEdited={() => setNotice('')}
+                normalize={normalizeBidKeyword}
+                disabled={disabled}
+              />
+              <AuctionKeywordEditor
+                key={`close:${base?.session?.id}:${reload}`}
+                label="คำปิดรอบของเพจ / แอดมิน"
+                kind="close"
+                keywords={draft.settings.closeKeywords ?? []}
+                onChange={(value) => setKeywords('closeKeywords', value)}
+                onEdited={() => setNotice('')}
+                normalize={normalizeCloseKeyword}
+                emojiKeys={QUICK_AUCTION_CLOSE_EMOJIS}
+                disabled={disabled}
+              />
+            </div>
+            <p className="text-xs text-slate-500">
+              ขณะเปิดรอบ คำดักใช้เคาะราคา หลังปิดรอบ ผู้ชนะพิมพ์คำเดิมอีกครั้งเพื่อรับยอด
+            </p>
+            {(
+              [
+                {
+                  key: 'bidText',
+                  toggle: 'publicReply',
+                  label: 'Public Reply ใต้คอมเมนต์',
+                  maxLength: 600,
+                },
+                {
+                  key: 'privateText',
+                  toggle: 'privateReply',
+                  label: 'Private Reply เข้า Inbox',
+                  maxLength: 1500,
+                },
+              ] as const
+            ).map(({ key, toggle, label, maxLength }) => (
+              <div key={key} className="min-w-0 space-y-2">
+                <div className="flex items-center gap-3">
+                  <LiveSwitch
+                    checked={draft.settings[toggle]}
+                    onChange={(value) => edit({ settings: { ...draft.settings, [toggle]: value } })}
+                    label={`เปิด ${label}`}
+                    disabled={disabled}
+                  />
+                  <h3 className="text-sm font-semibold">{label}</h3>
+                </div>
+                <LiveTemplateEditor
+                  label={label}
+                  value={draft.settings[key]}
+                  onChange={(value) => edit({ settings: { ...draft.settings, [key]: value } })}
+                  variables={variables}
+                  maxLength={maxLength}
+                  disabled={disabled || !draft.settings[toggle]}
+                />
+              </div>
+            ))}
+          </section>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
+        <div className="text-sm text-slate-600">
+          {base?.session?.ended_at
+            ? 'ไลฟ์นี้จบแล้ว เลือกไลฟ์ใหม่เพื่อเริ่มประมูล'
+            : base?.round?.status === 'active' && !base.preferencesOnly
+              ? `กำลังประมูล: ${base.round.item_name}`
+              : 'บันทึกเงื่อนไขและคำดักทั้งหมดพร้อมเปิดรอบในครั้งเดียว'}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={button}
+            disabled={busy || loading}
+            onClick={() => {
+              dirty.current = false
+              setReload((n) => n + 1)
+            }}
+          >
+            โหลดค่าที่บันทึกไว้
+          </button>
+          <button
+            type="submit"
+            className={`${orange} min-h-12`}
+            disabled={disabled || !draft || !draft.pageId || !draft.livePostId}
+          >
+            {busy ? 'กำลังบันทึก…' : 'บันทึกและเริ่มประมูล'}
+          </button>
+        </div>
+      </div>
+    </form>
+  )
+}

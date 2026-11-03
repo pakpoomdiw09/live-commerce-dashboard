@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 118 ไฟล์: รวมตาม dependencies 101 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 120 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 120 ไฟล์: รวมตาม dependencies 103 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 122 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (931429 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (942532 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (811018 bytes, 13061 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (820728 bytes, 13212 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -138,6 +138,8 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 99. [live-auction-close-presets.sql](live-auction-close-presets.sql) — 6 statements retained
 100. [live-auction-unlimited-keywords.sql](live-auction-unlimited-keywords.sql) — 1 statements retained
 101. [live-auction-winner-confirmation.sql](live-auction-winner-confirmation.sql) — 11 statements retained
+102. [facebook-webhook-comment-ordering.sql](facebook-webhook-comment-ordering.sql) — 3 statements retained
+103. [live-auction-workspace.sql](live-auction-workspace.sql) — 7 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -174,6 +176,8 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | live-auction-close-presets.sql | live-auction-customer-columns.sql |
 | live-auction-unlimited-keywords.sql | live-auction-close-presets.sql |
 | live-auction-winner-confirmation.sql | live-auction-unlimited-keywords.sql |
+| facebook-webhook-comment-ordering.sql | facebook-webhook-queue.sql |
+| live-auction-workspace.sql | live-auction-winner-confirmation.sql, facebook-webhook-comment-ordering.sql |
 | shipping-fulfillment.sql | live-session-dashboard.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
@@ -447,3 +451,5 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-close-presets.sql: `e40d3d01a50c6c99c399043f94540a4368ccfdbe43a206d814338ae7666c5db3`
 - live-auction-unlimited-keywords.sql: `ba2dee345322ca688b2976bec107f1d64b5c94ed725e9c450d7599666b6488c3`
 - live-auction-winner-confirmation.sql: `47e7d6763ce50cd5feb959f2282c7b8341dac01a33df6d6b7c007cca4186b259`
+- facebook-webhook-comment-ordering.sql: `fc95a23e41f2d2fb46548cdc4ac306538dca0ae681433328fe555f184e6d4787`
+- live-auction-workspace.sql: `17cac8d5dbc0f9c994014d2d95ad288d9a8db55dc6698d608a6847a000a1ff6d`

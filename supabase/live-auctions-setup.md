@@ -1,5 +1,14 @@
 # Live auctions
 
+The single-view `/live-auction` form requires `live-auction-workspace.sql` after
+`facebook-webhook-comment-ordering.sql` and `live-auction-winner-confirmation.sql`.
+`GET /api/live-auction/workspace` restores the selected/latest session and saved round
+conditions without writing. `POST` uses one `save_auction_workspace` transaction for
+live selection, keyword/templates, costs and the auction. Reusing a request ID does
+not duplicate rounds. Revisions reject stale edits; accepted bids lock price conditions.
+New lives inherit saved preferences; saved zero shipping remains zero. No local browser
+defaults overwrite persisted configuration on polling or refresh.
+
 For `/live-auction`, apply `live-auction-winner-confirmation.sql` after
 `live-auction-unlimited-keywords.sql` before deploying the confirmation flow.
 The generated `complete_schema.sql` also includes it. This migration preserves

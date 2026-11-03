@@ -13,10 +13,38 @@ function load(file, dependencies = {}, globals = {}) {
       {
         './comment-rules': require('./helpers/load-typescript.cjs')(
           'lib/features/comments/comment-rules.ts',
+          {
+            '@/lib/features/commerce/cf-code': require('./helpers/load-typescript.cjs')(
+              'lib/features/commerce/cf-code.ts',
+            ),
+            '@/lib/features/commerce/live-cf-codes': require('./helpers/load-typescript.cjs')(
+              'lib/features/commerce/live-cf-codes.ts',
+              {
+                './cf-code': require('./helpers/load-typescript.cjs')(
+                  'lib/features/commerce/cf-code.ts',
+                ),
+              },
+            ),
+          },
         ),
       },
     ),
     '@/lib/features/commerce/live-cf-comment': { handleLiveCfComment: async () => false },
+    '@/lib/features/commerce/auction-server': {
+      handleAuctionComment: async () => false,
+      deliverAuctionNotifications: async () => {},
+    },
+    '@/lib/features/commerce/messenger-product-server': {
+      replyToMessengerProduct: async () => false,
+    },
+    '@/lib/features/commerce/live-cf-payment-link': {},
+    '@/lib/integrations/facebook/live-cf-adapter': {},
+    '@/lib/feature-flags': { isFeatureEnabled: () => false },
+    '@/lib/integrations/facebook/diagnostics': require('./helpers/load-typescript.cjs')(
+      'lib/integrations/facebook/diagnostics.ts',
+      {},
+      { process: { env: {} } },
+    ),
     '@/lib/features/banking/banks': {},
     '@/lib/features/inbox/inbox-automation-window': {
       InboxAutomationWindowError: class InboxAutomationWindowError extends Error {},
@@ -34,6 +62,7 @@ function load(file, dependencies = {}, globals = {}) {
       TextDecoder,
       Request,
       Response,
+      URL,
       Date,
       setInterval,
       clearInterval,
@@ -107,6 +136,7 @@ async function database() {
   const migration = fs.readFileSync('supabase/facebook-webhook-queue.sql', 'utf8')
   await pg.exec(migration)
   await pg.exec(migration)
+  await pg.exec(fs.readFileSync('supabase/facebook-webhook-comment-ordering.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-webhook-nonblocking.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-webhook-nonblocking.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-message-window.sql', 'utf8'))
@@ -149,6 +179,57 @@ async function database() {
   const one = async (sql) => (await pg.query(sql)).rows[0]
   return { pg, db: { rpc }, enqueue, one }
 }
+
+test('canonical comment keys enqueue, deduplicate and reject keys from another Page atomically', async () => {
+  const f = await database()
+  try {
+    const body = {
+      object: 'page',
+      entry: [
+        {
+          id: pageId,
+          changes: [
+            {
+              field: 'feed',
+              value: {
+                item: 'comment',
+                verb: 'add',
+                comment_id: '123_9000',
+                post_id: '123_789',
+                message: '300',
+                from: { id: senderId },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    // This used to raise SQLSTATE 22023 before the event or its receipt could commit.
+    assert.equal((await f.enqueue(body)).accepted, 1)
+    assert.equal((await f.enqueue(body)).accepted, 0)
+    assert.equal(
+      (await f.one('select ordering_key from facebook_webhook_events')).ordering_key,
+      'comments:123',
+    )
+    const parsed = envelope.parseWebhook(encode(body))
+    for (const patch of [
+      { orderingKey: 'comments:999' },
+      { orderingKey: 'invalid' },
+      { kind: 'message' },
+      { payload: { field: 'feed', value: {} } },
+    ]) {
+      const result = await f.db.rpc('enqueue_facebook_webhook', {
+        p_raw: parsed.raw,
+        p_hash: parsed.hash,
+        p_events: [{ ...parsed.events[0], ...patch }],
+      })
+      assert.equal(result.error?.code, '22023')
+    }
+    assert.equal((await f.one('select count(*)::int n from facebook_webhook_events')).n, 1)
+  } finally {
+    await f.pg.close()
+  }
+})
 
 test('message persistence assigns a Facebook fallback name before optional profile lookup', async () => {
   const f = await database()
@@ -1092,7 +1173,7 @@ test('the real handler refuses ineligible messages before calling profile, AI, o
     '@/lib/integrations/facebook/client': {
       getCustomerProfile: forbidden,
       getPageTokenStatus: forbidden,
-      pageTokenFor: forbidden,
+      pageTokenFor: () => null,
       privateReply: forbidden,
       replyToComment: forbidden,
     },

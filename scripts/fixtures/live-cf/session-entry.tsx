@@ -210,9 +210,35 @@ declare global {
   }
 }
 window.sessionQA = state
+let workspaceRound = {
+  id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  item_name: 'พระรายการเดิม',
+  start_price: 300,
+  min_step: 25,
+  shipping_fee: 37,
+  status: 'closed',
+  leading_bidder_id: null,
+}
+const persistedWorkspace = sessionStorage.getItem('auction-workspace-fixture')
+if (allInOne && persistedWorkspace) {
+  const saved = JSON.parse(persistedWorkspace)
+  Object.assign(snapshot.session, saved.session)
+  workspaceRound = saved.round
+  snapshot.activeAuction =
+    workspaceRound.status === 'active'
+      ? { id: workspaceRound.id, itemName: workspaceRound.item_name }
+      : null
+}
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   state.paths.push(url.pathname + url.search)
+  if (url.pathname === '/api/live-auction/workspace' && init?.method !== 'POST')
+    return Response.json({
+      session: snapshot.session,
+      round: workspaceRound,
+      settings: snapshot.session.auction_settings,
+      preferencesOnly: false,
+    })
   if (url.pathname === '/api/facebook/live-videos')
     return Response.json({
       pageId: '100',
@@ -271,6 +297,32 @@ window.fetch = async (input, init) => {
   if (init?.method === 'POST') {
     const body = JSON.parse(String(init.body))
     state.requests.push(body)
+    if (url.pathname === '/api/live-auction/workspace') {
+      Object.assign(snapshot.session, {
+        page_id: body.pageId,
+        live_post_id: body.livePostId,
+        auction_settings: body.settings,
+        automation_revision: (snapshot.session.automation_revision ?? 0) + 1,
+        cost_amount: Number(body.finance.cost),
+        ad_spent: Number(body.finance.ads),
+        shipping_cost: Number(body.finance.shipping),
+        financial_revision: snapshot.session.financial_revision + 1,
+      })
+      workspaceRound = {
+        ...workspaceRound,
+        status: 'active',
+        item_name: body.itemName,
+        start_price: Number(body.startPrice),
+        min_step: Number(body.minStep),
+        shipping_fee: Number(body.shippingFee),
+      }
+      snapshot.activeAuction = { id: workspaceRound.id, itemName: body.itemName }
+      sessionStorage.setItem(
+        'auction-workspace-fixture',
+        JSON.stringify({ session: snapshot.session, round: workspaceRound }),
+      )
+      return Response.json({ sessionId, auctionId: workspaceRound.id })
+    }
     if (url.pathname === '/api/live-cf/auction') {
       snapshot.activeAuction = {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',

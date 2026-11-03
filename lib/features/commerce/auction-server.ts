@@ -245,9 +245,26 @@ export async function handleAuctionComment(input: {
   execution: WebhookExecution
 }): Promise<boolean> {
   const { value, tenantId, pageId, token, execution } = input
-  if (typeof value.message !== 'string' || typeof value.comment_id !== 'string') return false
+  const skipped = (reason: string, details: Record<string, unknown> = {}) =>
+    console.info('[auction/comment] skipped', {
+      eventId: execution.event.id,
+      tenantId,
+      pageId,
+      reason,
+      ...details,
+    })
+  if (typeof value.message !== 'string' || typeof value.comment_id !== 'string') {
+    skipped('COMMENT_FIELDS_MISSING', {
+      hasMessage: typeof value.message === 'string',
+      hasCommentId: typeof value.comment_id === 'string',
+    })
+    return false
+  }
   const ids = commentPostIds(value)
-  if (!ids.length) return false
+  if (!ids.length) {
+    skipped('COMMENT_POST_ID_MISSING')
+    return false
+  }
   const db = supabaseAdmin({ timeoutMs: 15000 })
   type ScopedAuction = Auction & { live_post_aliases: string[] }
   let schemaMissing = false
@@ -281,7 +298,10 @@ export async function handleAuctionComment(input: {
     return historical.data?.[0] as ScopedAuction | undefined
   }
   let auction = await findAuction(ids)
-  if (schemaMissing) return false
+  if (schemaMissing) {
+    skipped('AUCTION_SCHEMA_MISSING')
+    return false
+  }
   // Meta can send a Page-post ID while setup uses its attached Video ID.
   // Custom bid/close keywords need not match the legacy parser. Check existence
   // without fetching Page-wide history, then resolve and repeat the scoped lookup.
@@ -307,7 +327,10 @@ export async function handleAuctionComment(input: {
       if (linked.error) throw linked.error
     }
   }
-  if (!auction) return false
+  if (!auction) {
+    skipped('NO_MATCHING_AUCTION', { postIds: ids })
+    return false
+  }
   const author = value.from as { id?: unknown } | undefined
   if (typeof author?.id !== 'string') {
     console.warn('[auction/comment] missing author', {
@@ -353,7 +376,14 @@ export async function handleAuctionComment(input: {
     }
   }
   const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
-  if (parsed.type === 'IGNORE') return !auction.session_automation?.closeKeywords
+  if (parsed.type === 'IGNORE') {
+    skipped('NO_MATCHING_AUCTION_KEYWORD', {
+      auctionId: auction.id,
+      status: auction.status,
+      isHost,
+    })
+    return !auction.session_automation?.closeKeywords
+  }
   await execution.assertLease()
   const processed = await db.rpc('process_live_auction_comment', {
     p_auction: auction.id,

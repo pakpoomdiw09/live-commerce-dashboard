@@ -44,6 +44,33 @@ async function main() {
       fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }),
     },
   })
+  // GET the PostgREST schema only; never probe service RPCs by executing them.
+  try {
+    const response = await fetch(url.replace(/\/$/, '') + '/rest/v1/', {
+      headers: { apikey: key, Authorization: 'Bearer ' + key },
+      signal: AbortSignal.timeout(10000),
+    })
+    const schema = await response.json()
+    const names = [
+      'claim_facebook_webhook',
+      'heartbeat_facebook_webhook',
+      'finish_facebook_webhook',
+      'process_live_auction_comment',
+      'configure_auction_session',
+      'confirm_live_auction_winner',
+      'live_auction_thai_dashboard',
+    ]
+    console.log(
+      'worker_rpc_schema:',
+      JSON.stringify(
+        response.ok && schema.paths
+          ? Object.fromEntries(names.map((name) => [name, Boolean(schema.paths['/rpc/' + name])]))
+          : { unavailable: true, status: response.status },
+      ),
+    )
+  } catch {
+    console.log('worker_rpc_schema: unavailable (network/timeout)')
+  }
   const checks = [
     [
       'latest_receipts',
@@ -84,6 +111,77 @@ async function main() {
           .limit(100),
     ],
     [
+      'latest_auction_sessions',
+      () =>
+        db
+          .from('live_sessions')
+          .select('id,tenant_id,page_id,live_post_id,created_at,ended_at')
+          .order('created_at', { ascending: false })
+          .limit(20),
+    ],
+    [
+      'latest_auction_rounds',
+      () =>
+        db
+          .from('auctions')
+          .select(
+            'id,tenant_id,page_id,live_post_id,live_post_aliases,status,created_at,closed_at,current_price,order_id',
+          )
+          .order('created_at', { ascending: false })
+          .limit(20),
+    ],
+    [
+      'active_auction_rounds',
+      () =>
+        db
+          .from('auctions')
+          .select('id,tenant_id,page_id,live_post_id,created_at,current_price')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(100),
+    ],
+    [
+      'latest_auction_bids',
+      () =>
+        db
+          .from('auction_bids')
+          .select('id,auction_id,event_id,status,bid_amount,created_at')
+          .order('created_at', { ascending: false })
+          .limit(10),
+    ],
+    [
+      'latest_auction_deliveries',
+      () =>
+        db
+          .from('auction_deliveries')
+          .select('id,auction_id,channel,status,error_code,started_at,completed_at')
+          .order('id', { ascending: false })
+          .limit(20),
+    ],
+    [
+      'auction_confirmation_columns',
+      () =>
+        db
+          .from('auctions')
+          .select(
+            'id,winner_confirmation_comment_id,winner_confirmation_event_id,winner_confirmed_at',
+          )
+          .limit(1),
+    ],
+    [
+      'auction_migration_registry',
+      () =>
+        db
+          .from('snapbot_schema_migrations')
+          .select('name')
+          .in('name', [
+            'facebook-webhook-nonblocking.sql',
+            'live-auction-close-presets.sql',
+            'live-auction-unlimited-keywords.sql',
+            'live-auction-winner-confirmation.sql',
+          ]),
+    ],
+    [
       'latest_facebook_customers',
       () =>
         db
@@ -120,7 +218,7 @@ async function main() {
       .order('received_at', { ascending: false })
       .limit(50),
   ])
-  console.log('comment_change_event_count:', changes.error ? 'FAILED' : changes.count)
+  console.log('change_event_count:', changes.error ? 'FAILED' : changes.count)
   if (!receipts.error)
     console.log(
       'recent_payload_shapes:',
@@ -148,6 +246,42 @@ async function main() {
             }
           } catch {
             return { receivedAt: row.received_at, invalidJson: true }
+          }
+        }),
+      ),
+    )
+  const changeRows = await db
+    .from('facebook_webhook_events')
+    .select('id,payload_id,page_id,payload,status,last_error,attempts,sequence,created_at')
+    .eq('kind', 'change')
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (changeRows.error)
+    console.log('change_event_shapes: FAILED code=' + (changeRows.error.code || 'UNKNOWN'))
+  else
+    console.log(
+      'change_event_shapes:',
+      JSON.stringify(
+        (changeRows.data ?? []).map((row) => {
+          const value = row.payload?.value ?? {}
+          return {
+            id: row.id,
+            payloadId: row.payload_id,
+            pageId: row.page_id,
+            at: row.created_at,
+            status: row.status,
+            attempts: row.attempts,
+            lastError: row.last_error,
+            field: row.payload?.field,
+            valueKeys: Object.keys(value),
+            item: value.item,
+            verb: value.verb,
+            messageType: typeof value.message,
+            messageLength: typeof value.message === 'string' ? value.message.length : 0,
+            hasAuthor: typeof value.from?.id === 'string',
+            hasCommentId: typeof value.comment_id === 'string',
+            postId: value.post_id ?? null,
+            videoId: value.video_id ?? value.live_video_id ?? null,
           }
         }),
       ),
@@ -339,8 +473,19 @@ async function main() {
         ...new Set(
           rulesForPage.map((rule) => rule.live_post_id).filter((id) => /^\d+$/.test(id ?? '')),
         ),
-      ].slice(0, 3)
-      for (const videoId of scopedVideos) {
+      ]
+      const running = await db
+        .from('auctions')
+        .select('live_post_id')
+        .eq('tenant_id', page.data.id)
+        .eq('page_id', page.data.page_id)
+        .eq('status', 'active')
+        .limit(20)
+      for (const round of running.data ?? []) {
+        if (/^\d+$/.test(round.live_post_id) && !scopedVideos.includes(round.live_post_id))
+          scopedVideos.push(round.live_post_id)
+      }
+      for (const videoId of scopedVideos.slice(0, 5)) {
         const video = await readGraph(
           videoId + '?fields=id,live_status',
           page.data.page_access_token,

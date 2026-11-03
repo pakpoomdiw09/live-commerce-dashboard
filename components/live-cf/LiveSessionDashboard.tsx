@@ -13,15 +13,9 @@ import { SessionFinance } from './SessionFinance'
 import { SessionProofModal } from './SessionProofModal'
 import { SessionWinnerModal } from './SessionWinnerModal'
 import { SessionFollowupModal } from './SessionFollowupModal'
-import { AuctionSessionStart, type AuctionDashboardOptions } from './AuctionSessionStart'
-import { AuctionSessionAutomation } from './AuctionSessionAutomation'
-import {
-  AuctionDashboardSection,
-  AuctionSessionSlips,
-  SessionRequired,
-  SessionEmptyFinance,
-} from './AuctionSessionSections'
-import { AuctionRoundForm } from './AuctionRoundForm'
+import type { AuctionDashboardOptions } from './AuctionSessionStart'
+import { AuctionUnifiedForm } from './AuctionUnifiedForm'
+import { AuctionSessionSlips, SessionRequired, SessionEmptyFinance } from './AuctionSessionSections'
 import { ShippingDashboard } from '@/components/shipping/ShippingDashboard'
 import { AuctionSessionCustomers } from './AuctionSessionCustomers'
 
@@ -459,41 +453,22 @@ export function LiveSessionDashboard({
       {loading && !data && <p role="status">กำลังโหลดข้อมูลไลฟ์สด…</p>}
       {auction ? (
         <>
-          <AuctionDashboardSection number={1}>
-            <AuctionSessionStart
-              tenantId={tenantId}
-              options={auction}
-              onStarted={(id) => {
-                choose(id)
-                setVersion((v) => v + 1)
-              }}
-            />
-            {sessionSelector}
-            {finance}
-          </AuctionDashboardSection>
-          <AuctionDashboardSection number={2}>
-            {data ? (
-              <>
-                <AuctionRoundForm
-                  key={`round:${data.session.id}`}
-                  tenantId={tenantId}
-                  data={data}
-                  options={auction}
-                  onChanged={() => setVersion((v) => v + 1)}
-                />
-                <AuctionSessionAutomation
-                  key={data.session.id}
-                  tenantId={tenantId}
-                  session={data.session}
-                  options={auction}
-                  onSaved={() => setVersion((v) => v + 1)}
-                />
-              </>
-            ) : (
-              <SessionRequired />
-            )}
-          </AuctionDashboardSection>
-          <AuctionDashboardSection number={3}>
+          <AuctionUnifiedForm
+            tenantId={tenantId}
+            sessionId={sessionId}
+            data={data}
+            options={auction}
+            onSaved={(id) => {
+              if (id !== sessionId) choose(id)
+              setVersion((v) => v + 1)
+            }}
+          />
+          {sessionSelector}
+          <section
+            className="min-w-0 space-y-4 border-t border-slate-100 pt-5"
+            aria-label="บิลลูกค้าและสลิป"
+          >
+            <h2 className="font-bold">บิลลูกค้าและสลิปโอนเงิน</h2>
             <div
               data-customer-billing-grid
               className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-12"
@@ -513,8 +488,12 @@ export function LiveSessionDashboard({
               />
               <AuctionSessionSlips key={`slips:${data?.session.id ?? 'empty'}`} data={data} />
             </div>
-          </AuctionDashboardSection>
-          <AuctionDashboardSection number={4}>
+          </section>
+          <section
+            className="min-w-0 space-y-4 border-t border-slate-100 pt-5"
+            aria-label="การจัดส่งพัสดุ"
+          >
+            <h2 className="font-bold">การจัดส่งพัสดุ</h2>
             {data ? (
               <ShippingDashboard
                 key={data.session.id}
@@ -526,7 +505,7 @@ export function LiveSessionDashboard({
             ) : (
               <SessionRequired />
             )}
-          </AuctionDashboardSection>
+          </section>
         </>
       ) : (
         <>
