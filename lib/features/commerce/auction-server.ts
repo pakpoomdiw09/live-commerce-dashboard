@@ -5,7 +5,6 @@ import {
   pageTokenFor,
   replyToComment,
   sendAuctionPrivateReply,
-  resolveLiveCommentVideo,
 } from '@/lib/integrations/facebook/client'
 import { createLiveCfPaymentLink } from './live-cf-payment-link'
 import { parseAuctionComment } from '@/lib/integrations/facebook/auction-comment-parser'
@@ -266,69 +265,70 @@ export async function handleAuctionComment(input: {
     return false
   }
   const db = supabaseAdmin({ timeoutMs: 15000 })
-  type ScopedAuction = Auction & { live_post_aliases: string[] }
-  let schemaMissing = false
-  const findAuction = async (postIds: string[]): Promise<ScopedAuction | undefined> => {
-    // commentPostIds and the resolver output are restricted to numeric Meta IDs,
-    // so no untrusted PostgREST filter syntax can enter this expression.
-    const liveIds = [...new Set(postIds.map((id) => id.split('_').at(-1)!))]
-    const scope = `live_post_id.in.(${liveIds.join(',')}),live_post_aliases.ov.{${postIds.join(',')}}`
+  const findAuction = async (postIds: string[]): Promise<Auction | undefined> => {
     const query = () =>
       db
         .from('auctions')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('page_id', pageId)
-        .or(scope)
+        .in('live_post_id', postIds)
         .lte('created_at', execution.event.created_at)
         .order('created_at', { ascending: false })
         .limit(1)
     const active = await query().eq('status', 'active')
-    // An unapplied optional auction migration must not break existing Live CF shops.
-    if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) {
-      schemaMissing = true
-      return undefined
-    }
+    if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) return undefined
     if (active.error) throw active.error
-    if (active.data?.length) return active.data[0] as ScopedAuction
-    // Keep closed rounds scoped to this live too: late bids must not become CF orders.
-    // The event-time fence also lets queued comments find the preceding round.
-    const historical = await query()
-    if (historical.error) throw historical.error
-    return historical.data?.[0] as ScopedAuction | undefined
+    return active.data?.[0] as Auction | undefined
   }
   let auction = await findAuction(ids)
-  if (schemaMissing) {
-    skipped('AUCTION_SCHEMA_MISSING')
-    return false
-  }
-  // Meta can send a Page-post ID while setup uses its attached Video ID.
-  // Custom bid/close keywords need not match the legacy parser. Check existence
-  // without fetching Page-wide history, then resolve and repeat the scoped lookup.
+  type ActiveSession = { id: string; live_post_id: string }
+  let activeSession: ActiveSession | null = null
   if (!auction) {
-    const exists = await db
-      .from('auctions')
-      .select('id')
+    const session = await db
+      .from('live_sessions')
+      .select('id,live_post_id')
       .eq('tenant_id', tenantId)
       .eq('page_id', pageId)
-      .lte('created_at', execution.event.created_at)
+      .in('live_post_id', ids)
+      .is('ended_at', null)
+      .order('created_at', { ascending: false })
       .limit(1)
-    if (exists.error) throw exists.error
-    const resolved = exists.data?.length ? await resolveLiveCommentVideo(token, ids[0]) : null
-    const resolvedIds = (resolved?.ids ?? []).filter((id) => /^\d+(?:_\d+)?$/.test(id))
-    if (resolvedIds.length) auction = await findAuction(resolvedIds)
-    if (auction) {
-      const aliases = [...new Set([...auction.live_post_aliases, ...ids])]
-      const linked = await db
+      .maybeSingle()
+    if (session.error) {
+      if (!['42P01', 'PGRST205'].includes(session.error.code)) throw session.error
+      skipped('LIVE_SESSION_SCHEMA_MISSING', { code: session.error.code })
+      return false
+    }
+    activeSession = (session.data as ActiveSession | null) ?? null
+    if (activeSession) {
+      const historical = await db
         .from('auctions')
-        .update({ live_post_aliases: aliases })
-        .eq('id', auction.id)
+        .select('*')
         .eq('tenant_id', tenantId)
-      if (linked.error) throw linked.error
+        .eq('page_id', pageId)
+        .eq('live_post_id', activeSession.live_post_id)
+        .eq('status', 'closed')
+        .lte('created_at', execution.event.created_at)
+        .order('closed_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (historical.error) {
+        if (!['42P01', 'PGRST205'].includes(historical.error.code)) throw historical.error
+        skipped('AUCTION_SCHEMA_MISSING', { code: historical.error.code })
+        return true
+      }
+      auction = (historical.data?.[0] as Auction | undefined) ?? undefined
     }
   }
   if (!auction) {
-    skipped('NO_MATCHING_AUCTION', { postIds: ids })
+    skipped(activeSession ? 'ACTIVE_LIVE_WITHOUT_AUCTION' : 'NO_MATCHING_ACTIVE_LIVE', {
+      postIds: ids,
+    })
+    return !!activeSession
+  }
+  if (auction.status !== 'active' && !activeSession) {
+    skipped('HISTORICAL_AUCTION_WITHOUT_ACTIVE_LIVE_SESSION', { auctionId: auction.id })
     return false
   }
   const author = value.from as { id?: unknown } | undefined
@@ -359,8 +359,8 @@ export async function handleAuctionComment(input: {
     if (
       closed?.session_automation?.closeKeywords &&
       parseAuctionComment(value.message, false, closed.session_automation).type === 'STEP_BID' &&
-      (auction.status !== 'active' ||
-        (closed.leading_bidder_id === author.id && !closed.winner_confirmation_comment_id))
+      closed.leading_bidder_id === author.id &&
+      !closed.winner_confirmation_comment_id
     ) {
       await execution.assertLease()
       const confirmed = await db.rpc('confirm_live_auction_winner', {
@@ -375,6 +375,10 @@ export async function handleAuctionComment(input: {
       return true
     }
   }
+  if (auction.status !== 'active') {
+    skipped('CLOSED_AUCTION_NOT_CONFIRMABLE', { auctionId: auction.id })
+    return true
+  }
   const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
   if (parsed.type === 'IGNORE') {
     skipped('NO_MATCHING_AUCTION_KEYWORD', {
@@ -382,7 +386,7 @@ export async function handleAuctionComment(input: {
       status: auction.status,
       isHost,
     })
-    return !auction.session_automation?.closeKeywords
+    return true
   }
   await execution.assertLease()
   const processed = await db.rpc('process_live_auction_comment', {

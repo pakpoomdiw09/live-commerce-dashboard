@@ -38,6 +38,7 @@ function fixture({
         created_at: '2026-01-01',
       },
     ],
+    live_sessions: [],
     tenants: [{ id: tenantId, page_id: '100', page_access_token: 'TEST_SECRET', is_active: true }],
     auction_deliveries: [],
     messages: [],
@@ -73,25 +74,20 @@ function fixture({
           rowLimit = value
           return q
         },
-        or(scope) {
-          const match = scope.match(
-            /^live_post_id\.in\.\(([^)]+)\),live_post_aliases\.ov\.\{([^}]+)\}$/,
-          )
-          assert.ok(match, 'auction queries must be scoped to live IDs and aliases')
-          const liveIds = match[1].split(',')
-          const aliases = match[2].split(',')
-          predicates.push(
-            (row) =>
-              liveIds.includes(row.live_post_id) ||
-              row.live_post_aliases.some((id) => aliases.includes(id)),
-          )
-          return q
-        },
         update(value) {
           patch = value
           return q
         },
         eq(key, value) {
+          predicates.push((row) => row[key] === value)
+          return q
+        },
+        in(key, values) {
+          if (key === 'live_post_id') assert.ok(values.every((id) => /^\d+(?:_\d+)?$/.test(id)))
+          predicates.push((row) => values.includes(row[key]))
+          return q
+        },
+        is(key, value) {
           predicates.push((row) => row[key] === value)
           return q
         },
@@ -219,6 +215,18 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   assert.equal(f.calls.rpc.at(-1).input.p_control, '3')
 })
 
+test('auction keywords never run against an unrelated post or a closed round without an active live session', async () => {
+  const f = fixture()
+  assert.equal(await f.receive('1', '900', '999'), false)
+  assert.equal(f.calls.rpc.length, 0)
+  assert.equal(f.calls.private.length, 0)
+
+  f.tables.auctions[0].status = 'closed'
+  assert.equal(await f.receive('1', '900'), false)
+  assert.equal(f.calls.rpc.length, 0)
+  assert.equal(f.calls.private.length, 0)
+})
+
 test('seller-defined bid words record silently and only a trusted host can use the configured close word', async () => {
   const f = fixture()
   f.tables.auctions[0].session_automation = {
@@ -231,11 +239,7 @@ test('seller-defined bid words record silently and only a trusted host can use t
   await f.receive('เคาะ')
   assert.equal(f.calls.rpc.at(-1).input.p_kind, 'STEP_BID')
   assert.equal(f.calls.public.length, 0)
-  assert.equal(
-    await f.receive('CF A1'),
-    false,
-    'unmatched CF codes may continue through the existing CF pipeline',
-  )
+  assert.equal(await f.receive('CF A1'), true, 'auction posts stay isolated from the CF pipeline')
   const count = f.calls.rpc.length
   await f.receive('จบรายการ', '900')
   await f.receive('❤️', '100')
@@ -277,9 +281,16 @@ test('an active live is found beyond 100 newer rounds and cannot match a foreign
   assert.equal(f.calls.resolve.length, 0)
 })
 
-test('active lookup is scoped to the live, and closed rounds still receive late comments', async () => {
+test('closed rounds cannot receive late bids, even while their live session remains open', async () => {
   const f = fixture()
   f.tables.auctions[0].status = 'closed'
+  f.tables.live_sessions.push({
+    id: 'live',
+    tenant_id: tenantId,
+    page_id: '100',
+    live_post_id: '456',
+    ended_at: null,
+  })
   f.tables.auctions.push({
     ...f.tables.auctions[0],
     id: 'other-live',
@@ -287,8 +298,8 @@ test('active lookup is scoped to the live, and closed rounds still receive late 
     status: 'active',
     created_at: '2026-01-25',
   })
-  await f.receive('250')
-  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+  assert.equal(await f.receive('250'), true)
+  assert.equal(f.calls.rpc.length, 0)
   // A round created after this event must not capture an older queued bid.
   f.tables.auctions.push({
     ...f.tables.auctions[0],
@@ -296,30 +307,27 @@ test('active lookup is scoped to the live, and closed rounds still receive late 
     status: 'active',
     created_at: '2026-03-01',
   })
-  await f.receive('300')
-  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+  assert.equal(await f.receive('300'), true)
+  assert.equal(f.calls.rpc.length, 0)
 })
 
-test('unrecognized custom keywords resolve a Page-post alias against the correct active live', async () => {
+test('auction keywords require an explicit post or video ID match', async () => {
   const f = fixture()
   f.tables.auctions[0].session_automation = {
     keywords: ['raise'],
     closeKeywords: ['stop'],
     closeEnabled: true,
   }
-  await f.receive('raise', '900', '100_777')
-  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'STEP_BID')
-  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
-  assert.ok(f.tables.auctions[0].live_post_aliases.includes('100_777'))
+  assert.equal(await f.receive('raise', '900', '100_777'), false)
+  assert.equal(f.calls.rpc.length, 0)
+  assert.equal(f.calls.resolve.length, 0)
+  assert.deepEqual(f.tables.auctions[0].live_post_aliases, [])
 })
 
-test('Page-post resolution pins a verified alias; missing optional schema falls through to ordinary CF', async () => {
+test('unmatched Page posts are ignored; missing optional auction schema falls through to ordinary CF', async () => {
   const f = fixture()
-  assert.equal(await f.receive('250', '900', '100_777'), true)
-  assert.equal(f.calls.resolve.length, 1)
-  assert.ok(f.tables.auctions[0].live_post_aliases.includes('100_777'))
-  await f.receive('300', '901', '100_777')
-  assert.equal(f.calls.resolve.length, 1, 'saved alias avoids repeated Graph lookups')
+  assert.equal(await f.receive('250', '900', '100_777'), false)
+  assert.equal(f.calls.resolve.length, 0)
   assert.equal(await fixture({ missingSchema: true }).receive('250'), false)
 })
 
@@ -392,6 +400,13 @@ test('only the latest winner keyword releases both replies to the confirmation c
     bid_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
     private_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
   })
+  f.tables.live_sessions.push({
+    id: 'live',
+    tenant_id: tenantId,
+    page_id: '100',
+    live_post_id: '456',
+    ended_at: null,
+  })
   for (const channel of ['public', 'private'])
     f.tables.auction_deliveries.push({
       id: channel,
@@ -403,6 +418,11 @@ test('only the latest winner keyword releases both replies to the confirmation c
   await f.api.deliverAuctionNotifications(auctionId)
   assert.equal(f.calls.private.length + f.calls.public.length, 0)
   await f.receive('1', '901')
+  assert.equal(
+    f.calls.rpc.some((call) => call.name === 'confirm_live_auction_winner'),
+    false,
+    'non-winners are rejected before the confirmation RPC',
+  )
   assert.equal(
     f.calls.private.length + f.calls.public.length,
     0,
@@ -429,6 +449,13 @@ test('an unconfirmed winner can confirm during the next round; other customers s
     status: 'closed',
     closed_at: '2026-01-02',
     session_automation: { keywords: ['1'], closeKeywords: ['x'] },
+  })
+  f.tables.live_sessions.push({
+    id: 'live',
+    tenant_id: tenantId,
+    page_id: '100',
+    live_post_id: '456',
+    ended_at: null,
   })
   const nextId = 'next-active'
   f.tables.auctions.push({
