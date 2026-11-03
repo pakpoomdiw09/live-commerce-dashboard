@@ -1,5 +1,20 @@
 # Live auctions
 
+For `/live-auction`, apply `live-auction-winner-confirmation.sql` after
+`live-auction-unlimited-keywords.sql` before deploying the confirmation flow.
+The generated `complete_schema.sql` also includes it. This migration preserves
+orders/payments and never requeues sent or ambiguous notifications.
+
+In this workspace, close keywords (`X`, `❌`, `321`, or the saved custom list)
+freeze the winning price and create the order/tab immediately. Notifications wait
+in `awaiting_confirmation`. The latest closed round's winner must comment a saved
+bid keyword (for example `1`) again. The database verifies the actual webhook
+author, Page/live, queue order, keyword and latest round, then releases the enabled
+public/private replies to that confirmation comment. Other customers cannot release
+the bill. Confirmation replays never create another order or resend a completed
+delivery. An unconfirmed winner can confirm during the next active round; once
+confirmed, subsequent keywords in that active round become bids normally.
+
 For cumulative bills and automatic partial payments, continue with
 [customer-tabs-setup.md](customer-tabs-setup.md) after installing this base auction
 schema. Its payment flow replaces manual one-order proof submission for newly
@@ -12,10 +27,19 @@ Fresh installations can use the regenerated `complete_schema.sql`.
 Use the existing `LIVE_CF_APP_URL` (or `NEXT_PUBLIC_APP_URL`) and a
 `LIVE_CF_PAYMENT_LINK_SECRET` of at least 32 characters. An active receiving bank
 account and a connected Facebook Page are required to open a round at `/live-cf`.
-The existing Facebook webhook worker cron also drains pending auction bills.
+The Facebook webhook worker cron also drains pending auction bills. `vercel.json`
+schedules `/api/cron/facebook-webhooks` every minute. Configure `CRON_SECRET` in the
+Vercel production environment so scheduled requests carry the bearer credential
+expected by this endpoint, then deploy the configuration.
 
-Only the linked Page and the Facebook IDs explicitly entered by the owner can
-control an auction through comments. Dashboard access requires tenant owner access.
+The linked Page, the opening owner's verified Facebook ID, and Facebook IDs
+explicitly entered by the owner can control an auction through comments. The API
+resolves the opening owner's Facebook identity server-side; a Supabase user UUID
+is never a Facebook author ID. Users signing in by email need their own Facebook
+Page connection (`facebook_pages`); its token is inspected with `FB_APP_ID` and
+`FB_APP_SECRET`. If the personal identity cannot be verified, reconnect Facebook
+before opening a round. Existing rounds retain their saved host IDs.
+Dashboard access requires tenant owner access.
 At `/live-cf`, use the visible CF/Auction tabs; `/live-cf?mode=auction` opens the
 auction controls directly. The opening form remains visible even when the auction
 API reports missing setup or insufficient permissions. Live prices, leaders,
@@ -45,8 +69,9 @@ return the stored result. Meta can delay or reorder deliveries: this is an arriv
 order guarantee, not a reconstruction of comments that Meta has not delivered.
 Comments with a numeric Meta timestamp before the round began are rejected.
 
-The final bill is a comment-scoped Messenger private reply to the winner's latest
-accepted bid, with a signed payment/upload link. Public bid confirmations do not
+The final bill is a comment-scoped Messenger private reply to the winner's
+confirmation comment in `/live-auction` (the latest accepted bid for legacy
+auctions without close-keyword settings), with a signed payment/upload link. Public replies do not
 consume that private reply. Permissions and Meta private-reply restrictions still
 apply. Pending outbox entries retry through cron; ambiguous sends become
 `requires_review` and appear on the dashboard, to avoid duplicate bills.

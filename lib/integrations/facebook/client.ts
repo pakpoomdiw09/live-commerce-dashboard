@@ -693,6 +693,40 @@ async function graphGet(
 
 export type PageTokenStatus = 'verified' | 'limited' | 'invalid' | 'unverified'
 
+/** Resolve the person who connected this Page, never the Page itself or a browser-supplied ID. */
+export async function getPageTokenUserId(token: string, pageId: string): Promise<string | null> {
+  const appId = (process.env.FB_APP_ID || process.env.NEXT_PUBLIC_FB_APP_ID || '').trim()
+  const appSecret = (process.env.FB_APP_SECRET ?? '').trim()
+  if (!appId || !appSecret) return null
+  const result = await graphGet(
+    `debug_token?input_token=${encodeURIComponent(token)}`,
+    `${appId}|${appSecret}`,
+  )
+  const data = result.json?.data
+  if (
+    !result.ok ||
+    result.json?.error ||
+    data?.is_valid !== true ||
+    data.type !== 'PAGE' ||
+    String(data.app_id) !== appId ||
+    String(data.profile_id) !== pageId ||
+    typeof data.user_id !== 'string' ||
+    !/^\d{1,64}$/.test(data.user_id)
+  )
+    return null
+  for (const expires of [data.expires_at, data.data_access_expires_at]) {
+    if (
+      expires !== undefined &&
+      (typeof expires !== 'number' ||
+        !Number.isFinite(expires) ||
+        expires < 0 ||
+        (expires > 0 && expires <= Date.now() / 1000))
+    )
+      return null
+  }
+  return data.user_id
+}
+
 /**
  * Read-only connection check, independent of permission to read the Page's name/picture.
  * A failed debug request cannot establish that its input token is invalid: Meta may instead

@@ -105,27 +105,34 @@ export function AuctionSessionAutomation({
         <div className="min-w-0 space-y-2">
           <AuctionKeywordEditor
             key={'bid-' + baseRevision}
-            label="คีย์เวิร์ดการดักคำ" kind="bid"
-            keywords={bidKeywords} onChange={setBidKeywords}
+            label="คีย์เวิร์ดการดักคำ"
+            kind="bid"
+            keywords={bidKeywords}
+            onChange={setBidKeywords}
             normalize={normalizeBidKeyword}
             disabled={disabled}
             onEdited={() => setNotice('')}
           />
           <p className="text-xs text-slate-500">
-            กำหนดคำที่ลูกค้าพิมพ์เพื่อเคาะประมูล เช่น 1 เมื่อชนะจะส่งยอดเข้า Messenger ทันที · มีผลเมื่อกดบันทึก
+            ระหว่างเปิดรอบ คำนี้ใช้เคาะราคา เช่น 1 หลังปิดรอบ
+            ผู้ชนะรอบล่าสุดพิมพ์คำนี้อีกครั้งเพื่อรับยอด · มีผลเมื่อกดบันทึก
           </p>
         </div>
         <div className="min-w-0 space-y-2">
           <AuctionKeywordEditor
             key={'close-' + baseRevision}
-            label="คีย์เวิร์ดการปิดการประมูล" kind="close"
-            keywords={closeKeywords} onChange={setCloseKeywords}
-            normalize={normalizeCloseKeyword} emojiKeys={QUICK_AUCTION_CLOSE_EMOJIS}
+            label="คีย์เวิร์ดการปิดการประมูล"
+            kind="close"
+            keywords={closeKeywords}
+            onChange={setCloseKeywords}
+            normalize={normalizeCloseKeyword}
+            emojiKeys={QUICK_AUCTION_CLOSE_EMOJIS}
             disabled={disabled}
             onEdited={() => setNotice('')}
           />
           <p className="text-xs text-slate-500">
-            เมื่อคอมเมนต์ของเพจหรือผู้ดูแลมีคำหรืออีโมจิที่เลือก เช่น ปิด ❌ หรือ 321 🛑 ระบบจะปิดรอบและตัดสินผู้ชนะทันที คำสั่งของลูกค้าจะไม่ปิดรอบ · มีผลเมื่อกดบันทึก
+            เมื่อคอมเมนต์ของเพจหรือผู้ดูแลมีคำหรืออีโมจิที่เลือก เช่น ปิด ❌ หรือ 321 🛑
+            ระบบจะปิดรอบและตัดสินผู้ชนะทันที คำสั่งของลูกค้าจะไม่ปิดรอบ · มีผลเมื่อกดบันทึก
           </p>
         </div>
       </div>
@@ -149,7 +156,7 @@ export function AuctionSessionAutomation({
             onChange={(bidText) => setDraft((previous) => ({ ...previous, bidText }))}
           />
           <p className="text-xs text-slate-500">
-            ข้อความที่จะแท็กตอบกลับใต้คอมเมนต์ของผู้ชนะหน้าไลฟ์สด
+            ข้อความตอบกลับใต้คอมเมนต์ยืนยันของผู้ชนะรอบล่าสุดหน้าไลฟ์สด
             ระหว่างเคาะประมูลระบบจะจำผู้ขึ้นนำให้เงียบ ๆ
           </p>
         </div>
@@ -171,8 +178,8 @@ export function AuctionSessionAutomation({
             onChange={(privateText) => setDraft((previous) => ({ ...previous, privateText }))}
           />
           <p className="text-xs text-slate-500">
-            ส่งสรุปยอดสะสมและเลขบัญชีให้ผู้ชนะทันทีทาง Messenger รองรับตัวแปร{' '}
-            {'{ชื่อลูกค้า}, {รายการ}, {ราคา}, {ยอดรวมสะสม}, {เลขบัญชี}'}{' '}
+            เมื่อผู้ชนะรอบล่าสุดพิมพ์คีย์เวิร์ดยืนยัน จะส่งสรุปยอดสะสมและเลขบัญชีทาง Messenger
+            รองรับตัวแปร {'{ชื่อลูกค้า}, {รายการ}, {ราคา}, {ยอดรวมสะสม}, {เลขบัญชี}'}{' '}
             ระบบแนบยอดค้างและลิงก์ชำระเงินให้ด้วย
           </p>
         </div>

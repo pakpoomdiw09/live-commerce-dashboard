@@ -848,6 +848,39 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     ).result
     assert.equal(thaiSnapshot.activeAuction, null)
     assert.equal(thaiSnapshot.tabs[0].total, 270)
+    // Closing freezes the winner and ledger, but does not release notifications.
+    {
+      const held = (await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])).rows
+      assert.ok(held.every((row) => row.status === 'awaiting_confirmation'))
+      const confirm = async (sender, text, auction = thaiRound, post = '989') => {
+        const ev = await event(sender, text, post)
+        return { ev, result: (await one('select confirm_live_auction_winner($1,$2,$3) result', [auction, tenant, ev.id])).result }
+      }
+      assert.equal((await confirm('900', 'เคาะ')).result.status, 'not_winner')
+      assert.equal((await confirm('904', 'random')).result.status, 'ignored')
+      await assert.rejects(confirm('904', 'เคาะ', thaiRound, '456'), /AUCTION_POST_MISMATCH/)
+      assert.ok((await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])).rows.every((row) => row.status === 'awaiting_confirmation'))
+      const confirmation = await confirm('904', 'เคาะ')
+      assert.equal(confirmation.result.status, 'confirmed')
+      const released = (await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])).rows
+      assert.ok(released.every((row) => row.status === 'pending' && row.comment_id === confirmation.ev.payload.value.comment_id))
+      const frozen = await one('select current_price,leading_bidder_id,order_id from auctions where id=$1', [thaiRound])
+      assert.equal(frozen.current_price, '220.00')
+      assert.equal(frozen.leading_bidder_id, '904')
+      assert.equal((await process(thaiRound, '900', '999', 'NUMERIC_BID', 999, null, '989')).status, 'closed')
+      assert.equal((await one('select current_price from auctions where id=$1', [thaiRound])).current_price, '220.00')
+      await db.query("update auction_deliveries set status='sent' where auction_id=$1", [thaiRound])
+      assert.equal((await confirm('904', 'เคาะ')).result.status, 'already_confirmed')
+      assert.ok((await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])).rows.every((row) => row.status === 'sent'))
+      assert.equal((await one('select count(*)::int n from orders where source_id=$1', [thaiRound])).n, 1)
+      const nextRound = await open('989', alternateBank)
+      await process(nextRound, '905', 'เคาะ', 'STEP_BID', null, null, '989')
+      await process(nextRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
+      assert.equal((await confirm('904', 'เคาะ')).result.status, 'not_latest')
+      assert.equal((await confirm('904', 'เคาะ', nextRound)).result.status, 'not_winner')
+      assert.equal((await confirm('905', 'เคาะ', nextRound)).result.status, 'confirmed')
+      assert.equal((await one("select has_function_privilege('authenticated','public.confirm_live_auction_winner(uuid,uuid,uuid)','execute') allowed")).allowed, false)
+    }
     assert.equal(
       (
         await one(

@@ -26,6 +26,7 @@ function fixture({
         live_post_id: '456',
         live_post_aliases: [],
         host_ids: ['999'],
+        status: 'active',
         item_name: 'เหรียญ',
         start_price: 200,
         min_step: 20,
@@ -42,20 +43,50 @@ function fixture({
     messages: [],
   }
   const calls = { rpc: [], public: [], private: [], resolve: [], timeline: [] }
+  let currentSender = null
   const db = {
     from(table) {
       const predicates = []
+      let ordering = null
+      let rowLimit = Infinity
       let patch = null
       const finish = () => {
         if (missingSchema && table === 'auctions') return { data: null, error: { code: '42P01' } }
-        const rows = tables[table].filter((row) => predicates.every((test) => test(row)))
+        let rows = tables[table].filter((row) => predicates.every((test) => test(row)))
+        if (ordering) {
+          const { key, ascending } = ordering
+          rows.sort(
+            (a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * (ascending ? 1 : -1),
+          )
+        }
+        rows = rows.slice(0, rowLimit)
         if (patch) rows.forEach((row) => Object.assign(row, patch))
         return { data: rows.map((row) => ({ ...row })), error: null }
       }
       const q = {
         select: () => q,
-        order: () => q,
-        limit: () => q,
+        order(key, { ascending = true } = {}) {
+          ordering = { key, ascending }
+          return q
+        },
+        limit(value) {
+          rowLimit = value
+          return q
+        },
+        or(scope) {
+          const match = scope.match(
+            /^live_post_id\.in\.\(([^)]+)\),live_post_aliases\.ov\.\{([^}]+)\}$/,
+          )
+          assert.ok(match, 'auction queries must be scoped to live IDs and aliases')
+          const liveIds = match[1].split(',')
+          const aliases = match[2].split(',')
+          predicates.push(
+            (row) =>
+              liveIds.includes(row.live_post_id) ||
+              row.live_post_aliases.some((id) => aliases.includes(id)),
+          )
+          return q
+        },
         update(value) {
           patch = value
           return q
@@ -88,6 +119,21 @@ function fixture({
     async rpc(name, input) {
       calls.timeline.push('rpc:' + name)
       calls.rpc.push({ name, input })
+      if (name === 'confirm_live_auction_winner') {
+        const auction = tables.auctions.find((row) => row.id === input.p_auction)
+        if (auction.leading_bidder_id !== currentSender)
+          return { data: { status: 'not_winner' }, error: null }
+        if (auction.winner_confirmation_comment_id)
+          return { data: { status: 'already_confirmed' }, error: null }
+        auction.winner_confirmation_comment_id = '456_789'
+        for (const delivery of tables.auction_deliveries) {
+          if (delivery.auction_id === auction.id && delivery.status === 'awaiting_confirmation') {
+            delivery.status = 'pending'
+            delivery.comment_id = '456_789'
+          }
+        }
+        return { data: { status: 'confirmed' }, error: null }
+      }
       return { data: result, error: null }
     },
   }
@@ -132,8 +178,9 @@ function fixture({
     { console: silent },
   )
   const steps = new Map()
-  const receive = (text, sender = '900', post = '456') =>
-    api.handleAuctionComment({
+  const receive = (text, sender = '900', post = '456') => {
+    currentSender = sender
+    return api.handleAuctionComment({
       value: { message: text, comment_id: '456_789', post_id: post, from: { id: sender } },
       tenantId,
       pageId: '100',
@@ -147,6 +194,7 @@ function fixture({
         },
       },
     })
+  }
   return { api, receive, tables, calls }
 }
 
@@ -182,7 +230,11 @@ test('seller-defined bid words record silently and only a trusted host can use t
   await f.receive('เคาะ')
   assert.equal(f.calls.rpc.at(-1).input.p_kind, 'STEP_BID')
   assert.equal(f.calls.public.length, 0)
-  assert.equal(await f.receive('CF A1'), false, 'unmatched CF codes may continue through the existing CF pipeline')
+  assert.equal(
+    await f.receive('CF A1'),
+    false,
+    'unmatched CF codes may continue through the existing CF pipeline',
+  )
   const count = f.calls.rpc.length
   await f.receive('จบรายการ', '900')
   await f.receive('❤️', '100')
@@ -190,6 +242,74 @@ test('seller-defined bid words record silently and only a trusted host can use t
   assert.equal(f.calls.rpc.length, count)
   await f.receive('จบรายการ', '100')
   assert.equal(f.calls.rpc.at(-1).input.p_control, 'close')
+  f.tables.auctions[0].session_automation.closeKeywords = ['❌', '🛑']
+  for (const sender of ['100', '999']) {
+    for (const text of ['❌', '🛑']) {
+      await f.receive(text, sender)
+      assert.equal(f.calls.rpc.at(-1).input.p_control, 'close')
+    }
+  }
+  const closed = f.calls.rpc.length
+  await f.receive('❌', '900')
+  await f.receive('🛑', '900')
+  assert.equal(f.calls.rpc.length, closed)
+})
+
+test('an active live is found beyond 100 newer rounds and cannot match a foreign tenant or Page', async () => {
+  const f = fixture()
+  const active = f.tables.auctions[0]
+  f.tables.auctions.push(
+    ...Array.from({ length: 150 }, (_, index) => ({
+      ...active,
+      id: `history-${index}`,
+      live_post_id: String(1000 + index),
+      status: 'closed',
+      created_at: '2026-01-20',
+    })),
+  )
+  f.tables.auctions.push(
+    { ...active, id: 'foreign-tenant', tenant_id: 'foreign', created_at: '2026-01-25' },
+    { ...active, id: 'foreign-page', page_id: '200', created_at: '2026-01-25' },
+  )
+  assert.equal(await f.receive('250'), true)
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+  assert.equal(f.calls.resolve.length, 0)
+})
+
+test('active lookup is scoped to the live, and closed rounds still receive late comments', async () => {
+  const f = fixture()
+  f.tables.auctions[0].status = 'closed'
+  f.tables.auctions.push({
+    ...f.tables.auctions[0],
+    id: 'other-live',
+    live_post_id: '777',
+    status: 'active',
+    created_at: '2026-01-25',
+  })
+  await f.receive('250')
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+  // A round created after this event must not capture an older queued bid.
+  f.tables.auctions.push({
+    ...f.tables.auctions[0],
+    id: 'future-round',
+    status: 'active',
+    created_at: '2026-03-01',
+  })
+  await f.receive('300')
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+})
+
+test('unrecognized custom keywords resolve a Page-post alias against the correct active live', async () => {
+  const f = fixture()
+  f.tables.auctions[0].session_automation = {
+    keywords: ['raise'],
+    closeKeywords: ['stop'],
+    closeEnabled: true,
+  }
+  await f.receive('raise', '900', '100_777')
+  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'STEP_BID')
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+  assert.ok(f.tables.auctions[0].live_post_aliases.includes('100_777'))
 })
 
 test('Page-post resolution pins a verified alias; missing optional schema falls through to ordinary CF', async () => {
@@ -250,6 +370,88 @@ test('two outbox runners cannot dispatch the same pending bill twice', async () 
   assert.equal(f.tables.auction_deliveries[0].status, 'sent')
 })
 
+test('only the latest winner keyword releases both replies to the confirmation comment with frozen price and real totals', async () => {
+  const f = fixture({
+    tab: {
+      total_amount: 350,
+      paid_amount: 0,
+      remaining_amount: 350,
+      shipping_fee: 50,
+      customer_tab_items: [
+        { item_name: 'เหรียญ', amount: 300, order_type: 'auction', cancelled: false },
+      ],
+    },
+  })
+  const auction = f.tables.auctions[0]
+  Object.assign(auction, {
+    status: 'closed',
+    closed_at: '2026-01-02',
+    current_price: 300,
+    session_automation: { keywords: ['1'], closeKeywords: ['x', '❌', '321'] },
+    bid_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา}',
+    private_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
+  })
+  for (const channel of ['public', 'private'])
+    f.tables.auction_deliveries.push({
+      id: channel,
+      auction_id: auctionId,
+      channel,
+      comment_id: 'winning-bid',
+      status: 'awaiting_confirmation',
+    })
+  await f.api.deliverAuctionNotifications(auctionId)
+  assert.equal(f.calls.private.length + f.calls.public.length, 0)
+  await f.receive('1', '901')
+  assert.equal(
+    f.calls.private.length + f.calls.public.length,
+    0,
+    'a non-winner cannot receive or release the bill',
+  )
+  await f.receive('1', '900')
+  assert.equal(f.calls.private.length, 1)
+  assert.equal(f.calls.public.length, 1)
+  assert.equal(f.calls.private[0][1], '456_789')
+  assert.equal(f.calls.public[0][1], '456_789')
+  assert.match(f.calls.public[0][2], /Buyer เหรียญ 300/)
+  assert.match(f.calls.private[0][2], /Buyer เหรียญ 300 350 KTB 9260337828/)
+  assert.match(f.calls.private[0][3], /ค่าจัดส่งครั้งเดียว: 50 บาท/)
+  assert.ok(!/[{}]/.test(f.calls.private[0][2]), 'all Thai template placeholders resolve')
+  assert.equal(auction.current_price, 300)
+  await f.receive('1', '900')
+  assert.equal(f.calls.private.length, 1, 'repeated confirmations never resend')
+  assert.equal(f.calls.public.length, 1)
+})
+
+test('an unconfirmed winner can confirm during the next round; other customers still bid without receiving bills', async () => {
+  const f = fixture()
+  Object.assign(f.tables.auctions[0], {
+    status: 'closed',
+    closed_at: '2026-01-02',
+    session_automation: { keywords: ['1'], closeKeywords: ['x'] },
+  })
+  const nextId = 'next-active'
+  f.tables.auctions.push({
+    ...f.tables.auctions[0],
+    id: nextId,
+    status: 'active',
+    created_at: '2026-01-20',
+  })
+  await f.receive('1', '901')
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, nextId)
+  assert.equal(f.calls.rpc.at(-1).name, 'process_live_auction_comment')
+  assert.equal(f.calls.private.length, 0)
+  await f.receive('1', '900')
+  assert.equal(f.calls.rpc.at(-1).name, 'confirm_live_auction_winner')
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+  await f.receive('1', '900')
+  assert.equal(
+    f.calls.rpc.at(-1).name,
+    'process_live_auction_comment',
+    'after confirmation, the winner can bid in the next round',
+  )
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, nextId)
+})
+
 test('auction templates and switches control replies and use the cumulative net balance', async () => {
   const silentBid = fixture()
   silentBid.tables.auctions[0].public_reply_enabled = false
@@ -301,7 +503,7 @@ test('auction templates and switches control replies and use the cumulative net 
   assert.equal(custom.tables.messages[0].delivery_status, 'sent')
 })
 
-test('each Session win sends immediately after close with the latest cumulative tab, before public replies and without combining wins', async () => {
+test('legacy auctions without confirmation keywords keep immediate delivery and cumulative totals', async () => {
   const tab = {
     total_amount: 250,
     paid_amount: 100,
@@ -444,6 +646,7 @@ test('auction setup persists typed replies, rejects unsafe public variables and 
   const inserted = []
   let linksReady = true
   let selectedBank = { id: orderId }
+  let hostError = null
   const db = {
     from(table) {
       const q = {
@@ -467,6 +670,15 @@ test('auction setup persists typed replies, rejects unsafe public variables and 
     'app/api/live-cf/auction/route.ts',
     {
       'next/server': {},
+      '@/lib/auth': { getActor: async () => ({ kind: 'user', id: 'signed-in-owner' }) },
+      '@/lib/features/commerce/auction-hosts': {
+        auctionHostIds: async (_db, actorId, pageId) => {
+          if (hostError) throw hostError
+          assert.equal(actorId, 'signed-in-owner')
+          assert.equal(pageId, '100')
+          return ['100', '999']
+        },
+      },
       '@/lib/supabase/server': { supabaseAdmin: () => db },
       '@/lib/features/commerce/auction-api': {
         authorizeAuction: async () => null,
@@ -480,7 +692,7 @@ test('auction setup persists typed replies, rejects unsafe public variables and 
       '@/lib/features/commerce/auction-templates': templates,
       '@/lib/utils': { UUID: /^[a-f0-9-]{36}$/ },
     },
-    { console: silent },
+    { console: silent, Error },
   )
   const input = {
     tenantId,
@@ -504,7 +716,14 @@ test('auction setup persists typed replies, rejects unsafe public variables and 
     )
   assert.equal((await post(input)).status, 201)
   assert.equal(inserted[0].private_reply_enabled, true)
+  assert.deepEqual(Array.from(inserted[0].host_ids), ['100', '999'])
   assert.equal(inserted[0].bid_reply_template, '{bidder_name} {price}')
+  hostError = new Error('AUCTION_HOST_FACEBOOK_REQUIRED')
+  const reconnect = await post(input)
+  assert.equal(reconnect.status, 400)
+  assert.match((await reconnect.json()).error, /เชื่อมต่อ Facebook/)
+  assert.equal(inserted.length, 1)
+  hostError = null
   for (const patch of [
     { pageId: '200' },
     { privateReply: 'false' },

@@ -13721,6 +13721,111 @@ end $$$sql_99_2$;
     values('live-auction-unlimited-keywords.sql','bffdac922804024666ad0d2db6830382711d53df15a4a5b0d2ce8fb8bf208897','ba2dee345322ca688b2976bec107f1d64b5c94ed725e9c450d7599666b6488c3');
 end $migration_99$;
 
+-- 101. live-auction-winner-confirmation.sql
+do $migration_100$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-winner-confirmation.sql';
+  if found then
+    if installed <> '2f858d9ce9ccb510e54eb5bcceb55d2da7a9745101ca139787d50499c4721abe' then
+      raise exception 'Applied migration changed: live-auction-winner-confirmation.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-winner-confirmation.sql: source statement 2
+execute $sql_100_2$alter table public.auctions add column if not exists winner_confirmation_comment_id text$sql_100_2$;
+
+-- live-auction-winner-confirmation.sql: source statement 3
+execute $sql_100_3$alter table public.auctions add column if not exists winner_confirmation_event_id uuid references public.facebook_webhook_events(id)$sql_100_3$;
+
+-- live-auction-winner-confirmation.sql: source statement 4
+execute $sql_100_4$alter table public.auctions add column if not exists winner_confirmed_at timestamptz$sql_100_4$;
+
+-- live-auction-winner-confirmation.sql: source statement 5
+execute $sql_100_5$alter table public.auction_deliveries drop constraint if exists auction_deliveries_status_check$sql_100_5$;
+
+-- live-auction-winner-confirmation.sql: source statement 6
+execute $sql_100_6$alter table public.auction_deliveries add constraint auction_deliveries_status_check
+ check(status in ('awaiting_confirmation','pending','sending','sent','requires_review'))$sql_100_6$;
+
+-- live-auction-winner-confirmation.sql: source statement 7
+execute $sql_100_7$create or replace function public.hold_auction_winner_notifications() returns trigger
+language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if new.status='pending' and exists(select 1 from public.auctions a where a.id=new.auction_id
+  and a.session_automation ? 'closeKeywords' and a.winner_confirmation_comment_id is null) then
+  new.status:='awaiting_confirmation';
+ end if;
+ return new;
+end $$$sql_100_7$;
+
+-- live-auction-winner-confirmation.sql: source statement 8
+execute $sql_100_8$drop trigger if exists auction_winner_confirmation_gate on public.auction_deliveries$sql_100_8$;
+
+-- live-auction-winner-confirmation.sql: source statement 9
+execute $sql_100_9$create trigger auction_winner_confirmation_gate before insert on public.auction_deliveries
+ for each row execute function public.hold_auction_winner_notifications()$sql_100_9$;
+
+-- live-auction-winner-confirmation.sql: source statement 11
+execute $sql_100_11$create or replace function public.confirm_live_auction_winner(p_auction uuid,p_tenant uuid,p_event uuid)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions; e public.facebook_webhook_events; v jsonb; cid text; sender text;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ v:=e.payload->'value';cid:=v->>'comment_id';sender:=v->'from'->>'id';
+ if v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment')
+  or cid is null or sender is null then return jsonb_build_object('status','ignored');end if;
+ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','')
+  or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id'
+  or v->>'post_id'=any(a.live_post_aliases)),false) then
+  raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';
+ end if;
+ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id
+  and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then
+  raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';
+ end if;
+ if a.status<>'closed' or a.order_id is null or not coalesce(a.session_automation ? 'closeKeywords',false)
+  then return jsonb_build_object('status','ignored');end if;
+ if exists(select 1 from public.auctions newer where newer.tenant_id=a.tenant_id and newer.page_id=a.page_id
+  and newer.live_post_id=a.live_post_id and newer.status='closed'
+  and (newer.closed_at,newer.created_at,newer.id)>(a.closed_at,a.created_at,a.id)) then
+  return jsonb_build_object('status','not_latest');
+ end if;
+ if e.created_at<a.created_at or (a.close_event_id is null and e.created_at<a.closed_at)
+  or exists(select 1 from public.facebook_webhook_events closing
+  where closing.id=a.close_event_id and (e.sequence<=closing.sequence
+   or (coalesce(v->>'created_time','') ~ '^[0-9]{10}$' and coalesce(closing.payload->'value'->>'created_time','') ~ '^[0-9]{10}$'
+    and (v->>'created_time')::numeric<(closing.payload->'value'->>'created_time')::numeric))) then
+  return jsonb_build_object('status','stale');
+ end if;
+ if sender is distinct from a.leading_bidder_id then return jsonb_build_object('status','not_winner');end if;
+ if sender=a.page_id or sender=any(a.host_ids) then return jsonb_build_object('status','ignored');end if;
+ if not exists(select 1 from jsonb_array_elements_text(a.session_automation->'keywords') k
+  where k=lower(regexp_replace(normalize(trim(coalesce(v->>'message','')),NFKC),'\s+',' ','g'))) then
+  return jsonb_build_object('status','ignored');
+ end if;
+ if a.winner_confirmation_comment_id is not null then
+  return jsonb_build_object('status','already_confirmed','orderId',a.order_id);
+ end if;
+ update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,
+  winner_confirmed_at=clock_timestamp() where id=a.id;
+ update public.auction_deliveries set status='pending',comment_id=cid
+  where auction_id=a.id and status='awaiting_confirmation';
+ return jsonb_build_object('status','confirmed','orderId',a.order_id);
+end $$$sql_100_11$;
+
+-- live-auction-winner-confirmation.sql: source statement 12
+execute $sql_100_12$revoke all on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) from public,anon,authenticated$sql_100_12$;
+
+-- live-auction-winner-confirmation.sql: source statement 13
+execute $sql_100_13$grant execute on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_100_13$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-winner-confirmation.sql','2f858d9ce9ccb510e54eb5bcceb55d2da7a9745101ca139787d50499c4721abe','47e7d6763ce50cd5feb959f2282c7b8341dac01a33df6d6b7c007cca4186b259');
+end $migration_100$;
+
 notify pgrst,'reload schema';
 
 commit;

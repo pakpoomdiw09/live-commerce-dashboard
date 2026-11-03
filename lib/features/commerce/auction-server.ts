@@ -17,6 +17,7 @@ import {
   SESSION_WINNER_TEMPLATE,
   AUCTION_BID_TEMPLATE,
   AUCTION_CLOSE_TEMPLATE,
+  SESSION_PUBLIC_WINNER_TEMPLATE,
   renderAuctionTemplate,
   auctionPrivateMessage,
 } from './auction-templates'
@@ -64,6 +65,9 @@ export async function deliverAuctionNotifications(auctionId?: string) {
     const saved = await db.from('auctions').select('*').eq('id', delivery.auction_id).single()
     if (saved.error) throw saved.error
     const auction = saved.data as Auction
+    // Also fail closed while the confirmation migration is being deployed.
+    if (auction.session_automation?.closeKeywords && !auction.winner_confirmation_comment_id)
+      continue
     const tenant = await db
       .from('tenants')
       .select('page_id,page_access_token')
@@ -89,12 +93,17 @@ export async function deliverAuctionNotifications(auctionId?: string) {
       continue
     }
     const summary = auction.leading_bidder_id
-      ? renderAuctionTemplate(auction.close_reply_template || AUCTION_CLOSE_TEMPLATE, {
-          product_name: auction.item_name,
-          bidder_name: auction.leading_bidder_name || 'ลูกค้า',
-          price: money(auction.current_price),
-          min_step: money(auction.min_step),
-        })
+      ? renderAuctionTemplate(
+          auction.session_automation?.closeKeywords
+            ? auction.bid_reply_template || SESSION_PUBLIC_WINNER_TEMPLATE
+            : auction.close_reply_template || AUCTION_CLOSE_TEMPLATE,
+          {
+            product_name: auction.item_name,
+            bidder_name: auction.leading_bidder_name || 'ลูกค้า',
+            price: money(auction.current_price),
+            min_step: money(auction.min_step),
+          },
+        )
       : `ปิดประมูล ${auction.item_name} ยังไม่มีผู้เสนอราคา`
     const message =
       delivery.channel === 'private'
@@ -222,40 +231,57 @@ export async function handleAuctionComment(input: {
 }): Promise<boolean> {
   const { value, tenantId, pageId, token, execution } = input
   if (typeof value.message !== 'string' || typeof value.comment_id !== 'string') return false
-  const text = value.message
   const ids = commentPostIds(value)
   if (!ids.length) return false
   const db = supabaseAdmin({ timeoutMs: 15000 })
-  const saved = await db
-    .from('auctions')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('page_id', pageId)
-    .lte('created_at', execution.event.created_at)
-    .order('created_at', { ascending: false })
-    .limit(100)
-  // An unapplied optional auction migration must not break existing Live CF shops.
-  if (saved.error && ['42P01', 'PGRST205'].includes(saved.error.code)) return false
-  if (saved.error) throw saved.error
-  const candidates = (saved.data ?? []) as (Auction & { live_post_aliases: string[] })[]
-  let auction = candidates.find((a) =>
-    ids.some((id) => id.split('_').at(-1) === a.live_post_id || a.live_post_aliases.includes(id)),
-  )
+  type ScopedAuction = Auction & { live_post_aliases: string[] }
+  let schemaMissing = false
+  const findAuction = async (postIds: string[]): Promise<ScopedAuction | undefined> => {
+    // commentPostIds and the resolver output are restricted to numeric Meta IDs,
+    // so no untrusted PostgREST filter syntax can enter this expression.
+    const liveIds = [...new Set(postIds.map((id) => id.split('_').at(-1)!))]
+    const scope = `live_post_id.in.(${liveIds.join(',')}),live_post_aliases.ov.{${postIds.join(',')}}`
+    const query = () =>
+      db
+        .from('auctions')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('page_id', pageId)
+        .or(scope)
+        .lte('created_at', execution.event.created_at)
+        .order('created_at', { ascending: false })
+        .limit(1)
+    const active = await query().eq('status', 'active')
+    // An unapplied optional auction migration must not break existing Live CF shops.
+    if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) {
+      schemaMissing = true
+      return undefined
+    }
+    if (active.error) throw active.error
+    if (active.data?.length) return active.data[0] as ScopedAuction
+    // Keep closed rounds scoped to this live too: late bids must not become CF orders.
+    // The event-time fence also lets queued comments find the preceding round.
+    const historical = await query()
+    if (historical.error) throw historical.error
+    return historical.data?.[0] as ScopedAuction | undefined
+  }
+  let auction = await findAuction(ids)
+  if (schemaMissing) return false
   // Meta can send a Page-post ID while setup uses its attached Video ID.
-  // Resolve only plausible auction intents and only when this Page has rounds.
-  if (
-    !auction &&
-    candidates.length &&
-    candidates.some(
-      (a) =>
-        parseAuctionComment(text, false, a.session_automation).type !== 'IGNORE' ||
-        parseAuctionComment(text, true, a.session_automation).type !== 'IGNORE',
-    )
-  ) {
-    const resolved = await resolveLiveCommentVideo(token, ids[0])
-    auction = candidates.find((a) =>
-      resolved.ids.some((id) => id.split('_').at(-1) === a.live_post_id),
-    )
+  // Custom bid/close keywords need not match the legacy parser. Check existence
+  // without fetching Page-wide history, then resolve and repeat the scoped lookup.
+  if (!auction) {
+    const exists = await db
+      .from('auctions')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('page_id', pageId)
+      .lte('created_at', execution.event.created_at)
+      .limit(1)
+    if (exists.error) throw exists.error
+    const resolved = exists.data?.length ? await resolveLiveCommentVideo(token, ids[0]) : null
+    const resolvedIds = (resolved?.ids ?? []).filter((id) => /^\d+(?:_\d+)?$/.test(id))
+    if (resolvedIds.length) auction = await findAuction(resolvedIds)
     if (auction) {
       const aliases = [...new Set([...auction.live_post_aliases, ...ids])]
       const linked = await db
@@ -276,6 +302,41 @@ export async function handleAuctionComment(input: {
     return true
   }
   const isHost = author.id === pageId || auction.host_ids.includes(author.id)
+  if (!isHost) {
+    // A winner may confirm while the next round is already accepting bids.
+    // Use the closed round's frozen keyword settings and winner, never client data.
+    const latest = await db
+      .from('auctions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('page_id', pageId)
+      .eq('live_post_id', auction.live_post_id)
+      .eq('status', 'closed')
+      .lte('created_at', execution.event.created_at)
+      .order('closed_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+    if (latest.error) throw latest.error
+    const closed = latest.data?.[0] as Auction | undefined
+    if (
+      closed?.session_automation?.closeKeywords &&
+      parseAuctionComment(value.message, false, closed.session_automation).type === 'STEP_BID' &&
+      (auction.status !== 'active' ||
+        (closed.leading_bidder_id === author.id && !closed.winner_confirmation_comment_id))
+    ) {
+      await execution.assertLease()
+      const confirmed = await db.rpc('confirm_live_auction_winner', {
+        p_auction: closed.id,
+        p_tenant: tenantId,
+        p_event: execution.event.id,
+      })
+      if (confirmed.error) throw confirmed.error
+      const status = (confirmed.data as AuctionResult).status
+      if (status === 'confirmed' || status === 'already_confirmed')
+        await deliverAuctionNotifications(closed.id)
+      return true
+    }
+  }
   const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
   if (parsed.type === 'IGNORE') return !auction.session_automation?.closeKeywords
   await execution.assertLease()

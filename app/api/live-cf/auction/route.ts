@@ -1,4 +1,6 @@
 import { NextRequest } from 'next/server'
+import { getActor } from '@/lib/auth'
+import { auctionHostIds } from '@/lib/features/commerce/auction-hosts'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { authorizeAuction, auctionReply, auctionFailure } from '@/lib/features/commerce/auction-api'
 import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
@@ -132,6 +134,22 @@ export async function POST(req: NextRequest) {
       return auctionReply({ error: 'กรุณาเชื่อมต่อเพจและเลือกบัญชีของร้านนี้' }, 400)
     if (input.pageId !== undefined && input.pageId !== tenant.data.page_id)
       return auctionReply({ error: 'เพจที่เลือกไม่ตรงกับร้านนี้ กรุณาเลือกเพจใหม่' }, 400)
+    const actor = await getActor(req)
+    if (!actor || actor.kind !== 'user') return auctionReply({ error: 'กรุณาเข้าสู่ระบบ' }, 403)
+    let verifiedHostIds: string[]
+    try {
+      verifiedHostIds = await auctionHostIds(db, actor.id, tenant.data.page_id)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AUCTION_HOST_FACEBOOK_REQUIRED')
+        return auctionReply(
+          {
+            error:
+              'กรุณาเชื่อมต่อ Facebook ของคุณกับเพจนี้อีกครั้ง เพื่อใช้บัญชีส่วนตัวสั่งปิดรอบประมูล',
+          },
+          400,
+        )
+      throw error
+    }
     const saved = await db
       .from('auctions')
       .insert({
@@ -143,7 +161,7 @@ export async function POST(req: NextRequest) {
         min_step: input.minStep,
         shipping_fee: input.shippingFee,
         bank_account_id: bank.data.id,
-        host_ids: hostIds,
+        host_ids: [...new Set([...hostIds, ...verifiedHostIds])],
         private_reply_enabled: privateReply,
         public_reply_enabled: publicReply,
         private_reply_template: storeAuctionTemplate(privateText),

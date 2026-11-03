@@ -43,6 +43,37 @@ const validData = () => ({
   data_access_expires_at: 0,
 })
 
+test('auction host lookup accepts only a valid Page token from this app and Page', async () => {
+  const env = { FB_APP_ID: 'app-id', FB_APP_SECRET: 'app-secret' }
+  const data = { ...validData(), app_id: 'app-id', profile_id: '100', user_id: '999' }
+  const api = facebook({ env, json: { data } })
+  assert.equal(await api.getPageTokenUserId('owner-token', '100'), '999')
+  assert.equal(api.calls[0].options.headers.Authorization, 'Bearer app-id|app-secret')
+  for (const override of [
+    { app_id: 'another-app' },
+    { profile_id: '200' },
+    { type: 'USER' },
+    { is_valid: false },
+    { user_id: undefined },
+    { user_id: 'owner-uuid' },
+    { expires_at: Math.floor(Date.now() / 1000) - 60 },
+    { data_access_expires_at: 'invalid' },
+  ]) {
+    assert.equal(
+      await facebook({ env, json: { data: { ...data, ...override } } }).getPageTokenUserId(
+        'owner-token',
+        '100',
+      ),
+      null,
+    )
+  }
+  assert.equal(
+    await facebook({ env, networkError: true }).getPageTokenUserId('owner-token', '100'),
+    null,
+  )
+  assert.equal(await facebook({ json: { data } }).getPageTokenUserId('owner-token', '100'), null)
+})
+
 test('messaging Page is verified without profile-reading permissions', async () => {
   const api = facebook({ json: { data: validData() } })
   assert.equal(await api.getPageTokenStatus('saved-page-token', 'page-123'), 'verified')

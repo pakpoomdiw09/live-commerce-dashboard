@@ -1,7 +1,10 @@
 'use client'
 import { useEffect, useState } from 'react'
 import type { SessionSnapshot } from '@/lib/features/commerce/live-session-types'
-import { defaultSessionAutomation, DEFAULT_AUCTION_CLOSE_KEYWORDS } from '@/lib/features/commerce/session-automation'
+import {
+  defaultSessionAutomation,
+  DEFAULT_AUCTION_CLOSE_KEYWORDS,
+} from '@/lib/features/commerce/session-automation'
 import type { AuctionDashboardOptions } from './AuctionSessionStart'
 import { field, orange, button } from './session-ui'
 
@@ -72,7 +75,8 @@ export function AuctionRoundForm({
             bankAccountId: draft.bankAccountId,
             pageId: session.page_id,
             livePostId: session.live_post_id,
-            hostIds: [],
+            // The API also adds the signed-in owner's verified Facebook ID.
+            hostIds: [session.page_id],
             privateReply: settings.privateReply,
             publicReply: settings.publicReply,
             privateText: settings.privateText,
@@ -81,7 +85,7 @@ export function AuctionRoundForm({
           })
           setActive({ id: result.id, itemName: draft.itemName })
           setNotice(
-            'เปิดประมูลแล้ว ระบบจะจำผู้ขึ้นนำให้เงียบ ๆ เมื่อผู้ขายพิมพ์คำปิดรอบ ระบบจะสรุปผู้ชนะและแจ้งยอดทันที',
+            'เปิดประมูลแล้ว เมื่อผู้ขายพิมพ์คำปิดรอบ ระบบจะล็อกผู้ชนะ ผู้ชนะพิมพ์คีย์เวิร์ดอีกครั้งเพื่อรับยอดทางคอมเมนต์และ Messenger',
           )
           onChanged()
         } catch (cause) {
@@ -177,7 +181,7 @@ export function AuctionRoundForm({
       {active && (
         <p role="status" className="rounded-xl bg-white p-3 text-sm text-orange-800">
           กำลังประมูล: <b>{active.itemName}</b> · ผู้ขายนับปากเปล่า
-          แล้วพิมพ์คำปิดรอบในนามเพจที่เชื่อมต่อ
+          แล้วพิมพ์คำปิดรอบในนามเพจหรือบัญชี Facebook ของผู้เปิดรอบ
         </p>
       )}
       {session.ended_at && (
