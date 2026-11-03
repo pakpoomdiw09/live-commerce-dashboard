@@ -18,30 +18,23 @@ export function parseAuctionComment(
   } | null,
 ): AuctionComment {
   const value = text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
-  if (automation?.closeKeywords) {
-    if (isHost)
-      return automation.closeEnabled !== false && automation.closeKeywords.some((keyword) => {
-        const token = keyword.normalize('NFKC').trim().toLowerCase()
-          .replace(/\s+/g, ' ').replace(/[\uFE0E\uFE0F]/gu, '')
+  if (isHost) {
+    const closeKeywords = automation?.closeKeywords ?? []
+    if (
+      automation?.closeEnabled !== false &&
+      closeKeywords.some((keyword) => {
+        const token = keyword
+          .normalize('NFKC')
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .replace(/[\uFE0E\uFE0F]/gu, '')
         return token.length > 0 && value.replace(/[\uFE0E\uFE0F]/gu, '').includes(token)
       })
-        ? { type: 'HOST_CONTROL', action: 'close', count: null }
-        : { type: 'IGNORE' }
-    if (automation.keywords.includes(value)) return { type: 'STEP_BID' }
-    if (/^(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?(?:\s*บาท)?$/u.test(value)) {
-      const amount = Number(value.replace(/บาท|,|\s/g, ''))
-      if (Number.isFinite(amount) && amount > 0 && amount <= 999_999_999)
-        return { type: 'NUMERIC_BID', amount }
-    }
-    return { type: 'IGNORE' }
-  }
-  if (isHost) {
+    )
+      return { type: 'HOST_CONTROL', action: 'close', count: null }
     if (automation?.heartCloses && /^(?:❤\uFE0F?|♥\uFE0F?)$/u.test(value))
       return { type: 'HOST_CONTROL', action: 'close', count: null }
-    if (/^(?:ปิด|ปิดประมูล|กากบาท|ปุด|x+|❌)(?:ครับ|ค่ะ|คะ)?$/u.test(value))
-      return automation?.closeEnabled === false
-        ? { type: 'IGNORE' }
-        : { type: 'HOST_CONTROL', action: 'close', count: null }
     const count = value.match(/^(?:เคาะ\s*)?([123])$/u)?.[1]
     if (count || value === 'นับขิง')
       return automation?.countEnabled === false
@@ -53,8 +46,7 @@ export function parseAuctionComment(
     /^(?:\+|(?:ขอ)?เปิด(?:ให้|ครับ|ค่ะ|คะ)?(?:\s.*)?|เจิม(?:ครับ|ค่ะ|คะ)?(?:\s.*)?)$/u.test(value)
   )
     return { type: 'OPENING_BID' }
-  if (automation ? automation.keywords.includes(value) : /^(?:\+?1|กด\s*1)$/u.test(value))
-    return { type: 'STEP_BID' }
+  if (automation?.keywords.includes(value)) return { type: 'STEP_BID' }
   // Whole price only; ignore phone numbers, product chatter and malformed grouping.
   if (/^(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?(?:\s*บาท)?$/u.test(value)) {
     const amount = Number(value.replace(/บาท|,|\s/g, ''))

@@ -55,6 +55,8 @@ test('customer status counts unique bills and separates unpaid, partial, exact a
 
 test('Session bid shortcuts and host switches are deterministic and preserve legacy parsing', () => {
   const settings = automation.defaultSessionAutomation(randomUUID())
+  assert.deepEqual(Array.from(settings.keywords), [])
+  assert.deepEqual(Array.from(settings.closeKeywords), [])
   for (const text of settings.keywords)
     assert.equal(auctionParser.parseAuctionComment(text, false, settings).type, 'STEP_BID')
   assert.equal(auctionParser.parseAuctionComment('11').type, 'NUMERIC_BID')
@@ -63,7 +65,11 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'IGNORE',
   )
   assert.equal(
-    auctionParser.parseAuctionComment('❤️', true, { ...settings, heartCloses: true }).type,
+    auctionParser.parseAuctionComment('❤️', true, {
+      ...settings,
+      closeKeywords: undefined,
+      heartCloses: true,
+    }).type,
     'HOST_CONTROL',
   )
   assert.equal(
@@ -76,7 +82,17 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
   )
   assert.equal(automation.validSessionAutomation(settings), true)
   assert.deepEqual(Array.from(automation.QUICK_AUCTION_CLOSE_EMOJIS), [
-    '❌', '🛑', '⛔', '🚫', '🏁', '🚩', '🔨', '🔔', '⏰', '❤️', '🖤',
+    '❌',
+    '🛑',
+    '⛔',
+    '🚫',
+    '🏁',
+    '🚩',
+    '🔨',
+    '🔔',
+    '⏰',
+    '❤️',
+    '🖤',
   ])
   const manyKeywords = Array.from({ length: 40 }, (_, index) => `bid-${index}`)
   const manyCloseKeywords = Array.from({ length: 40 }, (_, index) => `close-${index}`)
@@ -103,14 +119,13 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     }).action,
     'close',
   )
-  assert.deepEqual(Array.from(settings.closeKeywords), [
-    'ปิด','จบ','พอ','321','3 2 1','x','X','❌','🛑','⛔','🚫','✖️','🏁','🚩','🔨','🔔','⏰','❤️','🖤',
-  ])
-  for (const message of [...settings.closeKeywords, 'ปิด ❌', '321 🛑', 'สิ้นสุดรอบ 🔨 ครับ', '❤', '✖', '3   2  1']) {
-    assert.equal(auctionParser.parseAuctionComment(message, true, settings).action, 'close', message)
-    assert.notEqual(auctionParser.parseAuctionComment(message, false, settings).type, 'HOST_CONTROL', message)
-  }
-  assert.equal(auctionParser.parseAuctionComment('❌', true, {...settings, closeKeywords:['จบรายการ']}).type, 'IGNORE')
+  assert.equal(auctionParser.parseAuctionComment('ปิด ❌', true, settings).type, 'IGNORE')
+  assert.equal(auctionParser.parseAuctionComment('321 🛑', true, settings).type, 'IGNORE')
+  assert.equal(
+    auctionParser.parseAuctionComment('❌', true, { ...settings, closeKeywords: ['จบรายการ'] })
+      .type,
+    'IGNORE',
+  )
   assert.equal(
     auctionParser.parseAuctionComment('จบรายการ', true, {
       ...settings,
@@ -135,14 +150,31 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'close',
     'the separate legacy console keeps its parser',
   )
-  assert.equal(automation.validSessionAutomation({ ...settings, closeKeywords: ['1'] }), false)
+  assert.equal(
+    automation.validSessionAutomation({
+      ...settings,
+      keywords: ['1'],
+      closeKeywords: ['1'],
+    }),
+    false,
+  )
   assert.equal(
     automation.sessionAuctionTemplate('{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}'),
     '{bidder_name} {product_name} {price} {total} {bank_account}',
   )
   assert.equal(automation.validSessionAutomation({ ...settings, keywords: ['1', '１'] }), false)
-  assert.equal(automation.validSessionAutomation({ ...settings, bidText: '{total} {bank_account}' }), true)
-  assert.equal(automation.validSessionAutomation({ ...settings, closeKeywords: undefined, bidText: '{total}' }), false)
+  assert.equal(
+    automation.validSessionAutomation({ ...settings, bidText: '{total} {bank_account}' }),
+    true,
+  )
+  assert.equal(
+    automation.validSessionAutomation({
+      ...settings,
+      closeKeywords: undefined,
+      bidText: '{total}',
+    }),
+    false,
+  )
   assert.equal(
     automation.validSessionAutomation({
       ...settings,
@@ -159,6 +191,7 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
 test('session money uses integer satang; follow-up formulas and placeholders never invent balances', () => {
   assert.equal(types.sumMoney([0.1, 0.2]), 0.3)
   assert.equal(types.sessionProfit(1000.1, 400.05, 0.02, 50.03), 550)
+  assert.equal(types.sessionProfit(1000.1, 400.05, 0.02, 50.03, 25), 525)
   assert.equal(types.sessionProfit(0, 100, 10, 20), -130)
   for (const input of ['1.005', '-1', '', 'Infinity', '1e3', NaN, 1_000_000_000_000])
     assert.equal(types.inputMoney(input), null)
@@ -594,10 +627,12 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     })
     assert.equal(savedSettings.revision, started.revision + 1)
     assert.equal(
-      (await one('select public.auction_close_keyword_matches($1,$2::jsonb) matched', [
-        'close-33',
-        JSON.stringify(manyCloseKeywords),
-      ])).matched,
+      (
+        await one('select public.auction_close_keyword_matches($1,$2::jsonb) matched', [
+          'close-33',
+          JSON.stringify(manyCloseKeywords),
+        ])
+      ).matched,
       true,
       'a close command remains active when its keyword is beyond the old 30-word cap',
     )
@@ -670,7 +705,9 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     assert.equal(all.commenters[0].customerId, dashboardOrder.customer_id)
     await event('900', 'ข้อความล่าสุดของลูกค้า', '987')
     await event('900', 'ข้อความจากไลฟ์อื่น', '456')
-    const compact = (await one('select live_auction_thai_dashboard($1,$2) result', [tenant, started.id])).result
+    const compact = (
+      await one('select live_auction_thai_dashboard($1,$2) result', [tenant, started.id])
+    ).result
     assert.equal(compact.commenters[0].lastText, 'ข้อความล่าสุดของลูกค้า')
     assert.ok(all.slips.every((s) => s.name === 'Buyer 900'))
     await pay(dashboardOrder.customer_tab_id, 70)
@@ -795,8 +832,13 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       await one('select live_auction_thai_dashboard($1,$2) result', [tenant, thaiStarted.id])
     ).result
     assert.equal(thaiSnapshot.activeAuction.id, thaiRound)
+    assert.equal(thaiSnapshot.activeAuction.currentPrice, 0)
     await process(thaiRound, '900', 'เคาะ', 'STEP_BID', null, null, '989')
     await process(thaiRound, '904', 'เคาะ', 'STEP_BID', null, null, '989')
+    thaiSnapshot = (
+      await one('select live_auction_thai_dashboard($1,$2) result', [tenant, thaiStarted.id])
+    ).result
+    assert.equal(thaiSnapshot.activeAuction.currentPrice, 220)
     const winning = await one(
       "select comment_id from auction_bids where auction_id=$1 and bidder_id='904'",
       [thaiRound],
@@ -818,10 +860,23 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       (await one('select status from auctions where id=$1', [thaiRound])).status,
       'active',
     )
-    for (const message of [...automation.DEFAULT_AUCTION_CLOSE_KEYWORDS, 'ปิด ❌', '321 🛑', '❤', '✖', '3  2  1']) {
-      assert.equal((await one('select auction_close_keyword_matches($1,default_auction_close_keywords()) matched',[message])).matched,true,message)
-    }
-    assert.equal((await one("select auction_close_keyword_matches('❌','[\"ปิดร้าน\"]') matched")).matched,false)
+    assert.deepEqual(
+      (await one('select default_auction_close_keywords() result')).result,
+      [],
+      'new close-keyword defaults stay empty',
+    )
+    assert.equal(
+      (
+        await one(
+          "select auction_close_keyword_matches('❌',default_auction_close_keywords()) matched",
+        )
+      ).matched,
+      false,
+    )
+    assert.equal(
+      (await one("select auction_close_keyword_matches('❌','[\"ปิดร้าน\"]') matched")).matched,
+      false,
+    )
     const preCloseConfirmation = await event('904', 'เคาะ', '989')
     await process(thaiRound, '100', 'ปิดร้าน 🔨', 'HOST_CONTROL', null, 'close', '989')
     assert.equal(
@@ -852,39 +907,109 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     assert.equal(thaiSnapshot.tabs[0].total, 270)
     // Closing freezes the winner and ledger, but does not release notifications.
     {
-      const held = (await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])).rows
+      const held = (
+        await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])
+      ).rows
       assert.ok(held.every((row) => row.status === 'awaiting_confirmation'))
       const confirm = async (sender, text, auction = thaiRound, post = '989') => {
         const ev = await event(sender, text, post)
-        return { ev, result: (await one('select confirm_live_auction_winner($1,$2,$3) result', [auction, tenant, ev.id])).result }
+        return {
+          ev,
+          result: (
+            await one('select confirm_live_auction_winner($1,$2,$3) result', [
+              auction,
+              tenant,
+              ev.id,
+            ])
+          ).result,
+        }
       }
-      assert.equal((await one('select confirm_live_auction_winner($1,$2,$3) result', [thaiRound, tenant, preCloseConfirmation.id])).result.status, 'stale')
-      await assert.rejects(one('select confirm_live_auction_winner($1,$2,$3)', [thaiRound, other, preCloseConfirmation.id]), /AUCTION_NOT_FOUND/)
+      assert.equal(
+        (
+          await one('select confirm_live_auction_winner($1,$2,$3) result', [
+            thaiRound,
+            tenant,
+            preCloseConfirmation.id,
+          ])
+        ).result.status,
+        'stale',
+      )
+      await assert.rejects(
+        one('select confirm_live_auction_winner($1,$2,$3)', [
+          thaiRound,
+          other,
+          preCloseConfirmation.id,
+        ]),
+        /AUCTION_NOT_FOUND/,
+      )
       assert.equal((await confirm('900', 'เคาะ')).result.status, 'not_winner')
       assert.equal((await confirm('904', 'random')).result.status, 'ignored')
       await assert.rejects(confirm('904', 'เคาะ', thaiRound, '456'), /AUCTION_POST_MISMATCH/)
-      assert.ok((await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])).rows.every((row) => row.status === 'awaiting_confirmation'))
+      assert.ok(
+        (
+          await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])
+        ).rows.every((row) => row.status === 'awaiting_confirmation'),
+      )
       const confirmation = await confirm('904', 'เคาะ')
       assert.equal(confirmation.result.status, 'confirmed')
-      assert.equal((await one('select confirm_live_auction_winner($1,$2,$3) result', [thaiRound, tenant, confirmation.ev.id])).result.status, 'already_confirmed')
-      const released = (await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])).rows
-      assert.ok(released.every((row) => row.status === 'pending' && row.comment_id === confirmation.ev.payload.value.comment_id))
-      const frozen = await one('select current_price,leading_bidder_id,order_id from auctions where id=$1', [thaiRound])
+      assert.equal(
+        (
+          await one('select confirm_live_auction_winner($1,$2,$3) result', [
+            thaiRound,
+            tenant,
+            confirmation.ev.id,
+          ])
+        ).result.status,
+        'already_confirmed',
+      )
+      const released = (
+        await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])
+      ).rows
+      assert.ok(
+        released.every(
+          (row) =>
+            row.status === 'pending' && row.comment_id === confirmation.ev.payload.value.comment_id,
+        ),
+      )
+      const frozen = await one(
+        'select current_price,leading_bidder_id,order_id from auctions where id=$1',
+        [thaiRound],
+      )
       assert.equal(frozen.current_price, '220.00')
       assert.equal(frozen.leading_bidder_id, '904')
-      assert.equal((await process(thaiRound, '900', '999', 'NUMERIC_BID', 999, null, '989')).status, 'closed')
-      assert.equal((await one('select current_price from auctions where id=$1', [thaiRound])).current_price, '220.00')
+      assert.equal(
+        (await process(thaiRound, '900', '999', 'NUMERIC_BID', 999, null, '989')).status,
+        'closed',
+      )
+      assert.equal(
+        (await one('select current_price from auctions where id=$1', [thaiRound])).current_price,
+        '220.00',
+      )
       await db.query("update auction_deliveries set status='sent' where auction_id=$1", [thaiRound])
       assert.equal((await confirm('904', 'เคาะ')).result.status, 'already_confirmed')
-      assert.ok((await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])).rows.every((row) => row.status === 'sent'))
-      assert.equal((await one('select count(*)::int n from orders where source_id=$1', [thaiRound])).n, 1)
+      assert.ok(
+        (
+          await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])
+        ).rows.every((row) => row.status === 'sent'),
+      )
+      assert.equal(
+        (await one('select count(*)::int n from orders where source_id=$1', [thaiRound])).n,
+        1,
+      )
       const nextRound = await open('989', alternateBank)
       await process(nextRound, '905', 'เคาะ', 'STEP_BID', null, null, '989')
       await process(nextRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
       assert.equal((await confirm('904', 'เคาะ')).result.status, 'not_latest')
       assert.equal((await confirm('904', 'เคาะ', nextRound)).result.status, 'not_winner')
       assert.equal((await confirm('905', 'เคาะ', nextRound)).result.status, 'confirmed')
-      assert.equal((await one("select has_function_privilege('authenticated','public.confirm_live_auction_winner(uuid,uuid,uuid)','execute') allowed")).allowed, false)
+      assert.equal(
+        (
+          await one(
+            "select has_function_privilege('authenticated','public.confirm_live_auction_winner(uuid,uuid,uuid)','execute') allowed",
+          )
+        ).allowed,
+        false,
+      )
     }
     assert.equal(
       (
@@ -895,16 +1020,44 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       false,
     )
     const beforePresets = await getTab(dashboardOrder.customer_tab_id)
-    await db.query("update live_sessions set auction_settings=jsonb_set(auction_settings-'closeKeywordPresetsVersion','{closeKeywords}','[\"ปิด\",\"x\"]') where id=$1",[thaiStarted.id])
-    const presetMigration = fs.readFileSync('supabase/live-auction-close-presets.sql','utf8')
+    await db.query(
+      "update live_sessions set auction_settings=jsonb_set(auction_settings-'closeKeywordPresetsVersion','{closeKeywords}','[\"ปิด\",\"x\"]') where id=$1",
+      [thaiStarted.id],
+    )
+    const presetMigration = fs.readFileSync('supabase/live-auction-close-presets.sql', 'utf8')
     await db.exec(presetMigration)
-    assert.deepEqual((await one('select auction_settings from live_sessions where id=$1',[thaiStarted.id])).auction_settings.closeKeywords, Array.from(automation.DEFAULT_AUCTION_CLOSE_KEYWORDS))
-    assert.deepEqual((await one('select auction_settings from live_sessions where id=$1',[started.id])).auction_settings.closeKeywords,manyCloseKeywords)
-    await db.query("update live_sessions set auction_settings=jsonb_set(auction_settings,'{closeKeywords}','[\"ปิด\",\"x\"]') where id=$1",[thaiStarted.id])
-    const beforeRerun = await one('select auction_settings,automation_revision from live_sessions where id=$1',[thaiStarted.id])
-    await db.exec(presetMigration)
-    assert.deepEqual(await one('select auction_settings,automation_revision from live_sessions where id=$1',[thaiStarted.id]),beforeRerun,'rerunning must not re-add presets deleted by the seller')
-    assert.deepEqual(await getTab(dashboardOrder.customer_tab_id),beforePresets)
+    const emptyKeywordMigration = fs.readFileSync(
+      'supabase/live-auction-empty-keyword-defaults.sql',
+      'utf8',
+    )
+    await db.exec(emptyKeywordMigration)
+    const clearedDefaults = (
+      await one('select auction_settings from live_sessions where id=$1', [thaiStarted.id])
+    ).auction_settings
+    assert.deepEqual(clearedDefaults.closeKeywords, [])
+    assert.deepEqual(clearedDefaults.keywords, ['เคาะ'])
+    assert.deepEqual(
+      (await one('select auction_settings from live_sessions where id=$1', [started.id]))
+        .auction_settings.closeKeywords,
+      manyCloseKeywords,
+    )
+    await db.query(
+      'update live_sessions set auction_settings=jsonb_set(auction_settings,\'{closeKeywords}\',\'["ปิด","x"]\') where id=$1',
+      [thaiStarted.id],
+    )
+    const beforeRerun = await one(
+      'select auction_settings,automation_revision from live_sessions where id=$1',
+      [thaiStarted.id],
+    )
+    await db.exec(emptyKeywordMigration)
+    assert.deepEqual(
+      await one('select auction_settings,automation_revision from live_sessions where id=$1', [
+        thaiStarted.id,
+      ]),
+      beforeRerun,
+      'rerunning must not re-add presets deleted by the seller',
+    )
+    assert.deepEqual(await getTab(dashboardOrder.customer_tab_id), beforePresets)
     // The additive migration updates only the old built-in template and never balances.
     const templates = load('lib/features/commerce/auction-templates.ts')
     await db.query(

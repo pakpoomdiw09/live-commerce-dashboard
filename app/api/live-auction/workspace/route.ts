@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     const settings = {
       ...input.settings,
       keywords: input.settings.keywords.map(normalizeBidKeyword),
-      closeKeywords: input.settings.closeKeywords?.map(normalizeCloseKeyword),
+      closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
       bidText: sessionAuctionTemplate(input.settings.bidText),
       closeText: sessionAuctionTemplate(input.settings.bidText),
       privateText: sessionAuctionTemplate(input.settings.privateText),

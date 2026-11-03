@@ -129,6 +129,7 @@ const groups = [
       'live-auction-payment-auto-verify.sql',
       'facebook-webhook-comment-ordering.sql',
       'live-auction-workspace.sql',
+      'live-auction-empty-keyword-defaults.sql',
     ],
   ],
 ]
@@ -169,6 +170,7 @@ const prerequisites = {
   'live-auction-thai-workflow.sql': ['live-auction-customer-workspace.sql'],
   'live-auction-customer-columns.sql': ['live-auction-thai-workflow.sql'],
   'live-auction-close-presets.sql': ['live-auction-customer-columns.sql'],
+  'live-auction-empty-keyword-defaults.sql': ['live-auction-workspace.sql'],
   'live-auction-unlimited-keywords.sql': ['live-auction-close-presets.sql'],
   'live-auction-winner-confirmation.sql': ['live-auction-unlimited-keywords.sql'],
   'live-auction-payment-auto-verify.sql': [

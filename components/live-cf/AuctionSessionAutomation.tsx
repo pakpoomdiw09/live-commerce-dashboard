@@ -6,7 +6,6 @@ import {
   displaySessionTemplate,
   normalizeBidKeyword,
   normalizeCloseKeyword,
-  DEFAULT_AUCTION_CLOSE_KEYWORDS,
   QUICK_AUCTION_CLOSE_EMOJIS,
   validSessionAutomation,
   type SessionAutomation,
@@ -27,7 +26,8 @@ function draftFrom(session: LiveSession, bankId?: string): SessionAutomation {
   const initial = session.auction_settings ?? defaultSessionAutomation(bankId)
   return {
     ...initial,
-    closeKeywords: initial.closeKeywords ?? [...DEFAULT_AUCTION_CLOSE_KEYWORDS],
+    keywords: initial.keywords ?? [],
+    closeKeywords: initial.closeKeywords ?? [],
     countEnabled: false,
     heartCloses: false,
     bidText: displaySessionTemplate(initial.closeKeywords ? initial.bidText : initial.closeText),

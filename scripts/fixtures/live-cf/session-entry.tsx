@@ -219,6 +219,7 @@ let workspaceRound = {
   start_price: 300,
   min_step: 25,
   shipping_fee: 37,
+  current_price: 300,
   status: 'closed',
   leading_bidder_id: null,
 }
@@ -231,7 +232,11 @@ if (allInOne && persistedWorkspace) {
   workspaceRound = saved.round
   snapshot.activeAuction =
     workspaceRound.status === 'active'
-      ? { id: workspaceRound.id, itemName: workspaceRound.item_name }
+      ? {
+          id: workspaceRound.id,
+          itemName: workspaceRound.item_name,
+          currentPrice: workspaceRound.leading_bidder_id ? workspaceRound.current_price : 0,
+        }
       : null
 }
 window.fetch = async (input, init) => {
@@ -325,8 +330,13 @@ window.fetch = async (input, init) => {
         start_price: Number(body.startPrice),
         min_step: Number(body.minStep),
         shipping_fee: Number(body.shippingFee),
+        current_price: Number(body.startPrice),
       }
-      snapshot.activeAuction = { id: workspaceRound.id, itemName: body.itemName }
+      snapshot.activeAuction = {
+        id: workspaceRound.id,
+        itemName: body.itemName,
+        currentPrice: 0,
+      }
       sessionStorage.setItem(
         'auction-workspace-fixture',
         JSON.stringify({ session: snapshot.session, round: workspaceRound }),

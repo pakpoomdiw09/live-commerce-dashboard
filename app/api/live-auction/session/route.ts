@@ -8,7 +8,6 @@ import { liveCfPaymentLinksReady } from '@/lib/features/commerce/live-cf-payment
 import {
   normalizeBidKeyword,
   normalizeCloseKeyword,
-  DEFAULT_AUCTION_CLOSE_KEYWORDS,
   sessionAuctionTemplate,
   validSessionAutomation,
 } from '@/lib/features/commerce/session-automation'
@@ -117,11 +116,11 @@ export async function POST(req: NextRequest) {
       )
     const settings = {
       ...input.settings,
-      closeKeywords: (input.settings.closeKeywords ?? DEFAULT_AUCTION_CLOSE_KEYWORDS).map(normalizeCloseKeyword),
+      keywords: (input.settings.keywords ?? []).map(normalizeBidKeyword),
+      closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
       countEnabled: false,
       heartCloses: false,
       closeEnabled: true,
-      keywords: input.settings.keywords.map(normalizeBidKeyword),
       privateText: sessionAuctionTemplate(input.settings.privateText),
       bidText: sessionAuctionTemplate(input.settings.bidText),
       closeText: sessionAuctionTemplate(

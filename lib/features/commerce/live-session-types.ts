@@ -64,7 +64,7 @@ export type SessionSnapshot = {
   }
   rounds: SessionRound[]
   tabs: SessionTab[]
-  activeAuction?: { id: string; itemName: string } | null
+  activeAuction?: { id: string; itemName: string; currentPrice?: number } | null
   slips?: {
     id: string
     name: string
@@ -147,8 +147,13 @@ export function sessionCustomerStatus(tabs: SessionTab[]) {
     received: sumMoney(active.map((tab) => Number(tab.paid))),
   }
 }
-export const sessionProfit = (paid: number, cost: number, ads: number, shipping: number) =>
-  sumMoney([paid, -cost, -ads, -shipping])
+export const sessionProfit = (
+  sales: number,
+  cost: number,
+  ads: number,
+  shipping: number,
+  fees = 0,
+) => sumMoney([sales, -cost, -ads, -shipping, -fees])
 export function tabFormula(tab: Pick<SessionTab, 'items' | 'shipping' | 'total'>) {
   const amounts = tab.items.map((item) => Number(item.amount))
   if (amounts.length && Number(tab.shipping) > 0) amounts.push(Number(tab.shipping))

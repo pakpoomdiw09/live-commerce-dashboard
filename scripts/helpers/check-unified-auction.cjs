@@ -15,7 +15,7 @@ module.exports = async function ({
     await evaluate(
       `[...document.querySelectorAll('[data-auction-zone]')].map(el=>el.dataset.auctionZone)`,
     ),
-    ['A', 'B', 'C'],
+    ['1', '2', '3'],
   )
   assert.equal(await evaluate(`document.querySelectorAll('[data-auction-section]').length`), 0)
   assert.equal(
@@ -26,9 +26,23 @@ module.exports = async function ({
   )
   assert.equal(
     await evaluate(
-      `document.querySelector('[data-auction-unified-form]').firstElementChild.hasAttribute('data-auction-header-cards')`,
+      `!!document.querySelector('[data-auction-workspace] [data-auction-header-cards]')`,
     ),
     true,
+  )
+  assert.equal(
+    await evaluate(
+      `['1. เลือกไลฟ์สด','2. เงื่อนไขการประมูล','3. คำดักข้อความ & ระบบตอบกลับ'].every((title,index)=>document.querySelector('[data-auction-zone="'+(index+1)+'"] h2').textContent.trim()===title)`,
+    ),
+    true,
+    'auction sections have numbered titles without A/B/C labels',
+  )
+  assert.equal(
+    await evaluate(
+      `!!document.querySelector('[data-auction-workspace]') && ['[data-auction-header-cards]','[data-auction-zone="1"]','[data-auction-zone="2"]','[data-auction-zone="3"]','button[type="submit"]'].every(selector=>document.querySelector('[data-auction-workspace]').contains(document.querySelector(selector)))`,
+    ),
+    true,
+    'finance, all sections and the save action share one card',
   )
   assert.equal(
     await evaluate(`document.querySelectorAll('[data-auction-header-cards]>*').length`),
@@ -49,9 +63,12 @@ module.exports = async function ({
       `financial card label is visible: ${label}`,
     )
   const desktopLayout = await evaluate(
-    `(() => {const b=document.querySelector('[data-auction-zone="B"]').getBoundingClientRect();const c=document.querySelector('[data-auction-zone="C"]').getBoundingClientRect();return {left:b.left,right:c.left}})()`,
+    `(() => {const b=document.querySelector('[data-auction-zone="2"]').getBoundingClientRect();const c=document.querySelector('[data-auction-zone="3"]').getBoundingClientRect();return {left:b.left,right:c.left}})()`,
   )
-  assert.ok(desktopLayout.left < desktopLayout.right, 'zone B must be left of zone C on desktop')
+  assert.ok(
+    desktopLayout.left < desktopLayout.right,
+    'section 2 must be left of section 3 on desktop',
+  )
   assert.ok(
     await evaluate(
       `[...document.querySelectorAll('[data-auction-zone] h2')].every(el=>el.classList.contains('text-white')&&Array.from(el.classList).some(name=>name.startsWith('bg-gradient')))`,
@@ -66,8 +83,8 @@ module.exports = async function ({
   ])
     assert.equal(
       await evaluate(`document.querySelector('input[aria-label=${JSON.stringify(label)}]').value`),
-      '',
-      `unsaved financial input is blank: ${label}`,
+      '0',
+      `financial input defaults to zero: ${label}`,
     )
   for (const label of [
     'ชื่อสินค้า',
@@ -189,6 +206,18 @@ module.exports = async function ({
     await evaluate(
       `document.querySelector('textarea[aria-label="Private Reply เข้า Inbox"]').value.includes('รวม {ยอดรวมสะสม}')`,
     ),
+  )
+  assert.equal(
+    await evaluate(`document.querySelector('[aria-label="คำปิดรอบที่เลือก"]').textContent.trim()`),
+    '',
+    'unsaved close keywords stay empty after reload',
+  )
+  const profitText = await evaluate(
+    `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]').textContent`,
+  )
+  assert.ok(
+    profitText.includes('฿96.25'),
+    `profit reflects closed auction sales minus cost, ads, shipping and fees; got ${profitText}`,
   )
   for (const width of [375, 768, 1024, 1440]) {
     await resize(width)

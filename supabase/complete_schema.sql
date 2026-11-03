@@ -13750,6 +13750,7 @@ begin
     return;
   end if;
 -- live-auction-customer-columns.sql: source statement 1
+begin
 execute $sql_98_1$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
 language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; active jsonb; people jsonb; s public.live_sessions;
@@ -13776,6 +13777,10 @@ begin
  left join latest on latest.fb_id=x->>'fbId';
  return result||jsonb_build_object('activeAuction',active,'commenters',people);
 end $$$sql_98_1$;
+exception when invalid_function_definition then
+  -- A newer signature of live_auction_thai_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-customer-columns.sql: source statement 2
 execute $sql_98_2$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_98_2$;
@@ -13798,8 +13803,13 @@ begin
     return;
   end if;
 -- live-auction-close-presets.sql: source statement 2
+begin
 execute $sql_99_2$create or replace function public.default_auction_close_keywords() returns jsonb
 language sql immutable set search_path=pg_catalog,public as $$ select '["ปิด","จบ","พอ","321","3 2 1","x","X","❌","🛑","⛔","🚫","✖️","🏁","🚩","🔨","🔔","⏰","❤️","🖤"]'::jsonb $$$sql_99_2$;
+exception when invalid_function_definition then
+  -- A newer signature of default_auction_close_keywords() is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-close-presets.sql: source statement 3
 execute $sql_99_3$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
@@ -13811,6 +13821,7 @@ language sql immutable set search_path=pg_catalog,public as $$
 $$$sql_99_3$;
 
 -- live-auction-close-presets.sql: source statement 4
+begin
 execute $sql_99_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select settings||jsonb_build_object(
@@ -13820,6 +13831,10 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end)
 $$$sql_99_4$;
+exception when invalid_function_definition then
+  -- A newer signature of normalize_auction_thai_settings(jsonb) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-close-presets.sql: source statement 7
 execute $sql_99_7$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
@@ -13905,6 +13920,7 @@ begin
     return;
   end if;
 -- live-auction-unlimited-keywords.sql: source statement 2
+begin
 execute $sql_100_2$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.auction_session_requests; settings jsonb:=public.normalize_auction_thai_settings(p_input->'settings'); result jsonb; page text;
@@ -13959,6 +13975,10 @@ begin
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
 end $$$sql_100_2$;
+exception when invalid_function_definition then
+  -- A newer signature of configure_auction_session(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
+  null;
+end;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-unlimited-keywords.sql','bffdac922804024666ad0d2db6830382711d53df15a4a5b0d2ce8fb8bf208897','ba2dee345322ca688b2976bec107f1d64b5c94ed725e9c450d7599666b6488c3');
 end $migration_100$;
@@ -14289,6 +14309,173 @@ execute $sql_104_9$grant execute on function public.save_auction_workspace(uuid,
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-workspace.sql','0f978176bc9cdf79211723e6163ffae3dad80938914956272584658c36cffbc9','9b31439a5bce859ea20bb1bbc7790571d7b4c24f604af5940b8486351e425cc9');
 end $migration_104$;
+
+-- 106. live-auction-empty-keyword-defaults.sql
+do $migration_105$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-empty-keyword-defaults.sql';
+  if found then
+    if installed <> '4eaf313ac381faa9de922ea23c56de337b45b494861ad51e14c8e27be5eca4c8' then
+      raise exception 'Applied migration changed: live-auction-empty-keyword-defaults.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-empty-keyword-defaults.sql: source statement 2
+execute $sql_105_2$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid)
+returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
+declare result jsonb; active jsonb; people jsonb; s public.live_sessions;
+begin
+ result:=public.live_auction_customer_dashboard(p_tenant,p_session);
+ select * into strict s from public.live_sessions where id=p_session and tenant_id=p_tenant;
+ select jsonb_build_object(
+  'id',a.id,'itemName',a.item_name,
+  'currentPrice',case when a.leading_bidder_id is null then 0 else a.current_price end)
+  into active from public.auctions a
+  where a.tenant_id=p_tenant and a.page_id=s.page_id and a.live_post_id=s.live_post_id
+   and a.status='active' order by a.created_at desc limit 1;
+ with latest as (
+  select distinct on (e.payload->'value'->'from'->>'id')
+   e.payload->'value'->'from'->>'id' fb_id,e.payload->'value'->>'message' message
+  from public.facebook_webhook_events e
+  where e.page_id=s.page_id and e.kind='change' and e.payload->'value'->>'verb'='add'
+   and e.payload->'value'->>'item' in ('comment','live_comment') and (
+    regexp_replace(e.payload->'value'->>'post_id','^.*_','')=s.live_post_id
+    or e.payload->'value'->>'video_id'=s.live_post_id
+    or e.payload->'value'->>'live_video_id'=s.live_post_id
+    or exists(select 1 from public.auctions a where a.tenant_id=p_tenant and a.page_id=s.page_id
+     and a.live_post_id=s.live_post_id
+     and e.payload->'value'->>'post_id'=any(a.live_post_aliases)))
+  order by e.payload->'value'->'from'->>'id',e.created_at desc,e.id desc
+ )
+ select coalesce(jsonb_agg(x||jsonb_build_object('lastText',latest.message) order by pos),'[]'::jsonb)
+  into people from jsonb_array_elements(result->'commenters') with ordinality rows(x,pos)
+  left join latest on latest.fb_id=x->>'fbId';
+ return result||jsonb_build_object('activeAuction',active,'commenters',people);
+end $$$sql_105_2$;
+
+-- live-auction-empty-keyword-defaults.sql: source statement 3
+execute $sql_105_3$create or replace function public.default_auction_close_keywords() returns jsonb
+language sql immutable set search_path=pg_catalog,public as $$ select '[]'::jsonb $$$sql_105_3$;
+
+-- live-auction-empty-keyword-defaults.sql: source statement 4
+execute $sql_105_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+language sql immutable returns null on null input set search_path=pg_catalog,public as $$
+ select settings||jsonb_build_object(
+  'keywords',coalesce(settings->'keywords','[]'::jsonb),
+  'closeKeywords',coalesce(settings->'closeKeywords','[]'::jsonb),
+  'closeKeywordPresetsVersion',1,'countEnabled',false,'heartCloses',false,'closeEnabled',true,
+  'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
+  'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end)
+$$$sql_105_4$;
+
+-- live-auction-empty-keyword-defaults.sql: source statement 5
+execute $sql_105_5$create or replace function public.configure_auction_session(
+ p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare
+ s public.live_sessions;
+ prior public.auction_session_requests;
+ settings jsonb:=public.normalize_auction_thai_settings(p_input->'settings');
+ result jsonb;
+ page text;
+begin
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||p_request::text,0));
+ select * into prior from public.auction_session_requests
+  where tenant_id=p_tenant and request_id=p_request;
+ if found then
+  if prior.actor_id<>p_actor or prior.input<>p_input then
+   raise exception 'REQUEST_REUSED' using errcode='40001';
+  end if;
+  return prior.result;
+ end if;
+ if settings is null then raise exception 'INVALID_SETTINGS';end if;
+ if p_input->>'action' not in ('start','settings') or p_actor is null or p_request is null then
+  raise exception 'INVALID_ACTION';
+ end if;
+ if jsonb_typeof(settings)<>'object' or jsonb_typeof(settings->'keywords')<>'array' then
+  raise exception 'INVALID_SETTINGS';
+ end if;
+ if jsonb_typeof(settings->'closeKeywords') is distinct from 'array' then
+  raise exception 'INVALID_CLOSE_KEYWORDS';
+ end if;
+ if exists(select 1 from jsonb_array_elements(settings->'closeKeywords') k
+  where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40) then
+  raise exception 'INVALID_CLOSE_KEYWORDS';
+ end if;
+ if exists(select 1 from jsonb_array_elements(settings->'keywords') k
+  where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40)
+  or exists(select 1 from unnest(array['publicReply','privateReply','countEnabled','closeEnabled','heartCloses']) k
+   where jsonb_typeof(settings->k) is distinct from 'boolean')
+  or exists(select 1 from unnest(array['bidText','privateText','closeText']) k
+   where jsonb_typeof(settings->k) is distinct from 'string'
+    or length(settings->>k) not between 0 and 2000) then
+  raise exception 'INVALID_SETTINGS';
+ end if;
+ if not exists(select 1 from public.bank_accounts
+  where id=(settings->>'bankAccountId')::uuid and tenant_id=p_tenant and is_active) then
+  raise exception 'BANK_SCOPE' using errcode='42501';
+ end if;
+ select page_id into page from public.tenants where id=p_tenant and is_active;
+ if page is null then raise exception 'PAGE_SCOPE' using errcode='42501';end if;
+ if p_input->>'action'='start' then
+  if p_input->>'pageId' is distinct from page
+   or coalesce(p_input->>'livePostId','') !~ '^[0-9]{1,64}$' then
+   raise exception 'PAGE_SCOPE' using errcode='42501';
+  end if;
+  insert into public.live_sessions(tenant_id,page_id,live_post_id,auction_settings)
+   values(p_tenant,page,p_input->>'livePostId',settings)
+   on conflict(tenant_id,page_id,live_post_id) do nothing;
+  perform 1 from public.auctions where tenant_id=p_tenant and page_id=page
+   and live_post_id=p_input->>'livePostId' and status='active' order by id for update;
+  select * into s from public.live_sessions where tenant_id=p_tenant and page_id=page
+   and live_post_id=p_input->>'livePostId' for update;
+  if s.ended_at is not null then raise exception 'SESSION_ENDED' using errcode='40001';end if;
+  if s.auction_settings is null then
+   update public.live_sessions set auction_settings=settings,automation_revision=automation_revision+1
+    where id=s.id returning * into s;
+  end if;
+ else
+  select * into s from public.live_sessions
+   where id=(p_input->>'sessionId')::uuid and tenant_id=p_tenant;
+  if not found then raise exception 'SESSION_NOT_FOUND' using errcode='P0002';end if;
+  perform 1 from public.auctions where tenant_id=p_tenant and page_id=s.page_id
+   and live_post_id=s.live_post_id and status='active' order by id for update;
+  select * into s from public.live_sessions where id=s.id for update;
+  if s.ended_at is not null then raise exception 'SESSION_ENDED' using errcode='40001';end if;
+  if s.automation_revision<>(p_input->>'revision')::integer then
+   raise exception 'SETTINGS_CHANGED' using errcode='40001';
+  end if;
+  update public.live_sessions set auction_settings=settings,automation_revision=automation_revision+1
+   where id=s.id returning * into s;
+ end if;
+ update public.auctions set session_automation=s.auction_settings||jsonb_build_object('bankAccountId',bank_account_id),
+  private_reply_enabled=(s.auction_settings->>'privateReply')::boolean,
+  public_reply_enabled=(s.auction_settings->>'publicReply')::boolean,
+  private_reply_template=s.auction_settings->>'privateText',
+  bid_reply_template=s.auction_settings->>'bidText',
+  close_reply_template=s.auction_settings->>'closeText'
+  where tenant_id=p_tenant and page_id=s.page_id and live_post_id=s.live_post_id and status='active';
+ result:=jsonb_build_object('id',s.id,'revision',s.automation_revision);
+ insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result)
+  values(p_tenant,p_request,p_actor,p_input,result);
+ return result;
+end $$$sql_105_5$;
+
+-- live-auction-empty-keyword-defaults.sql: source statement 8
+execute $sql_105_8$revoke all on function public.default_auction_close_keywords(),
+ public.normalize_auction_thai_settings(jsonb),
+ public.configure_auction_session(uuid,uuid,uuid,jsonb),
+ public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_105_8$;
+
+-- live-auction-empty-keyword-defaults.sql: source statement 9
+execute $sql_105_9$grant execute on function public.default_auction_close_keywords(),
+ public.normalize_auction_thai_settings(jsonb),
+ public.configure_auction_session(uuid,uuid,uuid,jsonb),
+ public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_105_9$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-empty-keyword-defaults.sql','4eaf313ac381faa9de922ea23c56de337b45b494861ad51e14c8e27be5eca4c8','576e5cfcc37ca82ba6c914e2d813424e6e6e55c7d0f9a9bbde3653cba7d12845');
+end $migration_105$;
 
 notify pgrst,'reload schema';
 

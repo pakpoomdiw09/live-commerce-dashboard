@@ -19,27 +19,6 @@ export type SessionAutomation = {
   closeEnabled: boolean
   heartCloses: boolean
 }
-export const DEFAULT_AUCTION_CLOSE_KEYWORDS = [
-  'ปิด',
-  'จบ',
-  'พอ',
-  '321',
-  '3 2 1',
-  'x',
-  'X',
-  '❌',
-  '🛑',
-  '⛔',
-  '🚫',
-  '✖️',
-  '🏁',
-  '🚩',
-  '🔨',
-  '🔔',
-  '⏰',
-  '❤️',
-  '🖤',
-]
 export const QUICK_AUCTION_CLOSE_EMOJIS = [
   '❌',
   '🛑',
@@ -57,8 +36,8 @@ export const normalizeCloseKeyword = (text: string) =>
   text.normalize('NFKC').trim().replace(/\s+/g, ' ')
 export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation {
   return {
-    keywords: ['1'],
-    closeKeywords: [...DEFAULT_AUCTION_CLOSE_KEYWORDS],
+    keywords: [],
+    closeKeywords: [],
     publicReply: true,
     privateReply: true,
     bidText: SESSION_PUBLIC_WINNER_TEMPLATE,
