@@ -75,9 +75,6 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'IGNORE',
   )
   assert.equal(automation.validSessionAutomation(settings), true)
-  assert.deepEqual(Array.from(automation.BID_KEYWORD_PRESETS), [
-    '1', '11', '12', 'F', 'f', '9', '99', 'เคาะ', 'บิด', '+1',
-  ])
   assert.deepEqual(Array.from(automation.QUICK_AUCTION_CLOSE_EMOJIS), [
     '❌', '🛑', '⛔', '🚫', '🏁', '🚩', '🔨', '🔔', '⏰', '❤️', '🖤',
   ])

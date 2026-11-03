@@ -1,10 +1,10 @@
 'use client'
 
-import { useId, useState, type Dispatch, type SetStateAction } from 'react'
+import { useId, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { field, orange } from './session-ui'
 
 export function AuctionKeywordEditor({
-  label, kind, keywords, onChange, onEdited, normalize, presets, disabled,
+  label, kind, keywords, onChange, onEdited, normalize, emojiKeys, disabled,
 }: {
   label: string
   kind: 'bid' | 'close'
@@ -12,12 +12,13 @@ export function AuctionKeywordEditor({
   onChange: Dispatch<SetStateAction<string[]>>
   onEdited: () => void
   normalize: (text: string) => string
-  presets: string[]
+  emojiKeys?: string[]
   disabled: boolean
 }) {
   const id = useId()
   const [input, setInput] = useState('')
   const [error, setError] = useState('')
+  const inputValue = useRef('')
   const closing = kind === 'close'
   const name = closing ? 'คำปิดรอบ' : 'คำดัก'
   function add(text: string) {
@@ -32,9 +33,21 @@ export function AuctionKeywordEditor({
     onChange((previous) =>
       previous.some((value) => normalize(value) === word) ? previous : [...previous, word],
     )
+    inputValue.current = ''
     setInput('')
     setError('')
     onEdited()
+  }
+  function appendEmoji(emoji: string) {
+    if (disabled) return
+    const next = inputValue.current + emoji
+    if (normalize(next).length > 40) {
+      setError('แต่ละคำยาวได้ไม่เกิน 40 ตัวอักษร')
+      return
+    }
+    inputValue.current = next
+    setInput(next)
+    setError('')
   }
   return (
     <div className="min-w-0 space-y-2 text-sm font-semibold" data-auction-keyword-editor={kind}>
@@ -63,35 +76,39 @@ export function AuctionKeywordEditor({
       <div className="flex items-center gap-2">
         <input id={id} aria-label={label} className={`${field} !mt-0`} maxLength={40}
           value={input} disabled={disabled}
-          onChange={(event) => { setInput(event.target.value); setError('') }}
+          onChange={(event) => {
+            inputValue.current = event.target.value
+            setInput(event.target.value)
+            setError('')
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               event.preventDefault()
               add(input)
             }
           }}
-          placeholder={closing ? 'พิมพ์คำหรือวางอีโมจิ แล้วกด +' : 'พิมพ์คำ เช่น 1, เคาะ แล้วกด +'}
+          placeholder={closing ? 'พิมพ์คำ แล้วเลือกอีโมจิหรือกด +' : 'พิมพ์คำดัก แล้วกด Enter หรือ +'}
         />
         <button type="button" aria-label={`เพิ่ม${name}`} className={`${orange} shrink-0`}
           disabled={disabled || !input.trim()} onClick={() => add(input)}>
           +
         </button>
       </div>
-      <div className={closing ? 'grid w-fit max-w-full grid-cols-6 gap-1.5 sm:grid-cols-8' : 'flex flex-wrap gap-1.5'}
-        aria-label={closing ? 'เพิ่มอีโมจิปิดรอบด่วน' : 'คำดักแนะนำ'}>
-        {presets.map((word) => (
-          <button key={word} type="button" aria-label={closing ? `เพิ่มอีโมจิ ${word}` : `ใช้คำดัก ${word}`}
-            aria-pressed={keywords.some((value) => normalize(value) === normalize(word))}
-            disabled={disabled}
-            className={`${closing ? 'h-9 w-9 text-lg' : 'min-h-9 min-w-9 px-2 text-xs'} inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm transition hover:border-orange-400 hover:bg-orange-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 active:scale-95 aria-pressed:border-orange-300 aria-pressed:bg-orange-50 disabled:opacity-40`}
-            onClick={() => add(word)}>{word}</button>
-        ))}
-      </div>
+      {closing && emojiKeys?.length ? (
+        <div className="grid w-fit max-w-full grid-cols-6 gap-1.5 sm:grid-cols-8" aria-label="แป้นพิมพ์อีโมจิปิดรอบ">
+          {emojiKeys.map((emoji) => (
+            <button key={emoji} type="button" aria-label={`เพิ่มอีโมจิ ${emoji}`}
+              disabled={disabled}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg shadow-sm transition hover:border-orange-400 hover:bg-orange-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 active:scale-95 disabled:opacity-40"
+              onClick={() => appendEmoji(emoji)}>{emoji}</button>
+          ))}
+        </div>
+      ) : null}
       {error && <p role="alert" className="text-xs font-normal text-red-700">{error}</p>}
       <p className="text-xs font-normal text-slate-500">
         {closing
-          ? 'กดอีโมจิต่อเนื่องได้ ตัวเดิมจะไม่เพิ่มซ้ำ กด × เพื่อลบ หรือพิมพ์คำแล้วกด +'
-          : 'พิมพ์แล้วกด Enter หรือ + เพื่อเพิ่มคำดักได้ไม่จำกัด โดย F และ f จะนับเป็นคำเดียวกัน'}
+          ? 'กดอีโมจิเพื่อพิมพ์ต่อท้ายช่องได้ซ้ำตามต้องการ แล้วกด Enter หรือ + เพื่อเพิ่มเป็นแท็ก'
+          : 'พิมพ์คำดักเองแล้วกด Enter หรือ + เพื่อเพิ่มเป็นแท็กได้ไม่จำกัด'}
       </p>
     </div>
   )

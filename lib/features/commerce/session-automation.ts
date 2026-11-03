@@ -23,7 +23,6 @@ export const DEFAULT_AUCTION_CLOSE_KEYWORDS = [
   'ปิด', 'จบ', 'พอ', '321', '3 2 1', 'x', 'X',
   '❌', '🛑', '⛔', '🚫', '✖️', '🏁', '🚩', '🔨', '🔔', '⏰', '❤️', '🖤',
 ]
-export const BID_KEYWORD_PRESETS = ['1', '11', '12', 'F', 'f', '9', '99', 'เคาะ', 'บิด', '+1']
 export const QUICK_AUCTION_CLOSE_EMOJIS = ['❌', '🛑', '⛔', '🚫', '🏁', '🚩', '🔨', '🔔', '⏰', '❤️', '🖤']
 export const normalizeCloseKeyword = (text: string) =>
   text.normalize('NFKC').trim().replace(/\s+/g, ' ')

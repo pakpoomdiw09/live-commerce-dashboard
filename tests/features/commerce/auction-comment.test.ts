@@ -40,6 +40,24 @@ test('host identity determines commands; a customer cannot close or count', () =
   assert.deepEqual(parseAuctionComment('250', true), { type: 'IGNORE' })
 })
 
+test('configured closing keywords include composed and repeated emoji text for the Page only', () => {
+  const automation = {
+    keywords: ['1'],
+    closeKeywords: ['ปิด🛑', '❌❌❌'],
+    countEnabled: false,
+    closeEnabled: true,
+    heartCloses: false,
+  }
+  for (const text of ['ปิด🛑', 'ปิด🛑 ครับ', '❌❌❌']) {
+    assert.deepEqual(parseAuctionComment(text, true, automation), {
+      type: 'HOST_CONTROL',
+      action: 'close',
+      count: null,
+    })
+    assert.deepEqual(parseAuctionComment(text, false, automation), { type: 'IGNORE' })
+  }
+})
+
 test('prices must be an entire valid number, not embedded product or phone chatter', () => {
   for (const [text, amount] of [
     ['220', 220],
