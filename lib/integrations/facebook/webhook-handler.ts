@@ -55,6 +55,71 @@ type PageTenant = {
   auto_reply_enabled: boolean
   auto_verify_enabled: boolean
 }
+type AuctionSlipTarget =
+  | { kind: 'none' | 'ambiguous' | 'unmatched' }
+  | { kind: 'auction'; auctionId: string; customerTabId: string; amount: number }
+
+async function auctionSlipTarget(
+  db: ReturnType<typeof supabaseAdmin>,
+  tenantId: string,
+  pageId: string,
+  customerId: string,
+  senderId: string,
+): Promise<AuctionSlipTarget> {
+  const pending = await db
+    .from('orders')
+    .select('id,source_id,customer_tab_id')
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', customerId)
+    .eq('source', 'live_auction')
+    .eq('status', 'pending_payment')
+  if (pending.error) throw new Error('อ่านยอดรวมออเดอร์ไม่ได้ กรุณาลองอีกครั้ง')
+  const orders = pending.data ?? []
+  if (!orders.length) return { kind: 'none' }
+
+  const orderIds = orders.map((order) => order.id).filter((id): id is string => !!id)
+  if (!orderIds.length) return { kind: 'unmatched' }
+  const result = await db
+    .from('auctions')
+    .select('id,order_id,status,leading_bidder_id')
+    .eq('tenant_id', tenantId)
+    .eq('page_id', pageId)
+    .in('order_id', orderIds)
+  if (result.error) {
+    if (['42P01', 'PGRST205'].includes(result.error.code)) return { kind: 'unmatched' }
+    throw result.error
+  }
+  const matches = orders.flatMap((order) => {
+    const auction = (result.data ?? []).find((candidate) => candidate.order_id === order.id)
+    if (
+      !auction ||
+      auction.status !== 'closed' ||
+      auction.leading_bidder_id !== senderId ||
+      typeof order.customer_tab_id !== 'string'
+    )
+      return []
+    return [{ auctionId: auction.id as string, customerTabId: order.customer_tab_id }]
+  })
+  if (!matches.length || matches.length !== orders.length) return { kind: 'unmatched' }
+  const tabIds = [...new Set(matches.map((match) => match.customerTabId))]
+  if (tabIds.length !== 1) return { kind: 'ambiguous' }
+  const tab = await db
+    .from('customer_tabs')
+    .select('id,remaining_amount')
+    .eq('id', tabIds[0])
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', customerId)
+    .maybeSingle()
+  if (tab.error) throw tab.error
+  const amount = Number(tab.data?.remaining_amount)
+  if (!tab.data || !Number.isFinite(amount) || amount <= 0) return { kind: 'unmatched' }
+  return {
+    kind: 'auction',
+    auctionId: matches[0].auctionId,
+    customerTabId: tab.data.id as string,
+    amount,
+  }
+}
 
 async function tenantForPage(pageId: string): Promise<PageTenant | null> {
   const { data, error } = await supabaseAdmin({ timeoutMs: 15000 })
@@ -359,23 +424,30 @@ async function onMessage(
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
   // Route the entire message once. Completing one order payment must not turn
   // another image from that message into a standalone verification on a retry.
-  const slipRoute =
+  const slipRoute: AuctionSlipTarget | { kind: 'order' | 'standalone' | 'none' } =
     tenant.auto_verify_enabled && images.length > 0
       ? await execution.once('slip-image-route', async () => {
+          const auction = await auctionSlipTarget(db, tenant.id, pageId, customer.id, psid)
+          if (auction.kind !== 'none') return auction
           const pending = await pendingOrders(db, customer.id, tenant.id)
           if (pending.ids.length) {
             if (!Number.isFinite(pending.total) || pending.total <= 0)
               throw new Error('PENDING_PAYMENT_TOTAL_INVALID')
-            return 'order' as const
+            return { kind: 'order' } as const
           }
           // Standalone replies honor the existing shop/chat automation controls.
-          return autoReply ? ('standalone' as const) : ('none' as const)
+          return autoReply ? ({ kind: 'standalone' } as const) : ({ kind: 'none' } as const)
         })
-      : 'none'
-  const verifySlipImages = slipRoute === 'order'
-  const verifyStandaloneImages = slipRoute === 'standalone'
+      : { kind: 'none' }
+  const verifyAuctionSlipImages = slipRoute.kind === 'auction'
+  const verifySlipImages = slipRoute.kind === 'order'
+  const verifyStandaloneImages = slipRoute.kind === 'standalone'
   const visionRoute =
-    verifySlipImages || verifyStandaloneImages
+    verifyAuctionSlipImages ||
+    slipRoute.kind === 'ambiguous' ||
+    slipRoute.kind === 'unmatched' ||
+    verifySlipImages ||
+    verifyStandaloneImages
       ? false
       : await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
   const visionQueued = visionRoute === true
@@ -394,6 +466,9 @@ async function onMessage(
       throw new Error('VISION_INGESTION_INCOMPLETE')
   }
   const imageChat =
+    !verifyAuctionSlipImages &&
+    slipRoute.kind !== 'ambiguous' &&
+    slipRoute.kind !== 'unmatched' &&
     !verifySlipImages &&
     !verifyStandaloneImages &&
     !visionQueued &&
@@ -409,11 +484,31 @@ async function onMessage(
       attachmentTypes: m.attachments.map((a: any) => a?.type ?? 'invalid'),
       sticker: !!m.sticker_id,
       autoReply,
-      slipVerification: verifySlipImages,
+      slipVerification: verifySlipImages || verifyAuctionSlipImages,
+      auctionSlipVerification: verifyAuctionSlipImages,
+      auctionSlipAmbiguous: slipRoute.kind === 'ambiguous',
+      auctionSlipUnmatched: slipRoute.kind === 'unmatched',
       standaloneVerification: verifyStandaloneImages,
       dedicatedVision: visionQueued,
       imageAssistantDisabled,
       chatVision: imageChat,
+    })
+  if (verifyAuctionSlipImages && slipRoute.kind === 'auction') {
+    for (const url of images) {
+      await onAuctionSlipImage(
+        url,
+        { ...recipient, messageId: message.id },
+        tenant,
+        execution,
+        slipRoute,
+      )
+    }
+  }
+  if (slipRoute.kind === 'ambiguous' || slipRoute.kind === 'unmatched')
+    console.info('[slip/auction] skipped', {
+      messageId: message.id,
+      reason:
+        slipRoute.kind === 'ambiguous' ? 'MULTIPLE_PENDING_BILLS' : 'SENDER_NOT_AUCTION_WINNER',
     })
   if (verifySlipImages) {
     for (const url of images) {
@@ -498,6 +593,57 @@ async function onStandaloneSlipImage(
       standaloneSlipReply(result),
     )
     return null
+  })
+}
+
+/** Auction receipts pay one exact, still-open bill belonging to this Messenger sender. */
+async function onAuctionSlipImage(
+  url: string,
+  customer: Recipient & { messageId: string },
+  tenant: PageTenant,
+  execution: WebhookExecution,
+  target: Extract<AuctionSlipTarget, { kind: 'auction' }>,
+) {
+  const db = supabaseAdmin({ timeoutMs: 15000 })
+  const key = (await import('node:crypto')).createHash('sha256').update(url).digest('hex')
+  const result = await execution.once(`auction-slip-verify:${key}`, async () => {
+    const file = await downloadSlipImage(url)
+    if (!file) throw new Error('AUCTION_SLIP_DOWNLOAD_UNAVAILABLE')
+    const slip = await processSlip(db, {
+      file,
+      customerId: customer.id,
+      messageId: customer.messageId,
+      tenant,
+      expectedAmount: target.amount,
+      customerTabId: target.customerTabId,
+      requireExactAmount: true,
+      auctionSenderId: customer.psid,
+    })
+    if (slip.failure) throw new Error('AUCTION_SLIP_PERSISTENCE_FAILED')
+    return slip
+  })
+  if (result.status !== 'valid' || !result.id) {
+    console.info('[slip/auction] not paid', {
+      messageId: customer.messageId,
+      auctionId: target.auctionId,
+      slipId: result.id ?? null,
+      verdict: result.status,
+    })
+    return
+  }
+  await execution.once(`auction-slip-settle:${result.id}`, async () => {
+    if (result.tabBalance?.status !== 'fully_paid') throw new Error('AUCTION_PAYMENT_NOT_SETTLED')
+    return { status: result.tabBalance.status }
+  })
+  await execution.once(`auction-slip-notify:${result.id}`, async () => {
+    await notifySlipResult(db, result, customer, tenant.page_name?.trim() || tenant.name)
+    return null
+  })
+  console.info('[slip/auction] paid', {
+    messageId: customer.messageId,
+    auctionId: target.auctionId,
+    customerTabId: target.customerTabId,
+    slipId: result.id,
   })
 }
 

@@ -223,22 +223,38 @@ async function checkInterface() {
     await click('ตั้งค่าผู้ส่ง')
     await wait(`!!document.querySelector('dialog')`)
     assert.equal(
-      await evaluate(
-        `document.querySelector('input[aria-label="Bee Move API Key ในอนาคต"]').disabled`,
-      ),
+      await evaluate(`!!document.querySelector('textarea[aria-label="ชื่อร้าน / ผู้ส่ง"]')`),
+      true,
+    )
+    assert.equal(
+      await evaluate(`!document.querySelector('input[aria-label="Bee Move API Key ในอนาคต"]')`),
       true,
     )
     await click('ยกเลิก')
+    await click('ตั้งค่าค่ายขนส่ง')
+    await wait(`!!document.querySelector('dialog')`)
+    assert.equal(await evaluate(`document.querySelectorAll('[role="tab"]').length`), 4)
+    assert.equal(await evaluate(`!!document.querySelector('input[type="url"]')`), true)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('dialog').querySelectorAll('input[type="password"]').length`,
+      ),
+      4,
+    )
+    await click('ปิด')
     await evaluate(
       `document.querySelector('input[aria-label="เลือกพัสดุ ลูกค้า Facebook 1"]').click()`,
     )
-    await click('ส่งผ่าน Bee Move')
-    await wait(`document.querySelector('dialog')?.textContent.includes('ยังไม่เรียก API')`)
+    assert.equal(
+      await evaluate(
+        `[...document.querySelectorAll('button')].find(button=>button.textContent.includes('สร้างพัสดุและพิมพ์ใบปะหน้า')).disabled`,
+      ),
+      true,
+    )
     await click('ดาวน์โหลด CSV')
     await wait(`shippingQA.csvText.includes('0812345678')`)
     assert.equal(await evaluate('shippingQA.requests.at(-1).ids.length'), 1)
     assert.equal(await evaluate(`shippingQA.csvText.includes('ยอดเก็บเงินปลายทาง COD')`), true)
-    await evaluate(`document.querySelector('dialog button[aria-label="ปิดหน้าต่าง"]').click()`)
     await click('พิมพ์สติกเกอร์')
     await wait(`shippingQA.opened.includes('/shipping/print/')`)
     assert.equal(await evaluate('shippingQA.requests.at(-1).format'), 'thermal')

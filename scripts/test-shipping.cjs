@@ -508,6 +508,77 @@ test('paid bills become parcel allocations; confirmation, stale print fencing, s
       (await one('select paid_amount from customer_tabs where id=$1', [tabId])).paid_amount,
       before,
     )
+    await one(
+      `select save_shipping_integration(
+        $1,'dmove','https://dmove.example.test/v1','encrypted-test-value',
+        $2::jsonb,'https://track.example.test/{tracking_number}',1.25,true,true
+      )`,
+      [
+        tenant,
+        JSON.stringify({
+          name: 'SnapBot Shop',
+          phone: '0899999999',
+          address: '111 Shop Road Bangkok 10220',
+        }),
+      ],
+    )
+    const parcelRequest = randomUUID()
+    const parcelJob = (
+      await one('select begin_shipping_provider_job($1,$2,$3,$4,$5) result', [
+        tenant,
+        actor,
+        parcelRequest,
+        nextParcel.id,
+        'dmove',
+      ])
+    ).result
+    assert.equal(parcelJob.claimed, true)
+    assert.equal(parcelJob.status, 'creating')
+    assert.equal(
+      (
+        await one('select begin_shipping_provider_job($1,$2,$3,$4,$5) result', [
+          tenant,
+          actor,
+          parcelRequest,
+          nextParcel.id,
+          'dmove',
+        ])
+      ).result.claimed,
+      false,
+      'replayed requests do not create a second carrier parcel',
+    )
+    const completedJob = (
+      await one(
+        `select complete_shipping_provider_job($1,'DM123456789','DMove',
+          'https://track.example.test/DM123456789','https://labels.example.test/label.pdf') result`,
+        [parcelJob.jobId],
+      )
+    ).result
+    assert.equal(completedJob.status, 'created')
+    assert.equal((await getParcel(nextParcel.id)).fulfillment_status, 'shipped')
+    assert.equal((await getParcel(nextParcel.id)).tracking_number, 'DM123456789')
+    assert.equal(
+      (await getParcel(nextParcel.id)).tracking_url,
+      'https://track.example.test/DM123456789',
+    )
+    assert.equal((await one('select status from orders where id=$1', [third.id])).status, 'shipped')
+    await one('select mark_shipping_tracking_notification($1,$2)', [parcelJob.jobId, 'sent'])
+    assert.equal(
+      (
+        await one('select notification_status from shipping_provider_jobs where id=$1', [
+          parcelJob.jobId,
+        ])
+      ).notification_status,
+      'sent',
+    )
+    await assert.rejects(
+      one(
+        `select complete_shipping_provider_job($1,'DM123456789','DMove',
+          'https://track.example.test/DM123456789','https://labels.example.test/label.pdf')`,
+        [randomUUID()],
+      ),
+      /SHIPPING_JOB_NOT_FOUND/,
+    )
     await assert.rejects(
       manage({ action: 'export', ids: [parcel.id] }, randomUUID(), other),
       /SHIPPING_SCOPE/,
@@ -550,6 +621,8 @@ test('paid bills become parcel allocations; confirmation, stale print fencing, s
       'shipping_print_batches',
       'shipping_address_candidates',
       'shipping_profiles',
+      'shipping_integrations',
+      'shipping_provider_jobs',
     ])
       assert.equal(
         (await one("select has_table_privilege('authenticated',$1,'select') allowed", [table]))

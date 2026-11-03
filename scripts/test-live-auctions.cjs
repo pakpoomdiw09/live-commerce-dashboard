@@ -240,7 +240,88 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       (await one('select finalize_live_auction($1,$2,null,true) r', [cancelled, tenant])).r.status,
       'cancelled',
     )
-    assert.equal((await one('select count(*)::int n from orders')).n, 2)
+    const payableAuction = await auction('789')
+    await process(payableAuction, await event('911', 'เปิด', 'completed', '789'), 'OPENING_BID')
+    const payableClose = await process(
+      payableAuction,
+      await event('100', 'ปิด', 'completed', '789'),
+      'HOST_CONTROL',
+      null,
+      'close',
+    )
+    const payableOrder = await one(
+      'select id,tenant_id,customer_id,amount,customer_tab_id from orders where id=$1',
+      [payableClose.orderId],
+    )
+    const payableTab = await one('select id,remaining_amount from customer_tabs where id=$1', [
+      payableOrder.customer_tab_id,
+    ])
+    const verifiedSlip = (
+      await one(
+        `insert into slips(tenant_id,customer_id,customer_tab_id,expected_amount)
+         values($1,$2,$3,$4) returning id`,
+        [tenant, payableOrder.customer_id, payableTab.id, payableTab.remaining_amount],
+      )
+    ).id
+    const ordersBeforeSettlement = (await one('select count(*)::int n from orders')).n
+    await assert.rejects(
+      one(`select complete_auction_customer_tab_slip($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [
+        verifiedSlip,
+        tenant,
+        payableOrder.customer_id,
+        '912',
+        payableTab.remaining_amount,
+        'auction-transfer-789',
+        new Date().toISOString(),
+        {},
+        null,
+      ]),
+      /AUCTION_WINNER_MISMATCH/,
+    )
+    await assert.rejects(
+      one(`select complete_auction_customer_tab_slip($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [
+        verifiedSlip,
+        tenant,
+        payableOrder.customer_id,
+        '911',
+        Number(payableTab.remaining_amount) - 1,
+        'auction-transfer-789',
+        new Date().toISOString(),
+        {},
+        null,
+      ]),
+      /AUCTION_TAB_AMOUNT_MISMATCH/,
+    )
+    const paidResult = (
+      await one(`select complete_auction_customer_tab_slip($1,$2,$3,$4,$5,$6,$7,$8,$9) result`, [
+        verifiedSlip,
+        tenant,
+        payableOrder.customer_id,
+        '911',
+        payableTab.remaining_amount,
+        'auction-transfer-789',
+        new Date().toISOString(),
+        {},
+        null,
+      ])
+    ).result
+    assert.equal(paidResult.status, 'fully_paid')
+    assert.equal(
+      (await one('select status,paid_at,slip_id from orders where id=$1', [payableOrder.id]))
+        .status,
+      'paid',
+    )
+    assert.ok((await one('select paid_at from orders where id=$1', [payableOrder.id])).paid_at)
+    assert.equal(
+      (await one('select status from slips where id=$1', [verifiedSlip])).status,
+      'valid',
+    )
+    assert.equal(
+      (await one('select slip_id from customer_tab_payments where tab_id=$1', [payableTab.id]))
+        .slip_id,
+      verifiedSlip,
+    )
+    assert.equal((await one('select count(*)::int n from orders')).n, ordersBeforeSettlement)
     // The DB trigger also protects events enqueued by older application instances.
     const q1 = await event('910', 'เปิด', 'pending', '777')
     const q2 = await event('100', 'ปิด', 'pending', '777')
@@ -274,6 +355,14 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       (
         await one(
           "select has_function_privilege('authenticated','process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','execute') allowed",
+        )
+      ).allowed,
+      false,
+    )
+    assert.equal(
+      (
+        await one(
+          "select has_function_privilege('authenticated','complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text)','execute') allowed",
         )
       ).allowed,
       false,

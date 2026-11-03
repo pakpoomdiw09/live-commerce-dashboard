@@ -13,6 +13,25 @@ export type ShippingSettings = {
   sender_address: string
   default_courier: string
 }
+export const SHIPPING_PROVIDERS = ['dmove', 'flash_express', 'jnt', 'thailand_post'] as const
+export type ShippingProvider = (typeof SHIPPING_PROVIDERS)[number]
+export const SHIPPING_PROVIDER_LABELS: Record<ShippingProvider, string> = {
+  dmove: 'DMove (Generic API)',
+  flash_express: 'Flash Express',
+  jnt: 'J&T Express',
+  thailand_post: 'ไปรษณีย์ไทย',
+}
+export type ShippingIntegrationSummary = {
+  provider: ShippingProvider
+  api_endpoint: string
+  sender_info: { name: string; phone: string; address: string }
+  tracking_url_template: string
+  weight_kg: number
+  is_active: boolean
+  is_default: boolean
+  credentials_configured: boolean
+  last_tested_at: string | null
+}
 export type ShippingItem = { order_id: string; item_name: string; amount: number }
 export type ShippingShipment = ShippingAddress & {
   id: string
@@ -23,6 +42,8 @@ export type ShippingShipment = ShippingAddress & {
   customer_name: string
   courier_name: string
   tracking_number: string | null
+  tracking_url: string | null
+  label_pdf_url: string | null
   fulfillment_status: 'pending_address' | 'ready_to_ship' | 'shipped' | 'cancelled'
   label_printed_at: string | null
   label_print_count: number

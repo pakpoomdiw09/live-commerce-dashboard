@@ -7,8 +7,65 @@ const orders = load('lib/features/commerce/orders.ts', {
   '@/lib/features/banking/banks': load('lib/features/banking/banks.ts'),
 })
 
+test('auction slips settle only the exact pending tab bill belonging to the closed-round winner', async () => {
+  const order = {
+    ...pending(),
+    source: 'live_auction',
+    source_id: 'auction-a',
+    customer_tab_id: 'tab-a',
+  }
+  const auction = {
+    id: 'auction-a',
+    order_id: order.id,
+    tenant_id: 'shop-a',
+    page_id: '123456789',
+    status: 'closed',
+    leading_bidder_id: '987654321',
+  }
+  const winner = fixture({
+    rows: [order],
+    auctionRows: [auction],
+    tabRows: [
+      { id: 'tab-a', tenant_id: 'shop-a', customer_id: 'customer-a', remaining_amount: 100 },
+    ],
+  })
+  await winner.run()
+  assert.equal(winner.calls.processInputs.length, 1, JSON.stringify(winner.calls))
+  assert.equal(winner.calls.checks, 1)
+  assert.equal(winner.calls.processInputs[0].customerTabId, 'tab-a')
+  assert.equal(winner.calls.processInputs[0].expectedAmount, 100)
+  assert.equal(winner.calls.processInputs[0].requireExactAmount, true)
+  assert.equal(winner.calls.processInputs[0].auctionSenderId, '987654321')
+  assert.equal(winner.calls.paymentCalls.length, 0)
+
+  const notWinner = fixture({
+    rows: [{ ...order, status: 'pending_payment' }],
+    auctionRows: [{ ...auction, leading_bidder_id: 'different-sender' }],
+    tabRows: [
+      { id: 'tab-a', tenant_id: 'shop-a', customer_id: 'customer-a', remaining_amount: 100 },
+    ],
+  })
+  await notWinner.run()
+  assert.equal(notWinner.calls.checks, 0)
+  assert.equal(notWinner.calls.paymentCalls.length, 0)
+
+  const ambiguous = fixture({
+    rows: [order, { ...order, id: 'order-b', source_id: 'auction-b', customer_tab_id: 'tab-b' }],
+    auctionRows: [auction, { ...auction, id: 'auction-b', order_id: 'order-b' }],
+    tabRows: [
+      { id: 'tab-a', tenant_id: 'shop-a', customer_id: 'customer-a', remaining_amount: 100 },
+      { id: 'tab-b', tenant_id: 'shop-a', customer_id: 'customer-a', remaining_amount: 100 },
+    ],
+  })
+  await ambiguous.run()
+  assert.equal(ambiguous.calls.checks, 0)
+  assert.equal(ambiguous.calls.paymentCalls.length, 0)
+})
+
 function fixture({
   rows = [],
+  auctionRows = [],
+  tabRows = [],
   bot = true,
   enabled = true,
   verdict = 'valid',
@@ -16,6 +73,7 @@ function fixture({
   autoReply = true,
   standaloneSuccess = true,
   shipping = false,
+  senderId = '987654321',
 } = {}) {
   const calls = {
     downloads: 0,
@@ -28,11 +86,18 @@ function fixture({
     standaloneChecks: 0,
     standaloneReplies: [],
     shipping: 0,
+    paymentCalls: [],
+    processInputs: [],
   }
   const steps = new Map()
   const db = {
+    rpc: async (name, args) => {
+      calls.paymentCalls.push({ name, args })
+      throw Error('Unexpected RPC ' + name)
+    },
     from(table) {
       const filters = {}
+      const lists = {}
       const result = () => {
         if (table === 'tenants')
           return {
@@ -48,12 +113,21 @@ function fixture({
           }
         if (table === 'customers')
           return { data: { id: 'customer-a', bot_enabled: bot }, error: null }
-        if (table === 'orders') {
-          calls.queries.push({ ...filters })
+        if (table === 'orders' || table === 'auctions' || table === 'customer_tabs') {
+          const sourceRows =
+            table === 'orders' ? rows : table === 'auctions' ? auctionRows : tabRows
+          const filtered = sourceRows.filter(
+            (row) =>
+              Object.entries(filters).every(([key, value]) => row[key] === value) &&
+              Object.entries(lists).every(([key, values]) => values.includes(row[key])),
+          )
+          calls.queries.push({
+            ...filters,
+            table,
+            lists: { ...lists },
+          })
           return {
-            data: rows.filter((row) =>
-              Object.entries(filters).every(([key, value]) => row[key] === value),
-            ),
+            data: filtered,
             error: orderError ? { code: 'DB_DOWN' } : null,
           }
         }
@@ -65,7 +139,17 @@ function fixture({
           filters[key] = value
           return q
         },
-        maybeSingle: async () => result(),
+        in(key, values) {
+          lists[key] = values
+          return q
+        },
+        maybeSingle: async () => {
+          const value = result()
+          return {
+            ...value,
+            data: Array.isArray(value.data) ? (value.data[0] ?? null) : value.data,
+          }
+        },
         then(resolve, reject) {
           return Promise.resolve(result()).then(resolve, reject)
         },
@@ -109,9 +193,10 @@ function fixture({
       '@/lib/features/slips/process': {
         processSlip: async (_db, input) => {
           calls.checks++
+          calls.processInputs.push(input)
           assert.equal(input.customerId, 'customer-a')
           assert.equal(input.tenant.id, 'shop-a')
-          if (verdict === 'valid')
+          if (verdict === 'valid' && !input.requireExactAmount)
             for (const row of rows)
               if (
                 row.customer_id === 'customer-a' &&
@@ -119,7 +204,13 @@ function fixture({
                 row.status === 'pending_payment'
               )
                 row.status = 'paid'
-          return { id: 'slip-' + calls.checks, status: verdict, amount: 100, transRef: 'test-ref' }
+          return {
+            id: 'slip-' + calls.checks,
+            status: verdict,
+            amount: 100,
+            transRef: 'test-ref',
+            ...(input.requireExactAmount ? { tabBalance: { status: 'fully_paid' } } : {}),
+          }
         },
       },
       '@/lib/features/slips/notify': {
@@ -162,14 +253,17 @@ function fixture({
       },
       '@/lib/features/broadcast/broadcast-policy': { inboundBroadcastEvidence: () => null },
       '@/lib/integrations/facebook/message-window': {
-        facebookInboundMessage: () => ({ senderId: '987654321' }),
+        facebookInboundMessage: () => ({ senderId }),
       },
       '@/lib/features/inbox/inbox-automation-window': {
         InboxAutomationWindowError: class extends Error {},
       },
       'node:crypto': require('node:crypto'),
     },
-    { console: { log() {}, info() {}, warn() {}, error() {} }, process: { env: {} } },
+    {
+      console: { log() {}, info() {}, warn() {}, error() {} },
+      process: { env: {} },
+    },
   )
   const execution = {
     event: {
@@ -202,7 +296,7 @@ function fixture({
       return result
     },
   }
-  return { calls, execution, run: () => api.handleFacebookWebhookEvent(execution) }
+  return { calls, execution, rows, run: () => api.handleFacebookWebhookEvent(execution) }
 }
 const pending = () => ({
   id: 'order-a',

@@ -4,12 +4,26 @@
 
 ## ติดตั้งและเริ่มใช้
 
-1. ฐานข้อมูลเดิมให้รัน `supabase/shipping-fulfillment.sql` **หลัง** `supabase/live-session-dashboard.sql` และ migration ที่เป็น prerequisite หากเป็นฐานข้อมูลใหม่ ใช้ `supabase/complete_schema.sql` ซึ่งรวมทุก migration แล้ว
-2. Deploy โค้ดเวอร์ชันนี้พร้อม Webhook handler ระบบใช้ Supabase และ Page token เดิม ไม่ต้องตั้ง API ขนส่งเพื่อ Export หรือพิมพ์
-3. เปิด `/shipping` แล้วตั้งค่าชื่อร้าน เบอร์โทร และที่อยู่ผู้ส่ง เจ้าของร้านเป็นผู้บันทึกการตั้งค่านี้ สมาชิก staff จัดการผู้รับ เลขพัสดุ พิมพ์ และ Export ได้ภายในร้านที่มีสิทธิ์
-4. เมื่อบิลชำระครบ ระบบเพิ่มรายการจัดส่งเอง รอข้อมูลที่อยู่จาก Messenger หรือกรอกจากปุ่มแก้ไขผู้รับ ตรวจและยืนยันข้อมูลก่อนออกฉลาก
-5. เลือกพัสดุแล้วพิมพ์สติกเกอร์/A4 หรือ Export CSV ถ้าไม่เลือก ระบบใช้รายการพร้อมส่งในตัวกรองปัจจุบันสูงสุด 100 รายการ
-6. นำ CSV ไปนำเข้าระบบขนส่งตามที่ร้านใช้งาน บันทึกเลข Tracking กลับมา แล้วเลือก “อัปเดตเป็นส่งพัสดุแล้ว” การ Export และพิมพ์ไม่เปลี่ยนสถานะเป็นส่งแล้วอัตโนมัติ
+1. ฐานข้อมูลเดิมให้รัน `supabase/shipping-integrations.sql` **หลัง** `supabase/shipping-fulfillment.sql` และ `supabase/live-session-dashboard.sql` หากเป็นฐานข้อมูลใหม่ ใช้ `supabase/complete_schema.sql` ซึ่งรวมทุก migration แล้ว
+2. ตั้ง environment variable `SHIPPING_CREDENTIALS_ENCRYPTION_KEY` เป็น Base64 หรือ hex ของกุญแจสุ่ม 32 ไบต์ ก่อนบันทึก BYOK credentials เช่นสร้างด้วย `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`. เก็บกุญแจใน secret manager ของ runtime เท่านั้น ห้าม commit ลง repo; ถ้าหายหรือเปลี่ยนโดยไม่ถอดรหัส/เข้ารหัสใหม่ credentials เดิมจะใช้ไม่ได้
+3. Deploy โค้ดเวอร์ชันนี้พร้อม Webhook handler ระบบ Export/พิมพ์แบบเดิมยังใช้ได้โดยไม่ต้องตั้ง API ขนส่ง
+4. เปิด `/shipping` แล้วตั้งค่าชื่อร้าน เบอร์โทร และที่อยู่ผู้ส่ง เจ้าของร้านตั้งค่าผู้ส่งและ BYOK API ของแต่ละค่ายได้ สมาชิก staff จัดการผู้รับ พิมพ์ และ Export ได้ภายในร้านที่มีสิทธิ์
+5. ใน “ตั้งค่าค่ายขนส่ง” เลือก provider, endpoint แบบ HTTPS, credential, ผู้ส่ง, น้ำหนัก และ `Tracking URL Template` ที่มี `{tracking_number}` แล้วกดทดสอบการเชื่อมต่อก่อนบันทึก/เปิดใช้งาน
+6. เมื่อบิลชำระครบ ระบบเพิ่มรายการจัดส่งเอง รอข้อมูลที่อยู่จาก Messenger หรือกรอกจากปุ่มแก้ไขผู้รับ ตรวจและยืนยันข้อมูลก่อนออกฉลาก ค่าเริ่มต้นของหน้าคือไลฟ์ล่าสุด และเลือกดูรายการของวันนี้/ทุกไลฟ์ได้
+7. เลือกพัสดุพร้อมส่งและค่ายที่เปิดใช้งาน แล้วกด “สร้างพัสดุและพิมพ์ใบปะหน้า” ระบบสร้าง parcel ผ่าน API, บันทึก tracking/ลิงก์ฉลากและเปลี่ยนสถานะเป็น shipped เมื่อผู้ให้บริการยืนยัน จากนั้นส่ง tracking ทาง Messenger แบบ at-most-once
+8. ผล API ที่ timeout/5xx จะถูกล็อกเป็นผลไม่ชัดเจนและไม่ retry การสร้างอัตโนมัติเพื่อป้องกันพัสดุซ้ำ ให้ตรวจสอบกับขนส่งก่อนดำเนินการ ส่วนการส่ง Messenger ที่ไม่ผ่านจะแสดงเป็น failed และไม่เปลี่ยนสถานะพัสดุ
+
+## BYOK adapter contract
+
+ระบบเก็บ credential เป็น AES-256-GCM ciphertext ใน `shipping_integrations`; API อ่านกลับเฉพาะ metadata และสถานะว่ามี credential แล้ว ไม่ส่ง secret กลับ browser ผู้เรียก API จัดการ integration ต้องเป็น owner ของ tenant และ endpoint ภายนอกต้องใช้ HTTPS พร้อม DNS public address เท่านั้น
+
+adapter เริ่มต้นเป็น Generic DMove-compatible contract ที่ใช้ได้กับ endpoint proxy ของร้าน:
+
+- `GET {api_endpoint}/health` ต้องตอบ JSON ที่ไม่ระบุ `success: false`
+- `POST {api_endpoint}/parcels` ส่ง `Authorization: Bearer ...`, `X-API-Secret`/`X-Merchant-Id` (ถ้าระบุ), `Idempotency-Key` และ JSON `order_id`, `shipment_id`, `recipient`, `sender`, `weight`, `courier_code`
+- Response ต้องมี `{ "success": true, "tracking_number": "...", "label_url": "https://..." }`
+
+ตัวเลือก Flash Express, J&T และไปรษณีย์ไทยใน UI ใช้ generic contract เดียวกันในระยะแรก ไม่ได้หมายถึง native API integration ของค่ายนั้น หาก API จริงมีสัญญา/ลายเซ็นต่างกัน ต้องเพิ่ม adapter เฉพาะก่อนใช้งาน production
 
 ## การรวมรายการและสถานะ
 

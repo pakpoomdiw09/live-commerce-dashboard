@@ -186,6 +186,8 @@ const shipment: ShippingShipment = {
   zipcode: '10220',
   courier_name: 'Flash Express',
   tracking_number: null,
+  tracking_url: null,
+  label_pdf_url: null,
   fulfillment_status: 'ready_to_ship',
   label_printed_at: null,
   label_print_count: 0,

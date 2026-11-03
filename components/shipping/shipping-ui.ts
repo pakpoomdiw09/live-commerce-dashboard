@@ -28,7 +28,19 @@ export const addressHelp: Record<string, string> = {
 export type ShippingPost = (
   input: Record<string, unknown>,
   requestId?: string,
-) => Promise<{ ok: boolean; batchId?: string }>
+) => Promise<{
+  ok: boolean
+  batchId?: string
+  results?: {
+    shipmentId: string
+    status: 'shipped' | 'failed' | 'in_progress' | 'uncertain'
+    trackingNumber?: string
+    trackingUrl?: string
+    labelPdfUrl?: string
+    notification?: 'sent' | 'failed'
+    error?: string
+  }[]
+}>
 export const addressFromShipment = (shipment: ShippingShipment): ShippingAddress =>
   Object.fromEntries(
     SHIPPING_FIELDS.map((field) => [field.key, shipment[field.key] || '']),

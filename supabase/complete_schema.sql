@@ -12783,8 +12783,245 @@ execute $sql_91_36$grant execute on function public.shipping_address_valid(jsonb
     values('shipping-fulfillment.sql','febe4140ce6fc95f7aef8b5475db0a9d9ff072b0fa6358ffab58a54c930a6d02','abc1f380707a3baf1bb18df305b7e06f1be6dbaf3e7eb148a8e20ecfcac486fe');
 end $migration_91$;
 
--- 93. live-order-types.sql
+-- 93. shipping-integrations.sql
 do $migration_92$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='shipping-integrations.sql';
+  if found then
+    if installed <> '6af15d09df91ba5b823845fa09b848b4a6d68d4df8dc99af62dfeabfabf25fb0' then
+      raise exception 'Applied migration changed: shipping-integrations.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- shipping-integrations.sql: source statement 2
+execute $sql_92_2$create table if not exists public.shipping_integrations (
+ id uuid primary key default gen_random_uuid(),
+ tenant_id uuid not null references public.tenants(id) on delete cascade,
+ provider text not null check(provider in ('dmove','flash_express','jnt','thailand_post')),
+ api_endpoint text not null,
+ credentials_ciphertext text not null,
+ weight_kg numeric(8,3) not null default 1.000 check(weight_kg>0 and weight_kg<=100),
+ sender_info jsonb not null,
+ tracking_url_template text not null,
+ is_active boolean not null default false,
+ is_default boolean not null default false,
+ last_tested_at timestamptz,
+ created_at timestamptz not null default clock_timestamp(),
+ updated_at timestamptz not null default clock_timestamp(),
+ unique(tenant_id,provider)
+)$sql_92_2$;
+
+-- shipping-integrations.sql: source statement 3
+execute $sql_92_3$create unique index if not exists shipping_one_default_integration
+ on public.shipping_integrations(tenant_id) where is_default and is_active$sql_92_3$;
+
+-- shipping-integrations.sql: source statement 4
+execute $sql_92_4$alter table public.shipping_shipments
+ add column if not exists tracking_url text,
+ add column if not exists label_pdf_url text$sql_92_4$;
+
+-- shipping-integrations.sql: source statement 5
+execute $sql_92_5$alter table public.orders
+ add column if not exists tracking_url text,
+ add column if not exists label_pdf_url text$sql_92_5$;
+
+-- shipping-integrations.sql: source statement 6
+execute $sql_92_6$create or replace function public.save_shipping_integration(
+ p_tenant uuid,p_provider text,p_endpoint text,p_credentials text,p_sender jsonb,
+ p_tracking_template text,p_weight numeric,p_active boolean,p_default boolean
+) returns void language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if p_provider not in ('dmove','flash_express','jnt','thailand_post')
+  or p_endpoint !~ '^https://[^[:space:]]+$'
+  or length(p_endpoint)>500
+  or jsonb_typeof(p_sender) is distinct from 'object'
+  or length(trim(coalesce(p_sender->>'name',''))) not between 2 and 200
+  or coalesce(p_sender->>'phone','') !~ '^0[1-9][0-9]{7,8}$'
+  or length(trim(coalesce(p_sender->>'address',''))) not between 10 and 1200
+  or p_tracking_template !~ '^https://[^[:space:]]*\{tracking_number\}[^[:space:]]*$'
+  or length(p_tracking_template)>1000
+  or p_weight is null or p_weight<=0 or p_weight>100
+  or p_default and not p_active then
+  raise exception 'SHIPPING_INTEGRATION_INVALID';
+ end if;
+ perform 1 from public.tenants where id=p_tenant for update;
+ if not found then raise exception 'SHIPPING_TENANT_NOT_FOUND' using errcode='P0002';end if;
+ if p_default then
+  update public.shipping_integrations set is_default=false,updated_at=clock_timestamp()
+   where tenant_id=p_tenant and is_default and provider<>p_provider;
+ end if;
+ insert into public.shipping_integrations(
+  tenant_id,provider,api_endpoint,credentials_ciphertext,sender_info,tracking_url_template,weight_kg,is_active,is_default
+ ) values(p_tenant,p_provider,p_endpoint,p_credentials,p_sender,p_tracking_template,p_weight,p_active,p_default)
+ on conflict(tenant_id,provider) do update set api_endpoint=excluded.api_endpoint,
+  credentials_ciphertext=excluded.credentials_ciphertext,sender_info=excluded.sender_info,
+  tracking_url_template=excluded.tracking_url_template,weight_kg=excluded.weight_kg,is_active=excluded.is_active,
+  is_default=excluded.is_default,updated_at=clock_timestamp();
+ if not p_active then
+  update public.shipping_integrations set is_default=false,updated_at=clock_timestamp()
+   where tenant_id=p_tenant and provider=p_provider;
+ end if;
+end $$$sql_92_6$;
+
+-- shipping-integrations.sql: source statement 7
+execute $sql_92_7$create table if not exists public.shipping_provider_jobs (
+ id uuid primary key default gen_random_uuid(),
+ tenant_id uuid not null references public.tenants(id) on delete cascade,
+ shipment_id uuid not null references public.shipping_shipments(id),
+ actor_id uuid not null references auth.users(id),
+ request_id uuid not null,
+ provider text not null check(provider in ('dmove','flash_express','jnt','thailand_post')),
+ idempotency_key uuid not null default gen_random_uuid(),
+ status text not null default 'creating' check(status in ('creating','created','failed','uncertain')),
+ notification_status text not null default 'pending' check(notification_status in ('pending','sent','failed')),
+ tracking_number text,
+ courier_name text,
+ tracking_url text,
+ label_pdf_url text,
+ error_code text,
+ created_at timestamptz not null default clock_timestamp(),
+ updated_at timestamptz not null default clock_timestamp(),
+ unique(tenant_id,request_id,shipment_id)
+)$sql_92_7$;
+
+-- shipping-integrations.sql: source statement 8
+execute $sql_92_8$create index if not exists shipping_provider_jobs_pending
+ on public.shipping_provider_jobs(tenant_id,status,created_at desc)$sql_92_8$;
+
+-- shipping-integrations.sql: source statement 9
+execute $sql_92_9$create unique index if not exists shipping_provider_jobs_tracking
+ on public.shipping_provider_jobs(tenant_id,provider,tracking_number)
+ where tracking_number is not null$sql_92_9$;
+
+-- shipping-integrations.sql: source statement 10
+execute $sql_92_10$alter table public.shipping_integrations enable row level security$sql_92_10$;
+
+-- shipping-integrations.sql: source statement 11
+execute $sql_92_11$alter table public.shipping_provider_jobs enable row level security$sql_92_11$;
+
+-- shipping-integrations.sql: source statement 12
+execute $sql_92_12$revoke all on public.shipping_integrations,public.shipping_provider_jobs from public,anon,authenticated$sql_92_12$;
+
+-- shipping-integrations.sql: source statement 13
+execute $sql_92_13$grant all on public.shipping_integrations,public.shipping_provider_jobs to service_role$sql_92_13$;
+
+-- shipping-integrations.sql: source statement 14
+execute $sql_92_14$create or replace function public.begin_shipping_provider_job(
+ p_tenant uuid,p_actor uuid,p_request uuid,p_shipment uuid,p_provider text
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare s public.shipping_shipments;j public.shipping_provider_jobs;
+begin
+ if p_tenant is null or p_actor is null or p_request is null or p_shipment is null
+  or p_provider not in ('dmove','flash_express','jnt','thailand_post') then
+  raise exception 'SHIPPING_PROVIDER_INPUT_INVALID';
+ end if;
+ perform 1 from public.tenants where id=p_tenant for update;
+ if not found then raise exception 'SHIPPING_TENANT_NOT_FOUND' using errcode='P0002';end if;
+ select * into s from public.shipping_shipments where id=p_shipment and tenant_id=p_tenant for update;
+ if not found then raise exception 'SHIPPING_SCOPE' using errcode='42501';end if;
+ select * into j from public.shipping_provider_jobs
+  where tenant_id=p_tenant and request_id=p_request and shipment_id=p_shipment for update;
+ if found then
+  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,
+   'trackingNumber',j.tracking_number,'trackingUrl',j.tracking_url,'labelPdfUrl',j.label_pdf_url,
+   'courierName',j.courier_name,'notificationStatus',j.notification_status,'claimed',false);
+ end if;
+ select * into j from public.shipping_provider_jobs
+  where tenant_id=p_tenant and shipment_id=p_shipment and status in ('creating','created','uncertain')
+  order by created_at desc limit 1 for update;
+ if found then
+  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,
+   'trackingNumber',j.tracking_number,'trackingUrl',j.tracking_url,'labelPdfUrl',j.label_pdf_url,
+   'courierName',j.courier_name,'notificationStatus',j.notification_status,'claimed',false);
+ end if;
+ if s.fulfillment_status<>'ready_to_ship' or not public.shipping_payment_ready(s.id)
+  or s.address_confirmed_at is null or not public.shipping_address_valid(to_jsonb(s)) then
+  raise exception 'SHIPPING_NOT_READY';
+ end if;
+ if not exists(select 1 from public.shipping_integrations i where i.tenant_id=p_tenant
+  and i.provider=p_provider and i.is_active) then
+  raise exception 'SHIPPING_PROVIDER_NOT_ACTIVE';
+ end if;
+ insert into public.shipping_provider_jobs(tenant_id,shipment_id,actor_id,request_id,provider)
+  values(p_tenant,p_shipment,p_actor,p_request,p_provider) returning * into j;
+ return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,'claimed',true);
+end $$$sql_92_14$;
+
+-- shipping-integrations.sql: source statement 15
+execute $sql_92_15$create or replace function public.complete_shipping_provider_job(
+ p_job uuid,p_tracking text,p_courier text,p_tracking_url text,p_label_url text
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare j public.shipping_provider_jobs;s public.shipping_shipments;
+begin
+ select * into j from public.shipping_provider_jobs where id=p_job for update;
+ if not found then raise exception 'SHIPPING_JOB_NOT_FOUND' using errcode='P0002';end if;
+ if j.status='created' then
+  return jsonb_build_object('jobId',j.id,'status',j.status,'trackingNumber',j.tracking_number,
+   'trackingUrl',j.tracking_url,'labelPdfUrl',j.label_pdf_url,'courierName',j.courier_name);
+ end if;
+ if j.status<>'creating' or p_tracking !~ '^[A-Za-z0-9][A-Za-z0-9._/-]{3,99}$'
+  or length(trim(coalesce(p_courier,''))) not between 1 and 80
+  or p_tracking_url !~ '^https://[^[:space:]]+$'
+  or p_label_url !~ '^https://[^[:space:]]+$' then
+  raise exception 'SHIPPING_PROVIDER_RESULT_INVALID';
+ end if;
+ select * into s from public.shipping_shipments where id=j.shipment_id and tenant_id=j.tenant_id for update;
+ if not found or s.fulfillment_status<>'ready_to_ship' or not public.shipping_payment_ready(s.id) then
+  raise exception 'SHIPPING_NOT_READY' using errcode='40001';
+ end if;
+ update public.shipping_shipments set tracking_number=p_tracking,courier_name=p_courier,
+  tracking_url=p_tracking_url,label_pdf_url=p_label_url,fulfillment_status='shipped',
+  shipped_at=clock_timestamp(),revision=revision+1 where id=s.id;
+ update public.orders set status='shipped',tracking_number=p_tracking,courier_name=p_courier,
+  tracking_url=p_tracking_url,label_pdf_url=p_label_url
+  where shipping_shipment_id=s.id and status='paid';
+ update public.shipping_provider_jobs set status='created',tracking_number=p_tracking,
+  courier_name=p_courier,tracking_url=p_tracking_url,label_pdf_url=p_label_url,
+  updated_at=clock_timestamp() where id=j.id;
+ return jsonb_build_object('jobId',j.id,'status','created','trackingNumber',p_tracking,
+  'trackingUrl',p_tracking_url,'labelPdfUrl',p_label_url,'courierName',p_courier);
+end $$$sql_92_15$;
+
+-- shipping-integrations.sql: source statement 16
+execute $sql_92_16$create or replace function public.finish_shipping_provider_job(
+ p_job uuid,p_status text,p_error text default null
+) returns void language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if p_status not in ('failed','uncertain') then raise exception 'SHIPPING_PROVIDER_STATUS_INVALID';end if;
+ update public.shipping_provider_jobs set status=p_status,error_code=left(p_error,80),
+  updated_at=clock_timestamp() where id=p_job and status='creating';
+end $$$sql_92_16$;
+
+-- shipping-integrations.sql: source statement 17
+execute $sql_92_17$create or replace function public.mark_shipping_tracking_notification(p_job uuid,p_status text)
+returns void language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if p_status not in ('sent','failed') then raise exception 'SHIPPING_NOTIFICATION_STATUS_INVALID';end if;
+ update public.shipping_provider_jobs set notification_status=p_status,updated_at=clock_timestamp()
+  where id=p_job and status='created';
+ if not found then raise exception 'SHIPPING_JOB_NOT_FOUND' using errcode='P0002';end if;
+end $$$sql_92_17$;
+
+-- shipping-integrations.sql: source statement 18
+execute $sql_92_18$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
+ public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text),
+ public.complete_shipping_provider_job(uuid,text,text,text,text),
+ public.finish_shipping_provider_job(uuid,text,text),
+ public.mark_shipping_tracking_notification(uuid,text) from public,anon,authenticated$sql_92_18$;
+
+-- shipping-integrations.sql: source statement 19
+execute $sql_92_19$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
+ public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text),
+ public.complete_shipping_provider_job(uuid,text,text,text,text),
+ public.finish_shipping_provider_job(uuid,text,text),
+ public.mark_shipping_tracking_notification(uuid,text) to service_role$sql_92_19$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('shipping-integrations.sql','6af15d09df91ba5b823845fa09b848b4a6d68d4df8dc99af62dfeabfabf25fb0','fc4b9961c01fe943eb8eb78e6978b4cf9c9f3d0d7ccbe33cb1257b0801c268ec');
+end $migration_92$;
+
+-- 94. live-order-types.sql
+do $migration_93$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-order-types.sql';
@@ -12795,17 +13032,17 @@ begin
     return;
   end if;
 -- live-order-types.sql: source statement 2
-execute $sql_92_2$alter table public.orders add column if not exists order_type text generated always as (
+execute $sql_93_2$alter table public.orders add column if not exists order_type text generated always as (
  case when source='live_auction' then 'auction'
  when source in ('live_comment','facebook_comment') or source_code is not null then 'cf' else null end
-) stored$sql_92_2$;
+) stored$sql_93_2$;
 
 -- live-order-types.sql: source statement 3
-execute $sql_92_3$alter table public.customer_tab_items add column if not exists order_type text check(order_type in ('auction','cf')),
- add column if not exists source_code text$sql_92_3$;
+execute $sql_93_3$alter table public.customer_tab_items add column if not exists order_type text check(order_type in ('auction','cf')),
+ add column if not exists source_code text$sql_93_3$;
 
 -- live-order-types.sql: source statement 4
-execute $sql_92_4$create or replace function public.stamp_live_item_type() returns trigger
+execute $sql_93_4$create or replace function public.stamp_live_item_type() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  select o.order_type,o.source_code into new.order_type,new.source_code from public.orders o
@@ -12813,19 +13050,19 @@ begin
   where o.id=new.order_id and o.customer_tab_id=t.id;
  if not found then raise exception 'TAB_ITEM_SCOPE' using errcode='42501';end if;
  return new;
-end $$$sql_92_4$;
+end $$$sql_93_4$;
 
 -- live-order-types.sql: source statement 5
-execute $sql_92_5$drop trigger if exists customer_tab_item_type on public.customer_tab_items$sql_92_5$;
+execute $sql_93_5$drop trigger if exists customer_tab_item_type on public.customer_tab_items$sql_93_5$;
 
 -- live-order-types.sql: source statement 6
-execute $sql_92_6$create trigger customer_tab_item_type before insert or update on public.customer_tab_items for each row execute function public.stamp_live_item_type()$sql_92_6$;
+execute $sql_93_6$create trigger customer_tab_item_type before insert or update on public.customer_tab_items for each row execute function public.stamp_live_item_type()$sql_93_6$;
 
 -- live-order-types.sql: source statement 8
-execute $sql_92_8$revoke all on function public.stamp_live_item_type() from public,anon,authenticated$sql_92_8$;
+execute $sql_93_8$revoke all on function public.stamp_live_item_type() from public,anon,authenticated$sql_93_8$;
 
 -- live-order-types.sql: source statement 9
-execute $sql_92_9$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_93_9$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; metrics jsonb; rounds jsonb; bills jsonb;
 begin
@@ -12873,13 +13110,13 @@ begin
   from public.customer_tabs t join public.customers c on c.id=t.customer_id and c.tenant_id=p_tenant where t.live_session_id=s.id
  ) rows;
  return jsonb_build_object('session',to_jsonb(s),'metrics',metrics,'rounds',rounds,'tabs',bills);
-end $$$sql_92_9$;
+end $$$sql_93_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-order-types.sql','a5c7d2e07f62879141a4be3437291b490cda34001ef69016d0215673c74c5a15','eb6171db344172c6b92c8fe04ee96f2a71afb4d15c1af599f59dab0c57a54d01');
-end $migration_92$;
+end $migration_93$;
 
--- 94. live-auction-dashboard.sql
-do $migration_93$
+-- 95. live-auction-dashboard.sql
+do $migration_94$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-dashboard.sql';
@@ -12890,35 +13127,35 @@ begin
     return;
   end if;
 -- live-auction-dashboard.sql: source statement 2
-execute $sql_93_2$alter table public.live_sessions add column if not exists auction_settings jsonb,
- add column if not exists automation_revision integer not null default 0$sql_93_2$;
+execute $sql_94_2$alter table public.live_sessions add column if not exists auction_settings jsonb,
+ add column if not exists automation_revision integer not null default 0$sql_94_2$;
 
 -- live-auction-dashboard.sql: source statement 3
-execute $sql_93_3$alter table public.auctions add column if not exists session_automation jsonb$sql_93_3$;
+execute $sql_94_3$alter table public.auctions add column if not exists session_automation jsonb$sql_94_3$;
 
 -- live-auction-dashboard.sql: source statement 4
-execute $sql_93_4$create index if not exists live_auction_comment_events on public.facebook_webhook_events(page_id,created_at desc)
- where kind='change' and payload->'value'->>'verb'='add' and payload->'value'->>'item' in ('comment','live_comment')$sql_93_4$;
+execute $sql_94_4$create index if not exists live_auction_comment_events on public.facebook_webhook_events(page_id,created_at desc)
+ where kind='change' and payload->'value'->>'verb'='add' and payload->'value'->>'item' in ('comment','live_comment')$sql_94_4$;
 
 -- live-auction-dashboard.sql: source statement 5
-execute $sql_93_5$create table if not exists public.auction_session_requests (
+execute $sql_94_5$create table if not exists public.auction_session_requests (
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  request_id uuid not null, actor_id uuid not null, input jsonb not null, result jsonb not null,
  created_at timestamptz not null default clock_timestamp(), primary key(tenant_id,request_id)
-)$sql_93_5$;
+)$sql_94_5$;
 
 -- live-auction-dashboard.sql: source statement 6
-execute $sql_93_6$alter table public.auction_session_requests enable row level security$sql_93_6$;
+execute $sql_94_6$alter table public.auction_session_requests enable row level security$sql_94_6$;
 
 -- live-auction-dashboard.sql: source statement 7
-execute $sql_93_7$revoke all on public.auction_session_requests from public,anon,authenticated$sql_93_7$;
+execute $sql_94_7$revoke all on public.auction_session_requests from public,anon,authenticated$sql_94_7$;
 
 -- live-auction-dashboard.sql: source statement 8
-execute $sql_93_8$grant all on public.auction_session_requests to service_role$sql_93_8$;
+execute $sql_94_8$grant all on public.auction_session_requests to service_role$sql_94_8$;
 
 -- live-auction-dashboard.sql: source statement 9
 begin
-execute $sql_93_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_94_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.auction_session_requests; settings jsonb:=p_input->'settings'; result jsonb; page text;
 begin
@@ -12969,7 +13206,7 @@ begin
  result:=jsonb_build_object('id',s.id,'revision',s.automation_revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_93_9$;
+end $$$sql_94_9$;
 exception when invalid_function_definition then
   -- A newer signature of configure_auction_session(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -12977,7 +13214,7 @@ end;
 
 -- live-auction-dashboard.sql: source statement 10
 begin
-execute $sql_93_10$create or replace function public.inherit_auction_session_settings() returns trigger
+execute $sql_94_10$create or replace function public.inherit_auction_session_settings() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare settings jsonb;
 begin
@@ -12989,21 +13226,21 @@ begin
   new.private_reply_template:=settings->>'privateText';new.bid_reply_template:=settings->>'bidText';new.close_reply_template:=settings->>'closeText';
  end if;
  return new;
-end $$$sql_93_10$;
+end $$$sql_94_10$;
 exception when invalid_function_definition then
   -- A newer signature of inherit_auction_session_settings() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-dashboard.sql: source statement 11
-execute $sql_93_11$drop trigger if exists auction_session_settings on public.auctions$sql_93_11$;
+execute $sql_94_11$drop trigger if exists auction_session_settings on public.auctions$sql_94_11$;
 
 -- live-auction-dashboard.sql: source statement 12
-execute $sql_93_12$create trigger auction_session_settings before insert on public.auctions for each row execute function public.inherit_auction_session_settings()$sql_93_12$;
+execute $sql_94_12$create trigger auction_session_settings before insert on public.auctions for each row execute function public.inherit_auction_session_settings()$sql_94_12$;
 
 -- live-auction-dashboard.sql: source statement 13
 begin
-execute $sql_93_13$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_94_13$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; result jsonb; slips jsonb; commenters jsonb;
 begin
@@ -13030,23 +13267,23 @@ begin
   group by v->'from'->>'id' order by max(created_at) desc limit 500
  ) records;
  return result||jsonb_build_object('slips',slips,'commenters',commenters);
-end $$$sql_93_13$;
+end $$$sql_94_13$;
 exception when invalid_function_definition then
   -- A newer signature of live_auction_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-dashboard.sql: source statement 14
-execute $sql_93_14$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.inherit_auction_session_settings(),public.live_auction_dashboard(uuid,uuid) from public,anon,authenticated$sql_93_14$;
+execute $sql_94_14$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.inherit_auction_session_settings(),public.live_auction_dashboard(uuid,uuid) from public,anon,authenticated$sql_94_14$;
 
 -- live-auction-dashboard.sql: source statement 15
-execute $sql_93_15$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.live_auction_dashboard(uuid,uuid) to service_role$sql_93_15$;
+execute $sql_94_15$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.live_auction_dashboard(uuid,uuid) to service_role$sql_94_15$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-dashboard.sql','796c27727868b87ae7782c18a371dd3f5f613b4b6ed8f20764612fccb90c95e1','7b17bf54411dc1c84510ecf2a204c12dafe82c56d28b960be0061e4898bb679e');
-end $migration_93$;
+end $migration_94$;
 
--- 95. live-auction-instant-winners.sql
-do $migration_94$
+-- 96. live-auction-instant-winners.sql
+do $migration_95$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-instant-winners.sql';
@@ -13057,7 +13294,7 @@ begin
     return;
   end if;
 -- live-auction-instant-winners.sql: source statement 4
-execute $sql_94_4$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_95_4$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; result jsonb; slips jsonb; commenters jsonb; matched_people bigint;
 begin
@@ -13098,13 +13335,13 @@ begin
  ) select count(distinct fb_id) into matched_people from matched where fb_id is not null and fb_id<>s.page_id;
  result:=jsonb_set(result,'{metrics}',(result->'metrics')||jsonb_build_object('matchedPeople',matched_people));
  return result||jsonb_build_object('slips',slips,'commenters',commenters);
-end $$$sql_94_4$;
+end $$$sql_95_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-instant-winners.sql','5a085d82bf4a201c0a149e2c5c3b30a95d9c8e691c6ccba76a1cdd0888c6557a','d0788ad3f0cd0a402db298a6fedcdc6c1620e2f2e35a15f580f8153e081e7f65');
-end $migration_94$;
+end $migration_95$;
 
--- 96. live-auction-customer-workspace.sql
-do $migration_95$
+-- 97. live-auction-customer-workspace.sql
+do $migration_96$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-customer-workspace.sql';
@@ -13115,25 +13352,25 @@ begin
     return;
   end if;
 -- live-auction-customer-workspace.sql: source statement 2
-execute $sql_95_2$create table if not exists public.live_session_customer_notes (
+execute $sql_96_2$create table if not exists public.live_session_customer_notes (
  session_id uuid not null references public.live_sessions(id) on delete cascade,
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  fb_id text not null check(fb_id ~ '^[0-9]{1,64}$'),
  note text not null default '' check(length(note)<=500), revision integer not null default 1,
  updated_at timestamptz not null default clock_timestamp(), primary key(session_id,fb_id)
-)$sql_95_2$;
+)$sql_96_2$;
 
 -- live-auction-customer-workspace.sql: source statement 3
-execute $sql_95_3$alter table public.live_session_customer_notes enable row level security$sql_95_3$;
+execute $sql_96_3$alter table public.live_session_customer_notes enable row level security$sql_96_3$;
 
 -- live-auction-customer-workspace.sql: source statement 4
-execute $sql_95_4$revoke all on public.live_session_customer_notes from public,anon,authenticated$sql_95_4$;
+execute $sql_96_4$revoke all on public.live_session_customer_notes from public,anon,authenticated$sql_96_4$;
 
 -- live-auction-customer-workspace.sql: source statement 5
-execute $sql_95_5$grant all on public.live_session_customer_notes to service_role$sql_95_5$;
+execute $sql_96_5$grant all on public.live_session_customer_notes to service_role$sql_96_5$;
 
 -- live-auction-customer-workspace.sql: source statement 6
-execute $sql_95_6$create or replace function public.live_auction_matched_customers(p_tenant uuid,p_session uuid)
+execute $sql_96_6$create or replace function public.live_auction_matched_customers(p_tenant uuid,p_session uuid)
 returns table(fb_id text) language sql stable set search_path=pg_catalog,public as $$
  with s as (select * from public.live_sessions where id=p_session and tenant_id=p_tenant)
  select b.bidder_id from public.auction_bids b join public.auctions a on a.id=b.auction_id join s on a.page_id=s.page_id and a.live_post_id=s.live_post_id
@@ -13146,10 +13383,10 @@ returns table(fb_id text) language sql stable set search_path=pg_catalog,public 
  regexp_replace(e.payload->'value'->>'post_id','^.*_','')=s.live_post_id or e.payload->'value'->>'video_id'=s.live_post_id
  or e.payload->'value'->>'live_video_id'=s.live_post_id or exists(select 1 from public.auctions a where a.tenant_id=p_tenant
   and a.page_id=s.page_id and a.live_post_id=s.live_post_id and e.payload->'value'->>'post_id'=any(a.live_post_aliases)))
-$$$sql_95_6$;
+$$$sql_96_6$;
 
 -- live-auction-customer-workspace.sql: source statement 7
-execute $sql_95_7$create or replace function public.live_auction_customer_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_96_7$create or replace function public.live_auction_customer_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; ids text[]; tabs jsonb; people jsonb;
 begin
@@ -13165,10 +13402,10 @@ begin
  from jsonb_array_elements(result->'commenters') with ordinality rows(x,pos)
  left join public.live_session_customer_notes n on n.session_id=p_session and n.fb_id=x->>'fbId' and n.tenant_id=p_tenant;
  return result||jsonb_build_object('tabs',tabs,'commenters',people);
-end $$$sql_95_7$;
+end $$$sql_96_7$;
 
 -- live-auction-customer-workspace.sql: source statement 8
-execute $sql_95_8$create or replace function public.save_auction_customer_note(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_fb_id text,p_note text,p_revision integer)
+execute $sql_96_8$create or replace function public.save_auction_customer_note(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_fb_id text,p_note text,p_revision integer)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare payload jsonb; prior public.auction_session_requests; current public.live_session_customer_notes; snapshot jsonb; result jsonb;
 begin
@@ -13193,11 +13430,11 @@ begin
  result:=jsonb_build_object('note',current.note,'revision',current.revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,payload,result);
  return result;
-end $$$sql_95_8$;
+end $$$sql_96_8$;
 
 -- live-auction-customer-workspace.sql: source statement 9
 begin
-execute $sql_95_9$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
+execute $sql_96_9$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare snapshot jsonb; person jsonb; fb text; name text; cid uuid;
 begin
@@ -13215,29 +13452,29 @@ begin
  end loop;
  -- Importing commenters must not manufacture a Messenger inbound window or a payment.
  return public.live_auction_customer_dashboard(p_tenant,p_session);
-end $$$sql_95_9$;
+end $$$sql_96_9$;
 exception when invalid_function_definition then
   -- A newer signature of collect_auction_session_customers(uuid,uuid,text[]) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-customer-workspace.sql: source statement 10
-execute $sql_95_10$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]),public.live_auction_matched_customers(uuid,uuid),public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public,anon,authenticated$sql_95_10$;
+execute $sql_96_10$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]),public.live_auction_matched_customers(uuid,uuid),public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public,anon,authenticated$sql_96_10$;
 
 -- live-auction-customer-workspace.sql: source statement 11
-execute $sql_95_11$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_95_11$;
+execute $sql_96_11$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_96_11$;
 
 -- live-auction-customer-workspace.sql: source statement 12
-execute $sql_95_12$grant execute on function public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_95_12$;
+execute $sql_96_12$grant execute on function public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_96_12$;
 
 -- live-auction-customer-workspace.sql: source statement 13
-execute $sql_95_13$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_95_13$;
+execute $sql_96_13$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_96_13$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-customer-workspace.sql','12a96656e8ad33ac866177ef0a5ceb8161fcc8ec1a9511706f8fa0bf59db884d','dff1722d7bd0ef6404ac4d3c9e32a516d137f13a8dac3ce8cd3c9d5ea5fd5d34');
-end $migration_95$;
+end $migration_96$;
 
--- 97. live-auction-thai-workflow.sql
-do $migration_96$
+-- 98. live-auction-thai-workflow.sql
+do $migration_97$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-thai-workflow.sql';
@@ -13249,7 +13486,7 @@ begin
   end if;
 -- live-auction-thai-workflow.sql: source statement 2
 begin
-execute $sql_96_2$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+execute $sql_97_2$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select settings||jsonb_build_object(
   'keywords',case when settings->'keywords'='["1","11","111","11111","+1","+10"]'::jsonb then '["1"]'::jsonb else settings->'keywords' end,
@@ -13257,14 +13494,14 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'countEnabled',false,'heartCloses',false,'closeEnabled',true,
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end)
-$$$sql_96_2$;
+$$$sql_97_2$;
 exception when invalid_function_definition then
   -- A newer signature of normalize_auction_thai_settings(jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-thai-workflow.sql: source statement 5
-execute $sql_96_5$create or replace function public.inherit_auction_session_settings() returns trigger
+execute $sql_97_5$create or replace function public.inherit_auction_session_settings() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare settings jsonb;
 begin
@@ -13276,11 +13513,11 @@ begin
   new.private_reply_template:=settings->>'privateText';new.bid_reply_template:=settings->>'bidText';new.close_reply_template:=settings->>'closeText';
  end if;
  return new;
-end $$$sql_96_5$;
+end $$$sql_97_5$;
 
 -- live-auction-thai-workflow.sql: source statement 6
 begin
-execute $sql_96_6$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
+execute $sql_97_6$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
 language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; active jsonb;
 begin
@@ -13289,21 +13526,21 @@ begin
  join public.live_sessions s on s.id=p_session and s.tenant_id=p_tenant and s.page_id=a.page_id and s.live_post_id=a.live_post_id
  where a.tenant_id=p_tenant and a.status='active' order by a.created_at desc limit 1;
  return result||jsonb_build_object('activeAuction',active);
-end $$$sql_96_6$;
+end $$$sql_97_6$;
 exception when invalid_function_definition then
   -- A newer signature of live_auction_thai_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-thai-workflow.sql: source statement 7
-execute $sql_96_7$revoke all on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_96_7$;
+execute $sql_97_7$revoke all on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_97_7$;
 
 -- live-auction-thai-workflow.sql: source statement 8
-execute $sql_96_8$grant execute on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_96_8$;
+execute $sql_97_8$grant execute on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_97_8$;
 
 -- live-auction-thai-workflow.sql: source statement 9
 begin
-execute $sql_96_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_97_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.auction_session_requests; settings jsonb:=public.normalize_auction_thai_settings(p_input->'settings'); result jsonb; page text;
 begin
@@ -13355,14 +13592,14 @@ begin
  result:=jsonb_build_object('id',s.id,'revision',s.automation_revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_96_9$;
+end $$$sql_97_9$;
 exception when invalid_function_definition then
   -- A newer signature of configure_auction_session(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-thai-workflow.sql: source statement 10
-execute $sql_96_10$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_97_10$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
 begin
@@ -13407,10 +13644,10 @@ begin
    select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
  end if;
  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
-end $$$sql_96_10$;
+end $$$sql_97_10$;
 
 -- live-auction-thai-workflow.sql: source statement 11
-execute $sql_96_11$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
+execute $sql_97_11$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare snapshot jsonb; person jsonb; fb text; name text; cid uuid;
 begin
@@ -13428,11 +13665,11 @@ begin
  end loop;
  -- Importing commenters must not manufacture a Messenger inbound window or a payment.
  return public.live_auction_thai_dashboard(p_tenant,p_session);
-end $$$sql_96_11$;
+end $$$sql_97_11$;
 
 -- live-auction-thai-workflow.sql: source statement 12
 begin
-execute $sql_96_12$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_97_12$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; prior jsonb; r jsonb;
  sender text; cid text; bidder text; amount numeric; minimum numeric; outcome text; host boolean;
@@ -13492,17 +13729,17 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),amount,p_kind='OPENING_BID',outcome,r);
  return r;
-end $$$sql_96_12$;
+end $$$sql_97_12$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-thai-workflow.sql','34fe6fc91588c5f04bf747976914472d998112412ef637ea449cc1ab27d3b4d6','23e73cd12f7536b5bb63f80528c2f451d9d9f27b5a839be358aaac8588f6ad59');
-end $migration_96$;
+end $migration_97$;
 
--- 98. live-auction-customer-columns.sql
-do $migration_97$
+-- 99. live-auction-customer-columns.sql
+do $migration_98$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-customer-columns.sql';
@@ -13513,7 +13750,7 @@ begin
     return;
   end if;
 -- live-auction-customer-columns.sql: source statement 1
-execute $sql_97_1$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
+execute $sql_98_1$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
 language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; active jsonb; people jsonb; s public.live_sessions;
 begin
@@ -13538,19 +13775,19 @@ begin
  from jsonb_array_elements(result->'commenters') with ordinality rows(x,pos)
  left join latest on latest.fb_id=x->>'fbId';
  return result||jsonb_build_object('activeAuction',active,'commenters',people);
-end $$$sql_97_1$;
+end $$$sql_98_1$;
 
 -- live-auction-customer-columns.sql: source statement 2
-execute $sql_97_2$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_97_2$;
+execute $sql_98_2$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_98_2$;
 
 -- live-auction-customer-columns.sql: source statement 3
-execute $sql_97_3$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_97_3$;
+execute $sql_98_3$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_98_3$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-customer-columns.sql','193605a75ceaaaff5d04fb3c07c00bb77fcb3e88a220e2d1faa0530464227d23','a0e96f4c674e920d1974403d19e64ed225e8b2cf2c9a3a625473e8b2767a8bc9');
-end $migration_97$;
+end $migration_98$;
 
--- 99. live-auction-close-presets.sql
-do $migration_98$
+-- 100. live-auction-close-presets.sql
+do $migration_99$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-close-presets.sql';
@@ -13561,20 +13798,20 @@ begin
     return;
   end if;
 -- live-auction-close-presets.sql: source statement 2
-execute $sql_98_2$create or replace function public.default_auction_close_keywords() returns jsonb
-language sql immutable set search_path=pg_catalog,public as $$ select '["ปิด","จบ","พอ","321","3 2 1","x","X","❌","🛑","⛔","🚫","✖️","🏁","🚩","🔨","🔔","⏰","❤️","🖤"]'::jsonb $$$sql_98_2$;
+execute $sql_99_2$create or replace function public.default_auction_close_keywords() returns jsonb
+language sql immutable set search_path=pg_catalog,public as $$ select '["ปิด","จบ","พอ","321","3 2 1","x","X","❌","🛑","⛔","🚫","✖️","🏁","🚩","🔨","🔔","⏰","❤️","🖤"]'::jsonb $$$sql_99_2$;
 
 -- live-auction-close-presets.sql: source statement 3
-execute $sql_98_3$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
+execute $sql_99_3$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
 language sql immutable set search_path=pg_catalog,public as $$
  select exists(select 1 from jsonb_array_elements_text(keywords) k
  where length(translate(trim(k),U&'\FE0E\FE0F',''))>0 and position(
   translate(lower(regexp_replace(normalize(trim(k),NFKC),'\s+',' ','g')),U&'\FE0E\FE0F','')
   in translate(lower(regexp_replace(normalize(trim(coalesce(message,'')),NFKC),'\s+',' ','g')),U&'\FE0E\FE0F',''))>0)
-$$$sql_98_3$;
+$$$sql_99_3$;
 
 -- live-auction-close-presets.sql: source statement 4
-execute $sql_98_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+execute $sql_99_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select settings||jsonb_build_object(
   'keywords',case when settings->'keywords'='["1","11","111","11111","+1","+10"]'::jsonb then '["1"]'::jsonb else settings->'keywords' end,
@@ -13582,10 +13819,10 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'closeKeywordPresetsVersion',1,'countEnabled',false,'heartCloses',false,'closeEnabled',true,
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end)
-$$$sql_98_4$;
+$$$sql_99_4$;
 
 -- live-auction-close-presets.sql: source statement 7
-execute $sql_98_7$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_99_7$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; prior jsonb; r jsonb;
  sender text; cid text; bidder text; amount numeric; minimum numeric; outcome text; host boolean;
@@ -13645,19 +13882,19 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),amount,p_kind='OPENING_BID',outcome,r);
  return r;
-end $$$sql_98_7$;
+end $$$sql_99_7$;
 
 -- live-auction-close-presets.sql: source statement 8
-execute $sql_98_8$revoke all on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) from public,anon,authenticated$sql_98_8$;
+execute $sql_99_8$revoke all on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) from public,anon,authenticated$sql_99_8$;
 
 -- live-auction-close-presets.sql: source statement 9
-execute $sql_98_9$grant execute on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) to service_role$sql_98_9$;
+execute $sql_99_9$grant execute on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) to service_role$sql_99_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-close-presets.sql','027974180f12827afc3de9dd4bdb1a22a2936126fa8b499b53bb07c68b41a94d','e40d3d01a50c6c99c399043f94540a4368ccfdbe43a206d814338ae7666c5db3');
-end $migration_98$;
+end $migration_99$;
 
--- 100. live-auction-unlimited-keywords.sql
-do $migration_99$
+-- 101. live-auction-unlimited-keywords.sql
+do $migration_100$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-unlimited-keywords.sql';
@@ -13668,7 +13905,7 @@ begin
     return;
   end if;
 -- live-auction-unlimited-keywords.sql: source statement 2
-execute $sql_99_2$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_100_2$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.auction_session_requests; settings jsonb:=public.normalize_auction_thai_settings(p_input->'settings'); result jsonb; page text;
 begin
@@ -13721,13 +13958,13 @@ begin
  result:=jsonb_build_object('id',s.id,'revision',s.automation_revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_99_2$;
+end $$$sql_100_2$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-unlimited-keywords.sql','bffdac922804024666ad0d2db6830382711d53df15a4a5b0d2ce8fb8bf208897','ba2dee345322ca688b2976bec107f1d64b5c94ed725e9c450d7599666b6488c3');
-end $migration_99$;
+end $migration_100$;
 
--- 101. live-auction-winner-confirmation.sql
-do $migration_100$
+-- 102. live-auction-winner-confirmation.sql
+do $migration_101$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-winner-confirmation.sql';
@@ -13738,23 +13975,23 @@ begin
     return;
   end if;
 -- live-auction-winner-confirmation.sql: source statement 2
-execute $sql_100_2$alter table public.auctions add column if not exists winner_confirmation_comment_id text$sql_100_2$;
+execute $sql_101_2$alter table public.auctions add column if not exists winner_confirmation_comment_id text$sql_101_2$;
 
 -- live-auction-winner-confirmation.sql: source statement 3
-execute $sql_100_3$alter table public.auctions add column if not exists winner_confirmation_event_id uuid references public.facebook_webhook_events(id)$sql_100_3$;
+execute $sql_101_3$alter table public.auctions add column if not exists winner_confirmation_event_id uuid references public.facebook_webhook_events(id)$sql_101_3$;
 
 -- live-auction-winner-confirmation.sql: source statement 4
-execute $sql_100_4$alter table public.auctions add column if not exists winner_confirmed_at timestamptz$sql_100_4$;
+execute $sql_101_4$alter table public.auctions add column if not exists winner_confirmed_at timestamptz$sql_101_4$;
 
 -- live-auction-winner-confirmation.sql: source statement 5
-execute $sql_100_5$alter table public.auction_deliveries drop constraint if exists auction_deliveries_status_check$sql_100_5$;
+execute $sql_101_5$alter table public.auction_deliveries drop constraint if exists auction_deliveries_status_check$sql_101_5$;
 
 -- live-auction-winner-confirmation.sql: source statement 6
-execute $sql_100_6$alter table public.auction_deliveries add constraint auction_deliveries_status_check
- check(status in ('awaiting_confirmation','pending','sending','sent','requires_review'))$sql_100_6$;
+execute $sql_101_6$alter table public.auction_deliveries add constraint auction_deliveries_status_check
+ check(status in ('awaiting_confirmation','pending','sending','sent','requires_review'))$sql_101_6$;
 
 -- live-auction-winner-confirmation.sql: source statement 7
-execute $sql_100_7$create or replace function public.hold_auction_winner_notifications() returns trigger
+execute $sql_101_7$create or replace function public.hold_auction_winner_notifications() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.status='pending' and exists(select 1 from public.auctions a where a.id=new.auction_id
@@ -13762,17 +13999,17 @@ begin
   new.status:='awaiting_confirmation';
  end if;
  return new;
-end $$$sql_100_7$;
+end $$$sql_101_7$;
 
 -- live-auction-winner-confirmation.sql: source statement 8
-execute $sql_100_8$drop trigger if exists auction_winner_confirmation_gate on public.auction_deliveries$sql_100_8$;
+execute $sql_101_8$drop trigger if exists auction_winner_confirmation_gate on public.auction_deliveries$sql_101_8$;
 
 -- live-auction-winner-confirmation.sql: source statement 9
-execute $sql_100_9$create trigger auction_winner_confirmation_gate before insert on public.auction_deliveries
- for each row execute function public.hold_auction_winner_notifications()$sql_100_9$;
+execute $sql_101_9$create trigger auction_winner_confirmation_gate before insert on public.auction_deliveries
+ for each row execute function public.hold_auction_winner_notifications()$sql_101_9$;
 
 -- live-auction-winner-confirmation.sql: source statement 11
-execute $sql_100_11$create or replace function public.confirm_live_auction_winner(p_auction uuid,p_tenant uuid,p_event uuid)
+execute $sql_101_11$create or replace function public.confirm_live_auction_winner(p_auction uuid,p_tenant uuid,p_event uuid)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; cid text; sender text;
 begin
@@ -13820,19 +14057,79 @@ begin
  update public.auction_deliveries set status='pending',comment_id=cid
   where auction_id=a.id and status='awaiting_confirmation';
  return jsonb_build_object('status','confirmed','orderId',a.order_id);
-end $$$sql_100_11$;
+end $$$sql_101_11$;
 
 -- live-auction-winner-confirmation.sql: source statement 12
-execute $sql_100_12$revoke all on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) from public,anon,authenticated$sql_100_12$;
+execute $sql_101_12$revoke all on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) from public,anon,authenticated$sql_101_12$;
 
 -- live-auction-winner-confirmation.sql: source statement 13
-execute $sql_100_13$grant execute on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_100_13$;
+execute $sql_101_13$grant execute on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_101_13$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-winner-confirmation.sql','2f858d9ce9ccb510e54eb5bcceb55d2da7a9745101ca139787d50499c4721abe','47e7d6763ce50cd5feb959f2282c7b8341dac01a33df6d6b7c007cca4186b259');
-end $migration_100$;
+end $migration_101$;
 
--- 102. facebook-webhook-comment-ordering.sql
-do $migration_101$
+-- 103. live-auction-payment-auto-verify.sql
+do $migration_102$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-payment-auto-verify.sql';
+  if found then
+    if installed <> 'f8eb2b330fc2314a62235ad26eafbf60ec0ce009a53a94dcee12758843f415b4' then
+      raise exception 'Applied migration changed: live-auction-payment-auto-verify.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-payment-auto-verify.sql: source statement 2
+execute $sql_102_2$create or replace function public.complete_auction_customer_tab_slip(
+ p_slip uuid,p_tenant uuid,p_customer uuid,p_sender text,p_amount numeric,
+ p_ref text,p_paid_at timestamptz,p_raw jsonb,p_note text
+)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare s public.slips; t public.customer_tabs;
+begin
+ select * into s from public.slips
+  where id=p_slip and tenant_id=p_tenant and customer_id=p_customer for update;
+ if not found or s.status<>'pending' or s.customer_tab_id is null then
+  raise exception 'AUCTION_TAB_SLIP_SCOPE' using errcode='42501';
+ end if;
+ select * into t from public.customer_tabs
+  where id=s.customer_tab_id and tenant_id=p_tenant and customer_id=p_customer for update;
+ if not found or t.remaining_amount<=0 or s.expected_amount is distinct from t.remaining_amount
+  or p_amount is distinct from t.remaining_amount then
+  raise exception 'AUCTION_TAB_AMOUNT_MISMATCH' using errcode='23514';
+ end if;
+ if not exists(select 1 from public.customers c where c.id=p_customer and c.tenant_id=p_tenant
+  and c.platform='facebook' and c.platform_user_id=p_sender) then
+  raise exception 'AUCTION_WINNER_MISMATCH' using errcode='42501';
+ end if;
+ if not exists(
+  select 1 from public.orders o join public.auctions a on a.order_id=o.id
+  where o.customer_tab_id=t.id and o.tenant_id=p_tenant and o.customer_id=p_customer
+   and o.source='live_auction' and o.status='pending_payment'
+   and a.tenant_id=p_tenant and a.status='closed' and a.leading_bidder_id=p_sender
+ ) then
+  raise exception 'AUCTION_WINNER_MISMATCH' using errcode='42501';
+ end if;
+ return public.complete_customer_tab_slip(
+  p_slip,p_tenant,p_customer,'valid',p_amount,p_ref,p_paid_at,p_raw,p_note
+ );
+end $$$sql_102_2$;
+
+-- live-auction-payment-auto-verify.sql: source statement 3
+execute $sql_102_3$revoke all on function public.complete_auction_customer_tab_slip(
+ uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text
+) from public,anon,authenticated$sql_102_3$;
+
+-- live-auction-payment-auto-verify.sql: source statement 4
+execute $sql_102_4$grant execute on function public.complete_auction_customer_tab_slip(
+ uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text
+) to service_role$sql_102_4$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-payment-auto-verify.sql','f8eb2b330fc2314a62235ad26eafbf60ec0ce009a53a94dcee12758843f415b4','34850c09fb21356f5d4e18b797f569f90a0d7ce05f08755d4c3b90a48689096a');
+end $migration_102$;
+
+-- 104. facebook-webhook-comment-ordering.sql
+do $migration_103$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-webhook-comment-ordering.sql';
@@ -13843,7 +14140,7 @@ begin
     return;
   end if;
 -- facebook-webhook-comment-ordering.sql: source statement 2
-execute $sql_101_2$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
+execute $sql_103_2$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare receipt uuid; item jsonb; accepted integer:=0; affected integer;
 begin
@@ -13865,19 +14162,19 @@ begin
   get diagnostics affected=row_count;accepted:=accepted+affected;
  end loop;
  return jsonb_build_object('id',receipt,'accepted',accepted);
-end $$$sql_101_2$;
+end $$$sql_103_2$;
 
 -- facebook-webhook-comment-ordering.sql: source statement 3
-execute $sql_101_3$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb) from public,anon,authenticated$sql_101_3$;
+execute $sql_103_3$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb) from public,anon,authenticated$sql_103_3$;
 
 -- facebook-webhook-comment-ordering.sql: source statement 4
-execute $sql_101_4$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb) to service_role$sql_101_4$;
+execute $sql_103_4$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb) to service_role$sql_103_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-webhook-comment-ordering.sql','44d316710f134f9d5de7b096753ec8706fceab050177af7a61ebb4c54268f331','fc95a23e41f2d2fb46548cdc4ac306538dca0ae681433328fe555f184e6d4787');
-end $migration_101$;
+end $migration_103$;
 
--- 103. live-auction-workspace.sql
-do $migration_102$
+-- 105. live-auction-workspace.sql
+do $migration_104$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-workspace.sql';
@@ -13888,26 +14185,26 @@ begin
     return;
   end if;
 -- live-auction-workspace.sql: source statement 2
-execute $sql_102_2$alter table public.live_sessions add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0)$sql_102_2$;
+execute $sql_104_2$alter table public.live_sessions add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0)$sql_104_2$;
 
 -- live-auction-workspace.sql: source statement 3
-execute $sql_102_3$create table if not exists public.auction_workspace_requests (
+execute $sql_104_3$create table if not exists public.auction_workspace_requests (
  tenant_id uuid not null references public.tenants(id), request_id uuid not null,
  actor_id uuid not null references auth.users(id), input jsonb not null, result jsonb not null,
  created_at timestamptz not null default clock_timestamp(), primary key(tenant_id,request_id)
-)$sql_102_3$;
+)$sql_104_3$;
 
 -- live-auction-workspace.sql: source statement 4
-execute $sql_102_4$alter table public.auction_workspace_requests enable row level security$sql_102_4$;
+execute $sql_104_4$alter table public.auction_workspace_requests enable row level security$sql_104_4$;
 
 -- live-auction-workspace.sql: source statement 5
-execute $sql_102_5$revoke all on public.auction_workspace_requests from public,anon,authenticated$sql_102_5$;
+execute $sql_104_5$revoke all on public.auction_workspace_requests from public,anon,authenticated$sql_104_5$;
 
 -- live-auction-workspace.sql: source statement 6
-execute $sql_102_6$grant all on public.auction_workspace_requests to service_role$sql_102_6$;
+execute $sql_104_6$grant all on public.auction_workspace_requests to service_role$sql_104_6$;
 
 -- live-auction-workspace.sql: source statement 7
-execute $sql_102_7$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_104_7$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare prior public.auction_workspace_requests; s public.live_sessions; a public.auctions;
  settings jsonb; result jsonb; page text; round_id uuid;
@@ -13982,16 +14279,16 @@ begin
  result:=jsonb_build_object('sessionId',s.id,'auctionId',round_id,'revision',s.automation_revision,'financialRevision',s.financial_revision);
  insert into public.auction_workspace_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_102_7$;
+end $$$sql_104_7$;
 
 -- live-auction-workspace.sql: source statement 8
-execute $sql_102_8$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_102_8$;
+execute $sql_104_8$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_104_8$;
 
 -- live-auction-workspace.sql: source statement 9
-execute $sql_102_9$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_102_9$;
+execute $sql_104_9$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_104_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-workspace.sql','0f978176bc9cdf79211723e6163ffae3dad80938914956272584658c36cffbc9','9b31439a5bce859ea20bb1bbc7790571d7b4c24f604af5940b8486351e425cc9');
-end $migration_102$;
+end $migration_104$;
 
 notify pgrst,'reload schema';
 

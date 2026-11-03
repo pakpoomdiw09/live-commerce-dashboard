@@ -31,6 +31,9 @@ type Input = {
   tenant?: Tenant | null
   /** CF orders this slip pays for (expectedAmount is their total): marked paid when the slip is valid */
   orderIds?: string[]
+  /** Internal winner-only route: require one exact full tab balance and use its guarded settlement RPC. */
+  requireExactAmount?: boolean
+  auctionSenderId?: string
 }
 export type SlipInput = Input
 
@@ -65,10 +68,21 @@ export async function processSlip(
     tenant = null,
     orderIds = [],
     customerTabId,
+    requireExactAmount = false,
+    auctionSenderId,
   }: Input,
 ): Promise<ProcessedSlip> {
   if (!tenant) throw new Error('FEATURE_LOCKED: tenant required')
   await requireFeature(db, tenant.id, 'slip_auto_pilot')
+  if (
+    requireExactAmount &&
+    (!customerId ||
+      !customerTabId ||
+      !auctionSenderId ||
+      !Number.isFinite(expectedAmount) ||
+      expectedAmount! <= 0)
+  )
+    throw new Error('AUCTION_PAYMENT_SCOPE_INVALID')
   if (customerId) {
     const pending = await pendingOrders(db, customerId, tenant.id)
     const tabIds = customerTabId ? [customerTabId] : pending.tabIds
@@ -76,7 +90,17 @@ export async function processSlip(
       const { processCustomerTabSlip } = await import('./customer-tab-slip')
       return processCustomerTabSlip(
         db,
-        { file, qr, customerId, messageId, tenant, customerTabId },
+        {
+          file,
+          qr,
+          customerId,
+          messageId,
+          tenant,
+          customerTabId,
+          expectedAmount,
+          requireExactAmount,
+          auctionSenderId,
+        },
         tabIds,
       )
     }

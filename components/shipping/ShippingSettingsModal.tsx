@@ -98,22 +98,10 @@ export function ShippingSettingsModal({
             เลือกขนส่งที่ร้านใช้เป็นประจำ
           </span>
         </label>
-        <div className="rounded-xl bg-slate-50 p-4">
-          <label className="block text-sm font-medium">
-            กุญแจเชื่อมต่อ Bee Move (API Key สำหรับใช้ในอนาคต)
-            <input
-              type="password"
-              autoComplete="off"
-              aria-label="Bee Move API Key ในอนาคต"
-              disabled
-              className={field}
-              placeholder="ใช้เมื่อติดตั้งการเชื่อมต่อขนส่งแล้ว"
-            />
-          </label>
-          <p className="mt-2 text-xs text-slate-500">
-            ขณะนี้ใช้ดาวน์โหลดไฟล์ CSV และพิมพ์ใบปะหน้า การจองขนส่งจะเปิดให้ใช้เมื่อเชื่อมต่อสำเร็จ
-          </p>
-        </div>
+        <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+          ตั้งค่า API Key, endpoint และการเชื่อมต่อของแต่ละค่ายได้จากปุ่ม “ตั้งค่าค่ายขนส่ง” ในหน้า
+          Shipping
+        </p>
         {error && (
           <p role="alert" className="text-sm text-red-700">
             {error}

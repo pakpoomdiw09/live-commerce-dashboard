@@ -1,11 +1,12 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, Printer, RefreshCw, Settings, Truck } from 'lucide-react'
+import { Download, Printer, RefreshCw, Settings, Truck, Link2 } from 'lucide-react'
 import { SessionDialog } from '@/components/live-cf/SessionDialog'
 import { PageBanner } from '@/components/ui/page-banner'
 import { courierLabel } from './shipping-ui'
 import { ShippingAddressModal } from './ShippingAddressModal'
 import { ShippingSettingsModal } from './ShippingSettingsModal'
+import { ShippingIntegrationsModal } from './ShippingIntegrationsModal'
 import {
   addressFromShipment,
   shippingField as field,
@@ -16,15 +17,19 @@ import {
 } from './shipping-ui'
 import {
   COURIERS,
+  SHIPPING_PROVIDER_LABELS,
   shippingMoney as money,
   type ShippingShipment,
   type ShippingSettings,
+  type ShippingIntegrationSummary,
+  type ShippingProvider,
 } from '@/lib/features/shipping/shipping-types'
 
 type ShippingData = {
   shipments: ShippingShipment[]
   settings: ShippingSettings | null
   sessions: { id: string; live_post_id: string; created_at: string }[]
+  integrations: ShippingIntegrationSummary[]
 }
 const filters = [
   { id: 'all', label: 'ทั้งหมด' },
@@ -45,8 +50,13 @@ export function ShippingDashboard({
   sessionId?: string
   embedded?: boolean
 }) {
-  const [data, setData] = useState<ShippingData>({ shipments: [], settings: null, sessions: [] })
-  const [session, setSession] = useState(sessionId ?? 'all'),
+  const [data, setData] = useState<ShippingData>({
+    shipments: [],
+    settings: null,
+    sessions: [],
+    integrations: [],
+  })
+  const [session, setSession] = useState(sessionId ?? 'latest'),
     [status, setStatus] = useState('all'),
     [selected, setSelected] = useState<string[]>([])
   const [error, setError] = useState(''),
@@ -57,10 +67,18 @@ export function ShippingDashboard({
     [updated, setUpdated] = useState(''),
     [printLink, setPrintLink] = useState('')
   const [modal, setModal] = useState<
-    { kind: 'address'; shipment: ShippingShipment } | { kind: 'settings' } | { kind: 'bee' } | null
+    | { kind: 'address'; shipment: ShippingShipment }
+    | { kind: 'settings' }
+    | { kind: 'integrations' }
+    | { kind: 'bee' }
+    | null
   >(null)
   const [carrier, setCarrier] = useState('Bee Move'),
     [tracking, setTracking] = useState<Record<string, string>>({})
+  const [provider, setProvider] = useState<ShippingProvider>('dmove')
+  const [createdLabels, setCreatedLabels] = useState<
+    { shipmentId: string; trackingNumber?: string; labelPdfUrl?: string; error?: string }[]
+  >([])
   const requests = useRef(new Map<string, string>())
   useEffect(() => {
     const controller = new AbortController()
@@ -72,7 +90,8 @@ export function ShippingDashboard({
       try {
         if (!document.hidden) {
           const params = new URLSearchParams({ tenantId })
-          if (!['all', 'legacy'].includes(session)) params.set('sessionId', session)
+          if (!['all', 'legacy', 'latest', 'today'].includes(session))
+            params.set('sessionId', session)
           const response = await fetch(`/api/shipping?${params}`, {
             cache: 'no-store',
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
@@ -80,7 +99,7 @@ export function ShippingDashboard({
           const result = await response.json()
           if (!response.ok) throw new Error(result.error || 'โหลดรายการจัดส่งไม่สำเร็จ')
           if (!controller.signal.aborted) {
-            setData(result)
+            setData({ ...result, integrations: result.integrations ?? [] })
             setError('')
             setUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }))
           }
@@ -110,6 +129,12 @@ export function ShippingDashboard({
       document.removeEventListener('visibilitychange', visible)
     }
   }, [tenantId, session, version])
+  useEffect(() => {
+    const active = data.integrations.filter((integration) => integration.is_active)
+    if (active.some((integration) => integration.provider === provider)) return
+    const preferred = active.find((integration) => integration.is_default) ?? active[0]
+    if (preferred) setProvider(preferred.provider)
+  }, [data.integrations, provider])
   const post = useCallback<ShippingPost>(
     async (input, requestId) => {
       const key = JSON.stringify(input)
@@ -133,14 +158,20 @@ export function ShippingDashboard({
     },
     [tenantId],
   )
-  const sessionRows = data.shipments.filter(
-    (shipment) =>
-      (session === 'all' ||
-        (session === 'legacy'
-          ? !shipment.live_session_id
-          : shipment.live_session_id === session)) &&
-      (!embedded || shipment.payment_ready),
-  )
+  const sessionRows = data.shipments.filter((shipment) => {
+    const localDate = (value: string) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date(value))
+    const inScope =
+      session === 'all' ||
+      (session === 'legacy'
+        ? !shipment.live_session_id
+        : session === 'today'
+          ? localDate(shipment.created_at) === localDate(new Date().toISOString())
+          : session === 'latest'
+            ? shipment.live_session_id === data.sessions[0]?.id
+            : shipment.live_session_id === session)
+    return inScope && (!embedded || shipment.payment_ready)
+  })
   const rows = sessionRows.filter(
     (shipment) =>
       status === 'all' ||
@@ -160,6 +191,12 @@ export function ShippingDashboard({
       (shipment) =>
         ['ready_to_ship', 'shipped'].includes(shipment.fulfillment_status) &&
         shipment.payment_ready,
+    )
+  const canCreateTargets =
+    targets.length > 0 &&
+    targets.length <= 100 &&
+    targets.every(
+      (shipment) => shipment.fulfillment_status === 'ready_to_ship' && shipment.payment_ready,
     )
   async function prepare(format: 'thermal' | 'a4') {
     const opened = window.open('about:blank', '_blank')
@@ -226,13 +263,48 @@ export function ShippingDashboard({
       setBusy(false)
     }
   }
+  async function createParcels() {
+    const opened = window.open('about:blank', '_blank')
+    if (opened) opened.opener = null
+    setBusy(true)
+    setError('')
+    setNotice('')
+    setCreatedLabels([])
+    try {
+      const result = await post({
+        action: 'create_parcels',
+        ids: targets.map((shipment) => shipment.id),
+        provider,
+      })
+      const rows = result.results ?? []
+      setCreatedLabels(rows)
+      const readyLabels = rows.filter((row) => row.labelPdfUrl)
+      if (readyLabels.length === 1 && opened) opened.location.replace(readyLabels[0].labelPdfUrl!)
+      else opened?.close()
+      const created = rows.filter((row) => row.status === 'shipped').length
+      const notified = rows.filter((row) => row.notification === 'sent').length
+      setNotice(
+        `สร้างพัสดุสำเร็จ ${created}/${rows.length} รายการ • แจ้ง Messenger สำเร็จ ${notified} รายการ`,
+      )
+      setSelected([])
+    } catch (cause) {
+      opened?.close()
+      setError(cause instanceof Error ? cause.message : 'สร้างพัสดุไม่สำเร็จ')
+    } finally {
+      setBusy(false)
+    }
+  }
   const headerContent = (
     <>
       <div>
         <h1
           className={`flex items-center gap-2 text-xl font-bold ${embedded ? 'text-slate-900' : 'text-white'}`}
         >
-          {embedded ? <Truck className="h-6 w-6 text-orange-500" /> : <span aria-hidden="true">📦</span>}
+          {embedded ? (
+            <Truck className="h-6 w-6 text-orange-500" />
+          ) : (
+            <span aria-hidden="true">📦</span>
+          )}
           {embedded ? 'ระบบจัดส่งพัสดุ' : 'ระบบจัดส่งพัสดุ (Shipping & Fulfillment)'}
         </h1>
         <p className={`mt-1 text-sm ${embedded ? 'text-slate-500' : 'text-white/90'}`}>
@@ -240,7 +312,8 @@ export function ShippingDashboard({
         </p>
         {embedded && (
           <p className="mt-1 text-xs text-slate-500">
-            ระบบช่วยอ่านชื่อ เบอร์โทร และที่อยู่จากข้อความ Messenger ของลูกค้า กรุณาตรวจข้อมูลให้ถูกต้องก่อนพิมพ์ใบปะหน้า
+            ระบบช่วยอ่านชื่อ เบอร์โทร และที่อยู่จากข้อความ Messenger ของลูกค้า
+            กรุณาตรวจข้อมูลให้ถูกต้องก่อนพิมพ์ใบปะหน้า
           </p>
         )}
       </div>
@@ -257,6 +330,10 @@ export function ShippingDashboard({
           <Settings className="h-4 w-4" />
           ตั้งค่าผู้ส่ง
         </button>
+        <button className={button} type="button" onClick={() => setModal({ kind: 'integrations' })}>
+          <Link2 className="h-4 w-4" />
+          ตั้งค่าค่ายขนส่ง
+        </button>
       </div>
     </>
   )
@@ -266,7 +343,9 @@ export function ShippingDashboard({
       data-shipping-dashboard
     >
       {embedded ? (
-        <header className="flex flex-wrap items-start justify-between gap-4">{headerContent}</header>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          {headerContent}
+        </header>
       ) : (
         <PageBanner className="flex flex-wrap items-start justify-between gap-4 bg-gradient-to-r from-orange-500 to-amber-500">
           {headerContent}
@@ -313,6 +392,8 @@ export function ShippingDashboard({
             >
               {!sessionId && (
                 <>
+                  <option value="latest">ไลฟ์ล่าสุด</option>
+                  <option value="today">รายการของวันนี้</option>
                   <option value="all">ทุกเซสชัน</option>
                   <option value="legacy">รายการนอกไลฟ์สด</option>
                 </>
@@ -356,11 +437,17 @@ export function ShippingDashboard({
           <button
             type="button"
             className={primary}
-            disabled={busy || !validTargets}
+            disabled={
+              busy ||
+              !canCreateTargets ||
+              !data.integrations.some(
+                (integration) => integration.provider === provider && integration.is_active,
+              )
+            }
             onClick={() => setModal({ kind: 'bee' })}
           >
             <Truck className="h-4 w-4" />
-            ส่งผ่าน Bee Move / เตรียมไฟล์
+            สร้างพัสดุและพิมพ์ใบปะหน้า
           </button>
           <button
             type="button"
@@ -392,6 +479,11 @@ export function ShippingDashboard({
             {embedded ? 'ดาวน์โหลดไฟล์ CSV สำหรับระบบขนส่ง' : 'ดาวน์โหลด CSV สำหรับขนส่ง'}
           </button>
         </div>
+        {!data.integrations.some((integration) => integration.is_active) && (
+          <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+            ยังไม่มีค่ายขนส่งที่เปิดใช้งาน กรุณาตั้งค่า API และทดสอบการเชื่อมต่อก่อน
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <span className="mr-2 text-xs text-slate-500">
             เลือก {selected.length} รายการ • สูงสุด 100 รายการต่อครั้ง
@@ -450,6 +542,29 @@ export function ShippingDashboard({
           >
             เปิดหน้าพิมพ์ที่เตรียมไว้
           </a>
+        )}
+        {createdLabels.length > 0 && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+            <p className="font-semibold text-emerald-900">ผลการสร้างพัสดุ</p>
+            <ul className="mt-2 space-y-2 text-sm">
+              {createdLabels.map((label) => (
+                <li key={label.shipmentId} className="flex flex-wrap items-center gap-3">
+                  <span>{label.trackingNumber || label.shipmentId.slice(0, 8)}</span>
+                  {label.labelPdfUrl && (
+                    <a
+                      className="font-semibold text-orange-700 underline"
+                      href={label.labelPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      เปิด/พิมพ์ PDF
+                    </a>
+                  )}
+                  {label.error && <span className="text-red-700">{label.error}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full min-w-[1180px] text-left text-sm">
@@ -567,6 +682,16 @@ export function ShippingDashboard({
                   </td>
                   <td className="w-56 p-3 align-top">
                     <p className="text-xs text-slate-500">{courierLabel(shipment.courier_name)}</p>
+                    {shipment.tracking_url && (
+                      <a
+                        className="text-xs text-blue-700 underline"
+                        href={shipment.tracking_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        ติดตามพัสดุ
+                      </a>
+                    )}
                     <input
                       aria-label={`เลขพัสดุ ${shipment.customer_name}`}
                       className={field}
@@ -666,55 +791,55 @@ export function ShippingDashboard({
           onClose={() => setModal(null)}
         />
       )}
+      {modal?.kind === 'integrations' && (
+        <ShippingIntegrationsModal
+          integrations={data.integrations}
+          post={post}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal?.kind === 'bee' && (
         <SessionDialog
-          title="ส่งผ่าน Bee Move / เตรียมไฟล์ขนส่ง"
+          title="สร้างพัสดุและพิมพ์ใบปะหน้า"
           onClose={() => setModal(null)}
           busy={busy}
         >
           <p className="text-sm text-slate-600">
-            เตรียม {targets.length} รายการที่พร้อมส่ง ใช้ไฟล์ CSV มาตรฐาน 10
-            คอลัมน์สำหรับนำเข้าขนส่ง และเลือกขนาดใบปะหน้าได้
+            สร้างพัสดุ {targets.length} รายการกับ API ของผู้ให้บริการที่เลือก
           </p>
           <label className="block text-sm font-semibold">
-            ตัวเลือกขนส่ง
+            ค่ายขนส่ง
             <select
-              aria-label="ตัวเลือกขนส่งสำหรับดาวน์โหลด"
+              aria-label="ผู้ให้บริการขนส่ง"
               className={field}
-              value={carrier}
-              onChange={(event) => setCarrier(event.target.value)}
+              value={provider}
+              onChange={(event) => setProvider(event.target.value as ShippingProvider)}
             >
-              {COURIERS.map((courier) => (
-                <option key={courier} value={courier}>
-                  {courierLabel(courier)}
-                </option>
-              ))}
+              {data.integrations
+                .filter((integration) => integration.is_active)
+                .map((integration) => (
+                  <option key={integration.provider} value={integration.provider}>
+                    {SHIPPING_PROVIDER_LABELS[integration.provider]}
+                  </option>
+                ))}
             </select>
             <span className="mt-1 block text-xs font-normal text-slate-500">
-              เลือกขนส่งที่ต้องการเตรียมไฟล์ให้
+              เลือกค่ายที่ร้านได้เชื่อมต่อและเปิดใช้งาน
             </span>
           </label>
-          <label className="block text-sm font-medium">
-            กุญแจเชื่อมต่อ Bee Move (API Key สำหรับใช้ในอนาคต)
-            <input
-              type="password"
-              disabled
-              className={field}
-              placeholder="ใช้เมื่อติดตั้งการเชื่อมต่อขนส่งแล้ว"
-            />
-          </label>
           <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
-            ขั้นตอนนี้ยังไม่เรียก API และยังไม่จองขนส่ง นำ CSV ไปอัปโหลดกับขนส่ง
-            แล้วบันทึกเลขพัสดุที่ได้รับกลับมาที่หน้านี้
+            ระบบจะสร้างพัสดุผ่าน API, บันทึก tracking และสถานะจัดส่ง แล้วส่งข้อความแจ้งลูกค้าทาง
+            Messenger หากผลเรียก API ไม่ชัดเจน ระบบจะไม่ส่งคำขอซ้ำอัตโนมัติ
           </p>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               className={primary}
-              disabled={busy || !validTargets}
-              onClick={() => void exportCsv()}
+              disabled={busy || !canCreateTargets}
+              onClick={() => void createParcels()}
             >
-              ดาวน์โหลด CSV
+              <Truck className="h-4 w-4" />
+              สร้างพัสดุและพิมพ์ใบปะหน้า
             </button>
             <button
               type="button"

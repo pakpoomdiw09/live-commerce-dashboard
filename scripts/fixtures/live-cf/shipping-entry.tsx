@@ -34,6 +34,8 @@ const shipments: ShippingShipment[] = Array.from({ length: 6 }, (_, index) => ({
   fulfillment_status: index === 5 ? 'pending_address' : 'ready_to_ship',
   courier_name: 'Bee Move',
   tracking_number: null,
+  tracking_url: null,
+  label_pdf_url: null,
   note: 'พระเครื่อง ระวังแตก',
   label_printed_at: null,
   label_print_count: 0,
@@ -141,6 +143,7 @@ window.fetch = async (input, init) => {
   return Response.json({
     shipments,
     settings,
+    integrations: [],
     sessions: [
       { id: shipments[0].live_session_id, live_post_id: '456', created_at: '2026-11-02T10:00:00Z' },
     ],

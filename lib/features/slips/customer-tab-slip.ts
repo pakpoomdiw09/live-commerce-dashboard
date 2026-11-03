@@ -26,6 +26,13 @@ export async function processCustomerTabSlip(
   if (selected.error) throw selected.error
   if (!selected.data || Number(selected.data.remaining_amount) <= 0)
     throw new Error('TAB_NOT_PAYABLE')
+  if (
+    input.requireExactAmount &&
+    (!input.expectedAmount ||
+      Math.abs(input.expectedAmount - Number(selected.data.remaining_amount)) > 0.005 ||
+      !input.auctionSenderId)
+  )
+    throw new Error('AUCTION_TAB_AMOUNT_CHANGED')
   const selections = await db
     .from('orders')
     .select('live_variant_selection_required,live_variant_confirmed_at')
@@ -138,8 +145,14 @@ export async function processCustomerTabSlip(
     const credit = await db.rpc('consume_slip_credit', { p_tenant: tenantId })
     if (credit.error || credit.data !== true) throw new Error('TAB_SLIP_CREDIT_UNAVAILABLE')
     charged = true
-    // Intentionally omit expectedAmount: a genuine bank transfer can be partial.
-    const result = await verifyWithSlipOK({ file: input.file, qr: input.qr })
+    // Auction bills require an exact amount; ordinary customer tabs may be partially paid.
+    const result = await verifyWithSlipOK({
+      file: input.file,
+      qr: input.qr,
+      ...(input.requireExactAmount
+        ? { expectedAmount: Number(selected.data.remaining_amount) }
+        : {}),
+    })
     if (result.providerFault && charged) {
       await db.rpc('refund_slip_credit', { p_tenant: tenantId })
       charged = false
@@ -155,6 +168,15 @@ export async function processCustomerTabSlip(
     if (verdict === 'wrong_receiver' && result.branchReceiverMismatch && receiverMatches)
       verdict = 'valid'
     if (verdict === 'valid' && !receiverMatches) verdict = 'wrong_receiver'
+    if (
+      verdict === 'valid' &&
+      input.requireExactAmount &&
+      (typeof result.amount !== 'number' ||
+        Math.abs(result.amount - Number(selected.data.remaining_amount)) > 0.005)
+    ) {
+      verdict = 'amount_mismatch'
+      note = `ยอดในสลิป ${result.amount ?? 'ไม่ทราบ'} ไม่ตรงกับยอดบิล ${selected.data.remaining_amount}`
+    }
     const paidAt = providerPaidAt(result.raw)
     if (
       verdict === 'valid' &&
@@ -179,9 +201,26 @@ export async function processCustomerTabSlip(
       p_raw: result.raw,
       p_note: note,
     }
-    let saved = await db.rpc('complete_customer_tab_slip', args)
+    const useAuctionSettlement = input.requireExactAmount && verdict === 'valid'
+    const completeRpc = useAuctionSettlement
+      ? 'complete_auction_customer_tab_slip'
+      : 'complete_customer_tab_slip'
+    const complete = useAuctionSettlement
+      ? {
+          p_slip: slipId,
+          p_tenant: tenantId,
+          p_customer: input.customerId,
+          p_sender: input.auctionSenderId,
+          p_amount: args.p_amount,
+          p_ref: args.p_ref,
+          p_paid_at: args.p_paid_at,
+          p_raw: args.p_raw,
+          p_note: args.p_note,
+        }
+      : args
+    let saved = await db.rpc(completeRpc, complete)
     if (saved.error && ['40P01', '40001'].includes(saved.error.code))
-      saved = await db.rpc('complete_customer_tab_slip', args)
+      saved = await db.rpc(completeRpc, complete)
     if (saved.error?.code === '23505') {
       verdict = 'duplicate'
       note = 'สลิปนี้เคยถูกใช้ชำระแล้ว'
