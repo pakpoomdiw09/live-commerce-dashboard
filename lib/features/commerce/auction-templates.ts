@@ -54,7 +54,7 @@ export const displayAuctionTemplate = (text: string) =>
   text.replace(/\{([^{}]+)\}/g, (match, key: string) => (labels[key] ? `{${labels[key]}}` : match))
 export function validAuctionTemplate(
   value: unknown,
-  channel: 'private' | 'public',
+  channel: 'private' | 'public' | 'winner-public',
 ): value is string {
   if (
     typeof value !== 'string' ||
@@ -66,7 +66,9 @@ export function validAuctionTemplate(
   const allowed =
     channel === 'private'
       ? Object.keys(labels)
-      : auctionPublicVariables.map((variable) => variable.key)
+      : channel === 'winner-public'
+        ? [...auctionPublicVariables.map((variable) => variable.key), 'total', 'bank_account']
+        : auctionPublicVariables.map((variable) => variable.key)
   return [...stored.matchAll(/\{([^{}]+)\}/g)].every((match) => allowed.includes(match[1]))
 }
 export const renderAuctionTemplate = (template: string, values: Record<string, string>) =>

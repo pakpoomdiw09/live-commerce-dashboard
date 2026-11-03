@@ -151,7 +151,7 @@ export function AuctionSessionAutomation({
             label="ข้อความตอบกลับใต้คอมเมนต์"
             value={draft.bidText}
             disabled={disabled || !draft.publicReply}
-            variables={variables.slice(0, 3)}
+            variables={variables}
             maxLength={600}
             onChange={(bidText) => setDraft((previous) => ({ ...previous, bidText }))}
           />

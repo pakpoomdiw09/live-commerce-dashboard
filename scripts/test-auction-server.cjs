@@ -165,6 +165,7 @@ function fixture({
       },
       './customer-tabs-server': {
         tabForOrder: async () => tab,
+        customerTabAccount: async () => 'KTB 9260337828',
         customerTabSummary: async () => ({
           link: 'https://shop.example/pay/live/signed',
           account: 'KTB 9260337828',
@@ -388,7 +389,7 @@ test('only the latest winner keyword releases both replies to the confirmation c
     closed_at: '2026-01-02',
     current_price: 300,
     session_automation: { keywords: ['1'], closeKeywords: ['x', '❌', '321'] },
-    bid_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา}',
+    bid_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
     private_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
   })
   for (const channel of ['public', 'private'])
@@ -412,7 +413,7 @@ test('only the latest winner keyword releases both replies to the confirmation c
   assert.equal(f.calls.public.length, 1)
   assert.equal(f.calls.private[0][1], '456_789')
   assert.equal(f.calls.public[0][1], '456_789')
-  assert.match(f.calls.public[0][2], /Buyer เหรียญ 300/)
+  assert.match(f.calls.public[0][2], /Buyer เหรียญ 300 350 KTB 9260337828/)
   assert.match(f.calls.private[0][2], /Buyer เหรียญ 300 350 KTB 9260337828/)
   assert.match(f.calls.private[0][3], /ค่าจัดส่งครั้งเดียว: 50 บาท/)
   assert.ok(!/[{}]/.test(f.calls.private[0][2]), 'all Thai template placeholders resolve')

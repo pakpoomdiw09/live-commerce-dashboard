@@ -141,7 +141,8 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     '{bidder_name} {product_name} {price} {total} {bank_account}',
   )
   assert.equal(automation.validSessionAutomation({ ...settings, keywords: ['1', '１'] }), false)
-  assert.equal(automation.validSessionAutomation({ ...settings, bidText: '{total}' }), false)
+  assert.equal(automation.validSessionAutomation({ ...settings, bidText: '{total} {bank_account}' }), true)
+  assert.equal(automation.validSessionAutomation({ ...settings, closeKeywords: undefined, bidText: '{total}' }), false)
   assert.equal(
     automation.validSessionAutomation({
       ...settings,
@@ -821,6 +822,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       assert.equal((await one('select auction_close_keyword_matches($1,default_auction_close_keywords()) matched',[message])).matched,true,message)
     }
     assert.equal((await one("select auction_close_keyword_matches('❌','[\"ปิดร้าน\"]') matched")).matched,false)
+    const preCloseConfirmation = await event('904', 'เคาะ', '989')
     await process(thaiRound, '100', 'ปิดร้าน 🔨', 'HOST_CONTROL', null, 'close', '989')
     assert.equal(
       (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [thaiRound]))
@@ -856,12 +858,15 @@ test('session financial transactions preserve proofs/payments, fence revisions a
         const ev = await event(sender, text, post)
         return { ev, result: (await one('select confirm_live_auction_winner($1,$2,$3) result', [auction, tenant, ev.id])).result }
       }
+      assert.equal((await one('select confirm_live_auction_winner($1,$2,$3) result', [thaiRound, tenant, preCloseConfirmation.id])).result.status, 'stale')
+      await assert.rejects(one('select confirm_live_auction_winner($1,$2,$3)', [thaiRound, other, preCloseConfirmation.id]), /AUCTION_NOT_FOUND/)
       assert.equal((await confirm('900', 'เคาะ')).result.status, 'not_winner')
       assert.equal((await confirm('904', 'random')).result.status, 'ignored')
       await assert.rejects(confirm('904', 'เคาะ', thaiRound, '456'), /AUCTION_POST_MISMATCH/)
       assert.ok((await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])).rows.every((row) => row.status === 'awaiting_confirmation'))
       const confirmation = await confirm('904', 'เคาะ')
       assert.equal(confirmation.result.status, 'confirmed')
+      assert.equal((await one('select confirm_live_auction_winner($1,$2,$3) result', [thaiRound, tenant, confirmation.ev.id])).result.status, 'already_confirmed')
       const released = (await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])).rows
       assert.ok(released.every((row) => row.status === 'pending' && row.comment_id === confirmation.ev.payload.value.comment_id))
       const frozen = await one('select current_price,leading_bidder_id,order_id from auctions where id=$1', [thaiRound])

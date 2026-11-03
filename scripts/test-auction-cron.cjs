@@ -3,15 +3,11 @@ const { test } = require('node:test')
 const { NextResponse } = require('next/server')
 const load = require('./helpers/load-typescript.cjs')
 
-test('the configured minute cron authenticates Vercel GET requests and drains webhook and auction outbox work', async () => {
-  const cron = require('../vercel.json').crons.find(
-    (job) => job.path === '/api/cron/facebook-webhooks',
-  )
-  assert.ok(cron)
-  assert.equal(cron.schedule, '* * * * *')
+test('external cron GET requests require authentication and drain webhook and auction outbox work', async () => {
+  const cronPath = '/api/cron/facebook-webhooks'
   const calls = []
   const route = load(
-    `app${cron.path}/route.ts`,
+    `app${cronPath}/route.ts`,
     {
       'node:crypto': require('node:crypto'),
       'next/server': { NextResponse },
@@ -37,7 +33,7 @@ test('the configured minute cron authenticates Vercel GET requests and drains we
     { Buffer, process: { env: { CRON_SECRET: 'test-cron-secret' } } },
   )
   const request = (secret) =>
-    new Request(`https://shop.example${cron.path}`, {
+    new Request(`https://shop.example${cronPath}`, {
       headers: secret ? { authorization: `Bearer ${secret}` } : {},
     })
   assert.equal((await route.GET(request())).status, 401)

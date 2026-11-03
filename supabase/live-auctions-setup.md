@@ -14,6 +14,11 @@ public/private replies to that confirmation comment. Other customers cannot rele
 the bill. Confirmation replays never create another order or resend a completed
 delivery. An unconfirmed winner can confirm during the next active round; once
 confirmed, subsequent keywords in that active round become bids normally.
+Both confirmation templates support `{ชื่อลูกค้า}`, `{รายการ}`, `{ราคา}`,
+`{ยอดรวมสะสม}` and `{เลขบัญชี}`. The round price remains frozen; cumulative
+totals and the receiving account come from the actual customer tab when dispatching.
+Shipping is charged once per live by the shared tab ledger, not added again on
+confirmation. Legacy public bid templates retain their restricted variables.
 
 For cumulative bills and automatic partial payments, continue with
 [customer-tabs-setup.md](customer-tabs-setup.md) after installing this base auction
@@ -27,10 +32,11 @@ Fresh installations can use the regenerated `complete_schema.sql`.
 Use the existing `LIVE_CF_APP_URL` (or `NEXT_PUBLIC_APP_URL`) and a
 `LIVE_CF_PAYMENT_LINK_SECRET` of at least 32 characters. An active receiving bank
 account and a connected Facebook Page are required to open a round at `/live-cf`.
-The Facebook webhook worker cron also drains pending auction bills. `vercel.json`
-schedules `/api/cron/facebook-webhooks` every minute. Configure `CRON_SECRET` in the
-Vercel production environment so scheduled requests carry the bearer credential
-expected by this endpoint, then deploy the configuration.
+The Facebook webhook worker also drains pending auction bills. `vercel.json` has
+no Vercel Cron configuration. Configure an external scheduler to request
+`/api/cron/facebook-webhooks` every minute with `Authorization: Bearer <CRON_SECRET>`.
+See [facebook-webhook-cron-setup.md](facebook-webhook-cron-setup.md) for the free
+cron-job.org setup and verification steps.
 
 The linked Page, the opening owner's verified Facebook ID, and Facebook IDs
 explicitly entered by the owner can control an auction through comments. The API

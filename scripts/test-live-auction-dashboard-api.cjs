@@ -80,7 +80,7 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
     { ...base.settings, keywords: ['1', '１'] },
     { ...base.settings, bankAccountId: 'invalid' },
     { ...base.settings, privateReply: 'true' },
-    { ...base.settings, bidText: '{total}' },
+    { ...base.settings, bidText: '{unknown}' },
   ])
     assert.equal((await post({ ...base, settings })).status, 400)
   assert.equal(calls.length, 0)
@@ -97,6 +97,7 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
           ...base.settings,
           keywords: [' RAISE '],
           privateText: '{name} {item} {price} {total}',
+          bidText: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
         },
       })
     ).status,
@@ -107,18 +108,24 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
   assert.equal(calls[0].input.p_input.livePostId, '456')
   assert.equal(calls[0].input.p_input.settings.keywords[0], 'raise')
   assert.equal(
+    calls[0].input.p_input.settings.bidText,
+    '{bidder_name} {product_name} {price} {total} {bank_account}',
+  )
+  assert.equal(
     calls[0].input.p_input.settings.privateText,
     '{bidder_name} {product_name} {price} {total}',
   )
   assert.equal('paid_amount' in calls[0].input.p_input, false)
   assert.equal(
-    (await post({
-      ...base,
-      settings: {
-        ...base.settings,
-        keywords: Array.from({ length: 40 }, (_, index) => `bid-${index}`),
-      },
-    })).status,
+    (
+      await post({
+        ...base,
+        settings: {
+          ...base.settings,
+          keywords: Array.from({ length: 40 }, (_, index) => `bid-${index}`),
+        },
+      })
+    ).status,
     201,
   )
   assert.equal((await post({ ...base, action: 'settings', sessionId, revision: -1 })).status, 400)

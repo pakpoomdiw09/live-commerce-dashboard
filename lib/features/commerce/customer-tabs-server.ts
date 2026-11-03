@@ -59,13 +59,8 @@ export async function tabForOrder(
     : null
 }
 
-export async function customerTabSummary(db: SupabaseClient, tab: CustomerTab, greeting?: string) {
-  tab.customer_tab_items.sort(
-    (a, b) => a.closed_at.localeCompare(b.closed_at) || a.order_id.localeCompare(b.order_id),
-  )
-  const order = tab.customer_tab_items.find((item) => !item.cancelled)
-  const link = order ? createLiveCfPaymentLink(order.order_id) : null
-  if (!link) throw new Error('TAB_PAYMENT_LINK_UNAVAILABLE')
+/** Bank lookup also serves public winner templates without requiring a payment link. */
+export async function customerTabAccount(db: SupabaseClient, tab: CustomerTab) {
   let bankQuery = db
     .from('bank_accounts')
     .select('bank_code,account_name,account_number')
@@ -76,9 +71,19 @@ export async function customerTabSummary(db: SupabaseClient, tab: CustomerTab, g
     : bankQuery.eq('is_primary', true)
   const bank = await bankQuery.maybeSingle()
   if (bank.error) throw bank.error
-  const account = bank.data
+  return bank.data
     ? `${findBank(bank.data.bank_code)?.name ?? bank.data.bank_code} ${bank.data.account_number} (${bank.data.account_name})`
     : 'กรุณาติดต่อร้านค้าเพื่อยืนยันบัญชีรับเงิน'
+}
+
+export async function customerTabSummary(db: SupabaseClient, tab: CustomerTab, greeting?: string) {
+  tab.customer_tab_items.sort(
+    (a, b) => a.closed_at.localeCompare(b.closed_at) || a.order_id.localeCompare(b.order_id),
+  )
+  const order = tab.customer_tab_items.find((item) => !item.cancelled)
+  const link = order ? createLiveCfPaymentLink(order.order_id) : null
+  if (!link) throw new Error('TAB_PAYMENT_LINK_UNAVAILABLE')
+  const account = await customerTabAccount(db, tab)
   const text = customerTabText(tab, link, account, greeting)
   const latest = [...tab.customer_tab_items].reverse().find((item) => !item.cancelled)
   const privateText =

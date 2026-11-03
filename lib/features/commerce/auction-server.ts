@@ -92,6 +92,20 @@ export async function deliverAuctionNotifications(auctionId?: string) {
       })
       continue
     }
+    let publicValues: Record<string, string> = {}
+    if (
+      delivery.channel === 'public' &&
+      auction.session_automation?.closeKeywords &&
+      auction.order_id
+    ) {
+      const { tabForOrder, customerTabAccount } = await import('./customer-tabs-server')
+      const tab = await tabForOrder(db, auction.order_id)
+      if (!tab) throw new Error('AUCTION_TAB_UNAVAILABLE')
+      publicValues = {
+        total: money(tab.total_amount),
+        bank_account: await customerTabAccount(db, tab),
+      }
+    }
     const summary = auction.leading_bidder_id
       ? renderAuctionTemplate(
           auction.session_automation?.closeKeywords
@@ -102,6 +116,7 @@ export async function deliverAuctionNotifications(auctionId?: string) {
             bidder_name: auction.leading_bidder_name || 'ลูกค้า',
             price: money(auction.current_price),
             min_step: money(auction.min_step),
+            ...publicValues,
           },
         )
       : `ปิดประมูล ${auction.item_name} ยังไม่มีผู้เสนอราคา`

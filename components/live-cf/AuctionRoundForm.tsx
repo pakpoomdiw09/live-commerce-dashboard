@@ -79,9 +79,8 @@ export function AuctionRoundForm({
             hostIds: [session.page_id],
             privateReply: settings.privateReply,
             publicReply: settings.publicReply,
-            privateText: settings.privateText,
-            bidText: settings.bidText,
-            closeText: settings.bidText,
+            // The database inherits the saved Session templates, including the
+            // winner-only public variables that legacy bid replies cannot use.
           })
           setActive({ id: result.id, itemName: draft.itemName })
           setNotice(
