@@ -64,7 +64,7 @@ test('unified workspace saves all zones atomically, preserves merchant values an
         closeText: '{bidder_name} {price}',
       },
       hostIds: ['100', '999'],
-      finance: { cost: 125.5, ads: 15, shipping: 7 },
+      finance: { cost: 125.5, ads: 15, shipping: 7, fees: 3.25 },
     }
     const save = async (value, request = randomUUID()) =>
       (
@@ -94,6 +94,7 @@ test('unified workspace saves all zones atomically, preserves merchant values an
     assert.equal(round.private_reply_template, input.settings.privateText)
     assert.equal(session.cost_amount, '125.50')
     assert.equal(session.shipping_cost, '7.00')
+    assert.equal(session.other_fees, '3.25')
     assert.equal((await one('select count(*)::int n from live_session_changes')).n, 1)
     assert.equal(round.page_id, session.page_id)
     assert.equal(round.live_post_id, session.live_post_id)

@@ -4,6 +4,7 @@ alter table public.live_sessions
  add column if not exists cost_amount numeric(14,2) not null default 0 check(cost_amount>=0),
  add column if not exists ad_spent numeric(14,2) not null default 0 check(ad_spent>=0),
  add column if not exists shipping_cost numeric(14,2) not null default 0 check(shipping_cost>=0),
+ add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0),
  add column if not exists financial_revision bigint not null default 0;
 alter table public.customer_tab_reminders
  add column if not exists message_template text,

@@ -114,7 +114,9 @@ export async function POST(req: NextRequest) {
       inputMoney(input.minStep, 999999999) === null ||
       Number(input.minStep) <= 0 ||
       inputMoney(input.shippingFee, 999999) === null ||
-      ['cost', 'ads', 'shipping'].some((key) => inputMoney(input.finance?.[key]) === null) ||
+      ['cost', 'ads', 'shipping', 'fees'].some(
+        (key) => inputMoney(input.finance?.[key]) === null,
+      ) ||
       (input.sessionId &&
         ['revision', 'financialRevision'].some(
           (key) => !Number.isSafeInteger(input[key]) || input[key] < 0,
@@ -155,7 +157,7 @@ export async function POST(req: NextRequest) {
       settings,
       hostIds,
       finance: Object.fromEntries(
-        ['cost', 'ads', 'shipping'].map((key) => [key, Number(input.finance[key])]),
+        ['cost', 'ads', 'shipping', 'fees'].map((key) => [key, Number(input.finance[key])]),
       ),
     }
     const result = await db.rpc('save_auction_workspace', {

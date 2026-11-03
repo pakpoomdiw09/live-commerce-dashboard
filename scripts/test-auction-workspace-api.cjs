@@ -112,7 +112,7 @@ test('workspace API restores scoped saved values and commits a single normalized
     minStep: '25',
     shippingFee: '47',
     settings,
-    finance: { cost: '125.50', ads: '15', shipping: '7' },
+    finance: { cost: '125.50', ads: '15', shipping: '7', fees: '3.25' },
   }
   denied = true
   assert.equal((await post(input)).status, 403)
@@ -150,7 +150,7 @@ test('workspace API restores scoped saved values and commits a single normalized
   for (const patch of [
     { shippingFee: '-1' },
     { minStep: '0' },
-    { finance: { cost: '1.001', ads: '0', shipping: '0' } },
+    { finance: { cost: '1.001', ads: '0', shipping: '0', fees: '0' } },
     { sessionId, revision: -1 },
   ])
     assert.equal((await post({ ...input, ...patch })).status, 400)
@@ -171,6 +171,31 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.deepEqual(Array.from(calls[0].args.p_input.settings.keywords), ['raise'])
   assert.equal(calls[0].args.p_input.settings.bidText, '{bidder_name} {price}')
   assert.equal(calls[0].args.p_input.finance.cost, 125.5)
+  assert.equal(calls[0].args.p_input.finance.fees, 3.25)
   assert.equal('paid_amount' in calls[0].args.p_input, false)
   assert.deepEqual(Array.from(calls[0].args.p_input.hostIds), ['100', '999'])
+
+  const emptySettings = {
+    ...settings,
+    keywords: [],
+    closeKeywords: [],
+    publicReply: false,
+    privateReply: false,
+    bidText: '',
+    closeText: '',
+    privateText: '',
+  }
+  const blankDraft = await post({
+    ...input,
+    requestId: randomUUID(),
+    settings: emptySettings,
+  })
+  assert.equal(
+    blankDraft.status,
+    200,
+    'new workspaces can save with no implicit keywords or replies',
+  )
+  assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.keywords), [])
+  assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.closeKeywords), [])
+  assert.equal(calls.at(-1).args.p_input.settings.privateText, '')
 })

@@ -89,7 +89,6 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
     typeof v.bankAccountId === 'string' &&
     /^[a-f0-9-]{36}$/i.test(v.bankAccountId) &&
     Array.isArray(v.keywords) &&
-    v.keywords.length > 0 &&
     v.keywords.every(
       (k) =>
         typeof k === 'string' &&
@@ -100,7 +99,6 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
     new Set(v.keywords.map(normalizeBidKeyword)).size === v.keywords.length &&
     (v.closeKeywords === undefined ||
       (Array.isArray(v.closeKeywords) &&
-        v.closeKeywords.length > 0 &&
         v.closeKeywords.every(
           (k) =>
             typeof k === 'string' &&
@@ -112,14 +110,15 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
         !v.closeKeywords.some((k) =>
           v.keywords.map(normalizeBidKeyword).includes(normalizeBidKeyword(k)),
         ))) &&
-    (['privateText', 'bidText', 'closeText'] as const).every(
-      (key) =>
-        typeof v[key] === 'string' &&
-        validAuctionTemplate(
-          sessionAuctionTemplate(v[key]),
-          key === 'privateText' ? 'private' : v.closeKeywords ? 'winner-public' : 'public',
-        ),
-    )
+    (['privateText', 'bidText', 'closeText'] as const).every((key) => {
+      if (typeof v[key] !== 'string' || v[key].length > 2000) return false
+      const enabled = key === 'privateText' ? v.privateReply : v.publicReply
+      if (!v[key].trim()) return !enabled
+      return validAuctionTemplate(
+        sessionAuctionTemplate(v[key]),
+        key === 'privateText' ? 'private' : v.closeKeywords ? 'winner-public' : 'public',
+      )
+    })
   )
 }
 export function displaySessionTemplate(text: string) {

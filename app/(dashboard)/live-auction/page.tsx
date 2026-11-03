@@ -21,7 +21,7 @@ export default async function LiveAuctionPage() {
   ])
   if (banks.error) throw new Error('โหลดบัญชีรับเงินไม่สำเร็จ')
   return (
-    <div className="min-w-0 shrink-0 space-y-5 p-4 md:p-8">
+    <div className="mx-auto w-full min-w-0 max-w-[1600px] space-y-5 p-4 md:p-8">
       <LiveSessionDashboard
         key={tenant.id}
         tenantId={tenant.id}

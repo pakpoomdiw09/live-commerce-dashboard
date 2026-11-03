@@ -174,7 +174,7 @@ async function checkInterface() {
     await call('Emulation.setFocusEmulationEnabled', { enabled: true })
     await resize(1440)
     await call('Page.navigate', {
-      url: 'http://127.0.0.1:' + server.address().port + (allInOne ? '/?all=1' : '/'),
+      url: 'http://127.0.0.1:' + server.address().port + (allInOne ? '/?all=1&empty=1' : '/'),
     })
     if (allInOne)
       await wait("!!document.querySelector('[data-auction-unified-form] [data-auction-zone]')")

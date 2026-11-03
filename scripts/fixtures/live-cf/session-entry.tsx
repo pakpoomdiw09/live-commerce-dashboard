@@ -83,6 +83,7 @@ const snapshot: SessionSnapshot = {
     cost_amount: 100,
     ad_spent: 50,
     shipping_cost: 20,
+    other_fees: 5,
     financial_revision: 0,
   },
   metrics: {
@@ -220,6 +221,8 @@ let workspaceRound = {
   leading_bidder_id: null,
 }
 const persistedWorkspace = sessionStorage.getItem('auction-workspace-fixture')
+let emptyWorkspace =
+  allInOne && new URL(location.href).searchParams.has('empty') && !persistedWorkspace
 if (allInOne && persistedWorkspace) {
   const saved = JSON.parse(persistedWorkspace)
   Object.assign(snapshot.session, saved.session)
@@ -232,13 +235,16 @@ if (allInOne && persistedWorkspace) {
 window.fetch = async (input, init) => {
   const url = new URL(String(input), location.origin)
   state.paths.push(url.pathname + url.search)
-  if (url.pathname === '/api/live-auction/workspace' && init?.method !== 'POST')
+  if (url.pathname === '/api/live-auction/workspace' && init?.method !== 'POST') {
+    if (emptyWorkspace)
+      return Response.json({ session: null, round: null, settings: null, preferencesOnly: true })
     return Response.json({
       session: snapshot.session,
       round: workspaceRound,
       settings: snapshot.session.auction_settings,
       preferencesOnly: false,
     })
+  }
   if (url.pathname === '/api/facebook/live-videos')
     return Response.json({
       pageId: '100',
@@ -298,6 +304,7 @@ window.fetch = async (input, init) => {
     const body = JSON.parse(String(init.body))
     state.requests.push(body)
     if (url.pathname === '/api/live-auction/workspace') {
+      emptyWorkspace = false
       Object.assign(snapshot.session, {
         page_id: body.pageId,
         live_post_id: body.livePostId,
@@ -306,6 +313,7 @@ window.fetch = async (input, init) => {
         cost_amount: Number(body.finance.cost),
         ad_spent: Number(body.finance.ads),
         shipping_cost: Number(body.finance.shipping),
+        other_fees: Number(body.finance.fees),
         financial_revision: snapshot.session.financial_revision + 1,
       })
       workspaceRound = {

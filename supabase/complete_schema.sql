@@ -11956,7 +11956,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-session-dashboard.sql';
   if found then
-    if installed <> 'e9b938da63a13e71263210ae1dfac87007f1da4d35a20a68f4046a01f4d9231c' then
+    if installed <> 'a10104da4d14a19ede93d0771d82c75f274fed8bfc131773598cf5ad2ddad6de' then
       raise exception 'Applied migration changed: live-session-dashboard.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -11966,6 +11966,7 @@ execute $sql_90_2$alter table public.live_sessions
  add column if not exists cost_amount numeric(14,2) not null default 0 check(cost_amount>=0),
  add column if not exists ad_spent numeric(14,2) not null default 0 check(ad_spent>=0),
  add column if not exists shipping_cost numeric(14,2) not null default 0 check(shipping_cost>=0),
+ add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0),
  add column if not exists financial_revision bigint not null default 0$sql_90_2$;
 
 -- live-session-dashboard.sql: source statement 3
@@ -12374,7 +12375,7 @@ execute $sql_90_33$revoke all on function public.finish_live_reminder_slot(),pub
 -- live-session-dashboard.sql: source statement 34
 execute $sql_90_34$grant execute on function public.live_comment_time(jsonb,timestamptz),public.live_session_dashboard(uuid,uuid),public.live_session_tab_proof(uuid,uuid,uuid),public.manage_live_session(uuid,uuid,uuid,uuid,jsonb),public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text),public.claim_customer_tab_reminder() to service_role$sql_90_34$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('live-session-dashboard.sql','e9b938da63a13e71263210ae1dfac87007f1da4d35a20a68f4046a01f4d9231c','791015cacf4a17c065f2e08dd10287f3c2366b24259aea43f17e5e8988499ee5');
+    values('live-session-dashboard.sql','a10104da4d14a19ede93d0771d82c75f274fed8bfc131773598cf5ad2ddad6de','6df53de0151779b4c1d95751c69cf5beb517456d59721411bd8e24e6d9455b2c');
 end $migration_90$;
 
 -- 92. shipping-fulfillment.sql
@@ -13241,7 +13242,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-thai-workflow.sql';
   if found then
-    if installed <> 'bea925f85a4da7d5e81bda3e92aa689045c3306d7e2555b9a5cc6b7f2036df0b' then
+    if installed <> '34fe6fc91588c5f04bf747976914472d998112412ef637ea449cc1ab27d3b4d6' then
       raise exception 'Applied migration changed: live-auction-thai-workflow.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -13314,13 +13315,12 @@ begin
  end if;
  if settings is null then raise exception 'INVALID_SETTINGS';end if;
  if p_input->>'action' not in ('start','settings') or p_actor is null or p_request is null then raise exception 'INVALID_ACTION';end if;
- if jsonb_typeof(settings)<>'object' or jsonb_typeof(settings->'keywords')<>'array'
-  or jsonb_array_length(settings->'keywords') not between 1 and 30 then raise exception 'INVALID_SETTINGS';end if;
- if jsonb_typeof(settings->'closeKeywords') is distinct from 'array' or jsonb_array_length(settings->'closeKeywords') not between 1 and 30 then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
+ if jsonb_typeof(settings)<>'object' or jsonb_typeof(settings->'keywords')<>'array' then raise exception 'INVALID_SETTINGS';end if;
+ if jsonb_typeof(settings->'closeKeywords') is distinct from 'array' then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
  if exists(select 1 from jsonb_array_elements(settings->'closeKeywords') k where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40) then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
  if exists(select 1 from jsonb_array_elements(settings->'keywords') k where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40)
   or exists(select 1 from unnest(array['publicReply','privateReply','countEnabled','closeEnabled','heartCloses']) k where jsonb_typeof(settings->k) is distinct from 'boolean')
-  or exists(select 1 from unnest(array['bidText','privateText','closeText']) k where jsonb_typeof(settings->k) is distinct from 'string' or length(settings->>k) not between 1 and 2000)
+  or exists(select 1 from unnest(array['bidText','privateText','closeText']) k where jsonb_typeof(settings->k) is distinct from 'string' or length(settings->>k) not between 0 and 2000)
   then raise exception 'INVALID_SETTINGS';end if;
  if not exists(select 1 from public.bank_accounts where id=(settings->>'bankAccountId')::uuid and tenant_id=p_tenant and is_active)
   then raise exception 'BANK_SCOPE' using errcode='42501';end if;
@@ -13498,7 +13498,7 @@ exception when invalid_function_definition then
   null;
 end;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('live-auction-thai-workflow.sql','bea925f85a4da7d5e81bda3e92aa689045c3306d7e2555b9a5cc6b7f2036df0b','8b95f7dd616abca86ccfbc4395d0e28bb4f5c880792dde5d7b589f5cc6bb50e6');
+    values('live-auction-thai-workflow.sql','34fe6fc91588c5f04bf747976914472d998112412ef637ea449cc1ab27d3b4d6','23e73cd12f7536b5bb63f80528c2f451d9d9f27b5a839be358aaac8588f6ad59');
 end $migration_96$;
 
 -- 98. live-auction-customer-columns.sql
@@ -13882,29 +13882,32 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-workspace.sql';
   if found then
-    if installed <> '6437003646e809fd0c5846ec0dd8603195e3e2110bb23f3f356af1473609a26a' then
+    if installed <> '0f978176bc9cdf79211723e6163ffae3dad80938914956272584658c36cffbc9' then
       raise exception 'Applied migration changed: live-auction-workspace.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
   end if;
 -- live-auction-workspace.sql: source statement 2
-execute $sql_102_2$create table if not exists public.auction_workspace_requests (
+execute $sql_102_2$alter table public.live_sessions add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0)$sql_102_2$;
+
+-- live-auction-workspace.sql: source statement 3
+execute $sql_102_3$create table if not exists public.auction_workspace_requests (
  tenant_id uuid not null references public.tenants(id), request_id uuid not null,
  actor_id uuid not null references auth.users(id), input jsonb not null, result jsonb not null,
  created_at timestamptz not null default clock_timestamp(), primary key(tenant_id,request_id)
-)$sql_102_2$;
-
--- live-auction-workspace.sql: source statement 3
-execute $sql_102_3$alter table public.auction_workspace_requests enable row level security$sql_102_3$;
+)$sql_102_3$;
 
 -- live-auction-workspace.sql: source statement 4
-execute $sql_102_4$revoke all on public.auction_workspace_requests from public,anon,authenticated$sql_102_4$;
+execute $sql_102_4$alter table public.auction_workspace_requests enable row level security$sql_102_4$;
 
 -- live-auction-workspace.sql: source statement 5
-execute $sql_102_5$grant all on public.auction_workspace_requests to service_role$sql_102_5$;
+execute $sql_102_5$revoke all on public.auction_workspace_requests from public,anon,authenticated$sql_102_5$;
 
 -- live-auction-workspace.sql: source statement 6
-execute $sql_102_6$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_102_6$grant all on public.auction_workspace_requests to service_role$sql_102_6$;
+
+-- live-auction-workspace.sql: source statement 7
+execute $sql_102_7$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare prior public.auction_workspace_requests; s public.live_sessions; a public.auctions;
  settings jsonb; result jsonb; page text; round_id uuid;
@@ -13950,6 +13953,7 @@ begin
   raise exception 'INVALID_FINANCE';end if;
  update public.live_sessions set cost_amount=(p_input->'finance'->>'cost')::numeric,
   ad_spent=(p_input->'finance'->>'ads')::numeric,shipping_cost=(p_input->'finance'->>'shipping')::numeric,
+  other_fees=(p_input->'finance'->>'fees')::numeric,
   financial_revision=financial_revision+1 where id=s.id returning * into s;
  insert into public.live_session_changes(tenant_id,session_id,actor_id,request_id,payload,result)
   values(p_tenant,s.id,p_actor,p_request,
@@ -13978,15 +13982,15 @@ begin
  result:=jsonb_build_object('sessionId',s.id,'auctionId',round_id,'revision',s.automation_revision,'financialRevision',s.financial_revision);
  insert into public.auction_workspace_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_102_6$;
-
--- live-auction-workspace.sql: source statement 7
-execute $sql_102_7$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_102_7$;
+end $$$sql_102_7$;
 
 -- live-auction-workspace.sql: source statement 8
-execute $sql_102_8$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_102_8$;
+execute $sql_102_8$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_102_8$;
+
+-- live-auction-workspace.sql: source statement 9
+execute $sql_102_9$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_102_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('live-auction-workspace.sql','6437003646e809fd0c5846ec0dd8603195e3e2110bb23f3f356af1473609a26a','17cac8d5dbc0f9c994014d2d95ad288d9a8db55dc6698d608a6847a000a1ff6d');
+    values('live-auction-workspace.sql','0f978176bc9cdf79211723e6163ffae3dad80938914956272584658c36cffbc9','9b31439a5bce859ea20bb1bbc7790571d7b4c24f604af5940b8486351e425cc9');
 end $migration_102$;
 
 notify pgrst,'reload schema';

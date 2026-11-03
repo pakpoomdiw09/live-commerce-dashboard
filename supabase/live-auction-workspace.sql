@@ -1,6 +1,7 @@
 -- Apply after facebook-webhook-comment-ordering.sql / live-auction-winner-confirmation.sql.
 -- One atomic request saves live selection, automation, financial inputs and the round.
 begin;
+alter table public.live_sessions add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0);
 create table if not exists public.auction_workspace_requests (
  tenant_id uuid not null references public.tenants(id), request_id uuid not null,
  actor_id uuid not null references auth.users(id), input jsonb not null, result jsonb not null,
@@ -55,6 +56,7 @@ begin
   raise exception 'INVALID_FINANCE';end if;
  update public.live_sessions set cost_amount=(p_input->'finance'->>'cost')::numeric,
   ad_spent=(p_input->'finance'->>'ads')::numeric,shipping_cost=(p_input->'finance'->>'shipping')::numeric,
+  other_fees=(p_input->'finance'->>'fees')::numeric,
   financial_revision=financial_revision+1 where id=s.id returning * into s;
  insert into public.live_session_changes(tenant_id,session_id,actor_id,request_id,payload,result)
   values(p_tenant,s.id,p_actor,p_request,

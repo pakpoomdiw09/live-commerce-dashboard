@@ -11267,7 +11267,7 @@ grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),p
 commit;
 -- ============================================================================
 -- 91. live-session-dashboard.sql | Latest delivery safety, reporting and index patches
--- SHA256: 791015cacf4a17c065f2e08dd10287f3c2366b24259aea43f17e5e8988499ee5
+-- SHA256: 6df53de0151779b4c1d95751c69cf5beb517456d59721411bd8e24e6d9455b2c
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -11279,6 +11279,7 @@ alter table public.live_sessions
  add column if not exists cost_amount numeric(14,2) not null default 0 check(cost_amount>=0),
  add column if not exists ad_spent numeric(14,2) not null default 0 check(ad_spent>=0),
  add column if not exists shipping_cost numeric(14,2) not null default 0 check(shipping_cost>=0),
+ add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0),
  add column if not exists financial_revision bigint not null default 0;
 
 -- Source statement 3
@@ -12503,7 +12504,7 @@ grant execute on function public.live_auction_matched_customers(uuid,uuid) to se
 commit;
 -- ============================================================================
 -- 97. live-auction-thai-workflow.sql | Latest delivery safety, reporting and index patches
--- SHA256: 8b95f7dd616abca86ccfbc4395d0e28bb4f5c880792dde5d7b589f5cc6bb50e6
+-- SHA256: 23e73cd12f7536b5bb63f80528c2f451d9d9f27b5a839be358aaac8588f6ad59
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -12567,13 +12568,12 @@ begin
  end if;
  if settings is null then raise exception 'INVALID_SETTINGS';end if;
  if p_input->>'action' not in ('start','settings') or p_actor is null or p_request is null then raise exception 'INVALID_ACTION';end if;
- if jsonb_typeof(settings)<>'object' or jsonb_typeof(settings->'keywords')<>'array'
-  or jsonb_array_length(settings->'keywords') not between 1 and 30 then raise exception 'INVALID_SETTINGS';end if;
- if jsonb_typeof(settings->'closeKeywords') is distinct from 'array' or jsonb_array_length(settings->'closeKeywords') not between 1 and 30 then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
+ if jsonb_typeof(settings)<>'object' or jsonb_typeof(settings->'keywords')<>'array' then raise exception 'INVALID_SETTINGS';end if;
+ if jsonb_typeof(settings->'closeKeywords') is distinct from 'array' then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
  if exists(select 1 from jsonb_array_elements(settings->'closeKeywords') k where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40) then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
  if exists(select 1 from jsonb_array_elements(settings->'keywords') k where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40)
   or exists(select 1 from unnest(array['publicReply','privateReply','countEnabled','closeEnabled','heartCloses']) k where jsonb_typeof(settings->k) is distinct from 'boolean')
-  or exists(select 1 from unnest(array['bidText','privateText','closeText']) k where jsonb_typeof(settings->k) is distinct from 'string' or length(settings->>k) not between 1 and 2000)
+  or exists(select 1 from unnest(array['bidText','privateText','closeText']) k where jsonb_typeof(settings->k) is distinct from 'string' or length(settings->>k) not between 0 and 2000)
   then raise exception 'INVALID_SETTINGS';end if;
  if not exists(select 1 from public.bank_accounts where id=(settings->>'bankAccountId')::uuid and tenant_id=p_tenant and is_active)
   then raise exception 'BANK_SCOPE' using errcode='42501';end if;
@@ -13100,7 +13100,7 @@ grant execute on function public.enqueue_facebook_webhook(text,text,jsonb) to se
 commit;
 -- ============================================================================
 -- 103. live-auction-workspace.sql | Latest delivery safety, reporting and index patches
--- SHA256: 17cac8d5dbc0f9c994014d2d95ad288d9a8db55dc6698d608a6847a000a1ff6d
+-- SHA256: 9b31439a5bce859ea20bb1bbc7790571d7b4c24f604af5940b8486351e425cc9
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -13108,22 +13108,25 @@ set local statement_timeout = '60s';
 set local search_path = public, extensions;
 
 -- Source statement 2
+alter table public.live_sessions add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0);
+
+-- Source statement 3
 create table if not exists public.auction_workspace_requests (
  tenant_id uuid not null references public.tenants(id), request_id uuid not null,
  actor_id uuid not null references auth.users(id), input jsonb not null, result jsonb not null,
  created_at timestamptz not null default clock_timestamp(), primary key(tenant_id,request_id)
 );
 
--- Source statement 3
+-- Source statement 4
 alter table public.auction_workspace_requests enable row level security;
 
--- Source statement 4
+-- Source statement 5
 revoke all on public.auction_workspace_requests from public,anon,authenticated;
 
--- Source statement 5
+-- Source statement 6
 grant all on public.auction_workspace_requests to service_role;
 
--- Source statement 6
+-- Source statement 7
 create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare prior public.auction_workspace_requests; s public.live_sessions; a public.auctions;
@@ -13170,6 +13173,7 @@ begin
   raise exception 'INVALID_FINANCE';end if;
  update public.live_sessions set cost_amount=(p_input->'finance'->>'cost')::numeric,
   ad_spent=(p_input->'finance'->>'ads')::numeric,shipping_cost=(p_input->'finance'->>'shipping')::numeric,
+  other_fees=(p_input->'finance'->>'fees')::numeric,
   financial_revision=financial_revision+1 where id=s.id returning * into s;
  insert into public.live_session_changes(tenant_id,session_id,actor_id,request_id,payload,result)
   values(p_tenant,s.id,p_actor,p_request,
@@ -13200,10 +13204,10 @@ begin
  return result;
 end $$;
 
--- Source statement 7
+-- Source statement 8
 revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated;
 
--- Source statement 8
+-- Source statement 9
 grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role;
 
 commit;

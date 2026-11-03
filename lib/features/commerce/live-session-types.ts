@@ -10,6 +10,7 @@ export type LiveSession = {
   cost_amount: number
   ad_spent: number
   shipping_cost: number
+  other_fees?: number
   financial_revision: number
   auction_settings?: SessionAutomation | null
   automation_revision?: number

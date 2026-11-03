@@ -53,13 +53,12 @@ begin
  end if;
  if settings is null then raise exception 'INVALID_SETTINGS';end if;
  if p_input->>'action' not in ('start','settings') or p_actor is null or p_request is null then raise exception 'INVALID_ACTION';end if;
- if jsonb_typeof(settings)<>'object' or jsonb_typeof(settings->'keywords')<>'array'
-  or jsonb_array_length(settings->'keywords') not between 1 and 30 then raise exception 'INVALID_SETTINGS';end if;
- if jsonb_typeof(settings->'closeKeywords') is distinct from 'array' or jsonb_array_length(settings->'closeKeywords') not between 1 and 30 then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
+ if jsonb_typeof(settings)<>'object' or jsonb_typeof(settings->'keywords')<>'array' then raise exception 'INVALID_SETTINGS';end if;
+ if jsonb_typeof(settings->'closeKeywords') is distinct from 'array' then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
  if exists(select 1 from jsonb_array_elements(settings->'closeKeywords') k where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40) then raise exception 'INVALID_CLOSE_KEYWORDS';end if;
  if exists(select 1 from jsonb_array_elements(settings->'keywords') k where jsonb_typeof(k)<>'string' or length(trim(k#>>'{}')) not between 1 and 40)
   or exists(select 1 from unnest(array['publicReply','privateReply','countEnabled','closeEnabled','heartCloses']) k where jsonb_typeof(settings->k) is distinct from 'boolean')
-  or exists(select 1 from unnest(array['bidText','privateText','closeText']) k where jsonb_typeof(settings->k) is distinct from 'string' or length(settings->>k) not between 1 and 2000)
+  or exists(select 1 from unnest(array['bidText','privateText','closeText']) k where jsonb_typeof(settings->k) is distinct from 'string' or length(settings->>k) not between 0 and 2000)
   then raise exception 'INVALID_SETTINGS';end if;
  if not exists(select 1 from public.bank_accounts where id=(settings->>'bankAccountId')::uuid and tenant_id=p_tenant and is_active)
   then raise exception 'BANK_SCOPE' using errcode='42501';end if;
