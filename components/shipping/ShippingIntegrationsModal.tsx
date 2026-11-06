@@ -133,8 +133,9 @@ export function ShippingIntegrationsModal({
       )
       if (action === 'test_integration') setNotice('เชื่อมต่อ API สำเร็จ')
       else {
-        setNotice('บันทึกการเชื่อมต่อแล้ว')
         setDraft({ api_key: '', secret_key: '', token: '', credentials_configured: true })
+        if (provider === 'beemove') onClose()
+        else setNotice('บันทึกการเชื่อมต่อแล้ว')
       }
       return result
     } catch (cause) {
@@ -143,6 +144,18 @@ export function ShippingIntegrationsModal({
     } finally {
       setBusy(false)
     }
+  }
+  function testConnection() {
+    if (provider === 'beemove') {
+      setError('')
+      setNotice(
+        draft.api_key.trim() || draft.credentials_configured
+          ? 'ยังยืนยันการเชื่อมต่อ Bee Move จริงไม่ได้ แต่บันทึก API Key และการตั้งค่าได้โดยไม่ต้องทดสอบ'
+          : 'กรุณากรอก API Key ของ Bee Move ก่อนบันทึกการตั้งค่า',
+      )
+      return
+    }
+    void submit('test_integration')
   }
   return (
     <SessionDialog title="ตั้งค่าการเชื่อมต่อขนส่ง (BYOK)" onClose={onClose} busy={busy}>
@@ -301,7 +314,14 @@ export function ShippingIntegrationsModal({
           </p>
         )}
         {notice && (
-          <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+          <p
+            role="status"
+            className={`rounded-lg p-3 text-sm ${
+              provider === 'beemove'
+                ? 'bg-amber-50 text-amber-800'
+                : 'bg-emerald-50 text-emerald-800'
+            }`}
+          >
             {notice}
           </p>
         )}
@@ -313,7 +333,7 @@ export function ShippingIntegrationsModal({
             type="button"
             className={button}
             disabled={busy || !draft.api_endpoint}
-            onClick={() => void submit('test_integration')}
+            onClick={testConnection}
           >
             ทดสอบการเชื่อมต่อ
           </button>
