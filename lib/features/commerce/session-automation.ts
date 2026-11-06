@@ -7,11 +7,13 @@ import {
 } from './auction-templates'
 
 export type SessionAutomation = {
+  /** On-demand keywords claim the sender's own highest numeric bid in the current round. */
   winnerFlow?: 'on_demand' | 'highest_bid'
   keywords: string[]
   closeKeywords?: string[]
   publicReply: boolean
   privateReply: boolean
+  auto_accumulate_summary?: boolean
   bidText: string
   privateText: string
   closeText: string
@@ -42,6 +44,7 @@ export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation 
     closeKeywords: [],
     publicReply: true,
     privateReply: true,
+    auto_accumulate_summary: true,
     bidText: SESSION_PUBLIC_WINNER_TEMPLATE,
     privateText: SESSION_WINNER_TEMPLATE,
     closeText: AUCTION_CLOSE_TEMPLATE,
@@ -56,6 +59,39 @@ export const normalizeBidKeyword = (text: string) =>
 /** Configured keywords request the sender's own bill; they never synthesize a price. */
 export const isOnDemandWinnerFlow = (settings?: Pick<SessionAutomation, 'winnerFlow'> | null) =>
   settings?.winnerFlow === 'on_demand'
+
+/** Ledger amounts are supplied by the server; this function only builds separate message bodies. */
+export function auctionPrivateMessagePlan(input: {
+  enabled: boolean
+  hasPreviousUnpaid: boolean
+  name: string
+  item: string
+  price: number
+  shipping: number
+  remaining: number
+  paid: number
+  items: { name: string; amount: number }[]
+  account: string
+  link: string
+  singleMessage: string
+}): string[] {
+  if (!input.enabled || !input.hasPreviousUnpaid) return [input.singleMessage]
+  const money = (amount: number) =>
+    Number(amount).toLocaleString('th-TH', { maximumFractionDigits: 2 })
+  const latest = `🏆 ยินดีด้วยครับคุณ ${input.name.slice(0, 100)} ชนะประมูล ${input.item.slice(0, 200)}\nยอดประมูลชิ้นนี้: ${money(input.price)} บาท`
+  const footer = `🚚 ค่าจัดส่ง: ${money(input.shipping)} บาท\n${input.paid > 0 ? `โอนแล้ว: ${money(input.paid)} บาท\n` : ''}💰 ยอดรวมสุทธิที่ต้องชำระ: ${money(input.remaining)} บาท\n\n🏦 บัญชีโอนเงิน: ${input.account}\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${input.link}`
+  const title = '📊 สรุปบิลยอดรวมสะสมทั้งหมดของคุณ:'
+  const lines: string[] = []
+  for (const [index, item] of input.items.entries()) {
+    const line = `${index + 1}. ${item.name.slice(0, 100)} — ${money(item.amount)} บาท`
+    if ([title, ...lines, line, footer].join('\n').length > 1850) {
+      lines.push('ดูรายการสินค้าทั้งหมดในลิงก์บิลด้านล่าง')
+      break
+    }
+    lines.push(line)
+  }
+  return [latest, [title, ...lines, footer].join('\n')]
+}
 export function sessionAuctionTemplate(text: string) {
   return storeAuctionTemplate(
     text.replace(/\{(name|item)\}/g, (_, key: string) =>
@@ -68,6 +104,7 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
   const v = value as SessionAutomation
   return (
     (v.winnerFlow === undefined || ['on_demand', 'highest_bid'].includes(v.winnerFlow)) &&
+    (v.auto_accumulate_summary === undefined || typeof v.auto_accumulate_summary === 'boolean') &&
     ['publicReply', 'privateReply', 'countEnabled', 'closeEnabled', 'heartCloses'].every(
       (key) => typeof v[key as keyof SessionAutomation] === 'boolean',
     ) &&

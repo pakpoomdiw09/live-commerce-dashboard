@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
     const settings = {
       ...input.settings,
       winnerFlow: input.settings.winnerFlow ?? 'on_demand',
+      auto_accumulate_summary: input.settings.auto_accumulate_summary ?? true,
       keywords: (input.settings.keywords ?? []).map(normalizeBidKeyword),
       closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
       countEnabled: false,

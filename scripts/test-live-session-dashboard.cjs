@@ -55,10 +55,11 @@ test('customer status counts unique bills and separates unpaid, partial, exact a
 
 test('Session bid shortcuts and host switches are deterministic and preserve legacy parsing', () => {
   const settings = automation.defaultSessionAutomation(randomUUID())
+  assert.equal(settings.winnerFlow, 'on_demand')
   assert.deepEqual(Array.from(settings.keywords), [])
   assert.deepEqual(Array.from(settings.closeKeywords), [])
   for (const text of settings.keywords)
-    assert.equal(auctionParser.parseAuctionComment(text, false, settings).type, 'STEP_BID')
+    assert.equal(auctionParser.parseAuctionComment(text, false, settings).type, 'CONFIRM_BID')
   assert.equal(auctionParser.parseAuctionComment('11').type, 'NUMERIC_BID')
   assert.equal(
     auctionParser.parseAuctionComment('❤️', false, { ...settings, heartCloses: true }).type,
@@ -110,7 +111,7 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
       ...settings,
       keywords: manyKeywords,
     }).type,
-    'STEP_BID',
+    'CONFIRM_BID',
   )
   assert.equal(
     auctionParser.parseAuctionComment('close-39', true, {
@@ -594,6 +595,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     // All-in-one Session start/settings reuse the ledger and existing Page dispatch slots.
     const config = {
       ...automation.defaultSessionAutomation(bank),
+      winnerFlow: 'highest_bid', // This scenario verifies the explicit legacy step-bid mode.
       privateReply: false,
       publicReply: false,
     }

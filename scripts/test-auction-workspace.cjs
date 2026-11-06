@@ -98,6 +98,24 @@ test('unified workspace saves all zones atomically, preserves merchant values an
     assert.equal(session.cost_amount, '125.50')
     assert.equal(session.shipping_cost, '7.00')
     assert.equal(session.other_fees, '3.25')
+    assert.equal(session.auction_settings.auto_accumulate_summary, true)
+    assert.equal(round.session_automation.auto_accumulate_summary, true)
+    assert.equal(
+      (
+        await one('select normalize_auction_thai_settings($1) value', [
+          JSON.stringify({ ...input.settings, auto_accumulate_summary: false }),
+        ])
+      ).value.auto_accumulate_summary,
+      false,
+    )
+    assert.equal(
+      (
+        await one('select normalize_auction_thai_settings($1) value', [
+          JSON.stringify({ ...input.settings, auto_accumulate_summary: 'false' }),
+        ])
+      ).value,
+      null,
+    )
     assert.equal(
       (await one('select live_session_dashboard($1,$2) result', [tenant, result.sessionId])).result
         .metrics.profit,
@@ -114,8 +132,11 @@ test('unified workspace saves all zones atomically, preserves merchant values an
       revision: result.revision,
       financialRevision: result.financialRevision,
       shippingFee: 47,
+      settings: { ...input.settings, auto_accumulate_summary: false },
     }
     const updated = await save(update)
+    assert.equal((await one('select auction_settings from live_sessions where id=$1', [result.sessionId])).auction_settings.auto_accumulate_summary, false)
+    assert.equal((await one('select session_automation from auctions where id=$1', [result.auctionId])).session_automation.auto_accumulate_summary, false)
     assert.equal(
       (await one('select shipping_fee from auctions where id=$1', [result.auctionId])).shipping_fee,
       '47.00',
@@ -133,7 +154,7 @@ test('unified workspace saves all zones atomically, preserves merchant values an
         financialRevision: updated.financialRevision,
         shippingFee: 99,
         finance: { ...input.finance, cost: 999 },
-        settings: { ...input.settings, keywords: ['changed'] },
+        settings: { ...input.settings, keywords: ['changed'], auto_accumulate_summary: false },
       }),
       /BIDS_ALREADY_ACCEPTED/,
     )

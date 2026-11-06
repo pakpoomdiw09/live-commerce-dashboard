@@ -68,7 +68,7 @@ async function auctionSlipTarget(
 ): Promise<AuctionSlipTarget> {
   const pending = await db
     .from('orders')
-    .select('id,source_id,customer_tab_id')
+    .select('id,source_id,customer_tab_id,live_auction_id')
     .eq('tenant_id', tenantId)
     .eq('customer_id', customerId)
     .eq('source', 'live_auction')
@@ -89,7 +89,46 @@ async function auctionSlipTarget(
     if (['42P01', 'PGRST205'].includes(result.error.code)) return { kind: 'unmatched' }
     throw result.error
   }
+  const claimOrders = orders.filter((order) => order.live_auction_id)
+  let claimMatches: { orderId: string; auctionId: string }[] = []
+  if (claimOrders.length) {
+    const claims = await db
+      .from('auction_winner_claims')
+      .select('order_id,auction_id')
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customerId)
+      .eq('bidder_id', senderId)
+      .in(
+        'order_id',
+        claimOrders.map((order) => order.id),
+      )
+    if (claims.error) throw claims.error
+    const rounds = await db
+      .from('auctions')
+      .select('id,status')
+      .eq('tenant_id', tenantId)
+      .eq('page_id', pageId)
+      .in(
+        'id',
+        claimOrders.map((order) => order.live_auction_id),
+      )
+    if (rounds.error) throw rounds.error
+    claimMatches = (claims.data ?? []).flatMap((claim) => {
+      const order = claimOrders.find(
+        (item) => item.id === claim.order_id && item.live_auction_id === claim.auction_id,
+      )
+      return order &&
+        rounds.data?.some(
+          (round) => round.id === claim.auction_id && ['active', 'closed'].includes(round.status),
+        )
+        ? [{ orderId: order.id, auctionId: claim.auction_id }]
+        : []
+    })
+  }
   const matches = orders.flatMap((order) => {
+    const claim = claimMatches.find((item) => item.orderId === order.id)
+    if (claim && typeof order.customer_tab_id === 'string')
+      return [{ auctionId: claim.auctionId, customerTabId: order.customer_tab_id }]
     const auction = (result.data ?? []).find((candidate) => candidate.order_id === order.id)
     if (
       !auction ||

@@ -160,7 +160,12 @@ test('workspace API restores scoped saved values and commits a single normalized
       await post({
         ...input,
         paid_amount: 999,
-        settings: { ...settings, keywords: [' RAISE '], bidText: '{ชื่อลูกค้า} {ราคา}' },
+        settings: {
+          ...settings,
+          keywords: [' RAISE '],
+          bidText: '{ชื่อลูกค้า} {ราคา}',
+          auto_accumulate_summary: false,
+        },
       })
     ).status,
     200,
@@ -170,6 +175,7 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.equal(calls[0].args.p_input.shippingFee, 47)
   assert.deepEqual(Array.from(calls[0].args.p_input.settings.keywords), ['raise'])
   assert.equal(calls[0].args.p_input.settings.bidText, '{bidder_name} {price}')
+  assert.equal(calls[0].args.p_input.settings.auto_accumulate_summary, false)
   assert.equal(calls[0].args.p_input.finance.cost, 125.5)
   assert.equal(calls[0].args.p_input.finance.fees, 3.25)
   assert.equal('paid_amount' in calls[0].args.p_input, false)
@@ -198,6 +204,7 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.keywords), [])
   assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.closeKeywords), [])
   assert.equal(calls.at(-1).args.p_input.settings.privateText, '')
+  assert.equal(calls.at(-1).args.p_input.settings.auto_accumulate_summary, true)
 
   assert.equal(
     (

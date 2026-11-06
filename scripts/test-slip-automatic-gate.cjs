@@ -7,6 +7,51 @@ const orders = load('lib/features/commerce/orders.ts', {
   '@/lib/features/banking/banks': load('lib/features/banking/banks.ts'),
 })
 
+test('Messenger slips route on-demand bills even when the claimant is not the global leader', async () => {
+  const order = {
+    ...pending(),
+    source: 'live_auction',
+    source_id: 'auction-a:claim:987654321',
+    live_auction_id: 'auction-a',
+    customer_tab_id: 'tab-a',
+  }
+  const options = {
+    rows: [order],
+    auctionRows: [
+      {
+        id: 'auction-a',
+        tenant_id: 'shop-a',
+        page_id: '123456789',
+        status: 'active',
+        leading_bidder_id: 'another-buyer',
+      },
+    ],
+    claimRows: [
+      {
+        tenant_id: 'shop-a',
+        customer_id: 'customer-a',
+        bidder_id: '987654321',
+        auction_id: 'auction-a',
+        order_id: order.id,
+      },
+    ],
+    tabRows: [
+      { id: 'tab-a', tenant_id: 'shop-a', customer_id: 'customer-a', remaining_amount: 300 },
+    ],
+  }
+  const f = fixture(options)
+  await f.run()
+  assert.equal(f.calls.processInputs.length, 1)
+  assert.equal(f.calls.processInputs[0].expectedAmount, 300)
+  assert.equal(f.calls.processInputs[0].auctionSenderId, '987654321')
+  const foreign = fixture({
+    ...options,
+    claimRows: [{ ...options.claimRows[0], bidder_id: 'foreign' }],
+  })
+  await foreign.run()
+  assert.equal(foreign.calls.processInputs.length, 0)
+})
+
 test('auction slips settle only the exact pending tab bill belonging to the closed-round winner', async () => {
   const order = {
     ...pending(),
@@ -65,6 +110,7 @@ test('auction slips settle only the exact pending tab bill belonging to the clos
 function fixture({
   rows = [],
   auctionRows = [],
+  claimRows = [],
   tabRows = [],
   bot = true,
   enabled = true,
@@ -113,9 +159,20 @@ function fixture({
           }
         if (table === 'customers')
           return { data: { id: 'customer-a', bot_enabled: bot }, error: null }
-        if (table === 'orders' || table === 'auctions' || table === 'customer_tabs') {
+        if (
+          table === 'orders' ||
+          table === 'auctions' ||
+          table === 'customer_tabs' ||
+          table === 'auction_winner_claims'
+        ) {
           const sourceRows =
-            table === 'orders' ? rows : table === 'auctions' ? auctionRows : tabRows
+            table === 'orders'
+              ? rows
+              : table === 'auctions'
+                ? auctionRows
+                : table === 'auction_winner_claims'
+                  ? claimRows
+                  : tabRows
           const filtered = sourceRows.filter(
             (row) =>
               Object.entries(filters).every(([key, value]) => row[key] === value) &&

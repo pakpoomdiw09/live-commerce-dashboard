@@ -5,6 +5,9 @@ const load = require('./helpers/load-typescript.cjs')
 const parser = load('lib/integrations/facebook/auction-comment-parser.ts')
 const routing = load('lib/features/comments/live-comment-routing.ts', { './comment-rules': {} })
 const templates = load('lib/features/commerce/auction-templates.ts')
+const automation = load('lib/features/commerce/session-automation.ts', {
+  './auction-templates': templates,
+})
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const auctionId = '22222222-2222-4222-8222-222222222222'
 const orderId = '33333333-3333-4333-8333-333333333333'
@@ -41,12 +44,17 @@ function fixture({
     live_sessions: [],
     tenants: [{ id: tenantId, page_id: '100', page_access_token: 'TEST_SECRET', is_active: true }],
     auction_deliveries: [],
+    auction_winner_claims: [],
+    orders: [],
+    customers: [],
     messages: [],
   }
-  const calls = { rpc: [], public: [], private: [], resolve: [], timeline: [] }
+  const calls = { rpc: [], public: [], private: [], messenger: [], resolve: [], timeline: [] }
   let currentSender = null
   const db = {
     from(table) {
+      if (table === 'auction_deliveries')
+        tables[table].forEach((row) => (row.next_attempt_at ??= '0001-01-01'))
       const predicates = []
       let ordering = null
       let rowLimit = Infinity
@@ -76,6 +84,12 @@ function fixture({
         },
         update(value) {
           patch = value
+          return q
+        },
+        upsert(value, options) {
+          const existing = tables[table].find((row) => row.external_id === value.external_id)
+          if (existing && !options?.ignoreDuplicates) Object.assign(existing, value)
+          if (!existing) tables[table].push({ ...value })
           return q
         },
         eq(key, value) {
@@ -115,6 +129,13 @@ function fixture({
     async rpc(name, input) {
       calls.timeline.push('rpc:' + name)
       calls.rpc.push({ name, input })
+      if (name === 'claim_auction_bill_delivery') {
+        const delivery = tables.auction_deliveries.find(
+          (row) => row.id === input.p_delivery && row.status === 'pending',
+        )
+        if (delivery) delivery.status = 'sending'
+        return { data: !!delivery, error: null }
+      }
       if (name === 'confirm_live_auction_winner') {
         const auction = tables.auctions.find((row) => row.id === input.p_auction)
         if (auction.leading_bidder_id !== currentSender)
@@ -150,6 +171,17 @@ function fixture({
           calls.private.push(args)
           if (privateFails) throw { code: 'PROVIDER_TIMEOUT' }
         },
+        sendPrivateReply: async (...args) => {
+          calls.private.push(args)
+          if (privateFails) throw { code: 'PROVIDER_TIMEOUT' }
+          return { recipient_id: '901', message_id: 'private-receipt' }
+        },
+        sendMessageWithReceipt: async (...args) => {
+          calls.messenger.push(args)
+          if (privateFails || calls.failMessengerAt === calls.messenger.length)
+            throw { code: 'PROVIDER_TIMEOUT' }
+          return 'messenger-' + calls.messenger.length
+        },
         resolveLiveCommentVideo: async (...args) => {
           calls.resolve.push(args)
           return { ids: ['456'], live: true }
@@ -169,6 +201,7 @@ function fixture({
         }),
       },
       './auction-templates': templates,
+      './session-automation': automation,
       '@/lib/integrations/facebook/auction-comment-parser': parser,
       '@/lib/features/comments/live-comment-routing': routing,
     },
@@ -194,6 +227,236 @@ function fixture({
   }
   return { api, receive, tables, calls }
 }
+
+test('on-demand confirmation routes a closed round to the claimant and honors public reply off', async () => {
+  for (const keyword of ['1', '11', '+1', '+', 'เปิด']) {
+    assert.equal(
+      parser.parseAuctionComment(keyword, false, {
+        ...automation.defaultSessionAutomation(),
+        keywords: [keyword, keyword],
+      }).type,
+      'CONFIRM_BID',
+    )
+  }
+  const claimId = '44444444-4444-4444-8444-444444444444'
+  const f = fixture({
+    result: { status: 'claimed', claimId, amount: 250 },
+    tab: {
+      total_amount: 300,
+      paid_amount: 0,
+      remaining_amount: 300,
+      shipping_fee: 50,
+      customer_tab_items: [],
+    },
+  })
+  Object.assign(f.tables.auctions[0], {
+    status: 'closed',
+    created_at: '2026-03-01',
+    closed_at: '2026-03-02',
+    session_automation: { ...automation.defaultSessionAutomation(), keywords: ['1', '11', '+1'] },
+    public_reply_enabled: false,
+    private_reply_enabled: true,
+    private_reply_template: '{bidder_name}: {price} {bank_account} {payment_link}',
+  })
+  f.tables.live_sessions.push({
+    id: 'session',
+    tenant_id: tenantId,
+    page_id: '100',
+    live_post_id: '456',
+    ended_at: '2026-03-03',
+  })
+  f.tables.auction_winner_claims.push({
+    id: claimId,
+    tenant_id: tenantId,
+    auction_id: auctionId,
+    revision: 1,
+    order_id: orderId,
+    bidder_id: '901',
+    bidder_name: 'Claimant',
+    highest_amount: 250,
+  })
+  f.tables.auction_deliveries.push({
+    id: 'claim-private',
+    auction_id: auctionId,
+    channel: 'private',
+    comment_id: 'claim-comment',
+    status: 'pending',
+    claim_id: claimId,
+    claim_revision: 1,
+  })
+  f.tables.messages.push({ external_id: `auction-claim:${claimId}:1`, delivery_status: 'pending' })
+  await f.receive('+1', '901')
+  assert.equal(f.calls.rpc[0].input.p_kind, 'CONFIRM_BID')
+  assert.equal(f.calls.private.length, 1)
+  assert.equal(f.calls.private[0][1], 'claim-comment')
+  assert.match(f.calls.private[0][2], /Claimant: 250/)
+  assert.match(f.calls.private[0][2], /KTB 9260337828/)
+  assert.equal(f.calls.public.length, 0)
+  assert.equal(f.tables.messages[0].delivery_status, 'sent')
+  await f.receive('+1', '901')
+  assert.equal(f.calls.private.length, 1, 'replayed comment cannot resend a sent claim')
+  const empty = fixture({ result: { status: 'ignored', reason: 'NO_BID_HISTORY' } })
+  empty.tables.auctions[0].session_automation = {
+    ...automation.defaultSessionAutomation(),
+    keywords: ['1'],
+  }
+  await empty.receive('1', '902')
+  assert.equal(empty.calls.private.length, 0)
+  assert.equal(empty.calls.public.length, 0)
+})
+
+function splitFixture({ enabled = true, open = true, paidPrevious = false } = {}) {
+  const tab = {
+    id: 'tab-a',
+    customer_id: 'customer-a',
+    customer_fb_id: '901',
+    live_session_id: 'session-a',
+    total_amount: 800,
+    paid_amount: paidPrevious ? 550 : 0,
+    remaining_amount: paidPrevious ? 250 : 800,
+    shipping_fee: 50,
+    customer_tab_items: [
+      { order_id: 'old-order', item_name: 'Old item', amount: 500, cancelled: false },
+      { order_id: orderId, item_name: 'Latest item', amount: 250, cancelled: false },
+    ],
+  }
+  const claimId = 'split-claim'
+  const f = fixture({ result: { status: 'claimed', claimId }, tab })
+  Object.assign(f.tables.auctions[0], {
+    item_name: 'Latest item',
+    public_reply_enabled: false,
+    private_reply_enabled: true,
+    session_automation: {
+      ...automation.defaultSessionAutomation(),
+      keywords: ['1'],
+      auto_accumulate_summary: enabled,
+    },
+  })
+  f.tables.auction_winner_claims.push({
+    id: claimId,
+    tenant_id: tenantId,
+    auction_id: auctionId,
+    revision: 1,
+    order_id: orderId,
+    bidder_id: '901',
+    bidder_name: 'Claimant',
+    highest_amount: 250,
+  })
+  f.tables.auction_deliveries.push({
+    id: 'split-delivery',
+    auction_id: auctionId,
+    claim_id: claimId,
+    claim_revision: 1,
+    channel: 'private',
+    comment_id: 'confirmation',
+    status: 'pending',
+  })
+  f.tables.messages.push({ external_id: `auction-claim:${claimId}:1`, delivery_status: 'pending' })
+  f.tables.customers.push({
+    id: 'customer-a',
+    tenant_id: tenantId,
+    platform: 'facebook',
+    platform_user_id: '901',
+    window_expires_at: open ? '2100-01-01T00:00:00Z' : '2000-01-01T00:00:00Z',
+  })
+  for (const [id, item, shipping] of [
+    ['old-order', 500, 50],
+    [orderId, 250, 0],
+  ]) {
+    const paid = paidPrevious && id === 'old-order'
+    f.tables.orders.push({
+      id,
+      tenant_id: tenantId,
+      customer_id: 'customer-a',
+      customer_tab_id: 'tab-a',
+      live_session_id: 'session-a',
+      status: paid ? 'paid' : 'pending_payment',
+      amount: item + shipping,
+      item_amount: item,
+      paid_amount: paid ? item + shipping : 0,
+    })
+  }
+  return f
+}
+
+test('split-summary switch defaults on, validates booleans and sends two ordered standalone messages', async () => {
+  const defaults = automation.defaultSessionAutomation('11111111-1111-4111-8111-111111111111')
+  assert.equal(defaults.auto_accumulate_summary, true)
+  assert.equal(
+    automation.validSessionAutomation({ ...defaults, auto_accumulate_summary: false }),
+    true,
+  )
+  assert.equal(
+    automation.validSessionAutomation({ ...defaults, auto_accumulate_summary: 'false' }),
+    false,
+  )
+  const f = splitFixture()
+  await f.receive('1', '901')
+  assert.equal(f.calls.messenger.length, 2)
+  assert.equal(f.calls.private.length, 0)
+  assert.match(f.calls.messenger[0][2].text, /🏆.*Claimant.*Latest item/)
+  assert.match(f.calls.messenger[0][2].text, /250 บาท/)
+  assert.doesNotMatch(f.calls.messenger[0][2].text, /📊|Old item|800 บาท/)
+  const summary = f.calls.messenger[1][2].text
+  assert.match(summary, /📊/)
+  assert.match(summary, /1\. Old item.*500/)
+  assert.match(summary, /2\. Latest item.*250/)
+  assert.match(summary, /ค่าจัดส่ง: 50 บาท/)
+  assert.match(summary, /800 บาท/)
+  assert.match(summary, /KTB 9260337828/)
+  assert.match(summary, /https:\/\/shop.example\/pay\/live\/signed/)
+  assert.equal(f.tables.messages.filter((row) => row.delivery_status === 'sent').length, 2)
+  await f.receive('1', '901')
+  assert.equal(f.calls.messenger.length, 2, 'webhook replay cannot resend either part')
+})
+
+test('disabled accumulation or paid historical orders send only the latest item bill', async () => {
+  for (const options of [{ enabled: false }, { paidPrevious: true }]) {
+    const f = splitFixture(options)
+    await f.receive('1', '901')
+    assert.equal(f.calls.private.length, 1)
+    assert.equal(f.calls.messenger.length, 0)
+    assert.match(f.calls.private[0][2], /250/)
+    assert.match(f.calls.private[0][2], /KTB 9260337828/)
+    assert.doesNotMatch(f.calls.private[0][2], /Old item|800 บาท|📊/)
+  }
+})
+
+test('closed Messenger windows defer only the second message and resume without repeating the first', async () => {
+  const f = splitFixture({ open: false })
+  await f.receive('1', '901')
+  assert.equal(f.calls.private.length, 1)
+  assert.equal(f.calls.messenger.length, 0)
+  assert.equal(f.tables.auction_deliveries[0].status, 'pending')
+  assert.equal(f.tables.auction_deliveries[0].error_code, 'MESSAGE_WINDOW_CLOSED')
+  await f.api.deliverAuctionNotifications()
+  assert.equal(f.calls.private.length, 1)
+  f.tables.customers[0].window_expires_at = '2100-01-01T00:00:00Z'
+  f.tables.auction_deliveries[0].next_attempt_at = '2000-01-01'
+  await f.api.deliverAuctionNotifications()
+  assert.equal(f.calls.private.length, 1)
+  assert.equal(f.calls.messenger.length, 1)
+  assert.match(f.calls.messenger[0][2].text, /📊/)
+  assert.equal(f.tables.auction_deliveries[0].status, 'sent')
+})
+
+test('an ambiguous second send preserves the first receipt and cannot blindly retry either message', async () => {
+  const f = splitFixture()
+  f.calls.failMessengerAt = 2
+  await f.receive('1', '901')
+  assert.equal(f.calls.messenger.length, 2)
+  assert.equal(f.tables.auction_deliveries[0].status, 'requires_review')
+  assert.equal(
+    f.tables.messages.find((row) => row.external_id.endsWith(':latest')).delivery_status,
+    'sent',
+  )
+  assert.equal(
+    f.tables.messages.find((row) => !row.external_id.endsWith(':latest')).delivery_status,
+    'unknown',
+  )
+  await f.api.deliverAuctionNotifications()
+  assert.equal(f.calls.messenger.length, 2)
+})
 
 test('auction routing uses scoped rows, separates host/customer commands and checkpoints confirmations', async () => {
   const f = fixture()

@@ -61,6 +61,7 @@ export type SessionSnapshot = {
     unpaidPeople: number
     partialPeople: number
     profit: number
+    auctionSales?: number
   }
   rounds: SessionRound[]
   tabs: SessionTab[]

@@ -9,7 +9,7 @@
     "test:shipping:ui": "node scripts/check-shipping-browser.cjs",
     "test:live-sessions": "node --test scripts/test-live-session-dashboard.cjs",
     "test:live-sessions:ui": "node scripts/check-live-session-browser.cjs",
-    "test:auctions": "node --test scripts/test-live-auctions.cjs scripts/test-auction-customer-tab-slip.cjs scripts/test-slip-automatic-gate.cjs scripts/test-auction-server.cjs scripts/test-auction-host-actions.cjs scripts/test-auction-hosts.cjs scripts/test-auction-cron.cjs",
+    "test:auctions": "node --test scripts/test-live-auctions.cjs scripts/test-auction-on-demand.cjs scripts/test-auction-customer-tab-slip.cjs scripts/test-slip-automatic-gate.cjs scripts/test-auction-server.cjs scripts/test-auction-host-actions.cjs scripts/test-auction-hosts.cjs scripts/test-auction-cron.cjs",
     "test:auctions:ui": "node scripts/check-auction-browser.cjs",
     "test:customer-tabs": "node --test scripts/test-customer-tabs.cjs scripts/test-customer-tab-services.cjs",
     "db:schema:build": "node scripts/build-full-database-setup.cjs",

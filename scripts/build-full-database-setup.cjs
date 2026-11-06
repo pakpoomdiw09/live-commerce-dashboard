@@ -131,6 +131,8 @@ const groups = [
       'live-auction-workspace.sql',
       'live-auction-empty-keyword-defaults.sql',
       'live-auction-production-readiness.sql',
+      'live-auction-on-demand.sql',
+      'live-auction-split-summary.sql',
     ],
   ],
 ]
@@ -164,6 +166,8 @@ const excluded = {
 // Explicit edges document table/helper prerequisites and prevent accidental
 // reordering of patches whose latest function definitions must win.
 const prerequisites = {
+  'live-auction-split-summary.sql': ['live-auction-on-demand.sql'],
+  'live-auction-on-demand.sql': ['live-auction-production-readiness.sql'],
   'live-order-types.sql': ['live-session-dashboard.sql'],
   'live-auction-dashboard.sql': ['live-order-types.sql', 'shipping-fulfillment.sql'],
   'live-auction-instant-winners.sql': ['live-auction-dashboard.sql'],

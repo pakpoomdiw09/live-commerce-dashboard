@@ -5,13 +5,15 @@ import {
   pageTokenFor,
   replyToComment,
   sendAuctionPrivateReply,
+  sendMessageWithReceipt,
+  sendPrivateReply,
 } from '@/lib/integrations/facebook/client'
 import { createLiveCfPaymentLink } from './live-cf-payment-link'
 import { parseAuctionComment } from '@/lib/integrations/facebook/auction-comment-parser'
 import { commentPostIds } from '@/lib/features/comments/live-comment-routing'
 import type { WebhookExecution } from '@/lib/integrations/facebook/webhook-worker'
 import type { Auction, AuctionResult } from './auction-types'
-import { isOnDemandWinnerFlow } from './session-automation'
+import { auctionPrivateMessagePlan, isOnDemandWinnerFlow } from './session-automation'
 import {
   AUCTION_PRIVATE_TEMPLATE,
   SESSION_WINNER_TEMPLATE,
@@ -29,8 +31,14 @@ const safeCode = (error: unknown) => {
     ? code
     : 'AUCTION_DELIVERY_FAILED'
 }
-const billMessageKey = (delivery: { auction_id: string; claim_id?: string; claim_revision?: number }) =>
-  delivery.claim_id ? `auction-claim:${delivery.claim_id}:${delivery.claim_revision}` : `auction-bill:${delivery.auction_id}`
+const billMessageKey = (delivery: {
+  auction_id: string
+  claim_id?: string
+  claim_revision?: number
+}) =>
+  delivery.claim_id
+    ? `auction-claim:${delivery.claim_id}:${delivery.claim_revision}`
+    : `auction-bill:${delivery.auction_id}`
 
 /** Claim each final notification atomically; never resend an ambiguous provider result. */
 export async function deliverAuctionNotifications(auctionId?: string, claimId?: string) {
@@ -52,8 +60,11 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
   }
   let query = db
     .from('auction_deliveries')
-    .select('id,auction_id,channel,comment_id,claim_id,claim_revision')
+    .select(
+      'id,auction_id,channel,comment_id,claim_id,claim_revision,private_plan,latest_sent_at,latest_recipient_id',
+    )
     .eq('status', 'pending')
+    .lte('next_attempt_at', new Date().toISOString())
     .order('id')
     .limit(20)
   if (auctionId) query = query.eq('auction_id', auctionId)
@@ -69,19 +80,34 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
     if (saved.error) throw saved.error
     let auction = saved.data as Auction
     if (delivery.claim_id) {
-      const claim = await db.from('auction_winner_claims').select('*')
-        .eq('id', delivery.claim_id).eq('auction_id', auction.id).eq('tenant_id', auction.tenant_id).single()
+      const claim = await db
+        .from('auction_winner_claims')
+        .select('*')
+        .eq('id', delivery.claim_id)
+        .eq('auction_id', auction.id)
+        .eq('tenant_id', auction.tenant_id)
+        .single()
       if (claim.error) throw claim.error
-      if (Number(claim.data.revision) !== Number(delivery.claim_revision) ||
+      if (
+        Number(claim.data.revision) !== Number(delivery.claim_revision) ||
         (delivery.channel === 'public' && auction.public_reply_enabled === false) ||
-        (delivery.channel === 'private' && auction.private_reply_enabled === false)) {
-        const superseded = await db.from('auction_deliveries').update({ status: 'superseded' })
-          .eq('id', delivery.id).eq('status', 'pending')
+        (delivery.channel === 'private' && auction.private_reply_enabled === false)
+      ) {
+        const superseded = await db
+          .from('auction_deliveries')
+          .update({ status: 'superseded' })
+          .eq('id', delivery.id)
+          .eq('status', 'pending')
         if (superseded.error) throw superseded.error
         continue
       }
-      auction = { ...auction, order_id: claim.data.order_id, current_price: Number(claim.data.highest_amount),
-        leading_bidder_id: claim.data.bidder_id, leading_bidder_name: claim.data.bidder_name }
+      auction = {
+        ...auction,
+        order_id: claim.data.order_id,
+        current_price: Number(claim.data.highest_amount),
+        leading_bidder_id: claim.data.bidder_id,
+        leading_bidder_name: claim.data.bidder_name,
+      }
     }
     const tenant = await db
       .from('tenants')
@@ -141,6 +167,8 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
         : summary
     let billMessage = message
     let buttonMessage = message
+    let splitMessages: string[] | null = null
+    let splitCustomer: { id: string; fbId: string } | null = null
     if (delivery.channel === 'private' && auction.order_id) {
       const { tabForOrder, customerTabSummary } = await import('./customer-tabs-server')
       const tab = await tabForOrder(db, auction.order_id)
@@ -182,43 +210,219 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
         // Keep ledger totals and the signed link intact when fitting Messenger's button limit.
         const greeting = rendered.replaceAll(bill.link, '').trim()
         buttonMessage = `${greeting.slice(0, Math.max(0, 638 - footer.length))}\n\n${footer}`.trim()
+        if (isOnDemandWinnerFlow(auction.session_automation)) {
+          const unpaid = await db
+            .from('orders')
+            .select('id,amount,item_amount,paid_amount')
+            .eq('tenant_id', auction.tenant_id)
+            .eq('customer_id', tab.customer_id)
+            .eq('customer_tab_id', tab.id)
+            .eq('live_session_id', tab.live_session_id)
+            .eq('status', 'pending_payment')
+          if (unpaid.error) throw unpaid.error
+          const pendingOrders = (unpaid.data ?? []).filter(
+            (order) => Number(order.amount) > Number(order.paid_amount ?? 0),
+          )
+          const latestOrder = pendingOrders.find((order) => order.id === auction.order_id)
+          const latestShipping = latestOrder
+            ? Math.max(0, Number(latestOrder.amount) - Number(latestOrder.item_amount))
+            : 0
+          const singleValues = {
+            ...values,
+            total: money(Number(auction.current_price) + latestShipping),
+            remaining: money(
+              latestOrder ? Number(latestOrder.amount) - Number(latestOrder.paid_amount ?? 0) : 0,
+            ),
+            paid: money(Number(latestOrder?.paid_amount ?? 0)),
+          }
+          const single = auctionPrivateMessage(
+            privateTemplate,
+            singleValues,
+            '',
+            `ยอดประมูลชิ้นนี้: ${money(auction.current_price)} บาท\n🚚 ค่าจัดส่งชิ้นนี้: ${money(latestShipping)} บาท\n🏦 บัญชีโอนเงิน: ${bill.account}\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${bill.link}`,
+          )
+          const plan = auctionPrivateMessagePlan({
+            enabled:
+              !!delivery.private_plan ||
+              auction.session_automation?.auto_accumulate_summary !== false,
+            hasPreviousUnpaid:
+              !!delivery.private_plan ||
+              pendingOrders.some((order) => order.id !== auction.order_id),
+            name: auction.leading_bidder_name || 'ลูกค้า',
+            item: auction.item_name,
+            price: Number(auction.current_price),
+            shipping:
+              pendingOrders.reduce(
+                (sum, order) =>
+                  sum + Math.round((Number(order.amount) - Number(order.item_amount)) * 100),
+                0,
+              ) / 100,
+            remaining: Number(tab.remaining_amount),
+            paid:
+              pendingOrders.reduce(
+                (sum, order) => sum + Math.round(Number(order.paid_amount ?? 0) * 100),
+                0,
+              ) / 100,
+            items: items
+              .filter((item) => pendingOrders.some((order) => order.id === item.order_id))
+              .map((item) => ({ name: customerTabItemLabel(item), amount: Number(item.amount) })),
+            account: bill.account,
+            link: bill.link,
+            singleMessage: single,
+          })
+          if (plan.length === 2) {
+            splitMessages = plan
+            splitCustomer = { id: tab.customer_id, fbId: tab.customer_fb_id }
+            billMessage = plan[1]
+          } else {
+            billMessage = plan[0]
+            buttonMessage = plan[0]
+          }
+        }
       }
     }
-    const claimed = await db
-      .from('auction_deliveries')
-      .update({ status: 'sending', started_at: new Date().toISOString() })
-      .eq('id', delivery.id)
-      .eq('status', 'pending')
-      .select('id')
-      .maybeSingle()
+    const claimed = delivery.claim_id
+      ? await db.rpc('claim_auction_bill_delivery', {
+          p_delivery: delivery.id,
+          p_revision: delivery.claim_revision,
+        })
+      : await db
+          .from('auction_deliveries')
+          .update({ status: 'sending', started_at: new Date().toISOString() })
+          .eq('id', delivery.id)
+          .eq('status', 'pending')
+          .select('id')
+          .maybeSingle()
     if (claimed.error) throw claimed.error
     if (!claimed.data) continue
+    let latestSent = !!delivery.latest_sent_at
     try {
       if (delivery.channel === 'private') {
-        const receipt = await sendAuctionPrivateReply(
-          token,
-          delivery.comment_id,
-          billMessage,
-          buttonMessage,
-          link!,
-          auction.page_id,
-        )
-        const chat = await db
-          .from('messages')
-          .update({
-            body: receipt?.auctionText ?? billMessage,
-            delivery_status: 'sent',
-            attachments: [{ type: 'link', payload: { url: link! } }],
-            ...(receipt?.message_id ? { provider_message_id: receipt.message_id } : {}),
+        if (splitMessages && splitCustomer) {
+          const openRecipient = async (recipient: string) => {
+            const customer = await db
+              .from('customers')
+              .select('window_expires_at')
+              .eq('id', splitCustomer.id)
+              .eq('tenant_id', auction.tenant_id)
+              .eq('platform', 'facebook')
+              .eq('platform_user_id', recipient)
+              .maybeSingle()
+            if (customer.error) throw customer.error
+            return Date.parse(customer.data?.window_expires_at ?? '') > Date.now()
+          }
+          let recipient = delivery.latest_recipient_id || splitCustomer.fbId
+          if (!delivery.latest_sent_at) {
+            const snapshot = await db
+              .from('auction_deliveries')
+              .update({ private_plan: splitMessages })
+              .eq('id', delivery.id)
+              .eq('status', 'sending')
+            if (snapshot.error) throw snapshot.error
+            const summaryQueued = await db
+              .from('messages')
+              .update({ body: splitMessages[1] })
+              .eq('external_id', billMessageKey(delivery))
+              .eq('delivery_status', 'pending')
+            if (summaryQueued.error) throw summaryQueued.error
+            const queued = await db.from('messages').upsert(
+              {
+                customer_id: splitCustomer.id,
+                external_id: `${billMessageKey(delivery)}:latest`,
+                sender: 'bot',
+                body: splitMessages[0],
+                delivery_status: 'pending',
+              },
+              { onConflict: 'external_id', ignoreDuplicates: true },
+            )
+            if (queued.error) throw queued.error
+            const receipt = (await openRecipient(recipient))
+              ? {
+                  message_id: await sendMessageWithReceipt(token, recipient, {
+                    text: splitMessages[0],
+                  }),
+                }
+              : await sendPrivateReply(
+                  token,
+                  delivery.comment_id,
+                  splitMessages[0],
+                  auction.page_id,
+                )
+            recipient = receipt.recipient_id || recipient
+            const progress = await db
+              .from('auction_deliveries')
+              .update({ latest_sent_at: new Date().toISOString(), latest_recipient_id: recipient })
+              .eq('id', delivery.id)
+              .eq('status', 'sending')
+            if (progress.error) throw progress.error
+            latestSent = true
+            const latest = await db.from('messages').upsert(
+              {
+                customer_id: splitCustomer.id,
+                external_id: `${billMessageKey(delivery)}:latest`,
+                sender: 'bot',
+                body: splitMessages[0],
+                delivery_status: 'sent',
+                provider_message_id: receipt.message_id ?? receipt.id,
+              },
+              { onConflict: 'external_id' },
+            )
+            if (latest.error) throw latest.error
+          }
+          // A comment private reply does not create a Messenger inbound window.
+          if (!(await openRecipient(recipient))) {
+            const deferred = await db
+              .from('auction_deliveries')
+              .update({
+                status: 'pending',
+                error_code: 'MESSAGE_WINDOW_CLOSED',
+                started_at: null,
+                next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+              })
+              .eq('id', delivery.id)
+              .eq('status', 'sending')
+            if (deferred.error) throw deferred.error
+            continue
+          }
+          const messageId = await sendMessageWithReceipt(token, recipient, {
+            text: splitMessages[1],
           })
-          .eq('external_id', billMessageKey(delivery))
-        if (chat.error) throw chat.error
+          const chat = await db
+            .from('messages')
+            .update({
+              body: splitMessages[1],
+              delivery_status: 'sent',
+              provider_message_id: messageId,
+              attachments: [{ type: 'link', payload: { url: link! } }],
+            })
+            .eq('external_id', billMessageKey(delivery))
+          if (chat.error) throw chat.error
+        } else {
+          const receipt = await sendAuctionPrivateReply(
+            token,
+            delivery.comment_id,
+            billMessage,
+            buttonMessage,
+            link!,
+            auction.page_id,
+          )
+          const chat = await db
+            .from('messages')
+            .update({
+              body: receipt?.auctionText ?? billMessage,
+              delivery_status: 'sent',
+              attachments: [{ type: 'link', payload: { url: link! } }],
+              ...(receipt?.message_id ? { provider_message_id: receipt.message_id } : {}),
+            })
+            .eq('external_id', billMessageKey(delivery))
+          if (chat.error) throw chat.error
+        }
       } else {
         await replyToComment(token, delivery.comment_id, message)
       }
       const completed = await db
         .from('auction_deliveries')
-        .update({ status: 'sent', completed_at: new Date().toISOString() })
+        .update({ status: 'sent', completed_at: new Date().toISOString(), error_code: null })
         .eq('id', delivery.id)
         .eq('status', 'sending')
       if (completed.error) throw completed.error
@@ -232,13 +436,22 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
       if (delivery.channel === 'private') {
         const chat = await db
           .from('messages')
-          .update({ body: billMessage, delivery_status: 'unknown' })
+          .update({
+            body: billMessage,
+            delivery_status: splitMessages && !latestSent ? 'pending' : 'unknown',
+          })
           .eq('external_id', billMessageKey(delivery))
         if (chat.error)
           console.error('[auction/delivery] Inbox status update failed', {
             auctionId: auction.id,
             code: safeCode(chat.error),
           })
+      }
+      if (delivery.channel === 'private' && splitMessages && !latestSent) {
+        await db
+          .from('messages')
+          .update({ delivery_status: 'unknown' })
+          .eq('external_id', `${billMessageKey(delivery)}:latest`)
       }
       console.error('[auction/delivery] requires review', {
         auctionId: auction.id,
@@ -295,8 +508,11 @@ export async function handleAuctionComment(input: {
     if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) return undefined
     if (active.error) throw active.error
     const candidate = active.data?.[0] as Auction | undefined
-    return candidate && !isOnDemandWinnerFlow(candidate.session_automation) && candidate.created_at > execution.event.created_at
-      ? undefined : candidate
+    return candidate &&
+      !isOnDemandWinnerFlow(candidate.session_automation) &&
+      candidate.created_at > execution.event.created_at
+      ? undefined
+      : candidate
   }
   let auction = await findAuction(ids)
   type ActiveSession = { id: string; live_post_id: string; ended_at?: string | null }
@@ -324,7 +540,7 @@ export async function handleAuctionComment(input: {
         .eq('tenant_id', tenantId)
         .eq('page_id', pageId)
         .eq('live_post_id', activeSession.live_post_id)
-        .eq('status', 'closed')
+        .in('status', ['closed', 'cancelled'])
         .order('closed_at', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(1)
@@ -334,8 +550,12 @@ export async function handleAuctionComment(input: {
         return true
       }
       auction = (historical.data?.[0] as Auction | undefined) ?? undefined
-      if (auction && !isOnDemandWinnerFlow(auction.session_automation) &&
-        (activeSession.ended_at || auction.created_at > execution.event.created_at)) auction = undefined
+      if (
+        auction &&
+        !isOnDemandWinnerFlow(auction.session_automation) &&
+        (activeSession.ended_at || auction.created_at > execution.event.created_at)
+      )
+        auction = undefined
     }
   }
   if (!auction) {
@@ -398,7 +618,8 @@ export async function handleAuctionComment(input: {
     return true
   }
   // The simplified seller workspace records bids silently; only the winner is notified.
-  if (auction.session_automation?.closeKeywords) return true
+  if (isOnDemandWinnerFlow(auction.session_automation) || auction.session_automation?.closeKeywords)
+    return true
   if (auction.public_reply_enabled === false) return true
   let message: string | null = null
   if (result.status === 'accepted')

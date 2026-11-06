@@ -44,12 +44,15 @@ export function parseAuctionComment(
         : { type: 'HOST_CONTROL', action: 'count', count: count ?? 'นับขิง' }
     return { type: 'IGNORE' }
   }
+  const matchesKeyword = automation?.keywords.some(
+    (word) => word.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ') === value,
+  )
+  if (automation?.winnerFlow === 'on_demand' && matchesKeyword) return { type: 'CONFIRM_BID' }
   if (
     /^(?:\+|(?:ขอ)?เปิด(?:ให้|ครับ|ค่ะ|คะ)?(?:\s.*)?|เจิม(?:ครับ|ค่ะ|คะ)?(?:\s.*)?)$/u.test(value)
   )
     return { type: 'OPENING_BID' }
-  if (automation?.keywords.some((word) => word.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ') === value))
-    return { type: automation.winnerFlow === 'on_demand' ? 'CONFIRM_BID' : 'STEP_BID' }
+  if (matchesKeyword) return { type: 'STEP_BID' }
   // Whole price only; ignore phone numbers, product chatter and malformed grouping.
   if (/^(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?(?:\s*บาท)?$/u.test(value)) {
     const amount = Number(value.replace(/บาท|,|\s/g, ''))

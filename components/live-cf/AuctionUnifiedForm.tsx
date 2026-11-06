@@ -544,7 +544,8 @@ export function AuctionUnifiedForm({
                         disabled={disabled}
                       />
                       <p className="text-xs text-slate-600">
-                        ส่งข้อความแรกแจ้งยอดชิ้นที่เพิ่งปิด แล้วส่งข้อความที่สองสรุปบิลรวมสะสมตามหลังทันที
+                        ส่งข้อความแรกแจ้งยอดชิ้นที่เพิ่งปิด
+                        แล้วส่งข้อความที่สองสรุปบิลรวมสะสมตามหลังทันที
                       </p>
                     </div>
                     <label className="block text-sm font-semibold">

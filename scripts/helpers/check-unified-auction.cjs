@@ -152,7 +152,7 @@ module.exports = async function ({
   await fill('input[aria-label="ค่าจัดส่งจริง (บาท)"]', '20')
   await fill('input[aria-label="ค่าธรรมเนียม / อื่นๆ (บาท)"]', '3.25')
   await fill('select[aria-label="บัญชีธนาคารรับเงิน"]', 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
-  await fill('input[aria-label="คำดักบิด"]', 'เคาะ')
+  await fill('input[aria-label="คำดักยืนยันรับบิล"]', 'เคาะ')
   await evaluate(`document.querySelector('button[aria-label="เพิ่มคำดัก"]').click()`)
   await fill(
     'textarea[aria-label="Public Reply ใต้คอมเมนต์"]',
@@ -251,7 +251,7 @@ module.exports = async function ({
     `document.querySelectorAll('[data-auction-keyword-editor="close"] button[aria-label="ลบคำปิดรอบ ❌"]').length===2`,
   )
   for (let index = 0; index < 2; index++) {
-    await fill('input[aria-label="คำดักบิด"]', 'เคาะ')
+    await fill('input[aria-label="คำดักยืนยันรับบิล"]', 'เคาะ')
     await evaluate(`document.querySelector('button[aria-label="เพิ่มคำดัก"]').click()`)
   }
   await click('บันทึกและเริ่มประมูล')
