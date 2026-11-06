@@ -21,7 +21,7 @@
 ```
 
 6. ตั้ง master switch เฉพาะเซิร์ฟเวอร์ทดสอบและรีสตาร์ต ทดสอบด้วย Mock Provider ก่อน
-   ใช้ `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` เดิม ไม่สร้างหรือเปลี่ยน Key
+   ใช้ provider ที่เลือกจาก `SLIP_VERIFICATION_PROVIDER` (`slipok` เป็นค่าเริ่มต้น หรือ `zwiz`) และตั้ง server-only credentials ของ provider นั้นตาม `.env.example`; ไม่ใส่ keys ในไฟล์หรือ request จาก browser
 7. เปิด `/slips` ด้วยผู้ใช้ Starter/Pro ที่แพ็กเกจยังไม่หมดอายุ ตรวจรายการ/สถิติ/CSV
    เจ้าของร้านตรวจหลักฐานและอนุมัติได้เฉพาะผล Provider ที่ครบเงื่อนไข
 8. ตรวจผ่าน Inbox ของลูกค้าที่มีออเดอร์ค้างชำระ เพื่อจับคู่ยอดจากฐานข้อมูลจริง
@@ -30,7 +30,7 @@
    หรือใช้ INTERNAL_API_SECRET หากไม่ได้ตั้ง CRON_SECRET ห้ามใส่ secret ใน URL
 10. การยืนยันอัตโนมัติต้องเปิด `autoConfirmation` และ `orderMatching` ด้วยสิทธิ์ backend
     การส่ง Pro Messenger เพิ่มเติมต้องเป็น Production + `PAYMENT_PRO_SEND_ENABLED=true`
-    + tenant `messengerAutomation=true` ห้ามเปิดหรือทดสอบกับลูกค้าจริงโดยยังไม่ได้รับอนุญาต
+    - tenant `messengerAutomation=true` ห้ามเปิดหรือทดสอบกับลูกค้าจริงโดยยังไม่ได้รับอนุญาต
 
 Emergency: `PAYMENT_PRO_KILL_SWITCH=true` จะพักเฉพาะฟังก์ชัน Pro ระบบตรวจสลิปเดิมยังทำงาน
 หากต้องหยุดตรวจอัตโนมัติทั้งหมด ให้ปิดสวิตช์ auto-verify ของร้านเดิมด้วย

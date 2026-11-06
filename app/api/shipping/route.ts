@@ -86,16 +86,67 @@ type ValidIntegrationInput = {
   isDefault: boolean
 }
 
+function canonicalShippingProvider(value: unknown): ShippingProvider | null {
+  if (typeof value !== 'string') return null
+  const aliases: Record<string, ShippingProvider> = {
+    beemove: 'beemove',
+    flash: 'flash_express',
+    flash_express: 'flash_express',
+    jt: 'jnt',
+    jnt: 'jnt',
+    thailand_post: 'thailand_post',
+    custom: 'dmove',
+    dmove: 'dmove',
+  }
+  return aliases[value] ?? null
+}
+
+function isGenericCarrier(provider: ShippingProvider) {
+  return provider === 'flash_express' || provider === 'jnt' || provider === 'thailand_post'
+}
+
+const requiredCredentials: Record<ShippingProvider, (keyof ShippingCredentials)[]> = {
+  beemove: ['apiKey'],
+  flash_express: ['merchantId', 'apiKey', 'secretKey'],
+  jnt: ['merchantId', 'apiKey', 'secretKey'],
+  thailand_post: ['merchantId', 'token'],
+  dmove: ['apiKey'],
+}
+
+function throwShippingDatabaseError(operation: string, error: unknown): never {
+  const issue = error as {
+    code?: string
+    message?: string
+    details?: string
+    hint?: string
+  }
+  const diagnostic = {
+    code: issue?.code || null,
+    message: issue?.message || 'Unknown Supabase error',
+    details: issue?.details || null,
+    hint: issue?.hint || null,
+  }
+  console.error('[shipping/database]', { operation, ...diagnostic })
+  const responseDetails = [
+    diagnostic.code && `code: ${diagnostic.code}`,
+    `message: ${diagnostic.message}`,
+    diagnostic.details && `details: ${diagnostic.details}`,
+    diagnostic.hint && `hint: ${diagnostic.hint}`,
+  ]
+    .filter(Boolean)
+    .join(' | ')
+  throw new ShippingError(`${operation} ไม่สำเร็จ — ${responseDetails}`, 503)
+}
+
 function validateIntegrationInput(value: unknown): ValidIntegrationInput {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new ShippingError('ข้อมูลการเชื่อมต่อขนส่งไม่ถูกต้อง')
   const input = value as Record<string, unknown>
-  const provider = input.provider
+  const provider = canonicalShippingProvider(input.provider)
   const credentials = input.credentials
   const sender = input.senderInfo
   if (
-    typeof provider !== 'string' ||
-    !SHIPPING_PROVIDERS.includes(provider as ShippingProvider) ||
+    !provider ||
     typeof input.apiEndpoint !== 'string' ||
     input.apiEndpoint.length > 500 ||
     typeof input.trackingUrlTemplate !== 'string' ||
@@ -114,22 +165,31 @@ function validateIntegrationInput(value: unknown): ValidIntegrationInput {
     Array.isArray(sender)
   )
     throw new ShippingError('กรุณาตรวจสอบข้อมูลการเชื่อมต่อขนส่ง')
-  let endpoint: URL
-  try {
-    endpoint = new URL(input.apiEndpoint)
-  } catch {
-    throw new ShippingError('API Base URL ไม่ถูกต้อง')
+  let endpoint = ''
+  if (input.apiEndpoint.trim()) {
+    let parsedEndpoint: URL
+    try {
+      parsedEndpoint = new URL(input.apiEndpoint)
+    } catch {
+      throw new ShippingError('API Base URL ไม่ถูกต้อง')
+    }
+    if (
+      parsedEndpoint.protocol !== 'https:' ||
+      parsedEndpoint.username ||
+      parsedEndpoint.password ||
+      parsedEndpoint.search ||
+      parsedEndpoint.hash
+    )
+      throw new ShippingError('API Base URL ต้องเป็น HTTPS และไม่มี query/credential')
+    if (provider === 'beemove' && parsedEndpoint.href !== 'https://client.beemove.co.th/')
+      throw new ShippingError('Bee Move ต้องใช้ https://client.beemove.co.th')
+    endpoint = parsedEndpoint.toString().replace(/\/$/, '')
+  } else if (!isGenericCarrier(provider)) {
+    throw new ShippingError('กรุณากรอก API Base URL')
   }
-  if (
-    endpoint.protocol !== 'https:' ||
-    endpoint.username ||
-    endpoint.password ||
-    endpoint.search ||
-    endpoint.hash
-  )
-    throw new ShippingError('API Base URL ต้องเป็น HTTPS และไม่มี query/credential')
-  if (provider === 'beemove' && endpoint.href !== 'https://client.beemove.co.th/')
-    throw new ShippingError('Bee Move ต้องใช้ https://client.beemove.co.th')
+  if (input.isActive && !endpoint)
+    throw new ShippingError('ต้องระบุ API Base URL ก่อนเปิดใช้งานผู้ให้บริการ')
+  if (input.isDefault && !input.isActive) throw new ShippingError('ขนส่งเริ่มต้นต้องเปิดใช้งานก่อน')
   const supplied = credentials as Record<string, unknown>
   const cleanCredential = (key: string, max: number) => {
     const raw = supplied[key]
@@ -138,13 +198,15 @@ function validateIntegrationInput(value: unknown): ValidIntegrationInput {
       throw new ShippingError('Credential มีรูปแบบไม่ถูกต้อง')
     return raw.trim()
   }
+  const allowed = new Set(requiredCredentials[provider])
   const secret: ShippingCredentials = {
-    apiKey: cleanCredential('apiKey', 1000),
-    secretKey: cleanCredential('secretKey', 1000),
-    token: cleanCredential('token', 2000),
-    merchantId: cleanCredential('merchantId', 200),
+    ...(allowed.has('apiKey') ? { apiKey: cleanCredential('apiKey', 1000) } : {}),
+    ...(allowed.has('secretKey') ? { secretKey: cleanCredential('secretKey', 1000) } : {}),
+    ...(allowed.has('token') ? { token: cleanCredential('token', 2000) } : {}),
+    ...(allowed.has('merchantId') ? { merchantId: cleanCredential('merchantId', 200) } : {}),
   }
   const from = sender as Record<string, unknown>
+  const trackingTemplate = input.trackingUrlTemplate.trim()
   if (
     typeof from.name !== 'string' ||
     from.name.trim().length < 2 ||
@@ -154,42 +216,58 @@ function validateIntegrationInput(value: unknown): ValidIntegrationInput {
     typeof from.address !== 'string' ||
     from.address.trim().length < 10 ||
     from.address.length > 1200 ||
-    !input.trackingUrlTemplate.includes('{tracking_number}')
+    (trackingTemplate && !trackingTemplate.includes('{tracking_number}')) ||
+    (!trackingTemplate && !isGenericCarrier(provider)) ||
+    (provider === 'beemove' &&
+      trackingTemplate !== 'https://client.beemove.co.th/tracking/{tracking_number}')
   )
     throw new ShippingError('กรุณากรอกผู้ส่ง เบอร์โทร ที่อยู่ และ Tracking URL Template ให้ครบ')
-  let trackingUrl: URL
-  try {
-    trackingUrl = new URL(input.trackingUrlTemplate.replace('{tracking_number}', 'TEST'))
-  } catch {
-    throw new ShippingError('Tracking URL Template ไม่ถูกต้อง')
+  if (trackingTemplate) {
+    let trackingUrl: URL
+    try {
+      trackingUrl = new URL(trackingTemplate.replace('{tracking_number}', 'TEST'))
+    } catch {
+      throw new ShippingError('Tracking URL Template ไม่ถูกต้อง')
+    }
+    if (trackingUrl.protocol !== 'https:') throw new ShippingError('Tracking URL ต้องใช้ HTTPS')
   }
-  if (trackingUrl.protocol !== 'https:') throw new ShippingError('Tracking URL ต้องใช้ HTTPS')
   return {
-    provider: provider as ShippingProvider,
-    apiEndpoint: endpoint.toString().replace(/\/$/, ''),
+    provider,
+    apiEndpoint: endpoint,
     credentials: secret,
     senderInfo: {
       name: from.name.trim(),
       phone: normalizeThaiPhone(from.phone)!,
       address: from.address.trim(),
     },
-    trackingUrlTemplate: input.trackingUrlTemplate.trim(),
+    trackingUrlTemplate: trackingTemplate,
     weightKg: input.weightKg,
     isActive: input.isActive,
     isDefault: input.isDefault,
   }
 }
 
-async function credentialsFor(credentials: ShippingCredentials, ciphertext?: string) {
+async function credentialsFor(
+  credentials: ShippingCredentials,
+  provider: ShippingProvider,
+  ciphertext?: string,
+) {
   const saved = ciphertext ? decryptShippingCredentials(ciphertext) : {}
-  const merged: ShippingCredentials = {
-    apiKey: credentials.apiKey || saved.apiKey,
-    secretKey: credentials.secretKey || saved.secretKey,
-    token: credentials.token || saved.token,
-    merchantId: credentials.merchantId || saved.merchantId,
+  const merged: ShippingCredentials = {}
+  for (const key of requiredCredentials[provider]) {
+    const value = credentials[key] || saved[key]
+    if (value) merged[key] = value
   }
-  if (!merged.apiKey && !merged.secretKey && !merged.token)
-    throw new ShippingError('กรุณากรอก API Key, Secret Key หรือ Token')
+  const missing = requiredCredentials[provider].filter((key) => !merged[key])
+  if (missing.length) {
+    const labels: Record<keyof ShippingCredentials, string> = {
+      apiKey: 'API Key',
+      secretKey: 'Secret Key',
+      token: 'Token',
+      merchantId: 'Merchant ID',
+    }
+    throw new ShippingError(`กรุณากรอก ${missing.map((key) => labels[key]).join(', ')}`)
+  }
   return merged
 }
 
@@ -469,10 +547,16 @@ export async function POST(req: NextRequest) {
       p_bucket: `shipping:${actor.id}:${tenantId}`,
       p_max: 30,
     })
-    if (rate.error) throw rate.error
+    if (rate.error) {
+      if (payload.action === 'save_integration')
+        throwShippingDatabaseError('ตรวจสอบ commerce_rate_limit ก่อนบันทึก', rate.error)
+      throw rate.error
+    }
     if (!rate.data) return shippingReply({ error: 'ทำรายการบ่อยเกินไป กรุณารอสักครู่' }, 429)
     if (payload.action === 'test_integration') {
       const integration = payload.integration as ValidIntegrationInput
+      if (!integration.apiEndpoint)
+        throw new ShippingError('ยังไม่มี endpoint ที่รองรับสำหรับทดสอบการเชื่อมต่อ')
       const current = await db
         .from('shipping_integrations')
         .select('credentials_ciphertext')
@@ -482,7 +566,11 @@ export async function POST(req: NextRequest) {
       if (current.error) throw current.error
       const config = providerConfig(
         integration,
-        await credentialsFor(integration.credentials, current.data?.credentials_ciphertext),
+        await credentialsFor(
+          integration.credentials,
+          integration.provider,
+          current.data?.credentials_ciphertext,
+        ),
       )
       await shippingProviderAdapters[integration.provider].testConnection(config)
       const saved = await db
@@ -497,30 +585,63 @@ export async function POST(req: NextRequest) {
       const integration = payload.integration as ValidIntegrationInput
       const existing = await db
         .from('shipping_integrations')
-        .select('credentials_ciphertext')
+        .select('credentials_ciphertext,api_endpoint,tracking_url_template,is_active,is_default')
         .eq('tenant_id', tenantId)
         .eq('provider', integration.provider)
         .maybeSingle()
-      if (existing.error) throw existing.error
+      if (existing.error) {
+        throwShippingDatabaseError(
+          'อ่านค่าการเชื่อมต่อขนส่งจาก shipping_integrations',
+          existing.error,
+        )
+      }
       const mergedCredentials = await credentialsFor(
         integration.credentials,
+        integration.provider,
         existing.data?.credentials_ciphertext,
       )
-      if (integration.provider === 'beemove' && !mergedCredentials.apiKey)
-        throw new ShippingError('กรุณากรอก API Key ของ Bee Move')
+      const apiEndpoint = integration.apiEndpoint || existing.data?.api_endpoint || ''
+      const trackingUrlTemplate =
+        integration.trackingUrlTemplate || existing.data?.tracking_url_template || ''
+      if (!apiEndpoint && integration.isActive)
+        throw new ShippingError('ยังไม่มี endpoint ที่รองรับ จึงไม่สามารถเปิดใช้งานขนส่งนี้ได้')
+      if (!apiEndpoint && integration.isDefault)
+        throw new ShippingError('ยังไม่มี endpoint ที่รองรับ จึงไม่สามารถกำหนดเป็นขนส่งเริ่มต้นได้')
+      if (apiEndpoint && !trackingUrlTemplate)
+        throw new ShippingError('กรุณากำหนด Tracking URL Template ที่รองรับ')
       const nextCredentials = encryptShippingCredentials(mergedCredentials)
+      if (!apiEndpoint) {
+        const saved = await db.from('shipping_integrations').upsert(
+          {
+            tenant_id: tenantId,
+            provider: integration.provider,
+            api_endpoint: '',
+            credentials_ciphertext: nextCredentials,
+            sender_info: integration.senderInfo,
+            tracking_url_template: '',
+            weight_kg: integration.weightKg,
+            is_active: false,
+            is_default: false,
+          },
+          { onConflict: 'tenant_id,provider' },
+        )
+        if (saved.error)
+          throwShippingDatabaseError('บันทึก credential โดยยังไม่มี endpoint', saved.error)
+        return shippingReply({ ok: true })
+      }
       const result = await db.rpc('save_shipping_integration', {
         p_tenant: tenantId,
         p_provider: integration.provider,
-        p_endpoint: integration.apiEndpoint,
+        p_endpoint: apiEndpoint,
         p_credentials: nextCredentials,
         p_sender: integration.senderInfo,
-        p_tracking_template: integration.trackingUrlTemplate,
+        p_tracking_template: trackingUrlTemplate,
         p_weight: integration.weightKg,
         p_active: integration.isActive,
         p_default: integration.isDefault,
       })
-      if (result.error) throw result.error
+      if (result.error)
+        throwShippingDatabaseError('เรียก RPC save_shipping_integration', result.error)
       return shippingReply({ ok: true })
     }
     if (payload.action === 'create_parcels')

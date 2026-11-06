@@ -149,6 +149,10 @@ export async function processCustomerTabSlip(
     const result = await verifyWithSlipOK({
       file: input.file,
       qr: input.qr,
+      bankAccounts: accounts.data.map((account) => ({
+        accountNo: account.account_number,
+        bankCode: account.bank_code,
+      })),
       ...(input.requireExactAmount
         ? { expectedAmount: Number(selected.data.remaining_amount) }
         : {}),
@@ -167,7 +171,8 @@ export async function processCustomerTabSlip(
     )
     if (verdict === 'wrong_receiver' && result.branchReceiverMismatch && receiverMatches)
       verdict = 'valid'
-    if (verdict === 'valid' && !receiverMatches) verdict = 'wrong_receiver'
+    if (verdict === 'valid' && !receiverMatches && !result.matchedBankAccount)
+      verdict = 'wrong_receiver'
     if (
       verdict === 'valid' &&
       input.requireExactAmount &&

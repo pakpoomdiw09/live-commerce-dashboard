@@ -37,15 +37,17 @@ export function validateStandaloneSlip(
     )
   const explicitAccount = options.expectedReceivingAccount?.trim()
   const hasReceiver = !!explicitAccount || accounts.some((a) => a.is_active)
-  const receiverMatches = explicitAccount
-    ? accountMatches(explicitAccount, result.receiverAccount) ||
-      accountMatches(explicitAccount, result.receiverProxy)
-    : receiverMatchesAny(
-        accounts,
-        result.receiverBank,
-        result.receiverAccount,
-        result.receiverProxy,
-      )
+  const receiverMatches =
+    result.matchedBankAccount === true ||
+    (explicitAccount
+      ? accountMatches(explicitAccount, result.receiverAccount) ||
+        accountMatches(explicitAccount, result.receiverProxy)
+      : receiverMatchesAny(
+          accounts,
+          result.receiverBank,
+          result.receiverAccount,
+          result.receiverProxy,
+        ))
   const verified =
     result.verdict === 'valid' ||
     (result.verdict === 'wrong_receiver' &&

@@ -9,7 +9,7 @@ import {
   PAYMENT_MAX_BYTES,
   validatePaymentSlip,
 } from '@/lib/features/payments/payment-validation'
-import { verifyWithSlipOK } from '@/lib/features/slips/slipok'
+import { slipVerificationConfigured, verifyWithSlipOK } from '@/lib/features/slips/slipok'
 import { UUID } from '@/lib/utils'
 import {
   createLogRequestId,
@@ -22,7 +22,7 @@ import {
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-/** A genuine SlipOK proof is persisted before activation so a failed activation can retry safely. */
+/** A genuine provider proof is persisted before activation so a failed activation can retry safely. */
 export async function POST(req: NextRequest) {
   const requestId = createLogRequestId(),
     startedAt = Date.now()
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
       const entry = form.get('file')
       if (!(entry instanceof File) || !(await isPaymentImage(entry)))
         return bad('กรุณาเลือกสลิป JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB')
-      if (!process.env.SLIPOK_BRANCH_ID?.trim() || !process.env.SLIPOK_API_KEY?.trim())
+      if (!slipVerificationConfigured())
         return bad('ระบบตรวจสลิปยังไม่พร้อม กรุณาติดต่อผู้ดูแล', 503)
       const hash = createHash('sha256')
         .update(Buffer.from(await entry.arrayBuffer()))
@@ -103,9 +103,21 @@ export async function POST(req: NextRequest) {
       if (previous && previous.session_id !== sessionId)
         return bad('สลิปนี้เคยใช้ชำระเงินแล้ว', 409)
       if (!previous) {
-        // SlipOK log:true verifies the receiver configured in its Dashboard.
+        // The configured provider receives the server-stored platform receiver.
         // Shared database transfer/image ledgers still reject duplicates atomically.
-        const result = await verifyWithSlipOK({ file: entry, log: true })
+        const result = await verifyWithSlipOK({
+          file: entry,
+          log: true,
+          bankAccounts: [
+            {
+              accountNo: session.receiver_account_no,
+              bankCode: session.receiver_bank_code,
+            },
+            ...(session.receiver_promptpay_id
+              ? [{ accountNo: session.receiver_promptpay_id, bankCode: 'promptpay' }]
+              : []),
+          ],
+        })
         const checked = validatePaymentSlip(result, session, Date.now(), false, 'provider')
         if (!checked.ok) {
           record('payment.slip_validation', 'rejected', 'VALIDATION_***')

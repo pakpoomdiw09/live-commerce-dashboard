@@ -6,6 +6,13 @@ export type ProviderQuota =
 
 /** https://slipok.com/api-documentation/check-slip-quota/ */
 export async function getProviderQuota(): Promise<ProviderQuota> {
+  const provider = process.env.SLIP_VERIFICATION_PROVIDER?.trim().toLowerCase() || 'slipok'
+  if (provider === 'zwiz')
+    return {
+      ok: false,
+      message: 'การแสดงโควตาผู้ให้บริการยังรองรับเฉพาะ SlipOK',
+    }
+  if (provider !== 'slipok') return { ok: false, message: 'ตั้งค่าผู้ให้บริการตรวจสลิปไม่ถูกต้อง' }
   const branch = process.env.SLIPOK_BRANCH_ID?.trim()
   const key = process.env.SLIPOK_API_KEY?.trim()
   if (!branch || !key) return { ok: false, message: 'ยังไม่ได้ตั้งค่าระบบตรวจสอบสลิปอัตโนมัติ' }

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { TenantRow } from '@/lib/types'
 import { PLANS, type Billing } from '@/lib/features/billing/plans'
+import { slipVerificationConfigured, slipVerificationProvider } from '@/lib/features/slips/slipok'
 export async function PaymentChannelStatus({
   tenant,
   billing,
@@ -12,9 +13,15 @@ export async function PaymentChannelStatus({
   security: boolean
   canManage: boolean
 }) {
-  const configured = !!process.env.SLIPOK_API_KEY?.trim() && !!process.env.SLIPOK_BRANCH_ID?.trim()
+  const provider = slipVerificationProvider()
+  const configured = slipVerificationConfigured()
   const fields = [
-    ['บริการตรวจสลิป', configured ? 'ตั้งค่าไว้แล้ว' : 'ยังตั้งค่าไม่ครบ'],
+    [
+      'บริการตรวจสลิป',
+      configured
+        ? `ตั้งค่า ${provider === 'zwiz' ? 'ZWIZ API v2' : 'SlipOK'} แล้ว`
+        : 'ยังตั้งค่าไม่ครบ',
+    ],
     ['แพ็กเกจปัจจุบัน', PLANS[billing.plan].name],
     [
       'เครดิตตรวจสลิปคงเหลือ',

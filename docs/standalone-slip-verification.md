@@ -5,7 +5,7 @@
 ## ติดตั้งก่อนนำโค้ดขึ้นใช้งาน
 
 1. รัน [complete_schema.sql](../supabase/complete_schema.sql) ทั้งไฟล์ใน Supabase SQL Editor ตาม [คู่มือ migrations](../supabase/MIGRATIONS.md) ไฟล์รวมมี `standalone-slips.sql` แล้ว ไม่ต้องรันแยกอีก หากเลือกอัปเดตเฉพาะฟีเจอร์ ให้รัน [standalone-slips.sql](../supabase/standalone-slips.sql) หลัง `security.sql`, `payments.sql`, `billing-auto-approval.sql`, `bank-accounts.sql` และ `facebook-webhook-queue.sql` พร้อม dependencies ของไฟล์เหล่านั้น
-2. ใช้ `SLIPOK_BRANCH_ID` และ `SLIPOK_API_KEY` ฝั่งเซิร์ฟเวอร์ชุดเดิม ร้านต้องมีสิทธิ์ `slip_auto_pilot` และเครดิตตรวจสลิปตามระบบเดิม
+2. ผู้ให้บริการตรวจสลิปถูกเลือกแบบ global ผ่าน `SLIP_VERIFICATION_PROVIDER` (`slipok` เป็นค่าเริ่มต้น หรือ `zwiz`). ตั้ง credential ฝั่งเซิร์ฟเวอร์ของ provider ที่เลือก (`SLIPOK_BRANCH_ID`/`SLIPOK_API_KEY` หรือ `ZWIZ_API_KEY` และ optional `ZWIZ_API_URL`). ร้านต้องมีสิทธิ์ `slip_auto_pilot` และเครดิตตรวจสลิปตามระบบเดิม
 3. เปิดการตรวจสลิปอัตโนมัติ `tenants.auto_verify_enabled` พร้อมการตอบอัตโนมัติ `tenants.auto_reply_enabled` และ `customers.bot_enabled` ของแชทนั้น ระบบยังใช้ Page Access Token และ Webhook `messages` เดิม
 4. บัญชีรับเงินที่เปิดใช้งานใน `bank_accounts` ใช้ตรวจปลายทางตามธนาคารและเลขบัญชีที่ถูก mask หากไม่มีรายการบัญชีเลยจะสำรองจาก `tenants.account_number/bank_code` หากมีแต่บัญชีที่ปิดใช้งานจะไม่ตรวจผ่านด้วยบัญชีเก่า
 
@@ -44,8 +44,8 @@ const result = await processStandaloneSlip(supabaseAdmin(), {
 
 ## เงื่อนไขตรวจสอบ
 
-- ใช้ `verifyWithSlipOK({ file, log: true })` เดิม ไม่ส่งยอดที่คาดหวังจากออเดอร์
-- อ่านเวลาจาก `raw.data.transTimestamp` หรือ `transDate/transTime` ของ SlipOK โดย fallback รูปแบบวันเวลาคิดเป็น Asia/Bangkok
+- ใช้ verifier กลางที่เลือกจาก `SLIP_VERIFICATION_PROVIDER`; ทั้งสอง provider ใช้บัญชีรับเงินที่ derive จากฐานข้อมูลฝั่ง server ไม่ส่งยอดที่คาดหวังจากออเดอร์
+- อ่านเวลาจาก `raw.data.transTimestamp` หรือ `transDate/transTime` ของ provider โดย fallback รูปแบบวันเวลาคิดเป็น Asia/Bangkok
 - อายุย้อนหลังไม่เกิน 24 ชั่วโมง กำหนด `maxAgeHours` ให้น้อยกว่าได้ แต่เพิ่มเกิน 24 ไม่ได้ เวลาอนาคตเกิน 60 วินาทีหรือเวลาหาย/ไม่ถูกต้องไม่ผ่าน
 - ใช้ account/bank matcher เดิมสำหรับบัญชีที่ตั้งไว้ ไม่เปรียบเทียบเฉพาะเลขท้าย 4 หลัก หาก SlipOK ตอบ 1014 จะยอมรับเฉพาะกรณีข้อมูลธุรกรรมถูกตรวจแล้วและปลายทางตรงบัญชีร้านที่ตั้งไว้จริง
 - ต้องมียอดเงินเป็นบวกถึงหน่วยสตางค์ และ reference ที่ไม่ว่าง จึงบันทึก ledger ได้

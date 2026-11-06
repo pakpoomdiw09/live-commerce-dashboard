@@ -483,6 +483,10 @@ test('session, tenant, owner and DB feature guards fail closed before reading pa
         paymentProConfig: async () => ({ advancedDashboard: true }),
       },
       '@/lib/features/payments/payment-pro-core': core,
+      '@/lib/features/slips/slipok': {
+        slipVerificationConfigured: () => true,
+        slipVerificationProvider: () => 'slipok',
+      },
       '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/ },
     })
     await assert.rejects(server.paymentProTenant({}, tenant, true), (e) => e.status === status)

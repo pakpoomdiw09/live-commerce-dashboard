@@ -170,7 +170,7 @@ export function validatePaymentSlip(
       'ระบบยังไม่ได้ยืนยันบัญชีผู้รับเงิน กรุณาตรวจสอบการตั้งค่าบัญชีรับเงินแล้วลองอีกครั้ง',
     )
   }
-  if (receiverCheck === 'local') {
+  if (receiverCheck === 'local' && result.matchedBankAccount !== true) {
     const receiver = object(data.receiver)
     const account = object(receiver?.account)
     const proxy = object(receiver?.proxy)

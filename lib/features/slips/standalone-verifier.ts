@@ -114,7 +114,25 @@ export async function processStandaloneSlip(
         'ขณะนี้ร้านไม่สามารถตรวจสลิปอัตโนมัติได้ กรุณารอแอดมินตรวจสอบ',
       )
     charged = true
-    const verified = await verifyWithSlipOK({ file, log: true })
+    const zwizAccounts = [
+      ...receivingAccounts.map((account) => ({
+        accountNo: account.account_number,
+        bankCode: account.bank_code,
+      })),
+      ...(input.expectedReceivingAccount &&
+      !receivingAccounts.some(
+        (account) =>
+          account.account_number.replace(/[\s-]/g, '') ===
+          input.expectedReceivingAccount!.replace(/[\s-]/g, ''),
+      )
+        ? [{ accountNo: input.expectedReceivingAccount, bankCode: 'promptpay' }]
+        : []),
+    ]
+    const verified = await verifyWithSlipOK({
+      file,
+      log: true,
+      bankAccounts: zwizAccounts,
+    })
     providerReturned = true
     if (verified.providerFault) {
       await refund()

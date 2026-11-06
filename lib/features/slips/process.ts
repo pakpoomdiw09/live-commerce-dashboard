@@ -54,7 +54,7 @@ export type ProcessedSlip = {
 }
 
 /**
- * Store the slip image, create a pending row, verify with SlipOK, and save the verdict.
+ * Store the slip image, create a pending row, verify with the configured provider, and save verdict.
  * Shared by /api/slips/verify and the Facebook webhook. Inputs must be validated by the caller.
  */
 export async function processSlip(
@@ -183,7 +183,7 @@ export async function processSlip(
   // 3-4) From here on the row must not stay 'pending', whatever fails.
   let charged = false
   try {
-    // every SlipOK call costs the tenant one credit, taken atomically before the call
+    // Every provider call costs the tenant one credit, taken atomically before the call.
     if (tenant) {
       const { data: hasCredit, error: creditError } = await db.rpc('consume_slip_credit', {
         p_tenant: tenant.id,
@@ -199,8 +199,16 @@ export async function processSlip(
       charged = true
     }
 
-    const r = await verifyWithSlipOK({ file, qr, expectedAmount })
-    // not the slip's fault (timeout, SlipOK / bank outage): the tenant shouldn't pay for it
+    const r = await verifyWithSlipOK({
+      file,
+      qr,
+      expectedAmount,
+      bankAccounts: accounts.map((account) => ({
+        accountNo: account.account_number,
+        bankCode: account.bank_code,
+      })),
+    })
+    // Provider or bank outages are not the slip's fault; refund the tenant's credit.
     if (charged && r.providerFault) await refundCredit(db, tenant!.id)
     if (process.env.NODE_ENV !== 'production') {
       console.debug('[slip] verification metadata', {
@@ -216,14 +224,13 @@ export async function processSlip(
     }
     let verdict = r.verdict
     let note = r.note ?? null
-    // SlipOK checks the receiver against the branch's one main account (1014). With a tenant,
-    // the tenant's own account is what counts: start from 'valid' and let the checks below decide.
+    // SlipOK may reject its configured branch account; for tenants, use the tenant's account list.
     const overridden = verdict === 'wrong_receiver' && !!r.branchReceiverMismatch && !!tenant
     if (overridden) {
       verdict = 'valid'
       note = null
     }
-    // SlipOK may stop at 1014 before comparing amounts, so then a missing amount can't pass
+    // A provider may stop at receiver matching before comparing amounts, so missing amount can't pass.
     if (
       verdict === 'valid' &&
       expectedAmount &&
@@ -242,10 +249,11 @@ export async function processSlip(
       verdict = 'amount_mismatch'
       note = `ยอดในสลิป ${r.amount} ไม่ตรงกับ ${expectedAmount}`
     }
-    // SlipOK's receiver check knows one account per branch; each tenant has its own
+    // Require a local receiver match unless the provider confirmed a match against this tenant's list.
     if (
       verdict === 'valid' &&
       tenant &&
+      !r.matchedBankAccount &&
       !receiverMatchesAny(accounts, r.receiverBank, r.receiverAccount, r.receiverProxy)
     ) {
       verdict = 'wrong_receiver'

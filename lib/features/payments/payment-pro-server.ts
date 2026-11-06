@@ -7,6 +7,7 @@ import { InboxError } from '@/lib/features/inbox/inbox-server'
 import { paymentProConfig, paymentProAvailable } from '@/lib/features/payments/payment-pro-flags'
 import { UUID } from '@/lib/utils'
 import { paymentReportFilters } from '@/lib/features/payments/payment-pro-core'
+import { slipVerificationConfigured, slipVerificationProvider } from '@/lib/features/slips/slipok'
 
 export async function paymentProTenant(req: NextRequest, tenantId: string, owner = false) {
   const actor = await getActor(req)
@@ -80,7 +81,8 @@ export async function paymentProOverview(
     stats: report?.stats ?? null,
     series: report?.series ?? [],
     provider: {
-      configured: !!process.env.SLIPOK_API_KEY?.trim() && !!process.env.SLIPOK_BRANCH_ID?.trim(),
+      configured: slipVerificationConfigured(),
+      name: slipVerificationProvider(),
       liveCheckPerformed: false,
     },
     since,

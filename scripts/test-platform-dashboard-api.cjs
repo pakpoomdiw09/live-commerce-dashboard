@@ -436,6 +436,7 @@ function billingVerificationFixture(options = {}) {
       },
       '@/lib/features/payments/payment-validation': validation,
       '@/lib/features/slips/slipok': {
+        slipVerificationConfigured: () => true,
         verifyWithSlipOK: async (input) => {
           state.providerCalls++
           assert.equal(input.expectedAmount, undefined)

@@ -209,6 +209,7 @@ function fixture(options = {}) {
       },
     },
     '@/lib/features/slips/slipok': {
+      slipVerificationConfigured: () => true,
       verifyWithSlipOK: async (input) => {
         calls.push({ type: 'slipok', input })
         if (options.providerError) throw options.providerError

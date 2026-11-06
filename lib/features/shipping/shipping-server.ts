@@ -46,8 +46,18 @@ export function shippingFailure(error: unknown) {
       503,
     )
   if (error instanceof SyntaxError) return shippingReply({ error: 'ข้อมูลคำขอไม่ถูกต้อง' }, 400)
-  const issue = error as { code?: string; message?: string }
-  console.error('[shipping/api]', { code: issue?.code || 'SHIPPING_FAILED' })
+  const issue = error as {
+    code?: string
+    message?: string
+    details?: string
+    hint?: string
+  }
+  console.error('[shipping/api]', {
+    code: issue?.code || 'SHIPPING_FAILED',
+    message: issue?.message || null,
+    details: issue?.details || null,
+    hint: issue?.hint || null,
+  })
   if (issue?.code === '40001')
     return shippingReply(
       {

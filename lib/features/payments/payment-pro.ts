@@ -98,6 +98,10 @@ async function verifyClaimedPayment(
       file: input.file,
       qr: input.qr,
       expectedAmount: attempt.expected_satang ? Number(attempt.expected_satang) / 100 : undefined,
+      bankAccounts: accounts.data.map((account) => ({
+        accountNo: account.account_number,
+        bankCode: account.bank_code,
+      })),
     })
     const duplicate = verdict.transRef
       ? await db
@@ -113,12 +117,13 @@ async function verifyClaimedPayment(
       expectedAmountSatang:
         attempt.expected_satang === null ? null : Number(attempt.expected_satang),
       verifiedAmountSatang: amountSatang(verdict.amount),
-      receiverMatches: receiverMatchesAny(
-        accounts.data,
-        verdict.receiverBank,
-        verdict.receiverAccount,
-        verdict.receiverProxy,
-      ),
+      receiverMatches:
+        receiverMatchesAny(
+          accounts.data,
+          verdict.receiverBank,
+          verdict.receiverAccount,
+          verdict.receiverProxy,
+        ) || verdict.matchedBankAccount === true,
       duplicateTransaction: verdict.verdict === 'duplicate' || !!duplicate.data,
       providerError: verdict.providerFault,
     })
@@ -180,7 +185,7 @@ async function verifyClaimedPayment(
   }
   return readResult(db, attempt.slip_id, tenantId, true)
 }
-/** Owner-requested recovery of an image whose previous attempt NEVER reached SlipOK. */
+/** Owner-requested recovery of an image whose previous attempt never reached verification. */
 export async function resumePaymentPro(db: SupabaseClient, attemptId: string, tenantId: string) {
   const row = await db
     .from('payment_pro_attempts')
