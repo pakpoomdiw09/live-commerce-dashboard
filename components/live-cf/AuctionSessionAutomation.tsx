@@ -6,7 +6,6 @@ import {
   displaySessionTemplate,
   normalizeBidKeyword,
   normalizeCloseKeyword,
-  QUICK_AUCTION_CLOSE_EMOJIS,
   validSessionAutomation,
   type SessionAutomation,
 } from '@/lib/features/commerce/session-automation'
@@ -126,7 +125,6 @@ export function AuctionSessionAutomation({
             keywords={closeKeywords}
             onChange={setCloseKeywords}
             normalize={normalizeCloseKeyword}
-            emojiKeys={QUICK_AUCTION_CLOSE_EMOJIS}
             disabled={disabled}
             onEdited={() => setNotice('')}
           />

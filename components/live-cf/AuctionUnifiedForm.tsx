@@ -478,7 +478,7 @@ export function AuctionUnifiedForm({
               </section>
               <section
                 data-auction-zone="3"
-                className="min-w-0 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm"
+                className="min-w-0 overflow-visible rounded-2xl border border-orange-200 bg-white shadow-sm"
               >
                 <h2 className="rounded-t-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2.5 font-bold text-white">
                   3. คำดักข้อความ & ระบบตอบกลับ

@@ -1,10 +1,35 @@
 'use client'
 
-import { useId, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { field, orange } from './session-ui'
 
+const EMOJI_CATEGORIES = [
+  {
+    label: 'ปิดรอบ / ห้าม',
+    emojis: ['❌', '🚫', '🛑', '⛔', '🔒', '⏹️', '✖️'],
+  },
+  {
+    label: 'ตัวเลข / ยืนยัน',
+    emojis: ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '0️⃣', '➕', '1'],
+  },
+  {
+    label: 'รูปมือ / สัญลักษณ์',
+    emojis: ['👍', '👌', '🔥', '💯', '📦', '💰', '🏷️', '👑'],
+  },
+  {
+    label: 'หัวใจ',
+    emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍'],
+  },
+] as const
+
 export function AuctionKeywordEditor({
-  label, kind, keywords, onChange, onEdited, normalize, emojiKeys, disabled,
+  label,
+  kind,
+  keywords,
+  onChange,
+  onEdited,
+  normalize,
+  disabled,
 }: {
   label: string
   kind: 'bid' | 'close'
@@ -12,16 +37,36 @@ export function AuctionKeywordEditor({
   onChange: Dispatch<SetStateAction<string[]>>
   onEdited: () => void
   normalize: (text: string) => string
-  emojiKeys?: string[]
   disabled: boolean
 }) {
   const id = useId()
+  const pickerId = useId()
+  const editorRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState('')
   const [error, setError] = useState('')
-  const inputValue = useRef('')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const closing = kind === 'close'
   const name = closing ? 'คำปิดรอบ' : 'คำดัก'
-  function add(text: string) {
+
+  useEffect(() => {
+    if (!pickerOpen) return
+    function handlePointerDown(event: PointerEvent) {
+      if (event.target instanceof Node && !editorRef.current?.contains(event.target)) {
+        setPickerOpen(false)
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setPickerOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [pickerOpen])
+
+  function add(text: string, clearInput = true) {
     if (disabled) return
     const word = normalize(text)
     if (!word) return
@@ -33,24 +78,16 @@ export function AuctionKeywordEditor({
     onChange((previous) =>
       previous.some((value) => normalize(value) === word) ? previous : [...previous, word],
     )
-    inputValue.current = ''
-    setInput('')
+    if (clearInput) setInput('')
     setError('')
     onEdited()
   }
-  function appendEmoji(emoji: string) {
-    if (disabled) return
-    const next = inputValue.current + emoji
-    if (normalize(next).length > 40) {
-      setError('แต่ละคำยาวได้ไม่เกิน 40 ตัวอักษร')
-      return
-    }
-    inputValue.current = next
-    setInput(next)
-    setError('')
-  }
   return (
-    <div className="min-w-0 space-y-2 text-sm font-semibold" data-auction-keyword-editor={kind}>
+    <div
+      ref={editorRef}
+      className="relative min-w-0 space-y-2 text-sm font-semibold"
+      data-auction-keyword-editor={kind}
+    >
       <div className="flex items-center justify-between gap-2">
         <label htmlFor={id}>{label}</label>
         <span className="shrink-0 text-xs tabular-nums text-slate-400" aria-label={`จำนวน${name}`}>
@@ -59,25 +96,36 @@ export function AuctionKeywordEditor({
       </div>
       <div className="flex min-h-9 flex-wrap gap-1.5" aria-label={`${name}ที่เลือก`}>
         {keywords.map((word) => (
-          <span key={word} className="inline-flex max-w-full items-center gap-1 break-all rounded-full bg-orange-50 py-1 pl-3 pr-1 text-orange-800">
+          <span
+            key={word}
+            className="inline-flex max-w-full items-center gap-1 break-all rounded-full bg-orange-50 py-1 pl-3 pr-1 text-orange-800"
+          >
             {word}
-            <button type="button" disabled={disabled} aria-label={`ลบ${name} ${word}`}
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={`ลบ${name} ${word}`}
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-orange-100 disabled:opacity-40"
               onClick={() => {
                 onChange((previous) => previous.filter((value) => value !== word))
                 setError('')
                 onEdited()
-              }}>
+              }}
+            >
               <span aria-hidden="true">×</span>
             </button>
           </span>
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <input id={id} aria-label={label} className={`${field} !mt-0`} maxLength={40}
-          value={input} disabled={disabled}
+        <input
+          id={id}
+          aria-label={label}
+          className={`${field} !mt-0`}
+          maxLength={40}
+          value={input}
+          disabled={disabled}
           onChange={(event) => {
-            inputValue.current = event.target.value
             setInput(event.target.value)
             setError('')
           }}
@@ -87,28 +135,79 @@ export function AuctionKeywordEditor({
               add(input)
             }
           }}
-          placeholder={closing ? 'พิมพ์คำ แล้วเลือกอีโมจิหรือกด +' : 'พิมพ์คำดัก แล้วกด Enter หรือ +'}
+          placeholder={`พิมพ์${name} แล้วกด Enter หรือ +`}
         />
-        <button type="button" aria-label={`เพิ่ม${name}`} className={`${orange} shrink-0`}
-          disabled={disabled || !input.trim()} onClick={() => add(input)}>
+        <button
+          type="button"
+          aria-label={`เพิ่ม${name}`}
+          className={`${orange} shrink-0`}
+          disabled={disabled || !input.trim()}
+          onClick={() => add(input)}
+        >
           +
         </button>
+        <button
+          type="button"
+          aria-label={`เปิดแป้นพิมพ์อีโมจิ${name}`}
+          aria-expanded={pickerOpen}
+          aria-controls={pickerId}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg shadow-sm transition hover:border-orange-400 hover:bg-orange-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 disabled:opacity-40"
+          disabled={disabled}
+          onClick={() => setPickerOpen((open) => !open)}
+        >
+          ☺
+        </button>
       </div>
-      {closing && emojiKeys?.length ? (
-        <div className="grid w-fit max-w-full grid-cols-6 gap-1.5 sm:grid-cols-8" aria-label="แป้นพิมพ์อีโมจิปิดรอบ">
-          {emojiKeys.map((emoji) => (
-            <button key={emoji} type="button" aria-label={`เพิ่มอีโมจิ ${emoji}`}
-              disabled={disabled}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg shadow-sm transition hover:border-orange-400 hover:bg-orange-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 active:scale-95 disabled:opacity-40"
-              onClick={() => appendEmoji(emoji)}>{emoji}</button>
-          ))}
+      {pickerOpen && (
+        <div
+          id={pickerId}
+          role="dialog"
+          aria-label={`แป้นพิมพ์อีโมจิ${name}`}
+          className="absolute left-0 top-full z-30 mt-2 max-h-80 w-full min-w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl"
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-slate-700">
+              เลือกอีโมจิเพื่อเพิ่มเป็นแท็ก
+            </span>
+            <button
+              type="button"
+              aria-label="ปิดแป้นพิมพ์อีโมจิ"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              onClick={() => setPickerOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="space-y-3">
+            {EMOJI_CATEGORIES.map(({ label: category, emojis }) => (
+              <section key={category} aria-label={category}>
+                <h4 className="mb-1.5 text-xs font-medium text-slate-500">{category}</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {emojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      aria-label={`เพิ่มอีโมจิ ${emoji}`}
+                      disabled={disabled}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg shadow-sm transition hover:border-orange-400 hover:bg-orange-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 active:scale-95 disabled:opacity-40"
+                      onClick={() => add(emoji, false)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
         </div>
-      ) : null}
-      {error && <p role="alert" className="text-xs font-normal text-red-700">{error}</p>}
+      )}
+      {error && (
+        <p role="alert" className="text-xs font-normal text-red-700">
+          {error}
+        </p>
+      )}
       <p className="text-xs font-normal text-slate-500">
-        {closing
-          ? 'กดอีโมจิเพื่อพิมพ์ต่อท้ายช่องได้ซ้ำตามต้องการ แล้วกด Enter หรือ + เพื่อเพิ่มเป็นแท็ก'
-          : 'พิมพ์คำดักเองแล้วกด Enter หรือ + เพื่อเพิ่มเป็นแท็กได้ไม่จำกัด'}
+        พิมพ์คำเองแล้วกด Enter หรือ + หรือเลือกอีโมจิเพื่อเพิ่มเป็นแท็กได้ไม่จำกัด
       </p>
     </div>
   )
