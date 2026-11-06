@@ -393,7 +393,7 @@ test('two outbox runners cannot dispatch the same pending bill twice', async () 
   assert.equal(f.tables.auction_deliveries[0].status, 'sent')
 })
 
-test('only the latest winner keyword releases both replies to the confirmation comment with frozen price and real totals', async () => {
+test('closed winners receive both replies at their winning comment without a confirmation or another keyword', async () => {
   const f = fixture({
     tab: {
       total_amount: 350,
@@ -410,7 +410,7 @@ test('only the latest winner keyword releases both replies to the confirmation c
     status: 'closed',
     closed_at: '2026-01-02',
     current_price: 300,
-    session_automation: { keywords: ['1'], closeKeywords: ['x', '❌', '321'] },
+    session_automation: { keywords: [], closeKeywords: ['x', '❌', '321'] },
     bid_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
     private_reply_template: '{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}',
   })
@@ -427,37 +427,39 @@ test('only the latest winner keyword releases both replies to the confirmation c
       auction_id: auctionId,
       channel,
       comment_id: 'winning-bid',
-      status: 'awaiting_confirmation',
+      status: 'pending',
     })
   await f.api.deliverAuctionNotifications(auctionId)
-  assert.equal(f.calls.private.length + f.calls.public.length, 0)
+  assert.equal(f.calls.private.length, 1)
+  assert.equal(f.calls.public.length, 1)
   await f.receive('1', '901')
   assert.equal(
     f.calls.rpc.some((call) => call.name === 'confirm_live_auction_winner'),
     false,
-    'non-winners are rejected before the confirmation RPC',
+    'winner confirmation is no longer called',
   )
   assert.equal(
     f.calls.private.length + f.calls.public.length,
-    0,
-    'a non-winner cannot receive or release the bill',
+    2,
+    'later comments cannot resend or retarget the bill',
   )
   await f.receive('1', '900')
   assert.equal(f.calls.private.length, 1)
   assert.equal(f.calls.public.length, 1)
-  assert.equal(f.calls.private[0][1], '456_789')
-  assert.equal(f.calls.public[0][1], '456_789')
+  assert.equal(f.calls.private[0][1], 'winning-bid')
+  assert.equal(f.calls.public[0][1], 'winning-bid')
   assert.match(f.calls.public[0][2], /Buyer เหรียญ 300 350 KTB 9260337828/)
   assert.match(f.calls.private[0][2], /Buyer เหรียญ 300 350 KTB 9260337828/)
   assert.match(f.calls.private[0][3], /ค่าจัดส่งครั้งเดียว: 50 บาท/)
   assert.ok(!/[{}]/.test(f.calls.private[0][2]), 'all Thai template placeholders resolve')
   assert.equal(auction.current_price, 300)
   await f.receive('1', '900')
-  assert.equal(f.calls.private.length, 1, 'repeated confirmations never resend')
+  await f.api.deliverAuctionNotifications(auctionId)
+  assert.equal(f.calls.private.length, 1, 'repeated comments and outbox drains never resend')
   assert.equal(f.calls.public.length, 1)
 })
 
-test('an unconfirmed winner can confirm during the next round; other customers still bid without receiving bills', async () => {
+test('the previous winner bids in the next round immediately without losing a bid to confirmation', async () => {
   const f = fixture()
   Object.assign(f.tables.auctions[0], {
     status: 'closed',
@@ -483,13 +485,13 @@ test('an unconfirmed winner can confirm during the next round; other customers s
   assert.equal(f.calls.rpc.at(-1).name, 'process_live_auction_comment')
   assert.equal(f.calls.private.length, 0)
   await f.receive('1', '900')
-  assert.equal(f.calls.rpc.at(-1).name, 'confirm_live_auction_winner')
-  assert.equal(f.calls.rpc.at(-1).input.p_auction, auctionId)
+  assert.equal(f.calls.rpc.at(-1).name, 'process_live_auction_comment')
+  assert.equal(f.calls.rpc.at(-1).input.p_auction, nextId)
   await f.receive('1', '900')
   assert.equal(
     f.calls.rpc.at(-1).name,
     'process_live_auction_comment',
-    'after confirmation, the winner can bid in the next round',
+    'every valid keyword from the previous winner counts in the next round',
   )
   assert.equal(f.calls.rpc.at(-1).input.p_auction, nextId)
 })

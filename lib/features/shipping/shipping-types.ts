@@ -13,9 +13,16 @@ export type ShippingSettings = {
   sender_address: string
   default_courier: string
 }
-export const SHIPPING_PROVIDERS = ['dmove', 'flash_express', 'jnt', 'thailand_post'] as const
+export const SHIPPING_PROVIDERS = [
+  'beemove',
+  'dmove',
+  'flash_express',
+  'jnt',
+  'thailand_post',
+] as const
 export type ShippingProvider = (typeof SHIPPING_PROVIDERS)[number]
 export const SHIPPING_PROVIDER_LABELS: Record<ShippingProvider, string> = {
+  beemove: 'Bee Move',
   dmove: 'DMove (Generic API)',
   flash_express: 'Flash Express',
   jnt: 'J&T Express',

@@ -37,6 +37,14 @@ export async function shippingScope(
 }
 export function shippingFailure(error: unknown) {
   if (error instanceof ShippingError) return shippingReply({ error: error.message }, error.status)
+  if (error instanceof Error && error.message === 'BEEMOVE_CONNECTION_TEST_UNAVAILABLE')
+    return shippingReply(
+      {
+        error:
+          'ยังไม่มี API ตรวจสอบการเชื่อมต่อ Bee Move ที่ยืนยันแล้ว กรุณาตรวจ API contract กับผู้ให้บริการก่อนใช้งานจริง',
+      },
+      503,
+    )
   if (error instanceof SyntaxError) return shippingReply({ error: 'ข้อมูลคำขอไม่ถูกต้อง' }, 400)
   const issue = error as { code?: string; message?: string }
   console.error('[shipping/api]', { code: issue?.code || 'SHIPPING_FAILED' })

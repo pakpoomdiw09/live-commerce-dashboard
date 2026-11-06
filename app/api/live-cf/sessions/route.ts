@@ -3,7 +3,11 @@ import { getActor } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { authorizeAuction, auctionReply } from '@/lib/features/commerce/auction-api'
 import { UUID } from '@/lib/utils'
-import { inputMoney, validSessionTemplate } from '@/lib/features/commerce/live-session-types'
+import {
+  inputExpense,
+  inputMoney,
+  validSessionTemplate,
+} from '@/lib/features/commerce/live-session-types'
 import { runCustomerTabReminders } from '@/lib/features/commerce/customer-tab-reminders'
 
 export const maxDuration = 60
@@ -31,10 +35,7 @@ function failure(error: unknown) {
       },
       400,
     )
-  return auctionReply(
-    { error: 'โหลดหรือบันทึกไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ' },
-    503,
-  )
+  return auctionReply({ error: 'โหลดหรือบันทึกไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ' }, 503)
 }
 export async function GET(req: NextRequest) {
   try {
@@ -116,7 +117,8 @@ export async function POST(req: NextRequest) {
       case 'costs':
         if (
           !revision ||
-          [input.cost, input.ads, input.shipping].some((value) => inputMoney(value) === null)
+          [input.cost, input.ads, input.shipping].some((value) => inputExpense(value) === null) ||
+          (input.fees !== undefined && inputExpense(input.fees) === null)
         )
           return auctionReply(
             { error: 'ค่าใช้จ่ายต้องเป็นจำนวนเงินไม่ติดลบ และไม่เกินสองทศนิยม' },
@@ -125,9 +127,10 @@ export async function POST(req: NextRequest) {
         payload = {
           action: 'costs',
           revision: input.revision,
-          cost: input.cost,
-          ads: input.ads,
-          shipping: input.shipping,
+          cost: inputExpense(input.cost),
+          ads: inputExpense(input.ads),
+          shipping: inputExpense(input.shipping),
+          ...(input.fees !== undefined ? { fees: inputExpense(input.fees) } : {}),
         }
         break
       case 'winner':

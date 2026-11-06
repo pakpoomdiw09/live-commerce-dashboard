@@ -221,4 +221,28 @@ test('workspace API restores scoped saved values and commits a single normalized
     '❌',
   ])
   assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.closeKeywords), ['❌', '❌', '❌'])
+  for (const empty of ['', null]) {
+    assert.equal(
+      (
+        await post({
+          ...input,
+          requestId: randomUUID(),
+          finance: { cost: empty, ads: empty, shipping: empty, fees: empty },
+        })
+      ).status,
+      200,
+    )
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1).args.p_input.finance)), {
+      cost: 0,
+      ads: 0,
+      shipping: 0,
+      fees: 0,
+    })
+  }
+  for (const invalid of [undefined, -1, '1.005', true, {}, 'no']) {
+    assert.equal(
+      (await post({ ...input, finance: { ...input.finance, fees: invalid } })).status,
+      400,
+    )
+  }
 })

@@ -180,7 +180,7 @@ async function checkInterface() {
       await wait("!!document.querySelector('[data-auction-unified-form] [data-auction-zone]')")
     else {
       await wait(
-        `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]')?.textContent === '330.00'`,
+        `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]')?.textContent === '325.00'`,
       )
     }
     const fill = async (selector, value) => {
@@ -237,7 +237,7 @@ async function checkInterface() {
     await fill('input[aria-label="ค่าแอดโฆษณา (บาท)"]', '50.02')
     await fill('input[aria-label="ค่าจัดส่งจริง (บาท)"]', '20.03')
     await wait(
-      `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]').textContent === '329.90'`,
+      `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]').textContent === '324.90'`,
     )
     await click('บันทึกค่าใช้จ่าย')
     await wait(`sessionQA.requests.at(-1)?.action === 'costs'`)

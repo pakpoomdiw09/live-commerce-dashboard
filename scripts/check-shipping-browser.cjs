@@ -233,13 +233,23 @@ async function checkInterface() {
     await click('ยกเลิก')
     await click('ตั้งค่าค่ายขนส่ง')
     await wait(`!!document.querySelector('dialog')`)
-    assert.equal(await evaluate(`document.querySelectorAll('[role="tab"]').length`), 4)
+    assert.equal(await evaluate(`document.querySelectorAll('[role="tab"]').length`), 5)
+    assert.equal(
+      await evaluate(
+        `document.querySelector('[role="tab"][aria-selected="true"]').textContent.trim()`,
+      ),
+      'Bee Move',
+    )
     assert.equal(await evaluate(`!!document.querySelector('input[type="url"]')`), true)
     assert.equal(
       await evaluate(
         `document.querySelector('dialog').querySelectorAll('input[type="password"]').length`,
       ),
-      4,
+      1,
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('dialog input[type="url"]').value`),
+      'https://client.beemove.co.th',
     )
     await click('ปิด')
     await evaluate(

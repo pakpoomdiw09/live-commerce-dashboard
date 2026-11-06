@@ -64,9 +64,6 @@ export async function deliverAuctionNotifications(auctionId?: string) {
     const saved = await db.from('auctions').select('*').eq('id', delivery.auction_id).single()
     if (saved.error) throw saved.error
     const auction = saved.data as Auction
-    // Also fail closed while the confirmation migration is being deployed.
-    if (auction.session_automation?.closeKeywords && !auction.winner_confirmation_comment_id)
-      continue
     const tenant = await db
       .from('tenants')
       .select('page_id,page_access_token')
@@ -340,43 +337,8 @@ export async function handleAuctionComment(input: {
     return true
   }
   const isHost = author.id === pageId || auction.host_ids.includes(author.id)
-  if (!isHost) {
-    // A winner may confirm while the next round is already accepting bids.
-    // Use the closed round's frozen keyword settings and winner, never client data.
-    const latest = await db
-      .from('auctions')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('page_id', pageId)
-      .eq('live_post_id', auction.live_post_id)
-      .eq('status', 'closed')
-      .lte('created_at', execution.event.created_at)
-      .order('closed_at', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(1)
-    if (latest.error) throw latest.error
-    const closed = latest.data?.[0] as Auction | undefined
-    if (
-      closed?.session_automation?.closeKeywords &&
-      parseAuctionComment(value.message, false, closed.session_automation).type === 'STEP_BID' &&
-      closed.leading_bidder_id === author.id &&
-      !closed.winner_confirmation_comment_id
-    ) {
-      await execution.assertLease()
-      const confirmed = await db.rpc('confirm_live_auction_winner', {
-        p_auction: closed.id,
-        p_tenant: tenantId,
-        p_event: execution.event.id,
-      })
-      if (confirmed.error) throw confirmed.error
-      const status = (confirmed.data as AuctionResult).status
-      if (status === 'confirmed' || status === 'already_confirmed')
-        await deliverAuctionNotifications(closed.id)
-      return true
-    }
-  }
   if (auction.status !== 'active') {
-    skipped('CLOSED_AUCTION_NOT_CONFIRMABLE', { auctionId: auction.id })
+    skipped('AUCTION_ALREADY_CLOSED', { auctionId: auction.id })
     return true
   }
   const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)

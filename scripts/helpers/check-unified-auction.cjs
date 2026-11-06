@@ -37,12 +37,12 @@ module.exports = async function ({
     ),
     true,
   )
-  assert.equal(
+  assert.deepEqual(
     await evaluate(
-      `['เลือกไลฟ์สด','เงื่อนไขการประมูล','คำดักข้อความ & ระบบตอบกลับ'].every((title,index)=>document.querySelector('[data-auction-zone="'+(index+1)+'"] h3').textContent.trim()===title)`,
+      `[...document.querySelectorAll('[data-auction-zone] > h3')].map(el=>el.textContent.trim())`,
     ),
-    true,
-    'the unified card has plain section headings without numbered nested cards',
+    ['1. เลือกไลฟ์สด', '2. เงื่อนไขการประมูล', '3. คำดักข้อความ & ระบบตอบกลับ'],
+    'all three sections retain their numbered headings',
   )
   assert.equal(
     await evaluate(
@@ -78,16 +78,16 @@ module.exports = async function ({
   )
   assert.ok(
     await evaluate(
-      `[...document.querySelectorAll('[data-auction-zone]')].every(el=>getComputedStyle(el).borderTopWidth==='0px'&&getComputedStyle(el).boxShadow==='none') && [...document.querySelectorAll('[data-auction-zone] h3')].every(el=>!Array.from(el.classList).some(name=>name.startsWith('bg-gradient')))`,
+      `[...document.querySelectorAll('[data-auction-zone] > h3, [data-auction-finance-card] > h3')].length===4 && [...document.querySelectorAll('[data-auction-zone] > h3, [data-auction-finance-card] > h3')].every(el=>el.classList.contains('text-white')&&Array.from(el.classList).some(name=>name.startsWith('bg-gradient')))`,
     ),
-    'sections have no independent card border/shadow or orange gradient headers',
+    'every content card has its orange gradient heading bar',
   )
   assert.equal(
     await evaluate(
-      `document.querySelector('[data-auction-workspace] > div').firstElementChild.matches('[data-auction-zone="1"]')`,
+      `document.querySelector('[data-auction-settings-grid]').firstElementChild.firstElementChild.matches('[data-auction-finance-card]') && document.querySelector('[data-auction-finance-card] > h3').textContent.trim()==='สรุปต้นทุน / กำไร / ค่าใช้จ่าย'`,
     ),
     true,
-    'Page and live selection appear at the top of the card',
+    'finance is restored to the top of the layout, never below the reply section',
   )
   for (const label of [
     'ต้นทุนสินค้า (บาท)',
@@ -152,7 +152,7 @@ module.exports = async function ({
   await fill('input[aria-label="ค่าจัดส่งจริง (บาท)"]', '20')
   await fill('input[aria-label="ค่าธรรมเนียม / อื่นๆ (บาท)"]', '3.25')
   await fill('select[aria-label="บัญชีธนาคารรับเงิน"]', 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
-  await fill('input[aria-label="คำดักบิด / ยืนยันผู้ชนะ"]', 'เคาะ')
+  await fill('input[aria-label="คำดักบิด"]', 'เคาะ')
   await evaluate(`document.querySelector('button[aria-label="เพิ่มคำดัก"]').click()`)
   await fill(
     'textarea[aria-label="Public Reply ใต้คอมเมนต์"]',
@@ -251,7 +251,7 @@ module.exports = async function ({
     `document.querySelectorAll('[data-auction-keyword-editor="close"] button[aria-label="ลบคำปิดรอบ ❌"]').length===2`,
   )
   for (let index = 0; index < 2; index++) {
-    await fill('input[aria-label="คำดักบิด / ยืนยันผู้ชนะ"]', 'เคาะ')
+    await fill('input[aria-label="คำดักบิด"]', 'เคาะ')
     await evaluate(`document.querySelector('button[aria-label="เพิ่มคำดัก"]').click()`)
   }
   await click('บันทึกและเริ่มประมูล')
@@ -281,23 +281,60 @@ module.exports = async function ({
     profitText.includes('฿96.25'),
     `profit reflects closed auction sales minus cost, ads, shipping and fees; got ${profitText}`,
   )
-  for (const width of [375, 768, 1024, 1440]) {
+  for (const width of [375, 768, 1024, 1280, 1440]) {
     await resize(width)
     assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), 'fits ' + width)
     const layout = await evaluate(`(() => {
       const source=document.querySelector('[data-auction-zone="1"]').getBoundingClientRect();
+      const finance=document.querySelector('[data-auction-finance-card]').getBoundingClientRect();
       const left=document.querySelector('[data-auction-zone="2"]').getBoundingClientRect();
       const right=document.querySelector('[data-auction-zone="3"]').getBoundingClientRect();
-      return {sourceBottom:source.bottom,leftTop:left.top,rightTop:right.top,leftBottom:left.bottom,leftX:left.x,rightX:right.x,leftWidth:left.width,rightWidth:right.width};
+      const submit=document.querySelector('[data-auction-unified-form] button[type="submit"]').getBoundingClientRect();
+      return {sourceTop:source.top,sourceBottom:source.bottom,financeTop:finance.top,financeBottom:finance.bottom,financeX:finance.x,financeWidth:finance.width,leftTop:left.top,rightTop:right.top,rightBottom:right.bottom,leftBottom:left.bottom,leftX:left.x,rightX:right.x,leftWidth:left.width,rightWidth:right.width,submitTop:submit.top};
     })()`)
-    assert.ok(layout.sourceBottom <= layout.leftTop, 'source precedes settings at ' + width)
-    if (width >= 768) {
-      assert.ok(layout.rightX > layout.leftX, 'settings are side by side at ' + width)
+    assert.ok(
+      layout.financeBottom <= layout.sourceTop,
+      'finance is at the top of the left column at ' + width,
+    )
+    if (width >= 1024) {
+      assert.ok(
+        layout.financeX < layout.leftX && layout.leftX < layout.rightX,
+        'three columns at ' + width,
+      )
+      assert.ok(
+        Math.abs(layout.financeTop - layout.leftTop) < 2,
+        'finance aligns beside conditions at ' + width,
+      )
       assert.ok(Math.abs(layout.leftTop - layout.rightTop) < 2, 'settings align at ' + width)
+      assert.ok(
+        Math.abs(layout.financeWidth - layout.leftWidth) < 2,
+        'equal first and middle columns at ' + width,
+      )
       assert.ok(Math.abs(layout.leftWidth - layout.rightWidth) < 2, 'equal columns at ' + width)
     } else {
+      assert.ok(
+        layout.sourceBottom <= layout.leftTop,
+        'live selection precedes conditions on smaller screens at ' + width,
+      )
       assert.ok(layout.rightTop >= layout.leftBottom, 'mobile stacks settings at ' + width)
     }
+    assert.ok(
+      layout.submitTop >=
+        Math.max(layout.sourceBottom, layout.financeBottom, layout.leftBottom, layout.rightBottom),
+      'one save button follows every field at ' + width,
+    )
+    await evaluate(`document.querySelector('button[aria-label="ไลฟ์สด Facebook"]').click()`)
+    await wait(`!!document.querySelector('[role="listbox"][aria-label="รายการไลฟ์สด Facebook"]')`)
+    assert.ok(
+      await evaluate(`(() => {
+        const popup=document.querySelector('[role="listbox"][aria-label="รายการไลฟ์สด Facebook"]').getBoundingClientRect();
+        const source=document.querySelector('[data-auction-zone="1"]');
+        const rect=source.getBoundingClientRect();
+        return popup.bottom<=rect.bottom||getComputedStyle(source).overflowY==='visible';
+      })()`),
+      'live video options are not clipped by the restored source card at ' + width,
+    )
+    await evaluate(`document.querySelector('button[aria-label="ไลฟ์สด Facebook"]').click()`)
     await evaluate(
       `document.querySelector('[data-auction-keyword-editor="close"] button[aria-controls]').click()`,
     )
@@ -324,6 +361,6 @@ module.exports = async function ({
   }
   assert.deepEqual(errors, [])
   console.log(
-    'PASS: One unified card/save, source first, unboxed sections, equal side-by-side columns at 768/1024/1440 and mobile stack at 375; repeated emoji/text tags survive index removal and save/reload. Mock APIs only.',
+    'PASS: Finance restored at top beside conditions, three columns at 1024/1280/1440, orange section bars, all fields and one bottom save preserved; duplicate tags and full save/reload still work. Mock APIs only.',
   )
 }

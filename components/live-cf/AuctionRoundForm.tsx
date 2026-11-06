@@ -69,7 +69,7 @@ export function AuctionRoundForm({
           })
           setActive({ id: result.id, itemName: draft.itemName })
           setNotice(
-            'เปิดประมูลแล้ว เมื่อผู้ขายพิมพ์คำปิดรอบ ระบบจะล็อกผู้ชนะ ผู้ชนะพิมพ์คีย์เวิร์ดอีกครั้งเพื่อรับยอดทางคอมเมนต์และ Messenger',
+            'เปิดประมูลแล้ว เมื่อผู้ขายพิมพ์คำปิดรอบ ระบบจะล็อกผู้ชนะและส่งผลทางคอมเมนต์และ Messenger ตามการตอบกลับที่เปิดไว้ทันที',
           )
           onChanged()
         } catch (cause) {

@@ -24,8 +24,7 @@ import {
   shippingProviderAdapters,
   type ShippingProviderConfig,
 } from '@/lib/features/shipping/shipping-provider'
-import { pageTokenFor } from '@/lib/integrations/facebook/client'
-import { deliverOnce, type Recipient } from '@/lib/features/slips/notify'
+import { deliverShippingTrackingNotifications } from '@/lib/features/shipping/shipping-notifications'
 import { UUID } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
@@ -129,6 +128,8 @@ function validateIntegrationInput(value: unknown): ValidIntegrationInput {
     endpoint.hash
   )
     throw new ShippingError('API Base URL ต้องเป็น HTTPS และไม่มี query/credential')
+  if (provider === 'beemove' && endpoint.href !== 'https://client.beemove.co.th/')
+    throw new ShippingError('Bee Move ต้องใช้ https://client.beemove.co.th')
   const supplied = credentials as Record<string, unknown>
   const cleanCredential = (key: string, max: number) => {
     const raw = supplied[key]
@@ -204,25 +205,6 @@ function providerConfig(
   }
 }
 
-function trackingMessage(
-  shipment: ShippingShipment,
-  parcel: { trackingNumber: string; trackingUrl: string; courierName: string },
-) {
-  const items = shipment.items
-    .map((item) => item.item_name)
-    .filter(Boolean)
-    .join(', ')
-  return [
-    '📦 แจ้งหมายเลขจัดส่งพัสดุครับ',
-    `คุณ: ${shipment.recipient_name}`,
-    `รายการ: ${items || 'รายการสั่งซื้อ'}`,
-    `ขนส่ง: ${parcel.courierName}`,
-    `หมายเลขพัสดุ: ${parcel.trackingNumber}`,
-    `ตรวจสอบสถานะพัสดุได้ที่: ${parcel.trackingUrl}`,
-    'ขอบคุณที่ร่วมประมูลกับเราครับ 🙏',
-  ].join('\n')
-}
-
 async function createShippingParcels({
   db,
   tenantId,
@@ -238,7 +220,7 @@ async function createShippingParcels({
   ids: string[]
   provider: ShippingProvider
 }) {
-  const [integrationResult, snapshotResult, tenantResult] = await Promise.all([
+  const [integrationResult, snapshotResult] = await Promise.all([
     db
       .from('shipping_integrations')
       .select(
@@ -248,39 +230,30 @@ async function createShippingParcels({
       .eq('provider', provider)
       .maybeSingle(),
     db.rpc('shipping_snapshot', { p_tenant: tenantId, p_ids: ids, p_session: null }),
-    db
-      .from('tenants')
-      .select('name,page_name,page_id,page_access_token')
-      .eq('id', tenantId)
-      .single(),
   ])
-  if (integrationResult.error || snapshotResult.error || tenantResult.error)
-    throw integrationResult.error || snapshotResult.error || tenantResult.error
+  if (integrationResult.error || snapshotResult.error)
+    throw integrationResult.error || snapshotResult.error
   const integration = integrationResult.data
   if (!integration?.is_active) throw new ShippingError('ค่ายขนส่งนี้ยังไม่ได้เปิดใช้งาน')
-  const credentials = decryptShippingCredentials(integration.credentials_ciphertext)
   const config: ShippingProviderConfig = {
     provider,
     apiEndpoint: integration.api_endpoint,
-    credentials,
+    credentials: decryptShippingCredentials(integration.credentials_ciphertext),
     trackingUrlTemplate: integration.tracking_url_template,
   }
   const adapter = shippingProviderAdapters[provider]
   const shipments = snapshotResult.data as ShippingShipment[]
   if (!Array.isArray(shipments) || shipments.length !== ids.length)
     throw new ShippingError('ไม่พบรายการจัดส่งที่เลือกจากร้านนี้', 404)
-  const tenant = tenantResult.data
-  const token = pageTokenFor(tenant)
   const results: {
     shipmentId: string
     status: 'shipped' | 'failed' | 'in_progress' | 'uncertain'
     trackingNumber?: string
     trackingUrl?: string
     labelPdfUrl?: string
-    notification?: 'sent' | 'failed'
+    notification?: 'sent' | 'pending' | 'requires_review'
     error?: string
   }[] = []
-
   for (const shipment of shipments) {
     const started = await db.rpc('begin_shipping_provider_job', {
       p_tenant: tenantId,
@@ -290,32 +263,20 @@ async function createShippingParcels({
       p_provider: provider,
     })
     if (started.error) throw started.error
-    const job = started.data as {
-      jobId: string
-      status: string
-      idempotencyKey: string
-      claimed?: boolean
-      trackingNumber?: string
-      trackingUrl?: string
-      labelPdfUrl?: string
-      courierName?: string
-      notificationStatus?: string
-    }
+    const job = started.data
     if (!job?.jobId) throw new Error('SHIPPING_PROVIDER_JOB_INVALID')
-    let parcel: {
-      trackingNumber: string
-      trackingUrl: string
-      labelPdfUrl: string
-      courierName: string
-    } | null = null
     if (job.status === 'created') {
-      parcel = {
-        trackingNumber: job.trackingNumber!,
-        trackingUrl: job.trackingUrl!,
-        labelPdfUrl: job.labelPdfUrl!,
-        courierName: job.courierName!,
-      }
-    } else if (job.status !== 'creating' || !job.claimed) {
+      results.push({
+        shipmentId: shipment.id,
+        status: 'shipped',
+        trackingNumber: job.trackingNumber,
+        trackingUrl: job.trackingUrl,
+        labelPdfUrl: job.labelPdfUrl,
+        notification: job.notificationStatus === 'sent' ? 'sent' : 'pending',
+      })
+      continue
+    }
+    if (job.status !== 'creating' || !job.claimed) {
       results.push({
         shipmentId: shipment.id,
         status:
@@ -324,193 +285,86 @@ async function createShippingParcels({
             : job.status === 'failed'
               ? 'failed'
               : 'in_progress',
-        ...(job.status === 'failed'
-          ? { error: 'การสร้างพัสดุล้มเหลว กรุณาตรวจสอบก่อนลองใหม่' }
-          : {}),
       })
       continue
-    } else {
-      let providerCreated = false
-      try {
-        if (!shipment.payment_ready || shipment.fulfillment_status !== 'ready_to_ship')
-          throw new ShippingError('รายการยังไม่พร้อมจัดส่ง')
-        const customer = await db
-          .from('customers')
-          .select('platform,platform_user_id')
-          .eq('tenant_id', tenantId)
-          .eq('id', shipment.customer_id)
-          .single()
-        if (customer.error) throw customer.error
-        if (customer.data.platform !== 'facebook' || !/^\d+$/.test(customer.data.platform_user_id))
-          throw new ShippingError('ไม่พบ PSID สำหรับแจ้งลูกค้า')
-        if (!token) throw new ShippingError('เพจยังไม่ได้เชื่อมต่อ Facebook Page Token')
-        const recipient: Recipient = {
-          id: shipment.customer_id,
-          psid: customer.data.platform_user_id,
-          token,
-        }
-        const itemNames = shipment.items.map((item) => item.item_name).filter(Boolean)
-        const orderIds = shipment.items.map((item) => item.order_id)
-        const created = await adapter.createParcel(config, {
-          orderId: orderIds.length === 1 ? orderIds[0] : shipment.customer_tab_id || shipment.id,
-          shipmentId: shipment.id,
-          recipient: {
-            name: shipment.recipient_name,
-            phone: shipment.phone_number,
-            address: [
-              shipment.shipping_address,
-              shipment.subdistrict,
-              shipment.district,
-              shipment.province,
-              shipment.zipcode,
-            ]
-              .filter(Boolean)
-              .join(' '),
-          },
-          sender: integration.sender_info,
-          weight: Number(integration.weight_kg),
-          courierCode: provider,
-          idempotencyKey: job.idempotencyKey,
-        })
-        providerCreated = true
-        const courierName = SHIPPING_PROVIDER_LABELS[provider]
-        const completed = await db.rpc('complete_shipping_provider_job', {
-          p_job: job.jobId,
-          p_tracking: created.trackingNumber,
-          p_courier: courierName,
-          p_tracking_url: created.trackingUrl,
-          p_label_url: created.labelPdfUrl,
-        })
-        if (completed.error) throw completed.error
-        parcel = { ...created, courierName }
-        results.push({
-          shipmentId: shipment.id,
-          status: 'shipped',
-          trackingNumber: parcel.trackingNumber,
-          trackingUrl: parcel.trackingUrl,
-          labelPdfUrl: parcel.labelPdfUrl,
-        })
-        const body = trackingMessage(shipment, parcel)
-        const delivered = await deliverOnce(
-          db,
-          recipient,
-          `shipping-tracking:${shipment.id}:${parcel.trackingNumber}`,
-          body,
-        )
-        if (!delivered) throw new Error('SHIPPING_TRACKING_NOTIFICATION_ALREADY_CLAIMED')
-        const marked = await db.rpc('mark_shipping_tracking_notification', {
-          p_job: job.jobId,
-          p_status: 'sent',
-        })
-        if (marked.error) throw marked.error
-        results[results.length - 1].notification = 'sent'
-      } catch (error) {
-        const failure = error instanceof Error ? error.message : 'SHIPPING_PROVIDER_FAILED'
-        const uncertain =
-          providerCreated ||
-          failure === 'SHIPPING_PROVIDER_REQUEST_FAILED' ||
-          /SHIPPING_PROVIDER_HTTP_5\d\d/.test(failure)
-        if (!parcel) {
-          const finished = await db.rpc('finish_shipping_provider_job', {
-            p_job: job.jobId,
-            p_status: uncertain ? 'uncertain' : 'failed',
-            p_error: failure.replace(/[^A-Z0-9_]/g, '').slice(0, 80) || 'SHIPPING_FAILED',
-          })
-          if (finished.error) throw finished.error
-          results.push({
-            shipmentId: shipment.id,
-            status: uncertain ? 'uncertain' : 'failed',
-            error: uncertain
-              ? 'ผลสร้างพัสดุไม่ชัดเจน กรุณาตรวจสอบกับขนส่งก่อนลองอีกครั้ง'
-              : 'ไม่สามารถสร้างพัสดุกับขนส่งได้',
-          })
-        } else {
-          const marked = await db.rpc('mark_shipping_tracking_notification', {
-            p_job: job.jobId,
-            p_status: 'failed',
-          })
-          if (marked.error) throw marked.error
-          results[results.length - 1].notification = 'failed'
-          results[results.length - 1].error =
-            'สร้างพัสดุสำเร็จ แต่ส่งข้อความ Messenger ไม่สำเร็จ กรุณาตรวจสอบหน้าต่างข้อความ/เพจ'
-        }
-      }
     }
-    if (parcel && job.status === 'created') {
-      const alreadyReported = results.some((result) => result.shipmentId === shipment.id)
-      if (job.notificationStatus === 'pending') {
-        try {
-          const customer = await db
-            .from('customers')
-            .select('platform,platform_user_id')
-            .eq('tenant_id', tenantId)
-            .eq('id', shipment.customer_id)
-            .single()
-          if (
-            customer.error ||
-            customer.data.platform !== 'facebook' ||
-            !/^\d+$/.test(customer.data.platform_user_id) ||
-            !token
-          )
-            throw new Error('SHIPPING_MESSENGER_RECIPIENT_INVALID')
-          const body = trackingMessage(shipment, parcel)
-          const delivered = await deliverOnce(
-            db,
-            { id: shipment.customer_id, psid: customer.data.platform_user_id, token },
-            `shipping-tracking:${shipment.id}:${parcel.trackingNumber}`,
-            body,
-          )
-          if (!delivered) throw new Error('SHIPPING_TRACKING_NOTIFICATION_ALREADY_CLAIMED')
-          const marked = await db.rpc('mark_shipping_tracking_notification', {
-            p_job: job.jobId,
-            p_status: 'sent',
-          })
-          if (marked.error) throw marked.error
-          if (alreadyReported) results[results.length - 1].notification = 'sent'
-          else
-            results.push({
-              shipmentId: shipment.id,
-              status: 'shipped',
-              trackingNumber: parcel.trackingNumber,
-              trackingUrl: parcel.trackingUrl,
-              labelPdfUrl: parcel.labelPdfUrl,
-              notification: 'sent',
-            })
-        } catch {
-          const marked = await db.rpc('mark_shipping_tracking_notification', {
-            p_job: job.jobId,
-            p_status: 'failed',
-          })
-          if (marked.error) throw marked.error
-          if (alreadyReported) {
-            results[results.length - 1].notification = 'failed'
-            results[results.length - 1].error =
-              'สร้างพัสดุสำเร็จ แต่ส่งข้อความ Messenger ไม่สำเร็จ กรุณาตรวจสอบหน้าต่างข้อความ/เพจ'
-          } else
-            results.push({
-              shipmentId: shipment.id,
-              status: 'shipped',
-              trackingNumber: parcel.trackingNumber,
-              trackingUrl: parcel.trackingUrl,
-              labelPdfUrl: parcel.labelPdfUrl,
-              notification: 'failed',
-              error: 'พัสดุสร้างแล้ว แต่ส่งข้อความ Messenger ไม่สำเร็จ',
-            })
-        }
-      } else if (!alreadyReported) {
-        results.push({
-          shipmentId: shipment.id,
-          status: 'shipped',
-          trackingNumber: parcel.trackingNumber,
-          trackingUrl: parcel.trackingUrl,
-          labelPdfUrl: parcel.labelPdfUrl,
-          ...(job.notificationStatus === 'sent' ? { notification: 'sent' as const } : {}),
-          ...(job.notificationStatus === 'failed'
-            ? { notification: 'failed' as const, error: 'ข้อความแจ้งลูกค้าส่งไม่สำเร็จ' }
-            : {}),
-        })
-      }
+    let requested = false
+    try {
+      if (!shipment.payment_ready || shipment.fulfillment_status !== 'ready_to_ship')
+        throw new ShippingError('รายการยังไม่พร้อมจัดส่ง')
+      const orderIds = shipment.items.map((item) => item.order_id)
+      requested = true
+      const created = await adapter.createParcel(config, {
+        orderId: orderIds.length === 1 ? orderIds[0] : shipment.customer_tab_id || shipment.id,
+        shipmentId: shipment.id,
+        recipient: {
+          name: shipment.recipient_name,
+          phone: shipment.phone_number,
+          address: [
+            shipment.shipping_address,
+            shipment.subdistrict,
+            shipment.district,
+            shipment.province,
+            shipment.zipcode,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        },
+        sender: integration.sender_info,
+        weight: Number(integration.weight_kg),
+        courierCode: provider,
+        idempotencyKey: job.idempotencyKey,
+      })
+      const completed = await db.rpc('complete_shipping_provider_job', {
+        p_job: job.jobId,
+        p_tracking: created.trackingNumber,
+        p_courier: SHIPPING_PROVIDER_LABELS[provider],
+        p_tracking_url: created.trackingUrl,
+        p_label_url: created.labelPdfUrl,
+      })
+      if (completed.error) throw completed.error
+      // The transaction also enqueues tracking. Delivery failure must never undo or repeat parcel creation.
+      results.push({
+        shipmentId: shipment.id,
+        status: 'shipped',
+        ...created,
+        notification: 'pending',
+      })
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : 'SHIPPING_PROVIDER_FAILED'
+      const definiteRejection =
+        /^SHIPPING_PROVIDER_HTTP_4\d\d$/.test(failure) && !/HTTP_(408|409|429)$/.test(failure)
+      const beforeRequest = [
+        'SHIPPING_PROVIDER_ENDPOINT_INVALID',
+        'SHIPPING_PROVIDER_CREDENTIALS_REQUIRED',
+      ].includes(failure)
+      const uncertain = requested && !definiteRejection && !beforeRequest
+      const saved = await db.rpc('finish_shipping_provider_job', {
+        p_job: job.jobId,
+        p_status: uncertain ? 'uncertain' : 'failed',
+        p_error: failure.replace(/[^A-Z0-9_]/g, '').slice(0, 80) || 'SHIPPING_FAILED',
+      })
+      if (saved.error) throw saved.error
+      results.push({
+        shipmentId: shipment.id,
+        status: uncertain ? 'uncertain' : 'failed',
+        error: uncertain
+          ? 'ผลสร้างพัสดุไม่ชัดเจน กรุณาตรวจสอบกับขนส่งก่อนลองอีกครั้ง'
+          : 'ไม่สามารถสร้างพัสดุกับขนส่งได้',
+      })
     }
+  }
+  try {
+    const notifications = await deliverShippingTrackingNotifications(db, {
+      tenantId,
+      shipmentIds: ids,
+    })
+    for (const result of results) {
+      const notified = notifications.find((item) => item.shipmentId === result.shipmentId)
+      if (result.status === 'shipped' && notified) result.notification = notified.status
+    }
+  } catch {
+    console.warn('[shipping/tracking] outbox pending; recovery worker will retry')
   }
   return { ok: true, results }
 }
@@ -652,6 +506,8 @@ export async function POST(req: NextRequest) {
         integration.credentials,
         existing.data?.credentials_ciphertext,
       )
+      if (integration.provider === 'beemove' && !mergedCredentials.apiKey)
+        throw new ShippingError('กรุณากรอก API Key ของ Bee Move')
       const nextCredentials = encryptShippingCredentials(mergedCredentials)
       const result = await db.rpc('save_shipping_integration', {
         p_tenant: tenantId,
@@ -685,6 +541,18 @@ export async function POST(req: NextRequest) {
       p_input: payload,
     })
     if (result.error) throw result.error
+    if (payload.action === 'dispatch') {
+      try {
+        const notifications = await deliverShippingTrackingNotifications(db, {
+          tenantId,
+          shipmentIds: payload.ids as string[],
+        })
+        return shippingReply({ ...result.data, notifications })
+      } catch {
+        console.warn('[shipping/tracking] manual dispatch saved; outbox pending')
+        return shippingReply({ ...result.data, notificationsPending: true })
+      }
+    }
     return shippingReply(result.data)
   } catch (error) {
     return shippingFailure(error)

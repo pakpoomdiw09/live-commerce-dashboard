@@ -20,6 +20,7 @@ export function LiveSourcePicker({
   active = true,
   allowManual = false,
   thai = false,
+  stacked = false,
 }: {
   pages: LiveSourcePage[]
   pageId: string
@@ -30,6 +31,7 @@ export function LiveSourcePicker({
   active?: boolean
   allowManual?: boolean
   thai?: boolean
+  stacked?: boolean
 }) {
   const id = useId()
   const [videos, setVideos] = useState<FacebookLiveVideo[]>([])
@@ -84,7 +86,7 @@ export function LiveSourcePicker({
     onLiveChange(value)
   }
   return (
-    <div className="grid min-w-0 gap-4 md:grid-cols-2">
+    <div className={`grid min-w-0 gap-4 ${stacked ? '' : 'md:grid-cols-2'}`}>
       <label className="min-w-0 text-sm font-semibold text-slate-800">
         เลือกเพจ Facebook
         <select

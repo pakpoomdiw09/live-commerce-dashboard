@@ -131,6 +131,9 @@ export function inputMoney(value: unknown, max = 999_999_999_999.99): number | n
     ? result
     : null
 }
+/** Empty expense fields mean no expense; missing or malformed fields still fail validation. */
+export const inputExpense = (value: unknown) =>
+  inputMoney(value === '' || value === null ? 0 : value)
 export const sumMoney = (values: number[]) =>
   values.reduce((sum, value) => sum + Math.round(Number(value) * 100), 0) / 100
 /** Counts use one current cumulative tab per customer, never the number of slips or items. */

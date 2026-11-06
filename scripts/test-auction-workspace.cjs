@@ -98,6 +98,12 @@ test('unified workspace saves all zones atomically, preserves merchant values an
     assert.equal(session.cost_amount, '125.50')
     assert.equal(session.shipping_cost, '7.00')
     assert.equal(session.other_fees, '3.25')
+    assert.equal(
+      (await one('select live_session_dashboard($1,$2) result', [tenant, result.sessionId])).result
+        .metrics.profit,
+      -150.75,
+      'SQL profit deducts all four expenses, including fees',
+    )
     assert.equal((await one('select count(*)::int n from live_session_changes')).n, 1)
     assert.equal(round.page_id, session.page_id)
     assert.equal(round.live_post_id, session.live_post_id)
@@ -151,6 +157,16 @@ test('unified workspace saves all zones atomically, preserves merchant values an
       ).allowed,
       false,
     )
+    const emptyExpenses = await save({
+      ...input,
+      livePostId: '7001',
+      finance: { cost: '', ads: null, shipping: '', fees: null },
+    })
+    const zero = await one(
+      'select cost_amount,ad_spent,shipping_cost,other_fees from live_sessions where id=$1',
+      [emptyExpenses.sessionId],
+    )
+    assert.deepEqual(Object.values(zero), ['0.00', '0.00', '0.00', '0.00'])
   } finally {
     await db.close()
   }

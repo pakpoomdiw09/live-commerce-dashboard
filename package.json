@@ -5,7 +5,7 @@
   "scripts": {
     "test:live-auction-dashboard": "node --test scripts/test-live-auction-dashboard-api.cjs scripts/test-live-session-dashboard.cjs scripts/test-auction-workspace.cjs scripts/test-auction-workspace-api.cjs",
     "test:live-auction-dashboard:ui": "node scripts/check-live-session-browser.cjs --all-in-one",
-    "test:shipping": "node --test scripts/test-shipping.cjs scripts/test-shipping-provider.cjs",
+    "test:shipping": "node --test scripts/test-shipping.cjs scripts/test-shipping-provider.cjs scripts/test-shipping-notifications.cjs scripts/test-shipping-dispatch-api.cjs",
     "test:shipping:ui": "node scripts/check-shipping-browser.cjs",
     "test:live-sessions": "node --test scripts/test-live-session-dashboard.cjs",
     "test:live-sessions:ui": "node scripts/check-live-session-browser.cjs",

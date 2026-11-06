@@ -346,11 +346,18 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     assert.equal(snapshot.metrics.paid, 100)
     assert.equal(snapshot.metrics.remaining, 170)
     const costRequest = randomUUID()
-    const costPayload = { action: 'costs', revision: 0, cost: 10.05, ads: 5.01, shipping: 4.94 }
+    const costPayload = {
+      action: 'costs',
+      revision: 0,
+      cost: 10.05,
+      ads: 5.01,
+      shipping: 4.94,
+      fees: 3.25,
+    }
     await manage(session, costPayload, costRequest)
     await manage(session, costPayload, costRequest)
     snapshot = (await one('select live_session_dashboard($1,$2) result', [tenant, session])).result
-    assert.equal(snapshot.metrics.profit, 80)
+    assert.equal(snapshot.metrics.profit, 76.75)
     assert.equal(snapshot.session.financial_revision, 1)
     await assert.rejects(manage(session, { ...costPayload, cost: 999 }), /SESSION_CHANGED/)
     await assert.rejects(
@@ -583,7 +590,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     assert.equal(snapshot.metrics.paid, 200)
     assert.equal(snapshot.metrics.unpaidPeople, 0)
     assert.equal(snapshot.metrics.partialPeople, 2)
-    assert.equal(snapshot.metrics.profit, 180)
+    assert.equal(snapshot.metrics.profit, 176.75)
     // All-in-one Session start/settings reuse the ledger and existing Page dispatch slots.
     const config = {
       ...automation.defaultSessionAutomation(bank),
@@ -914,25 +921,19 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     ).result
     assert.equal(thaiSnapshot.activeAuction, null)
     assert.equal(thaiSnapshot.tabs[0].total, 270)
-    // Closing freezes the winner and ledger, but does not release notifications.
+    // Closing queues both channels immediately at the original winning comment.
     {
-      const held = (
+      const ready = (
         await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])
       ).rows
-      assert.ok(held.every((row) => row.status === 'awaiting_confirmation'))
-      const confirm = async (sender, text, auction = thaiRound, post = '989') => {
-        const ev = await event(sender, text, post)
-        return {
-          ev,
-          result: (
-            await one('select confirm_live_auction_winner($1,$2,$3) result', [
-              auction,
-              tenant,
-              ev.id,
-            ])
-          ).result,
-        }
-      }
+      assert.ok(
+        ready.every((row) => row.status === 'pending' && row.comment_id === winning.comment_id),
+      )
+      assert.equal(
+        (await one('select winner_confirmation_comment_id from auctions where id=$1', [thaiRound]))
+          .winner_confirmation_comment_id,
+        null,
+      )
       assert.equal(
         (
           await one('select confirm_live_auction_winner($1,$2,$3) result', [
@@ -941,7 +942,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
             preCloseConfirmation.id,
           ])
         ).result.status,
-        'stale',
+        'not_required',
       )
       await assert.rejects(
         one('select confirm_live_auction_winner($1,$2,$3)', [
@@ -951,41 +952,18 @@ test('session financial transactions preserve proofs/payments, fence revisions a
         ]),
         /AUCTION_NOT_FOUND/,
       )
-      assert.equal((await confirm('900', 'เคาะ')).result.status, 'not_winner')
-      assert.equal((await confirm('904', 'random')).result.status, 'ignored')
-      await assert.rejects(confirm('904', 'เคาะ', thaiRound, '456'), /AUCTION_POST_MISMATCH/)
-      assert.ok(
-        (
-          await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])
-        ).rows.every((row) => row.status === 'awaiting_confirmation'),
-      )
-      const confirmation = await confirm('904', 'เคาะ')
-      assert.equal(confirmation.result.status, 'confirmed')
-      assert.equal(
-        (
-          await one('select confirm_live_auction_winner($1,$2,$3) result', [
-            thaiRound,
-            tenant,
-            confirmation.ev.id,
-          ])
-        ).result.status,
-        'already_confirmed',
-      )
-      const released = (
-        await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])
-      ).rows
-      assert.ok(
-        released.every(
-          (row) =>
-            row.status === 'pending' && row.comment_id === confirmation.ev.payload.value.comment_id,
-        ),
-      )
-      const frozen = await one(
-        'select current_price,leading_bidder_id,order_id from auctions where id=$1',
+      // Re-running the forward migration releases held records while preserving sent records.
+      await db.query(
+        "update auction_deliveries set status=case when channel='public' then 'sent' else 'awaiting_confirmation' end where auction_id=$1",
         [thaiRound],
       )
-      assert.equal(frozen.current_price, '220.00')
-      assert.equal(frozen.leading_bidder_id, '904')
+      await db.exec(fs.readFileSync('supabase/live-auction-production-readiness.sql', 'utf8'))
+      const recovered = (
+        await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])
+      ).rows
+      assert.equal(recovered.find((row) => row.channel === 'public').status, 'sent')
+      assert.equal(recovered.find((row) => row.channel === 'private').status, 'pending')
+      assert.ok(recovered.every((row) => row.comment_id === winning.comment_id))
       assert.equal(
         (await process(thaiRound, '900', '999', 'NUMERIC_BID', 999, null, '989')).status,
         'closed',
@@ -994,13 +972,6 @@ test('session financial transactions preserve proofs/payments, fence revisions a
         (await one('select current_price from auctions where id=$1', [thaiRound])).current_price,
         '220.00',
       )
-      await db.query("update auction_deliveries set status='sent' where auction_id=$1", [thaiRound])
-      assert.equal((await confirm('904', 'เคาะ')).result.status, 'already_confirmed')
-      assert.ok(
-        (
-          await db.query('select status from auction_deliveries where auction_id=$1', [thaiRound])
-        ).rows.every((row) => row.status === 'sent'),
-      )
       assert.equal(
         (await one('select count(*)::int n from orders where source_id=$1', [thaiRound])).n,
         1,
@@ -1008,16 +979,10 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       const nextRound = await open('989', alternateBank)
       await process(nextRound, '905', 'เคาะ', 'STEP_BID', null, null, '989')
       await process(nextRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
-      assert.equal((await confirm('904', 'เคาะ')).result.status, 'not_latest')
-      assert.equal((await confirm('904', 'เคาะ', nextRound)).result.status, 'not_winner')
-      assert.equal((await confirm('905', 'เคาะ', nextRound)).result.status, 'confirmed')
-      assert.equal(
+      assert.ok(
         (
-          await one(
-            "select has_function_privilege('authenticated','public.confirm_live_auction_winner(uuid,uuid,uuid)','execute') allowed",
-          )
-        ).allowed,
-        false,
+          await db.query('select status from auction_deliveries where auction_id=$1', [nextRound])
+        ).rows.every((row) => row.status === 'pending'),
       )
     }
     assert.equal(
@@ -1202,4 +1167,13 @@ test('session API scopes ownership before data access and validates all mutation
   assert.equal(calls[0].input.p_session, sessionId)
   assert.equal(calls[0].input.p_actor, actor)
   assert.equal(calls[0].input.p_input.cost, 1.01)
+  assert.equal(
+    (await post({ action: 'costs', cost: '', ads: null, shipping: '', fees: null, revision: 1 }))
+      .status,
+    200,
+  )
+  assert.equal(calls.at(-1).input.p_input.cost, 0)
+  assert.equal(calls.at(-1).input.p_input.ads, 0)
+  assert.equal(calls.at(-1).input.p_input.shipping, 0)
+  assert.equal(calls.at(-1).input.p_input.fees, 0)
 })

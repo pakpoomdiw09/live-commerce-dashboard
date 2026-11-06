@@ -75,7 +75,7 @@ export function ShippingDashboard({
   >(null)
   const [carrier, setCarrier] = useState('Bee Move'),
     [tracking, setTracking] = useState<Record<string, string>>({})
-  const [provider, setProvider] = useState<ShippingProvider>('dmove')
+  const [provider, setProvider] = useState<ShippingProvider>('beemove')
   const [createdLabels, setCreatedLabels] = useState<
     { shipmentId: string; trackingNumber?: string; labelPdfUrl?: string; error?: string }[]
   >([])
@@ -255,7 +255,15 @@ export function ShippingDashboard({
     setBusy(true)
     setError('')
     try {
-      await post({ action, ids: selected })
+      const result = await post({ action, ids: selected })
+      if (action === 'dispatch') {
+        const notified = (result.notifications ?? []).filter(
+          (item: { status: string }) => item.status === 'sent',
+        ).length
+        setNotice(
+          `อัปเดตจัดส่งแล้ว • แจ้ง Messenger สำเร็จ ${notified} รายการ รายการที่ยังไม่ส่งจะอยู่ในคิวแจ้งเลขพัสดุ`,
+        )
+      }
       setSelected([])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'อัปเดตไม่สำเร็จ')

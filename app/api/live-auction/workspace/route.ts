@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { authorizeAuction, auctionReply } from '@/lib/features/commerce/auction-api'
 import { auctionHostIds } from '@/lib/features/commerce/auction-hosts'
 import { liveCfPaymentLinksReady } from '@/lib/features/commerce/live-cf-payment-link'
-import { inputMoney } from '@/lib/features/commerce/live-session-types'
+import { inputExpense, inputMoney } from '@/lib/features/commerce/live-session-types'
 import { UUID } from '@/lib/utils'
 import {
   normalizeBidKeyword,
@@ -97,6 +97,9 @@ export async function POST(req: NextRequest) {
     if (!input || typeof input !== 'object') return auctionReply({ error: 'ข้อมูลไม่ถูกต้อง' }, 400)
     const denied = await authorizeAuction(req, input.tenantId, true)
     if (denied) return denied
+    const finance = Object.fromEntries(
+      ['cost', 'ads', 'shipping', 'fees'].map((key) => [key, inputExpense(input.finance?.[key])]),
+    )
     if (
       !UUID.test(input.requestId ?? '') ||
       typeof input.pageId !== 'string' ||
@@ -114,9 +117,7 @@ export async function POST(req: NextRequest) {
       inputMoney(input.minStep, 999999999) === null ||
       Number(input.minStep) <= 0 ||
       inputMoney(input.shippingFee, 999999) === null ||
-      ['cost', 'ads', 'shipping', 'fees'].some(
-        (key) => inputMoney(input.finance?.[key]) === null,
-      ) ||
+      Object.values(finance).some((value) => value === null) ||
       (input.sessionId &&
         ['revision', 'financialRevision'].some(
           (key) => !Number.isSafeInteger(input[key]) || input[key] < 0,
@@ -156,9 +157,7 @@ export async function POST(req: NextRequest) {
       shippingFee: Number(input.shippingFee),
       settings,
       hostIds,
-      finance: Object.fromEntries(
-        ['cost', 'ads', 'shipping', 'fees'].map((key) => [key, Number(input.finance[key])]),
-      ),
+      finance,
     }
     const result = await db.rpc('save_auction_workspace', {
       p_tenant: input.tenantId,

@@ -37,9 +37,11 @@ export type ShippingPost = (
     trackingNumber?: string
     trackingUrl?: string
     labelPdfUrl?: string
-    notification?: 'sent' | 'failed'
+    notification?: 'sent' | 'failed' | 'pending' | 'requires_review'
     error?: string
   }[]
+  notifications?: { shipmentId: string; status: 'sent' | 'pending' | 'requires_review' }[]
+  notificationsPending?: boolean
 }>
 export const addressFromShipment = (shipment: ShippingShipment): ShippingAddress =>
   Object.fromEntries(

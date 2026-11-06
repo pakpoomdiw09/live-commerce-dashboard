@@ -29,6 +29,11 @@ test('external cron GET requests require authentication and drain webhook and au
           calls.push('reminders')
         },
       },
+      '@/lib/features/shipping/shipping-notifications': {
+        deliverShippingTrackingNotifications: async () => {
+          calls.push('tracking')
+        },
+      },
     },
     { Buffer, process: { env: { CRON_SECRET: 'test-cron-secret' } } },
   )
@@ -42,5 +47,5 @@ test('external cron GET requests require authentication and drain webhook and au
   const result = await route.GET(request('test-cron-secret'))
   assert.equal(result.status, 200)
   assert.deepEqual(await result.json(), { completed: 1 })
-  assert.deepEqual(calls, ['webhooks', 'outbox', 'reminders'])
+  assert.deepEqual(calls, ['webhooks', 'outbox', 'tracking', 'reminders'])
 })

@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 123 ไฟล์: รวมตาม dependencies 106 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 125 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 124 ไฟล์: รวมตาม dependencies 107 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 126 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (969868 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1004804 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (844704 bytes, 13670 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (876566 bytes, 14095 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -143,6 +143,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 104. [facebook-webhook-comment-ordering.sql](facebook-webhook-comment-ordering.sql) — 3 statements retained
 105. [live-auction-workspace.sql](live-auction-workspace.sql) — 8 statements retained
 106. [live-auction-empty-keyword-defaults.sql](live-auction-empty-keyword-defaults.sql) — 6 statements retained
+107. [live-auction-production-readiness.sql](live-auction-production-readiness.sql) — 22 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -178,6 +179,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | live-auction-customer-columns.sql | live-auction-thai-workflow.sql |
 | live-auction-close-presets.sql | live-auction-customer-columns.sql |
 | live-auction-empty-keyword-defaults.sql | live-auction-workspace.sql |
+| live-auction-production-readiness.sql | live-auction-empty-keyword-defaults.sql, shipping-integrations.sql, live-session-dashboard.sql |
 | live-auction-unlimited-keywords.sql | live-auction-close-presets.sql |
 | live-auction-winner-confirmation.sql | live-auction-unlimited-keywords.sql |
 | live-auction-payment-auto-verify.sql | live-auction-winner-confirmation.sql, customer-tabs.sql |
@@ -335,6 +337,7 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | live-auction-winner-confirmation.sql | 10: `update public.auction_deliveries d set status='awaiting_confirmation' from publ…` | Historical business-data backfill/repair removed. |
 | live-auction-empty-keyword-defaults.sql | 6: `update public.live_sessions set auction_settings=jsonb_set( jsonb_set(auction…` | Historical business-data backfill/repair removed. |
 | live-auction-empty-keyword-defaults.sql | 7: `update public.auctions set session_automation=jsonb_set( jsonb_set(session_au…` | Historical business-data backfill/repair removed. |
+| live-auction-production-readiness.sql | 8: `update public.auction_deliveries d set status='pending',comment_id=a.leading_com…` | Historical business-data backfill/repair removed. |
 
 ## วิธีใช้ไฟล์ bootstrap เดิม
 
@@ -464,3 +467,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - facebook-webhook-comment-ordering.sql: `fc95a23e41f2d2fb46548cdc4ac306538dca0ae681433328fe555f184e6d4787`
 - live-auction-workspace.sql: `9b31439a5bce859ea20bb1bbc7790571d7b4c24f604af5940b8486351e425cc9`
 - live-auction-empty-keyword-defaults.sql: `576e5cfcc37ca82ba6c914e2d813424e6e6e55c7d0f9a9bbde3653cba7d12845`
+- live-auction-production-readiness.sql: `0f984ce2bc41b09e47c5c98359f745afefdb911b76e5a979d86731a84815844b`

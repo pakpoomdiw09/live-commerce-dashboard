@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
 import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
 import { deliverAuctionNotifications } from '@/lib/features/commerce/auction-server'
+import { deliverShippingTrackingNotifications } from '@/lib/features/shipping/shipping-notifications'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -26,6 +27,11 @@ async function run(req: NextRequest) {
           await deliverAuctionNotifications()
         } catch {
           console.warn('[auction/delivery] outbox unavailable or not installed')
+        }
+        try {
+          await deliverShippingTrackingNotifications(supabaseAdmin({ timeoutMs: 10000 }))
+        } catch {
+          console.warn('[shipping/tracking] recovery outbox unavailable')
         }
         try {
           const { runCustomerTabReminders } =

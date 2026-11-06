@@ -3,6 +3,7 @@ import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
 import type { ShippingCredentials } from './shipping-credentials'
 import type { ShippingProvider } from './shipping-types'
+import { beemoveShippingAdapter } from '@/lib/integrations/shipping/beemove-adapter'
 
 export type ShippingParcelData = {
   orderId: string
@@ -206,6 +207,7 @@ export const dmoveShippingAdapter: ShippingProviderAdapter = {
 }
 
 export const shippingProviderAdapters: Record<ShippingProvider, ShippingProviderAdapter> = {
+  beemove: beemoveShippingAdapter,
   dmove: dmoveShippingAdapter,
   flash_express: dmoveShippingAdapter,
   jnt: dmoveShippingAdapter,

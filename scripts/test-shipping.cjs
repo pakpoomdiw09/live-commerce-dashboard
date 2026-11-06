@@ -455,6 +455,15 @@ test('paid bills become parcel allocations; confirmation, stale print fencing, s
     await manage({ ...edit, revision: Number(parcel.revision), tracking: 'JT123456789' })
     await manage({ action: 'dispatch', ids: [parcel.id] })
     assert.equal((await getParcel(parcel.id)).fulfillment_status, 'shipped')
+    assert.equal(
+      (
+        await one('select count(*)::int n from shipping_tracking_deliveries where shipment_id=$1', [
+          parcel.id,
+        ])
+      ).n,
+      1,
+      'manual dispatch transaction enqueues one tracking notification',
+    )
     assert.equal((await one('select status from orders where id=$1', [first.id])).status, 'shipped')
     assert.equal(
       (await one('select status from orders where id=$1', [second.id])).status,
@@ -555,6 +564,15 @@ test('paid bills become parcel allocations; confirmation, stale print fencing, s
       )
     ).result
     assert.equal(completedJob.status, 'created')
+    assert.equal(
+      (
+        await one('select count(*)::int n from shipping_tracking_deliveries where shipment_id=$1', [
+          nextParcel.id,
+        ])
+      ).n,
+      1,
+      'provider completion atomically enqueues tracking',
+    )
     assert.equal((await getParcel(nextParcel.id)).fulfillment_status, 'shipped')
     assert.equal((await getParcel(nextParcel.id)).tracking_number, 'DM123456789')
     assert.equal(

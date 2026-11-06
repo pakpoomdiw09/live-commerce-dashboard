@@ -46,7 +46,10 @@ const blank = (): IntegrationDraft => ({
   credentials_configured: false,
 })
 
-const draftFrom = (value?: ShippingIntegrationSummary): IntegrationDraft =>
+const draftFrom = (
+  value?: ShippingIntegrationSummary,
+  provider?: ShippingProvider,
+): IntegrationDraft =>
   value
     ? {
         ...blank(),
@@ -60,7 +63,15 @@ const draftFrom = (value?: ShippingIntegrationSummary): IntegrationDraft =>
         is_default: value.is_default,
         credentials_configured: value.credentials_configured,
       }
-    : blank()
+    : {
+        ...blank(),
+        ...(provider === 'beemove'
+          ? {
+              api_endpoint: 'https://client.beemove.co.th',
+              tracking_url_template: 'https://client.beemove.co.th/tracking/{tracking_number}',
+            }
+          : {}),
+      }
 
 export function ShippingIntegrationsModal({
   integrations,
@@ -71,7 +82,7 @@ export function ShippingIntegrationsModal({
   post: ShippingPost
   onClose: () => void
 }) {
-  const [provider, setProvider] = useState<ShippingProvider>('dmove')
+  const [provider, setProvider] = useState<ShippingProvider>('beemove')
   const saved = useMemo(
     () => Object.fromEntries(integrations.map((item) => [item.provider, item])),
     [integrations],
@@ -83,11 +94,11 @@ export function ShippingIntegrationsModal({
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const request = useRef(crypto.randomUUID())
-  const draft = drafts[provider] ?? draftFrom(saved[provider])
+  const draft = drafts[provider] ?? draftFrom(saved[provider], provider)
   const setDraft = (patch: Partial<IntegrationDraft>) => {
     setDrafts((previous) => ({
       ...previous,
-      [provider]: { ...(previous[provider] ?? draftFrom(saved[provider])), ...patch },
+      [provider]: { ...(previous[provider] ?? draftFrom(saved[provider], provider)), ...patch },
     }))
     request.current = crypto.randomUUID()
   }
@@ -155,6 +166,12 @@ export function ShippingIntegrationsModal({
           ))}
         </div>
         <div role="tabpanel" className="space-y-3">
+          {provider === 'beemove' && (
+            <p className="text-sm text-amber-800">
+              การเชื่อมต่อ Bee Move ใช้ API Key เดียว โดย endpoint
+              สร้างพัสดุและลิงก์ติดตามยังรอการยืนยันจากผู้ให้บริการ
+            </p>
+          )}
           <label className="block text-sm font-medium">
             API Base URL
             <input
@@ -163,7 +180,7 @@ export function ShippingIntegrationsModal({
               required
               placeholder="https://api.example.com/v1"
               value={draft.api_endpoint}
-              disabled={busy}
+              disabled={busy || provider === 'beemove'}
               onChange={(event) => setDraft({ api_endpoint: event.target.value })}
             />
           </label>
@@ -174,26 +191,28 @@ export function ShippingIntegrationsModal({
               ['token', 'Access Token'],
               ['merchant_id', 'Merchant ID'],
             ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="block text-sm font-medium">
-              {label}
-              <input
-                className={field}
-                type="password"
-                autoComplete="new-password"
-                value={draft[key]}
-                disabled={busy}
-                placeholder={
-                  key === 'merchant_id'
-                    ? 'ไม่บังคับ'
-                    : draft.credentials_configured
-                      ? 'ตั้งค่าแล้ว — เว้นว่างเพื่อใช้ค่าปัจจุบัน'
-                      : 'กรอก credential'
-                }
-                onChange={(event) => setDraft({ [key]: event.target.value })}
-              />
-            </label>
-          ))}
+          )
+            .filter(([key]) => provider !== 'beemove' || key === 'api_key')
+            .map(([key, label]) => (
+              <label key={key} className="block text-sm font-medium">
+                {label}
+                <input
+                  className={field}
+                  type="password"
+                  autoComplete="new-password"
+                  value={draft[key]}
+                  disabled={busy}
+                  placeholder={
+                    key === 'merchant_id'
+                      ? 'ไม่บังคับ'
+                      : draft.credentials_configured
+                        ? 'ตั้งค่าแล้ว — เว้นว่างเพื่อใช้ค่าปัจจุบัน'
+                        : 'กรอก credential'
+                  }
+                  onChange={(event) => setDraft({ [key]: event.target.value })}
+                />
+              </label>
+            ))}
           <fieldset className="rounded-xl border border-slate-200 p-3">
             <legend className="px-1 text-sm font-semibold">ข้อมูลผู้ส่งของค่ายนี้</legend>
             <label className="block text-sm font-medium">

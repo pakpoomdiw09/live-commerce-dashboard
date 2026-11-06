@@ -95,7 +95,7 @@ const snapshot: SessionSnapshot = {
     remaining: 3170,
     unpaidPeople: 1,
     partialPeople: 1,
-    profit: 330,
+    profit: 325,
   },
   tabs,
   rounds: [
@@ -381,6 +381,7 @@ window.fetch = async (input, init) => {
         cost_amount: Number(body.cost),
         ad_spent: Number(body.ads),
         shipping_cost: Number(body.shipping),
+        other_fees: body.fees === undefined ? snapshot.session.other_fees : Number(body.fees),
         financial_revision: snapshot.session.financial_revision + 1,
       })
       snapshot.metrics.profit = sessionProfit(
@@ -388,6 +389,7 @@ window.fetch = async (input, init) => {
         Number(body.cost),
         Number(body.ads),
         Number(body.shipping),
+        Number(snapshot.session.other_fees ?? 0),
       )
     }
     if (body.action === 'adjust') {
