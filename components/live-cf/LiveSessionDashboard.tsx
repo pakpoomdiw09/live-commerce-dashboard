@@ -414,7 +414,7 @@ export function LiveSessionDashboard({
   )
   return (
     <section
-      className="mb-6 min-w-0 shrink-0 space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-6"
+      className={`mb-6 min-w-0 shrink-0 space-y-5 ${auction ? '' : 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-6'}`}
       aria-label={auction ? 'จัดการประมูลและขายสินค้าผ่านไลฟ์สด' : 'สรุป เซสชัน ประมูล'}
       data-auction-dashboard={auction ? true : undefined}
     >

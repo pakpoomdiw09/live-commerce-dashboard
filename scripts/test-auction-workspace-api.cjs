@@ -198,4 +198,27 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.keywords), [])
   assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.closeKeywords), [])
   assert.equal(calls.at(-1).args.p_input.settings.privateText, '')
+
+  assert.equal(
+    (
+      await post({
+        ...input,
+        requestId: randomUUID(),
+        settings: {
+          ...settings,
+          keywords: [' RAISE ', 'raise', 'raise', '❌', '❌'],
+          closeKeywords: ['❌', '❌', '❌'],
+        },
+      })
+    ).status,
+    200,
+  )
+  assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.keywords), [
+    'raise',
+    'raise',
+    'raise',
+    '❌',
+    '❌',
+  ])
+  assert.deepEqual(Array.from(calls.at(-1).args.p_input.settings.closeKeywords), ['❌', '❌', '❌'])
 })

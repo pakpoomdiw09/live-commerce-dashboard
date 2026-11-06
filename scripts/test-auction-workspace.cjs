@@ -51,8 +51,8 @@ test('unified workspace saves all zones atomically, preserves merchant values an
       minStep: 25,
       shippingFee: 37,
       settings: {
-        keywords: ['raise'],
-        closeKeywords: ['stop'],
+        keywords: ['raise', 'raise', '❌', '❌'],
+        closeKeywords: ['❌', '❌', '❌'],
         publicReply: true,
         privateReply: true,
         bankAccountId: bank,
@@ -90,7 +90,10 @@ test('unified workspace saves all zones atomically, preserves merchant values an
     assert.equal(round.shipping_fee, '37.00')
     assert.equal(round.min_step, '25.00')
     assert.equal(round.item_name, input.itemName)
-    assert.deepEqual(round.session_automation.keywords, ['raise'])
+    assert.deepEqual(round.session_automation.keywords, input.settings.keywords)
+    assert.deepEqual(round.session_automation.closeKeywords, input.settings.closeKeywords)
+    assert.deepEqual(session.auction_settings.keywords, input.settings.keywords)
+    assert.deepEqual(session.auction_settings.closeKeywords, input.settings.closeKeywords)
     assert.equal(round.private_reply_template, input.settings.privateText)
     assert.equal(session.cost_amount, '125.50')
     assert.equal(session.shipping_cost, '7.00')

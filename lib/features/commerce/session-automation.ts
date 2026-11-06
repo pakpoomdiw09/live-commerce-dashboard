@@ -75,7 +75,6 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
         normalizeBidKeyword(k).length > 0 &&
         !/[\r\n{}]/u.test(k),
     ) &&
-    new Set(v.keywords.map(normalizeBidKeyword)).size === v.keywords.length &&
     (v.closeKeywords === undefined ||
       (Array.isArray(v.closeKeywords) &&
         v.closeKeywords.every(
@@ -84,10 +83,6 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
             k.length <= 40 &&
             normalizeBidKeyword(k).length > 0 &&
             !/[\r\n{}]/u.test(k),
-        ) &&
-        new Set(v.closeKeywords.map(normalizeCloseKeyword)).size === v.closeKeywords.length &&
-        !v.closeKeywords.some((k) =>
-          v.keywords.map(normalizeBidKeyword).includes(normalizeBidKeyword(k)),
         ))) &&
     (['privateText', 'bidText', 'closeText'] as const).every((key) => {
       if (typeof v[key] !== 'string' || v[key].length > 2000) return false

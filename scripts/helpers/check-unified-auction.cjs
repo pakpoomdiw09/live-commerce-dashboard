@@ -20,6 +20,13 @@ module.exports = async function ({
   assert.equal(await evaluate(`document.querySelectorAll('[data-auction-section]').length`), 0)
   assert.equal(
     await evaluate(
+      `getComputedStyle(document.querySelector('[data-auction-dashboard]')).borderTopWidth==='0px' && getComputedStyle(document.querySelector('[data-auction-dashboard]')).boxShadow==='none'`,
+    ),
+    true,
+    'the auction dashboard does not wrap the unified card in another card',
+  )
+  assert.equal(
+    await evaluate(
       `document.querySelectorAll('[data-auction-unified-form] button[type=submit]').length`,
     ),
     1,
@@ -32,10 +39,10 @@ module.exports = async function ({
   )
   assert.equal(
     await evaluate(
-      `['1. เลือกไลฟ์สด','2. เงื่อนไขการประมูล','3. คำดักข้อความ & ระบบตอบกลับ'].every((title,index)=>document.querySelector('[data-auction-zone="'+(index+1)+'"] h2').textContent.trim()===title)`,
+      `['เลือกไลฟ์สด','เงื่อนไขการประมูล','คำดักข้อความ & ระบบตอบกลับ'].every((title,index)=>document.querySelector('[data-auction-zone="'+(index+1)+'"] h3').textContent.trim()===title)`,
     ),
     true,
-    'auction sections have numbered titles without A/B/C labels',
+    'the unified card has plain section headings without numbered nested cards',
   )
   assert.equal(
     await evaluate(
@@ -71,9 +78,16 @@ module.exports = async function ({
   )
   assert.ok(
     await evaluate(
-      `[...document.querySelectorAll('[data-auction-zone] h2')].every(el=>el.classList.contains('text-white')&&Array.from(el.classList).some(name=>name.startsWith('bg-gradient')))`,
+      `[...document.querySelectorAll('[data-auction-zone]')].every(el=>getComputedStyle(el).borderTopWidth==='0px'&&getComputedStyle(el).boxShadow==='none') && [...document.querySelectorAll('[data-auction-zone] h3')].every(el=>!Array.from(el.classList).some(name=>name.startsWith('bg-gradient')))`,
     ),
-    'all auction zone headers use the orange gradient',
+    'sections have no independent card border/shadow or orange gradient headers',
+  )
+  assert.equal(
+    await evaluate(
+      `document.querySelector('[data-auction-workspace] > div').firstElementChild.matches('[data-auction-zone="1"]')`,
+    ),
+    true,
+    'Page and live selection appear at the top of the card',
   )
   for (const label of [
     'ต้นทุนสินค้า (บาท)',
@@ -212,6 +226,54 @@ module.exports = async function ({
     '',
     'unsaved close keywords stay empty after reload',
   )
+  // Exercise rapid repeated clicks, removal of one duplicate among different tags,
+  // then the same unified save/reload path as the other form fields.
+  await evaluate(
+    `document.querySelector('[data-auction-keyword-editor="close"] button[aria-controls]').click()`,
+  )
+  await wait(
+    `!!document.querySelector('[data-auction-keyword-editor="close"] button[aria-label="เพิ่มอีโมจิ ❌"]')`,
+  )
+  await evaluate(`(() => {
+    const editor=document.querySelector('[data-auction-keyword-editor="close"]');
+    const cross=editor.querySelector('button[aria-label="เพิ่มอีโมจิ ❌"]');
+    cross.click();
+    editor.querySelector('button[aria-label="เพิ่มอีโมจิ 1️⃣"]').click();
+    cross.click();cross.click();
+  })()`)
+  await wait(
+    `document.querySelectorAll('[data-auction-keyword-editor="close"] button[aria-label="ลบคำปิดรอบ ❌"]').length===3`,
+  )
+  await evaluate(
+    `document.querySelectorAll('[data-auction-keyword-editor="close"] button[aria-label="ลบคำปิดรอบ ❌"]')[1].click()`,
+  )
+  await wait(
+    `document.querySelectorAll('[data-auction-keyword-editor="close"] button[aria-label="ลบคำปิดรอบ ❌"]').length===2`,
+  )
+  for (let index = 0; index < 2; index++) {
+    await fill('input[aria-label="คำดักบิด / ยืนยันผู้ชนะ"]', 'เคาะ')
+    await evaluate(`document.querySelector('button[aria-label="เพิ่มคำดัก"]').click()`)
+  }
+  await click('บันทึกและเริ่มประมูล')
+  await wait(`sessionQA.requests.at(-1)?.settings?.closeKeywords?.length===3`)
+  assert.deepEqual(await evaluate('sessionQA.requests.at(-1).settings.keywords'), [
+    'เคาะ',
+    'เคาะ',
+    'เคาะ',
+  ])
+  assert.deepEqual(await evaluate('sessionQA.requests.at(-1).settings.closeKeywords'), [
+    '❌',
+    '1️⃣',
+    '❌',
+  ])
+  await call('Page.reload', { ignoreCache: true })
+  await wait(
+    `document.querySelectorAll('[data-auction-keyword-editor="close"] button[aria-label="ลบคำปิดรอบ ❌"]').length===2`,
+  )
+  assert.equal(
+    await evaluate(`document.querySelectorAll('button[aria-label="ลบคำดัก เคาะ"]').length`),
+    3,
+  )
   const profitText = await evaluate(
     `document.querySelector('[aria-label="กำไรสุทธิของไลฟ์นี้"]').textContent`,
   )
@@ -222,6 +284,35 @@ module.exports = async function ({
   for (const width of [375, 768, 1024, 1440]) {
     await resize(width)
     assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'), 'fits ' + width)
+    const layout = await evaluate(`(() => {
+      const source=document.querySelector('[data-auction-zone="1"]').getBoundingClientRect();
+      const left=document.querySelector('[data-auction-zone="2"]').getBoundingClientRect();
+      const right=document.querySelector('[data-auction-zone="3"]').getBoundingClientRect();
+      return {sourceBottom:source.bottom,leftTop:left.top,rightTop:right.top,leftBottom:left.bottom,leftX:left.x,rightX:right.x,leftWidth:left.width,rightWidth:right.width};
+    })()`)
+    assert.ok(layout.sourceBottom <= layout.leftTop, 'source precedes settings at ' + width)
+    if (width >= 768) {
+      assert.ok(layout.rightX > layout.leftX, 'settings are side by side at ' + width)
+      assert.ok(Math.abs(layout.leftTop - layout.rightTop) < 2, 'settings align at ' + width)
+      assert.ok(Math.abs(layout.leftWidth - layout.rightWidth) < 2, 'equal columns at ' + width)
+    } else {
+      assert.ok(layout.rightTop >= layout.leftBottom, 'mobile stacks settings at ' + width)
+    }
+    await evaluate(
+      `document.querySelector('[data-auction-keyword-editor="close"] button[aria-controls]').click()`,
+    )
+    await wait(`!!document.querySelector('[data-auction-keyword-editor="close"] [role="dialog"]')`)
+    assert.ok(
+      await evaluate(`(() => {
+        const picker=document.querySelector('[data-auction-keyword-editor="close"] [role="dialog"]').getBoundingClientRect();
+        const card=document.querySelector('[data-auction-workspace]').getBoundingClientRect();
+        return picker.left>=card.left&&picker.right<=card.right;
+      })()`),
+      'the emoji picker remains inside the card at ' + width,
+    )
+    await evaluate(
+      `document.querySelector('[data-auction-keyword-editor="close"] button[aria-controls]').click()`,
+    )
     const shot = await call('Page.captureScreenshot', {
       format: 'png',
       captureBeyondViewport: true,
@@ -233,6 +324,6 @@ module.exports = async function ({
   }
   assert.deepEqual(errors, [])
   console.log(
-    'PASS: Single form, three zones, finance header, one save, polling preserves drafts, backend reload restores shipping/keywords/templates, responsive at 375/768/1024/1440. Mock APIs only.',
+    'PASS: One unified card/save, source first, unboxed sections, equal side-by-side columns at 768/1024/1440 and mobile stack at 375; repeated emoji/text tags survive index removal and save/reload. Mock APIs only.',
   )
 }

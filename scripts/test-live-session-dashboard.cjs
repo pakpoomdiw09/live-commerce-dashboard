@@ -156,13 +156,22 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
       keywords: ['1'],
       closeKeywords: ['1'],
     }),
-    false,
+    true,
   )
   assert.equal(
     automation.sessionAuctionTemplate('{ชื่อลูกค้า} {รายการ} {ราคา} {ยอดรวมสะสม} {เลขบัญชี}'),
     '{bidder_name} {product_name} {price} {total} {bank_account}',
   )
-  assert.equal(automation.validSessionAutomation({ ...settings, keywords: ['1', '１'] }), false)
+  assert.equal(automation.validSessionAutomation({ ...settings, keywords: ['1', '１'] }), true)
+  assert.equal(
+    automation.validSessionAutomation({
+      ...settings,
+      keywords: ['เคาะ', 'เคาะ'],
+      closeKeywords: ['❌', '❌', '❌'],
+    }),
+    true,
+    'repeated bid keywords and close emojis are valid',
+  )
   assert.equal(
     automation.validSessionAutomation({ ...settings, bidText: '{total} {bank_account}' }),
     true,

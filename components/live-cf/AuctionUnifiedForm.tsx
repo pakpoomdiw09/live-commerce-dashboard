@@ -300,106 +300,35 @@ export function AuctionUnifiedForm({
             ตั้งค่าประมูลและสรุปการเงิน
           </h2>
           <div className="space-y-6 p-4 md:p-6">
-            <div
-              className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6"
-              data-auction-header-cards
-            >
-              {financeCards.slice(0, 3).map(({ label, key, color }) => (
-                <label
-                  key={key}
-                  className={`min-w-0 rounded-xl border border-t-4 border-slate-200 ${color} bg-white p-3 text-xs font-semibold text-slate-600 shadow-sm`}
-                >
-                  {label}
-                  <input
-                    type="number"
-                    min="0"
-                    max="999999999999.99"
-                    step="0.01"
-                    aria-label={label}
-                    className={`${field} !mt-2 !border-0 !bg-transparent !px-0 text-lg font-bold tabular-nums text-slate-900`}
-                    value={draft.finance[key]}
-                    disabled={disabled}
-                    onChange={(e) => edit({ finance: { ...draft.finance, [key]: e.target.value } })}
-                  />
-                </label>
-              ))}
-              <div className="min-w-0 rounded-xl border border-t-4 border-slate-200 border-t-emerald-500 bg-white p-3 shadow-sm">
-                <p className="text-xs font-semibold text-slate-600">
-                  ราคาปิดประมูล / ยอดขายสุทธิ (บาท)
-                </p>
-                <p
-                  aria-label="ยอดขายสุทธิของไลฟ์นี้"
-                  className="mt-2 break-words text-lg font-extrabold tabular-nums text-emerald-700"
-                >
-                  ฿{sessionMoney(sales)}
-                </p>
-                <p className="mt-1 text-[11px] text-slate-500">ยอดปิดประมูลรวมรอบที่กำลังประมูล</p>
-              </div>
-              <label
-                className={`min-w-0 rounded-xl border border-t-4 border-slate-200 ${financeCards[3].color} bg-white p-3 text-xs font-semibold text-slate-600 shadow-sm`}
-              >
-                {financeCards[3].label}
-                <input
-                  type="number"
-                  min="0"
-                  max="999999999999.99"
-                  step="0.01"
-                  aria-label={financeCards[3].label}
-                  className={`${field} !mt-2 !border-0 !bg-transparent !px-0 text-lg font-bold tabular-nums text-slate-900`}
-                  value={draft.finance.fees}
-                  disabled={disabled}
-                  onChange={(e) => edit({ finance: { ...draft.finance, fees: e.target.value } })}
+            <section data-auction-zone="1" className="min-w-0 space-y-3">
+              <h3 className="text-base font-bold text-slate-900">เลือกไลฟ์สด</h3>
+              <div className="min-w-0">
+                <LiveSourcePicker
+                  thai
+                  pages={options.pages}
+                  pageId={draft.pageId}
+                  livePostId={draft.livePostId}
+                  disabled={busy || loading}
+                  onPageChange={(pageId) => {
+                    setSource({ pageId, livePostId: '' })
+                    edit({ pageId, livePostId: '' })
+                  }}
+                  onLiveChange={(livePostId) => {
+                    if (livePostId !== draft.livePostId) {
+                      setSource({ pageId: draft.pageId, livePostId })
+                      edit({ livePostId })
+                    }
+                  }}
                 />
-              </label>
-              <div className="min-w-0 rounded-xl border border-t-4 border-slate-200 border-t-orange-500 bg-orange-50 p-3 shadow-sm">
-                <p className="text-xs font-semibold text-orange-800">กำไรสุทธิ (บาท)</p>
-                <p
-                  aria-label="กำไรสุทธิของไลฟ์นี้"
-                  className={`mt-2 break-words text-lg font-extrabold tabular-nums ${profit !== null && profit < 0 ? 'text-red-700' : 'text-orange-800'}`}
-                >
-                  {profit === null ? '—' : `฿${sessionMoney(profit)}`}
-                </p>
-                <p className="mt-1 text-[11px] text-orange-700">
-                  ยอดขาย − ต้นทุน − ค่าแอด − ค่าส่งจริง − ค่าธรรมเนียม
-                </p>
               </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full items-start">
-              <section
-                data-auction-zone="1"
-                className="min-w-0 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm md:col-span-2"
-              >
-                <h2 className="rounded-t-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2.5 font-bold text-white">
-                  1. เลือกไลฟ์สด
-                </h2>
-                <div className="p-5">
-                  <LiveSourcePicker
-                    thai
-                    pages={options.pages}
-                    pageId={draft.pageId}
-                    livePostId={draft.livePostId}
-                    disabled={busy || loading}
-                    onPageChange={(pageId) => {
-                      setSource({ pageId, livePostId: '' })
-                      edit({ pageId, livePostId: '' })
-                    }}
-                    onLiveChange={(livePostId) => {
-                      if (livePostId !== draft.livePostId) {
-                        setSource({ pageId: draft.pageId, livePostId })
-                        edit({ livePostId })
-                      }
-                    }}
-                  />
-                </div>
-              </section>
-              <section
-                data-auction-zone="2"
-                className="min-w-0 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm"
-              >
-                <h2 className="rounded-t-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2.5 font-bold text-white">
-                  2. เงื่อนไขการประมูล
-                </h2>
-                <div className="space-y-4 p-5">
+            </section>
+            <div
+              data-auction-settings-grid
+              className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full items-start"
+            >
+              <section data-auction-zone="2" className="min-w-0 space-y-3">
+                <h3 className="text-base font-bold text-slate-900">เงื่อนไขการประมูล</h3>
+                <div className="min-w-0 space-y-4">
                   <label className="block text-sm font-semibold">
                     ชื่อสินค้า
                     <input
@@ -476,14 +405,9 @@ export function AuctionUnifiedForm({
                   </p>
                 </div>
               </section>
-              <section
-                data-auction-zone="3"
-                className="min-w-0 overflow-visible rounded-2xl border border-orange-200 bg-white shadow-sm"
-              >
-                <h2 className="rounded-t-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2.5 font-bold text-white">
-                  3. คำดักข้อความ & ระบบตอบกลับ
-                </h2>
-                <div className="space-y-5 p-5">
+              <section data-auction-zone="3" className="min-w-0 space-y-3">
+                <h3 className="text-base font-bold text-slate-900">คำดักข้อความ & ระบบตอบกลับ</h3>
+                <div className="min-w-0 space-y-5">
                   <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                     <AuctionKeywordEditor
                       key={`bid:${base?.session?.id}:${reload}`}
@@ -552,7 +476,66 @@ export function AuctionUnifiedForm({
                 </div>
               </section>
             </div>
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-orange-100 bg-orange-50/50 p-4 text-center">
+            <div
+              className="grid min-w-0 grid-cols-2 gap-4 border-t border-slate-200 pt-6 md:grid-cols-3 xl:grid-cols-6"
+              data-auction-header-cards
+            >
+              {financeCards.slice(0, 3).map(({ label, key }) => (
+                <label key={key} className="min-w-0 text-xs font-semibold text-slate-600">
+                  {label}
+                  <input
+                    type="number"
+                    min="0"
+                    max="999999999999.99"
+                    step="0.01"
+                    aria-label={label}
+                    className={`${field} !mt-2 !border-0 !bg-transparent !px-0 text-lg font-bold tabular-nums text-slate-900`}
+                    value={draft.finance[key]}
+                    disabled={disabled}
+                    onChange={(e) => edit({ finance: { ...draft.finance, [key]: e.target.value } })}
+                  />
+                </label>
+              ))}
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-600">
+                  ราคาปิดประมูล / ยอดขายสุทธิ (บาท)
+                </p>
+                <p
+                  aria-label="ยอดขายสุทธิของไลฟ์นี้"
+                  className="mt-2 break-words text-lg font-extrabold tabular-nums text-emerald-700"
+                >
+                  ฿{sessionMoney(sales)}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">ยอดปิดประมูลรวมรอบที่กำลังประมูล</p>
+              </div>
+              <label className="min-w-0 text-xs font-semibold text-slate-600">
+                {financeCards[3].label}
+                <input
+                  type="number"
+                  min="0"
+                  max="999999999999.99"
+                  step="0.01"
+                  aria-label={financeCards[3].label}
+                  className={`${field} !mt-2 !border-0 !bg-transparent !px-0 text-lg font-bold tabular-nums text-slate-900`}
+                  value={draft.finance.fees}
+                  disabled={disabled}
+                  onChange={(e) => edit({ finance: { ...draft.finance, fees: e.target.value } })}
+                />
+              </label>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-orange-800">กำไรสุทธิ (บาท)</p>
+                <p
+                  aria-label="กำไรสุทธิของไลฟ์นี้"
+                  className={`mt-2 break-words text-lg font-extrabold tabular-nums ${profit !== null && profit < 0 ? 'text-red-700' : 'text-orange-800'}`}
+                >
+                  {profit === null ? '—' : `฿${sessionMoney(profit)}`}
+                </p>
+                <p className="mt-1 text-[11px] text-orange-700">
+                  ยอดขาย − ต้นทุน − ค่าแอด − ค่าส่งจริง − ค่าธรรมเนียม
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-3 border-t border-slate-200 pt-6 text-center">
               <div className="text-sm text-slate-600">
                 {base?.session?.ended_at
                   ? 'ไลฟ์นี้จบแล้ว เลือกไลฟ์ใหม่เพื่อเริ่มประมูล'

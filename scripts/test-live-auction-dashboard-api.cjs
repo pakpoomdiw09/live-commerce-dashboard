@@ -77,7 +77,7 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
   assert.equal(calls.length, 0)
   denied = false
   for (const settings of [
-    { ...base.settings, keywords: ['1', '１'] },
+    { ...base.settings, keywords: [''] },
     { ...base.settings, bankAccountId: 'invalid' },
     { ...base.settings, privateReply: 'true' },
     { ...base.settings, bidText: '{unknown}' },
@@ -88,6 +88,27 @@ test('all-in-one API authorizes before reads, validates settings and normalizes 
   assert.equal((await post({ ...base, action: 'settings', sessionId, revision: 0 })).status, 503)
   assert.equal(calls.length, 0)
   ready = true
+  assert.equal(
+    (
+      await post({
+        ...base,
+        settings: {
+          ...base.settings,
+          keywords: ['1', '１', '❌', '❌'],
+          closeKeywords: ['❌', '❌', '❌'],
+        },
+      })
+    ).status,
+    201,
+    'repeated tags, including shared bid/close symbols, can be saved',
+  )
+  assert.deepEqual(Array.from(calls.at(-1).input.p_input.settings.keywords), ['1', '1', '❌', '❌'])
+  assert.deepEqual(Array.from(calls.at(-1).input.p_input.settings.closeKeywords), [
+    '❌',
+    '❌',
+    '❌',
+  ])
+  calls.length = 0
   assert.equal(
     (
       await post({

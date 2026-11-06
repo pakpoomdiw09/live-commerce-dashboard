@@ -74,10 +74,7 @@ export function AuctionKeywordEditor({
       setError('แต่ละคำยาวได้ไม่เกิน 40 ตัวอักษร และไม่มีวงเล็บปีกกาหรือการขึ้นบรรทัดใหม่')
       return
     }
-    // Check inside the update as well: rapid clicks can share the same render.
-    onChange((previous) =>
-      previous.some((value) => normalize(value) === word) ? previous : [...previous, word],
-    )
+    onChange((previous) => [...previous, word])
     if (clearInput) setInput('')
     setError('')
     onEdited()
@@ -95,9 +92,9 @@ export function AuctionKeywordEditor({
         </span>
       </div>
       <div className="flex min-h-9 flex-wrap gap-1.5" aria-label={`${name}ที่เลือก`}>
-        {keywords.map((word) => (
+        {keywords.map((word, index) => (
           <span
-            key={word}
+            key={`${word}-${index}`}
             className="inline-flex max-w-full items-center gap-1 break-all rounded-full bg-orange-50 py-1 pl-3 pr-1 text-orange-800"
           >
             {word}
@@ -107,7 +104,7 @@ export function AuctionKeywordEditor({
               aria-label={`ลบ${name} ${word}`}
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-orange-100 disabled:opacity-40"
               onClick={() => {
-                onChange((previous) => previous.filter((value) => value !== word))
+                onChange((previous) => previous.filter((_, i) => i !== index))
                 setError('')
                 onEdited()
               }}
@@ -163,7 +160,7 @@ export function AuctionKeywordEditor({
           id={pickerId}
           role="dialog"
           aria-label={`แป้นพิมพ์อีโมจิ${name}`}
-          className="absolute left-0 top-full z-30 mt-2 max-h-80 w-full min-w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl"
+          className="absolute right-0 top-full z-30 mt-2 max-h-80 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl"
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-sm font-semibold text-slate-700">
