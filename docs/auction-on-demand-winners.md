@@ -19,3 +19,13 @@ Apply `supabase/live-auction-on-demand.sql` **after** `supabase/live-auction-pro
 An explicitly configured `winnerFlow: "highest_bid"` retains compatibility with the legacy console. Modern settings without a mode migrate to on-demand. Fresh database bundles include the migration in dependency order.
 
 Local verification uses `npm run test:auctions`, `npm run test:live-auction-dashboard`, `npm run test:shipping`, schema checks and TypeScript/lint checks. SQL tests execute the full schema with PGlite; Meta sends are mocked. This verifies application behavior, not a live Facebook delivery or production database rollout.
+
+## Separate latest-item and accumulated bill messages
+
+`auto_accumulate_summary` defaults to `true` in session settings, the unified form, API normalization and SQL normalization. Explicit `false` survives save/load. Apply `supabase/live-auction-split-summary.sql` after `supabase/live-auction-on-demand.sql` before deploying this version.
+
+When enabled and another order in the same customer tab/live session still has an unpaid balance, delivery sends a latest-item announcement followed by a separate accumulated summary. The summary lists outstanding items, shipping allocated once by the ledger, partial payments, the actual remaining tab balance, receiving bank account and signed payment link. Paid and cancelled old orders do not trigger a pair. The first item and the disabled switch produce a single latest-item bill; the switch controls messaging, not financial ledger aggregation or the bill link's scope.
+
+An open Messenger inbound window permits both messages to send consecutively through the Send API. Without an open window, the confirmation comment receives its one Private Reply and only the second message remains queued. The existing Facebook webhook recovery cron rechecks it after the customer opens the window by replying in Messenger. A comment or outbound message never manufactures an inbound window. Deferred attempts are spaced by a minute so they cannot starve new notifications.
+
+The outbox records the first message's receipt separately. Retries skip an already sent first message. Ambiguous provider/transport results require review and never automatically replay either part. Once a pair has started, its pending second part retains that delivery's split mode even if the merchant changes the switch for future claims.

@@ -426,6 +426,7 @@ test('closed Messenger windows defer only the second message and resume without 
   const f = splitFixture({ open: false })
   await f.receive('1', '901')
   assert.equal(f.calls.private.length, 1)
+  assert.match(f.calls.private[0][2], /ตอบกลับข้อความนี้/)
   assert.equal(f.calls.messenger.length, 0)
   assert.equal(f.tables.auction_deliveries[0].status, 'pending')
   assert.equal(f.tables.auction_deliveries[0].error_code, 'MESSAGE_WINDOW_CLOSED')

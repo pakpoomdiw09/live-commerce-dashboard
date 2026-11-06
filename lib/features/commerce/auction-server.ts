@@ -313,9 +313,13 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           }
           let recipient = delivery.latest_recipient_id || splitCustomer.fbId
           if (!delivery.latest_sent_at) {
+            const withinWindow = await openRecipient(recipient)
+            const latestText =
+              splitMessages[0] +
+              (withinWindow ? '' : '\nตอบกลับข้อความนี้เพื่อรับสรุปบิลรวมและลิงก์ชำระเงินครับ')
             const snapshot = await db
               .from('auction_deliveries')
-              .update({ private_plan: splitMessages })
+              .update({ private_plan: [latestText, splitMessages[1]] })
               .eq('id', delivery.id)
               .eq('status', 'sending')
             if (snapshot.error) throw snapshot.error
@@ -330,24 +334,19 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
                 customer_id: splitCustomer.id,
                 external_id: `${billMessageKey(delivery)}:latest`,
                 sender: 'bot',
-                body: splitMessages[0],
+                body: latestText,
                 delivery_status: 'pending',
               },
               { onConflict: 'external_id', ignoreDuplicates: true },
             )
             if (queued.error) throw queued.error
-            const receipt = (await openRecipient(recipient))
+            const receipt = withinWindow
               ? {
                   message_id: await sendMessageWithReceipt(token, recipient, {
-                    text: splitMessages[0],
+                    text: latestText,
                   }),
                 }
-              : await sendPrivateReply(
-                  token,
-                  delivery.comment_id,
-                  splitMessages[0],
-                  auction.page_id,
-                )
+              : await sendPrivateReply(token, delivery.comment_id, latestText, auction.page_id)
             recipient = receipt.recipient_id || recipient
             const progress = await db
               .from('auction_deliveries')
@@ -361,7 +360,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
                 customer_id: splitCustomer.id,
                 external_id: `${billMessageKey(delivery)}:latest`,
                 sender: 'bot',
-                body: splitMessages[0],
+                body: latestText,
                 delivery_status: 'sent',
                 provider_message_id: receipt.message_id ?? receipt.id,
               },

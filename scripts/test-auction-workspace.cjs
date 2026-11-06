@@ -135,8 +135,16 @@ test('unified workspace saves all zones atomically, preserves merchant values an
       settings: { ...input.settings, auto_accumulate_summary: false },
     }
     const updated = await save(update)
-    assert.equal((await one('select auction_settings from live_sessions where id=$1', [result.sessionId])).auction_settings.auto_accumulate_summary, false)
-    assert.equal((await one('select session_automation from auctions where id=$1', [result.auctionId])).session_automation.auto_accumulate_summary, false)
+    assert.equal(
+      (await one('select auction_settings from live_sessions where id=$1', [result.sessionId]))
+        .auction_settings.auto_accumulate_summary,
+      false,
+    )
+    assert.equal(
+      (await one('select session_automation from auctions where id=$1', [result.auctionId]))
+        .session_automation.auto_accumulate_summary,
+      false,
+    )
     assert.equal(
       (await one('select shipping_fee from auctions where id=$1', [result.auctionId])).shipping_fee,
       '47.00',

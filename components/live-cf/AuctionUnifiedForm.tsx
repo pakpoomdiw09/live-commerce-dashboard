@@ -547,6 +547,9 @@ export function AuctionUnifiedForm({
                         ส่งข้อความแรกแจ้งยอดชิ้นที่เพิ่งปิด
                         แล้วส่งข้อความที่สองสรุปบิลรวมสะสมตามหลังทันที
                       </p>
+                      <p className="text-xs text-slate-500">
+                        หากหน้าต่างแชตยังไม่เปิด ข้อความสรุปจะรอให้ลูกค้าตอบกลับใน Inbox ก่อน
+                      </p>
                     </div>
                     <label className="block text-sm font-semibold">
                       บัญชีธนาคารรับเงิน
