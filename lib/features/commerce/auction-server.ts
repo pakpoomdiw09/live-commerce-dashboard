@@ -11,6 +11,7 @@ import { parseAuctionComment } from '@/lib/integrations/facebook/auction-comment
 import { commentPostIds } from '@/lib/features/comments/live-comment-routing'
 import type { WebhookExecution } from '@/lib/integrations/facebook/webhook-worker'
 import type { Auction, AuctionResult } from './auction-types'
+import { isOnDemandWinnerFlow } from './session-automation'
 import {
   AUCTION_PRIVATE_TEMPLATE,
   SESSION_WINNER_TEMPLATE,
@@ -28,32 +29,35 @@ const safeCode = (error: unknown) => {
     ? code
     : 'AUCTION_DELIVERY_FAILED'
 }
+const billMessageKey = (delivery: { auction_id: string; claim_id?: string; claim_revision?: number }) =>
+  delivery.claim_id ? `auction-claim:${delivery.claim_id}:${delivery.claim_revision}` : `auction-bill:${delivery.auction_id}`
 
 /** Claim each final notification atomically; never resend an ambiguous provider result. */
-export async function deliverAuctionNotifications(auctionId?: string) {
+export async function deliverAuctionNotifications(auctionId?: string, claimId?: string) {
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const expired = await db
     .from('auction_deliveries')
     .update({ status: 'requires_review', error_code: 'DELIVERY_LEASE_EXPIRED' })
     .eq('status', 'sending')
     .lt('started_at', new Date(Date.now() - 5 * 60_000).toISOString())
-    .select('auction_id,channel')
+    .select('auction_id,channel,claim_id,claim_revision')
   if (expired.error) throw expired.error
   for (const delivery of expired.data ?? []) {
     if (delivery.channel !== 'private') continue
     const chat = await db
       .from('messages')
       .update({ delivery_status: 'unknown' })
-      .eq('external_id', `auction-bill:${delivery.auction_id}`)
+      .eq('external_id', billMessageKey(delivery))
     if (chat.error) throw chat.error
   }
   let query = db
     .from('auction_deliveries')
-    .select('id,auction_id,channel,comment_id')
+    .select('id,auction_id,channel,comment_id,claim_id,claim_revision')
     .eq('status', 'pending')
     .order('id')
     .limit(20)
   if (auctionId) query = query.eq('auction_id', auctionId)
+  if (claimId) query = query.eq('claim_id', claimId)
   const pending = await query
   if (pending.error) throw pending.error
   // A public comment must never hold up the winning buyer's Messenger bill.
@@ -63,7 +67,22 @@ export async function deliverAuctionNotifications(auctionId?: string) {
   for (const delivery of deliveries) {
     const saved = await db.from('auctions').select('*').eq('id', delivery.auction_id).single()
     if (saved.error) throw saved.error
-    const auction = saved.data as Auction
+    let auction = saved.data as Auction
+    if (delivery.claim_id) {
+      const claim = await db.from('auction_winner_claims').select('*')
+        .eq('id', delivery.claim_id).eq('auction_id', auction.id).eq('tenant_id', auction.tenant_id).single()
+      if (claim.error) throw claim.error
+      if (Number(claim.data.revision) !== Number(delivery.claim_revision) ||
+        (delivery.channel === 'public' && auction.public_reply_enabled === false) ||
+        (delivery.channel === 'private' && auction.private_reply_enabled === false)) {
+        const superseded = await db.from('auction_deliveries').update({ status: 'superseded' })
+          .eq('id', delivery.id).eq('status', 'pending')
+        if (superseded.error) throw superseded.error
+        continue
+      }
+      auction = { ...auction, order_id: claim.data.order_id, current_price: Number(claim.data.highest_amount),
+        leading_bidder_id: claim.data.bidder_id, leading_bidder_name: claim.data.bidder_name }
+    }
     const tenant = await db
       .from('tenants')
       .select('page_id,page_access_token')
@@ -192,7 +211,7 @@ export async function deliverAuctionNotifications(auctionId?: string) {
             attachments: [{ type: 'link', payload: { url: link! } }],
             ...(receipt?.message_id ? { provider_message_id: receipt.message_id } : {}),
           })
-          .eq('external_id', `auction-bill:${auction.id}`)
+          .eq('external_id', billMessageKey(delivery))
         if (chat.error) throw chat.error
       } else {
         await replyToComment(token, delivery.comment_id, message)
@@ -214,7 +233,7 @@ export async function deliverAuctionNotifications(auctionId?: string) {
         const chat = await db
           .from('messages')
           .update({ body: billMessage, delivery_status: 'unknown' })
-          .eq('external_id', `auction-bill:${auction.id}`)
+          .eq('external_id', billMessageKey(delivery))
         if (chat.error)
           console.error('[auction/delivery] Inbox status update failed', {
             auctionId: auction.id,
@@ -270,25 +289,25 @@ export async function handleAuctionComment(input: {
         .eq('tenant_id', tenantId)
         .eq('page_id', pageId)
         .in('live_post_id', postIds)
-        .lte('created_at', execution.event.created_at)
         .order('created_at', { ascending: false })
         .limit(1)
     const active = await query().eq('status', 'active')
     if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) return undefined
     if (active.error) throw active.error
-    return active.data?.[0] as Auction | undefined
+    const candidate = active.data?.[0] as Auction | undefined
+    return candidate && !isOnDemandWinnerFlow(candidate.session_automation) && candidate.created_at > execution.event.created_at
+      ? undefined : candidate
   }
   let auction = await findAuction(ids)
-  type ActiveSession = { id: string; live_post_id: string }
+  type ActiveSession = { id: string; live_post_id: string; ended_at?: string | null }
   let activeSession: ActiveSession | null = null
   if (!auction) {
     const session = await db
       .from('live_sessions')
-      .select('id,live_post_id')
+      .select('id,live_post_id,ended_at')
       .eq('tenant_id', tenantId)
       .eq('page_id', pageId)
       .in('live_post_id', ids)
-      .is('ended_at', null)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -306,7 +325,6 @@ export async function handleAuctionComment(input: {
         .eq('page_id', pageId)
         .eq('live_post_id', activeSession.live_post_id)
         .eq('status', 'closed')
-        .lte('created_at', execution.event.created_at)
         .order('closed_at', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(1)
@@ -316,6 +334,8 @@ export async function handleAuctionComment(input: {
         return true
       }
       auction = (historical.data?.[0] as Auction | undefined) ?? undefined
+      if (auction && !isOnDemandWinnerFlow(auction.session_automation) &&
+        (activeSession.ended_at || auction.created_at > execution.event.created_at)) auction = undefined
     }
   }
   if (!auction) {
@@ -337,7 +357,7 @@ export async function handleAuctionComment(input: {
     return true
   }
   const isHost = author.id === pageId || auction.host_ids.includes(author.id)
-  if (auction.status !== 'active') {
+  if (auction.status !== 'active' && !isOnDemandWinnerFlow(auction.session_automation)) {
     skipped('AUCTION_ALREADY_CLOSED', { auctionId: auction.id })
     return true
   }
@@ -371,6 +391,10 @@ export async function handleAuctionComment(input: {
   })
   if (parsed.type === 'HOST_CONTROL') {
     if (parsed.action === 'close') await deliverAuctionNotifications(auction.id)
+    return true
+  }
+  if (parsed.type === 'CONFIRM_BID') {
+    if (result.claimId) await deliverAuctionNotifications(auction.id, result.claimId)
     return true
   }
   // The simplified seller workspace records bids silently; only the winner is notified.

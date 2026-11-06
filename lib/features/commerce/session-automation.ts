@@ -7,6 +7,7 @@ import {
 } from './auction-templates'
 
 export type SessionAutomation = {
+  winnerFlow?: 'on_demand' | 'highest_bid'
   keywords: string[]
   closeKeywords?: string[]
   publicReply: boolean
@@ -36,6 +37,7 @@ export const normalizeCloseKeyword = (text: string) =>
   text.normalize('NFKC').trim().replace(/\s+/g, ' ')
 export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation {
   return {
+    winnerFlow: 'on_demand',
     keywords: [],
     closeKeywords: [],
     publicReply: true,
@@ -51,6 +53,9 @@ export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation 
 }
 export const normalizeBidKeyword = (text: string) =>
   text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
+/** Configured keywords request the sender's own bill; they never synthesize a price. */
+export const isOnDemandWinnerFlow = (settings?: Pick<SessionAutomation, 'winnerFlow'> | null) =>
+  settings?.winnerFlow === 'on_demand'
 export function sessionAuctionTemplate(text: string) {
   return storeAuctionTemplate(
     text.replace(/\{(name|item)\}/g, (_, key: string) =>
@@ -62,6 +67,7 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
   if (!value || typeof value !== 'object') return false
   const v = value as SessionAutomation
   return (
+    (v.winnerFlow === undefined || ['on_demand', 'highest_bid'].includes(v.winnerFlow)) &&
     ['publicReply', 'privateReply', 'countEnabled', 'closeEnabled', 'heartCloses'].every(
       (key) => typeof v[key as keyof SessionAutomation] === 'boolean',
     ) &&

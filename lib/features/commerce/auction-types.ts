@@ -45,4 +45,5 @@ export type AuctionResult = {
   name?: string | null
   isOpening?: boolean
   orderId?: string | null
+  claimId?: string
 }

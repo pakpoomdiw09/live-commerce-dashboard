@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
     const hostIds = await auctionHostIds(db, actor.id, input.pageId)
     const settings = {
       ...input.settings,
+      winnerFlow: input.settings.winnerFlow ?? 'on_demand',
       keywords: input.settings.keywords.map(normalizeBidKeyword),
       closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
       bidText: sessionAuctionTemplate(input.settings.bidText),
