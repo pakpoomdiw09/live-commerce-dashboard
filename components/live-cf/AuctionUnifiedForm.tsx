@@ -288,21 +288,27 @@ export function AuctionUnifiedForm({
       data-auction-unified-form
       className="min-w-0 space-y-5 rounded-2xl bg-slate-50/60 p-3 text-slate-900 sm:p-5"
     >
-      <header className="mb-4 flex w-full items-start gap-3 rounded-xl bg-orange-500 p-4 text-white shadow-sm sm:items-center">
-        <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white"
-          aria-hidden="true"
-        >
-          <Gavel className="h-6 w-6" strokeWidth={1.8} />
-        </span>
-        <div className="min-w-0">
-          <h1 className="text-lg font-bold tracking-tight text-white md:text-xl">
-            ประมูลไลฟ์สด (Live CF)
-          </h1>
-          <p className="mt-1 text-sm leading-relaxed text-orange-100">
-            ตั้งค่าการประมูลสินค้าในไลฟ์ และระบบตอบกลับอัตโนมัติ
-          </p>
+      <header className="bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-2xl p-4 sm:p-5 shadow-sm mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span
+            className="p-2.5 rounded-xl bg-white/20 text-white flex items-center justify-center"
+            aria-hidden="true"
+          >
+            <Gavel className="h-6 w-6" strokeWidth={1.8} />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-white tracking-wide">
+              ระบบประมูลไลฟ์สด (Live Auction)
+            </h1>
+            <p className="mt-0.5 text-xs sm:text-sm text-orange-100">
+              ตั้งค่าการประมูล เคาะราคา ดักคำปิดรอบ และระบบตอบกลับอัตโนมัติ
+            </p>
+          </div>
         </div>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-semibold shadow-sm w-fit">
+          <span className="h-2 w-2 rounded-full bg-white animate-pulse" aria-hidden="true" />
+          กำลังทำงาน
+        </span>
       </header>
       {loading && (
         <p
