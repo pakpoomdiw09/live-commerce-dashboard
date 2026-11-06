@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 126 ไฟล์: รวมตาม dependencies 109 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 128 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 127 ไฟล์: รวมตาม dependencies 110 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 129 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1046158 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1054461 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (913828 bytes, 14649 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (920578 bytes, 14777 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -146,6 +146,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 107. [live-auction-production-readiness.sql](live-auction-production-readiness.sql) — 22 statements retained
 108. [live-auction-on-demand.sql](live-auction-on-demand.sql) — 29 statements retained
 109. [live-auction-split-summary.sql](live-auction-split-summary.sql) — 3 statements retained
+110. [shipping-integrations-beemove.sql](shipping-integrations-beemove.sql) — 12 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -191,6 +192,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | live-auction-workspace.sql | live-auction-winner-confirmation.sql, facebook-webhook-comment-ordering.sql |
 | shipping-fulfillment.sql | live-session-dashboard.sql |
 | shipping-integrations.sql | shipping-fulfillment.sql |
+| shipping-integrations-beemove.sql | shipping-integrations.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
@@ -481,3 +483,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-production-readiness.sql: `0f984ce2bc41b09e47c5c98359f745afefdb911b76e5a979d86731a84815844b`
 - live-auction-on-demand.sql: `a091f91d7daa0e19c1db6caeff82ae104ae90a6cd27b0a655b54e8b07a76fa49`
 - live-auction-split-summary.sql: `ecebe98f42520036601611179211f30028fd29fd11616b6de93711a51e119ebf`
+- shipping-integrations-beemove.sql: `d9d57a631be5139cd85320e430030d3791dba88caac9d83602c939bd810a409a`

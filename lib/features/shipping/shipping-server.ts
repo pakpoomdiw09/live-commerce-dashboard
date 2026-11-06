@@ -79,7 +79,10 @@ export function shippingFailure(error: unknown) {
       400,
     )
   return shippingReply(
-    { error: 'โหลดหรือบันทึกไม่สำเร็จ กรุณาตรวจการติดตั้ง shipping-fulfillment.sql' },
+    {
+      error:
+        'โหลดหรือบันทึกไม่สำเร็จ กรุณาตรวจการติดตั้ง shipping-fulfillment.sql, shipping-integrations.sql และ shipping-integrations-beemove.sql',
+    },
     503,
   )
 }

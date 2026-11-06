@@ -133,6 +133,7 @@ const groups = [
       'live-auction-production-readiness.sql',
       'live-auction-on-demand.sql',
       'live-auction-split-summary.sql',
+      'shipping-integrations-beemove.sql',
     ],
   ],
 ]
@@ -194,6 +195,7 @@ const prerequisites = {
   ],
   'shipping-fulfillment.sql': ['live-session-dashboard.sql'],
   'shipping-integrations.sql': ['shipping-fulfillment.sql'],
+  'shipping-integrations-beemove.sql': ['shipping-integrations.sql'],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],
   'customer-tabs.sql': ['live-auctions.sql', 'live-cf-customer-variants.sql'],

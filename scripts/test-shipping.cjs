@@ -531,6 +531,31 @@ test('paid bills become parcel allocations; confirmation, stale print fencing, s
         }),
       ],
     )
+    await one(
+      `select save_shipping_integration(
+        $1,'beemove','https://client.beemove.co.th','encrypted-beemove-value',
+        $2::jsonb,'https://client.beemove.co.th/tracking/{tracking_number}',1,true,false
+      )`,
+      [
+        tenant,
+        JSON.stringify({
+          name: 'SnapBot Shop',
+          phone: '0899999999',
+          address: '111 Shop Road Bangkok 10220',
+        }),
+      ],
+    )
+    const beeMoveJob = (
+      await one('select begin_shipping_provider_job($1,$2,$3,$4,$5) result', [
+        tenant,
+        actor,
+        randomUUID(),
+        nextParcel.id,
+        'beemove',
+      ])
+    ).result
+    assert.equal(beeMoveJob.claimed, true)
+    await one("select finish_shipping_provider_job($1,'failed','test cleanup')", [beeMoveJob.jobId])
     const parcelRequest = randomUUID()
     const parcelJob = (
       await one('select begin_shipping_provider_job($1,$2,$3,$4,$5) result', [
