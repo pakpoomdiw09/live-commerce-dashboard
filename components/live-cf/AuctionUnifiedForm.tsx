@@ -288,18 +288,18 @@ export function AuctionUnifiedForm({
       data-auction-unified-form
       className="min-w-0 space-y-5 rounded-2xl bg-slate-50/60 p-3 text-slate-900 sm:p-5"
     >
-      <header className="flex items-start gap-3 sm:items-center">
+      <header className="mb-4 flex w-full items-start gap-3 rounded-xl bg-orange-500 p-4 text-white shadow-sm sm:items-center">
         <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-white"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white"
           aria-hidden="true"
         >
           <Gavel className="h-6 w-6" strokeWidth={1.8} />
         </span>
         <div className="min-w-0">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+          <h1 className="text-lg font-bold tracking-tight text-white md:text-xl">
             ประมูลไลฟ์สด (Live CF)
           </h1>
-          <p className="mt-1 text-sm leading-relaxed text-slate-500">
+          <p className="mt-1 text-sm leading-relaxed text-orange-100">
             ตั้งค่าการประมูลสินค้าในไลฟ์ และระบบตอบกลับอัตโนมัติ
           </p>
         </div>
@@ -403,17 +403,11 @@ export function AuctionUnifiedForm({
               </div>
               <input type="hidden" value={draft.finance.fees} />
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              กำไรสุทธิ = ยอดขาย − ต้นทุน − ค่าแอด − ค่าส่งจริง − ค่าธรรมเนียม
-            </p>
           </div>
-          <div className="space-y-5 w-full">
-            <section
-              data-auction-zone="1"
-              className="min-w-0 w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
-            >
-              <h2 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-lg text-white">
+          <div className="w-full rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section data-auction-zone="1" className="min-w-0 w-full bg-white p-4 sm:p-5">
+              <h2 className="-mx-4 -mt-4 mb-4 flex items-center gap-3 rounded-t-2xl bg-orange-500 px-4 py-3 text-lg font-bold tracking-tight text-white sm:-mx-5 sm:-mt-5 sm:px-5 sm:text-xl">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-lg text-orange-600">
                   1
                 </span>
                 <span>เลือกไลฟ์สด</span>
@@ -443,10 +437,10 @@ export function AuctionUnifiedForm({
             </section>
             <section
               data-auction-zone="2"
-              className="min-w-0 w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+              className="min-w-0 w-full border-t border-slate-200 bg-white p-4 sm:p-5"
             >
-              <h2 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-lg text-white">
+              <h2 className="-mx-4 -mt-4 mb-4 flex items-center gap-3 bg-orange-500 px-4 py-3 text-lg font-bold tracking-tight text-white sm:-mx-5 sm:-mt-5 sm:px-5 sm:text-xl">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-lg text-orange-600">
                   2
                 </span>
                 <span>เงื่อนไขการประมูล</span>
@@ -537,10 +531,10 @@ export function AuctionUnifiedForm({
             </section>
             <section
               data-auction-zone="3"
-              className="min-w-0 w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+              className="min-w-0 w-full border-t border-slate-200 bg-white p-4 sm:p-5"
             >
-              <h2 className="flex items-center gap-3 text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-lg text-white">
+              <h2 className="-mx-4 -mt-4 mb-4 flex items-center gap-3 bg-orange-500 px-4 py-3 text-lg font-bold tracking-tight text-white sm:-mx-5 sm:-mt-5 sm:px-5 sm:text-xl">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-lg text-orange-600">
                   3
                 </span>
                 <span>คำดักข้อความ & ระบบตอบกลับ</span>

@@ -42,6 +42,7 @@ export function AuctionKeywordEditor({
   const id = useId()
   const pickerId = useId()
   const editorRef = useRef<HTMLDivElement>(null)
+  const inputValue = useRef('')
   const [input, setInput] = useState('')
   const [error, setError] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -66,6 +67,18 @@ export function AuctionKeywordEditor({
     }
   }, [pickerOpen])
 
+  function appendEmoji(emoji: string) {
+    if (disabled) return
+    const next = inputValue.current + emoji
+    if (normalize(next).length > 40) {
+      setError('แต่ละคำยาวได้ไม่เกิน 40 ตัวอักษร')
+      return
+    }
+    inputValue.current = next
+    setInput(next)
+    setError('')
+  }
+
   function add(text: string, clearInput = true) {
     if (disabled) return
     const word = normalize(text)
@@ -75,7 +88,10 @@ export function AuctionKeywordEditor({
       return
     }
     onChange((previous) => [...previous, word])
-    if (clearInput) setInput('')
+    if (clearInput) {
+      inputValue.current = ''
+      setInput('')
+    }
     setError('')
     onEdited()
   }
@@ -123,6 +139,7 @@ export function AuctionKeywordEditor({
           value={input}
           disabled={disabled}
           onChange={(event) => {
+            inputValue.current = event.target.value
             setInput(event.target.value)
             setError('')
           }}
@@ -187,7 +204,7 @@ export function AuctionKeywordEditor({
                       aria-label={`เพิ่มอีโมจิ ${emoji}`}
                       disabled={disabled}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-lg shadow-sm transition hover:border-orange-400 hover:bg-orange-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500 active:scale-95 disabled:opacity-40"
-                      onClick={() => add(emoji, false)}
+                      onClick={() => appendEmoji(emoji)}
                     >
                       {emoji}
                     </button>
