@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
         .eq('page_id', pageId)
         .maybeSingle()
       if (session.error) throw session.error
-      if (!session.data || !/^d{1,64}$/.test(String(session.data.live_post_id)))
+      if (!session.data || !/^\d{1,64}$/.test(String(session.data.live_post_id)))
         return json({ polled: false, reason: 'SESSION_NOT_FOUND' })
       sessionPost = String(session.data.live_post_id)
     }
@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
       // live is actually running on the Page instead of failing permanently.
       const live = await fetchPageLiveVideos(pageId, token, req.signal).catch(() => null)
       liveNow = live ? live.videos.filter((v) => v.isLive).map((v) => v.id) : null
-      const alt = liveNow?.length === 1 && /^d{1,64}$/.test(liveNow[0]) ? liveNow[0] : null
+      const alt = liveNow?.length === 1 && /^\d{1,64}$/.test(liveNow[0]) ? liveNow[0] : null
       if (alt && alt !== pollId) {
         // Never steal a video that already belongs to another round of this tenant.
         const owner = await db

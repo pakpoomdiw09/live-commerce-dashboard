@@ -44,6 +44,11 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
             delay = 10_000
             break
           }
+          if (data?.reason === 'SESSION_NOT_FOUND') {
+            setStatus('ไม่พบเซสชันหรือรหัสไลฟ์ไม่ถูกต้อง กรุณาเลือกเซสชันใหม่')
+            delay = 10_000
+            break
+          }
           if (!res.ok || !data) {
             setStatus('ดึงคอมเมนต์ไม่สำเร็จ กำลังลองใหม่…')
             delay = 5000
