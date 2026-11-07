@@ -87,6 +87,11 @@ test('supported comment fields canonicalize IDs, authors and video IDs before de
     )
   const { verb: _omit, ...unassigned } = variants[0]
   assert.equal(envelope.parseWebhook(payload(unassigned)).events[0].payload.value.verb, undefined)
+  // live_comments carries no verb in Meta's schema; it must still be ingested as 'add'.
+  assert.equal(
+    envelope.parseWebhook(payload(unassigned, 'live_comments')).events[0].payload.value.verb,
+    'add',
+  )
   const post = envelope.parseWebhook(payload({ item: 'post', id: '777', message: 'CF fc159' }))
     .events[0]
   assert.equal(post.payload.value.item, 'post')

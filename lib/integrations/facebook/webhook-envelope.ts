@@ -126,7 +126,16 @@ export function normalizeCommentChange(event: WebhookObject): WebhookObject {
         : {}),
       message,
       item: 'comment',
-      verb: v.deleted === true ? 'remove' : v.verb,
+      // Meta's live_comments payload has no verb: every delivery is a new comment. All other
+      // fields must state verb 'add' explicitly (edited/remove/missing are dropped downstream).
+      verb:
+        v.deleted === true
+          ? 'remove'
+          : typeof v.verb === 'string'
+            ? v.verb.toLowerCase()
+            : event.field === 'live_comments'
+              ? 'add'
+              : v.verb,
     },
   }
 }
