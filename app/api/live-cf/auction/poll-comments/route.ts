@@ -8,6 +8,8 @@ import { graph, pageTokenFor } from '@/lib/integrations/facebook/client'
 import { parseWebhook } from '@/lib/integrations/facebook/webhook-envelope'
 import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
 import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
+import { fetchPageLiveVideos } from '@/lib/integrations/facebook/live-videos'
+import { UUID } from '@/lib/utils'
 import { deliverAuctionNotifications } from '@/lib/features/commerce/auction-server'
 
 export const runtime = 'nodejs'
@@ -63,12 +65,35 @@ export async function POST(req: NextRequest) {
     if (rate.error) throw rate.error
     if (rate.data !== true) return json({ error: 'poll rate limited' }, 429)
 
+    // The dashboard tells us which session is selected; its live_post_id is the only target. Without
+    // it (older clients) fall back to the page's newest active round.
+    const sessionId =
+      typeof body?.session_id === 'string' && UUID.test(body.session_id) ? body.session_id : null
+    let sessionPost: string | null = null
+    if (sessionId) {
+      const session = await db
+        .from('live_sessions')
+        .select('live_post_id')
+        .eq('id', sessionId)
+        .eq('tenant_id', tenant.data.id)
+        .eq('page_id', pageId)
+        .maybeSingle()
+      if (session.error) throw session.error
+      if (!session.data || !/^d{1,64}$/.test(String(session.data.live_post_id)))
+        return json({ polled: false, reason: 'SESSION_NOT_FOUND' })
+      sessionPost = String(session.data.live_post_id)
+    }
+    const COLUMNS = 'id,live_post_id,live_post_aliases,created_at'
+    const sessionFilter = sessionPost
+      ? `live_post_id.eq.${sessionPost},live_post_aliases.cs.{${sessionPost}}`
+      : 'id.not.is.null'
     const round = await db
       .from('auctions')
-      .select('id,live_post_id,created_at')
+      .select(COLUMNS)
       .eq('tenant_id', tenant.data.id)
       .eq('page_id', pageId)
       .eq('status', 'active')
+      .or(sessionFilter)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -78,54 +103,93 @@ export async function POST(req: NextRequest) {
       ? null
       : await db
           .from('auctions')
-          .select('id,live_post_id,created_at')
+          .select(COLUMNS)
           .eq('tenant_id', tenant.data.id)
           .eq('page_id', pageId)
           .eq('status', 'closed')
           .not('winner_locked_at', 'is', null)
           .is('winner_confirmed_at', null)
+          .or(sessionFilter)
           .order('closed_at', { ascending: false })
           .limit(1)
           .maybeSingle()
     if (waiting?.error) throw waiting.error
     const target = round.data ?? waiting?.data
-    if (!target) return json({ polled: false, reason: 'NO_ACTIVE_ROUND' })
+    if (!target)
+      return json({ polled: false, reason: 'NO_ACTIVE_ROUND', videoId: sessionPost })
 
     const token = pageTokenFor(tenant.data)
     if (!token) return json({ error: 'ยังไม่ได้เชื่อมต่อ Facebook' }, 409)
 
-    const url = new URL(graph(`${target.live_post_id}/comments`))
-    url.searchParams.set('order', 'reverse_chronological')
-    url.searchParams.set('filter', 'stream')
-    url.searchParams.set('limit', '50')
-    url.searchParams.set('fields', 'id,message,created_time,from{id,name}')
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
-      cache: 'no-store',
-    })
-    const graphBody = await res.json().catch(() => null)
+    const fetchComments = async (videoId: string) => {
+      const url = new URL(graph(`${videoId}/comments`))
+      url.searchParams.set('order', 'reverse_chronological')
+      url.searchParams.set('filter', 'stream')
+      url.searchParams.set('limit', '50')
+      url.searchParams.set('fields', 'id,message,created_time,from{id,name}')
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
+        cache: 'no-store',
+      })
+      return { res: response, graphBody: await response.json().catch(() => null) }
+    }
+    let pollId = String(target.live_post_id)
+    let { res, graphBody } = await fetchComments(pollId)
+    let liveNow: string[] | null = null
+    if (!res.ok && graphBody?.error?.code === 100) {
+      // The stored video is unreadable (ended, wrong ID or not this Page's). Re-verify which
+      // live is actually running on the Page instead of failing permanently.
+      const live = await fetchPageLiveVideos(pageId, token, req.signal).catch(() => null)
+      liveNow = live ? live.videos.filter((v) => v.isLive).map((v) => v.id) : null
+      const alt = liveNow?.length === 1 && /^d{1,64}$/.test(liveNow[0]) ? liveNow[0] : null
+      if (alt && alt !== pollId) {
+        // Never steal a video that already belongs to another round of this tenant.
+        const owner = await db
+          .from('auctions')
+          .select('id')
+          .eq('tenant_id', tenant.data.id)
+          .eq('live_post_id', alt)
+          .limit(1)
+        if (owner.error) throw owner.error
+        if (!owner.data?.length) {
+          const aliases = [...new Set([...(target.live_post_aliases ?? []), alt])]
+          const saved = await db
+            .from('auctions')
+            .update({ live_post_aliases: aliases })
+            .eq('id', target.id)
+          if (saved.error) throw saved.error
+          console.info('[auction/poll] retargeted round to the Page live video', {
+            auctionId: target.id,
+            from: pollId,
+            to: alt,
+          })
+          pollId = alt
+          ;({ res, graphBody } = await fetchComments(pollId))
+        }
+      }
+    }
     if (!res.ok) {
       // Graph error text is safe to log (the token is sent in a header, never in the URL); strip
       // it anyway if it were ever echoed back.
       const g = graphBody?.error
       console.warn('[auction/poll] graph error', {
         pageId,
-        videoId: target.live_post_id,
+        videoId: pollId,
         status: res.status,
         code: g?.code ?? null,
         subcode: g?.error_subcode ?? null,
         type: g?.type ?? null,
         message: typeof g?.message === 'string' ? g.message.split(token).join('[REDACTED]') : null,
+        liveNow,
       })
-      // Code 100 on the comments edge: the round's live_post_id is not a video this Page token can
-      // read (wrong/test ID, not the Page's own live, or missing pages_read_user_content).
       return json(
         {
           polled: false,
           reason: g?.code === 100 ? 'VIDEO_NOT_ACCESSIBLE' : 'GRAPH_ERROR',
           code: g?.code ?? null,
-          videoId: target.live_post_id,
+          videoId: pollId,
+          liveVideos: liveNow,
         },
         502,
       )
@@ -157,8 +221,8 @@ export async function POST(req: NextRequest) {
               item: 'comment',
               verb: 'add',
               comment_id: c.id,
-              post_id: target.live_post_id,
-              video_id: target.live_post_id,
+              post_id: pollId,
+              video_id: pollId,
               // 10-digit epoch seconds: the SQL stale-guard compares it with the round start.
               created_time: Math.floor(Date.parse(c.created_time!) / 1000),
               from: { id: c.from!.id, name: c.from!.name },

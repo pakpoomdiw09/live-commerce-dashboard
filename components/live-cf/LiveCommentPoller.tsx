@@ -7,7 +7,7 @@ type Comment = { id: string; name: string | null; message: string; at?: string }
  * Pulls live comments through the server (which holds the Page token) every 2.5s while an
  * auction round is active, and shows the latest ones. Slows down when no round is active.
  */
-export function LiveCommentPoller({ pageId }: { pageId: string }) {
+export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessionId: string }) {
   const [comments, setComments] = useState<Comment[]>([])
   const [status, setStatus] = useState('กำลังเริ่มดึงคอมเมนต์สด…')
   const stopped = useRef(false)
@@ -23,7 +23,7 @@ export function LiveCommentPoller({ pageId }: { pageId: string }) {
           const res = await fetch('/api/live-cf/auction/poll-comments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ page_id: pageId }),
+            body: JSON.stringify({ page_id: pageId, session_id: sessionId }),
             signal: controller.signal,
             cache: 'no-store',
           })
@@ -39,7 +39,7 @@ export function LiveCommentPoller({ pageId }: { pageId: string }) {
           const data = await res.json().catch(() => null)
           if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
             setStatus(
-              `⚠️ อ่านวิดีโอ ${data.videoId} ไม่ได้ — ID ไม่ใช่ไลฟ์ของเพจนี้หรือยังไม่เริ่มไลฟ์ (ตรวจ live_post_id ของรอบประมูล)`,
+              `⚠️ อ่านวิดีโอ ${data.videoId} ไม่ได้ — ไลฟ์จบแล้วหรือไม่ใช่ไลฟ์ของเพจนี้${Array.isArray(data.liveVideos) && data.liveVideos.length > 1 ? ` (พบไลฟ์สด ${data.liveVideos.length} รายการ กรุณาเริ่มเซสชันจากไลฟ์ที่ต้องการ)` : ' — เริ่มเซสชันใหม่จากไลฟ์ที่กำลังออกอากาศ'}`,
             )
             delay = 10_000
             break
@@ -50,7 +50,11 @@ export function LiveCommentPoller({ pageId }: { pageId: string }) {
             break
           }
           if (data.polled === false && data.reason === 'NO_ACTIVE_ROUND') {
-            setStatus('ยังไม่มีรอบประมูลที่เปิดอยู่')
+            setStatus(
+              data.videoId
+                ? `ยังไม่มีรอบประมูลที่เปิดอยู่ในเซสชันนี้ (ไลฟ์ ${data.videoId})`
+                : 'ยังไม่มีรอบประมูลที่เปิดอยู่',
+            )
             delay = 10_000
             break
           }
@@ -73,7 +77,7 @@ export function LiveCommentPoller({ pageId }: { pageId: string }) {
       controller.abort()
       if (timer) clearTimeout(timer)
     }
-  }, [pageId])
+  }, [pageId, sessionId])
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">

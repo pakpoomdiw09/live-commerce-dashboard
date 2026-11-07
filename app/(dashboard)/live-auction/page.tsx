@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation'
 import { getActiveTenant, tenantPages } from '@/lib/tenant'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { isFeatureEnabled } from '@/lib/feature-flags'
-import { LiveCommentPoller } from '@/components/live-cf/LiveCommentPoller'
 import { LiveSessionDashboard } from '@/components/live-cf/LiveSessionDashboard'
 
 export const dynamic = 'force-dynamic'
@@ -23,7 +22,6 @@ export default async function LiveAuctionPage() {
   if (banks.error) throw new Error('โหลดบัญชีรับเงินไม่สำเร็จ')
   return (
     <div className="mx-auto w-full min-w-0 max-w-[1600px] space-y-5 p-4 md:p-8">
-      {tenant.page_id && <LiveCommentPoller pageId={tenant.page_id} />}
       <LiveSessionDashboard
         key={tenant.id}
         tenantId={tenant.id}

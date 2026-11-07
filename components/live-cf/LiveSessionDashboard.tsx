@@ -18,6 +18,7 @@ import { AuctionUnifiedForm } from './AuctionUnifiedForm'
 import { AuctionSessionSlips, SessionRequired, SessionEmptyFinance } from './AuctionSessionSections'
 import { ShippingDashboard } from '@/components/shipping/ShippingDashboard'
 import { AuctionSessionCustomers } from './AuctionSessionCustomers'
+import { LiveCommentPoller } from './LiveCommentPoller'
 
 function sessionLabel(session: LiveSession) {
   const date = new Date(session.created_at)
@@ -418,6 +419,14 @@ export function LiveSessionDashboard({
       aria-label={auction ? 'จัดการประมูลและขายสินค้าผ่านไลฟ์สด' : 'สรุป เซสชัน ประมูล'}
       data-auction-dashboard={auction ? true : undefined}
     >
+      {auction && sessionId && (data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id) && (
+        // Keyed by session: switching the selected live resets state and retargets at once.
+        <LiveCommentPoller
+          key={sessionId}
+          sessionId={sessionId}
+          pageId={(data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id)!}
+        />
+      )}
       {!auction && (
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>

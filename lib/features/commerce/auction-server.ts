@@ -8,6 +8,7 @@ import {
   sendAuctionPrivateReply,
   sendMessageWithReceipt,
   sendPrivateReply,
+  SendApiError,
 } from '@/lib/integrations/facebook/client'
 import { createLiveCfPaymentLink } from './live-cf-payment-link'
 import { parseAuctionComment } from '@/lib/integrations/facebook/auction-comment-parser'
@@ -474,6 +475,11 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
         auctionId: auction.id,
         channel: delivery.channel,
         code,
+        // Meta's own explanation (providerMessage never contains the token or outgoing text).
+        metaStatus: error instanceof SendApiError ? error.status : null,
+        metaCode: error instanceof SendApiError ? error.code : null,
+        metaSubcode: error instanceof SendApiError ? error.subcode : null,
+        metaMessage: error instanceof SendApiError ? error.providerMessage : null,
         recorded: !failed.error,
       })
       // The sale stays closed even when Meta refuses or times out.
@@ -481,13 +487,13 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
   }
 }
 
-/** Returns true for an auction-scoped comment, so ordinary CF rules cannot also run. */
 /** Match an auction by its primary live post id or any recorded alias (ids are digits/underscore only). */
 function postFilter(ids: string[]) {
   const safe = ids.filter((id) => /^\d+(?:_\d+)?$/.test(id))
   return `live_post_id.in.(${safe.join(',')}),live_post_aliases.ov.{${safe.join(',')}}`
 }
 
+/** Returns true for an auction-scoped comment, so ordinary CF rules cannot also run. */
 export async function handleAuctionComment(input: {
   value: Record<string, unknown>
   tenantId: string
