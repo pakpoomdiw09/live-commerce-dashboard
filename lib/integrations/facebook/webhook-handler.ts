@@ -196,14 +196,15 @@ export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
     )
   if (kind === 'message') await onMessage(payload, pageId, tenant, execution)
   else if (
-    (payload.field === 'feed' || payload.field === 'live_comments') &&
-    payload.value?.item === 'comment' &&
-    payload.value?.verb === 'add'
+    (['feed', 'live_comments', 'live_videos', 'comments'].includes(payload.field) &&
+      (payload.value?.item === 'comment' || payload.value?.message || payload.value?.comment_id)) ||
+    payload.value?.message
   ) {
     await onComment(payload.value, pageId, tenant, execution)
   } else if (kind === 'change') {
     console.info('[live-cf/comment] skipped', {
       reason: 'NOT_NEW_COMMENT',
+      raw_value: payload.value,
       pageId,
       field: payload.field,
       item: payload.value?.item,
