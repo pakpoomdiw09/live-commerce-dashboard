@@ -136,6 +136,8 @@ const groups = [
       'shipping-integrations-beemove.sql',
       'vision-product-catalog.sql',
       'live-customer-item-labels.sql',
+      'live-cf-order-post.sql',
+      'live-auction-highest-confirmation.sql',
     ],
   ],
 ]
@@ -324,6 +326,11 @@ const prerequisites = {
   'vision-master-switch.sql': ['ai-vision.sql', 'tenant-ai-quota.sql'],
   'vision-product-catalog.sql': ['vision-master-switch.sql', 'commerce-v2.sql'],
   'live-customer-item-labels.sql': ['live-auction-on-demand.sql', 'live-order-types.sql'],
+  'live-cf-order-post.sql': ['live-cf-customer-variants.sql', 'live-session-dashboard.sql'],
+  'live-auction-highest-confirmation.sql': [
+    'live-auction-on-demand.sql',
+    'live-auction-winner-confirmation.sql',
+  ],
 }
 
 function validateOrder(sources) {

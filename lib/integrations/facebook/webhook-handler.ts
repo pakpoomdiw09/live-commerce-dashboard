@@ -196,9 +196,19 @@ export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
     )
   if (kind === 'message') await onMessage(payload, pageId, tenant, execution)
   else if (
-    (['feed', 'live_comments', 'live_videos', 'comments'].includes(payload.field) &&
-      (payload.value?.item === 'comment' || payload.value?.message || payload.value?.comment_id)) ||
-    payload.value?.message
+    kind === 'change' &&
+    (payload.value?.verb == null || payload.value.verb === 'add') &&
+    payload.value?.deleted !== true &&
+    payload.value?.item === 'comment' &&
+    (payload.field === 'feed' ||
+      payload.field === 'live_comments' ||
+      (['live_videos', 'comments'].includes(payload.field) &&
+        typeof payload.value.comment_id === 'string' &&
+        !!payload.value.comment_id &&
+        typeof payload.value.message === 'string' &&
+        !!payload.value.message.trim() &&
+        typeof payload.value.from?.id === 'string' &&
+        !!payload.value.from.id))
   ) {
     await onComment(payload.value, pageId, tenant, execution)
   } else if (kind === 'change') {
@@ -730,7 +740,8 @@ async function onComment(
   tenant: PageTenant | null,
   execution: WebhookExecution,
 ) {
-  // Auction host commands must be routed before filtering the Page's own replies.
+  // Auctions exclusively own bids and winner confirmations, including rejected confirmations.
+  // Route before customer/comment persistence and product CF matching to prevent double billing.
   if (
     tenant &&
     isFeatureEnabled('live_cf') &&

@@ -6,7 +6,7 @@ const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
 const { build } = require('./build-full-database-setup.cjs')
 const fs = require('node:fs')
 
-test('on-demand bills use each sender highest actual price, without close-time or leader gates', async () => {
+test('only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic', async () => {
   const db = new PGlite({ extensions: { pgcrypto } })
   const one = async (sql, args = []) => (await db.query(sql, args)).rows[0]
   try {
@@ -86,137 +86,120 @@ test('on-demand bills use each sender highest actual price, without close-time o
       ).result
     }
     const id = await round()
-    const empty = await process(id, await event('902', '1'))
-    assert.equal(empty.reason, 'NO_BID_HISTORY')
-    assert.equal((await one('select count(*) n from orders')).n, 0)
-    // A timestamp older than the round is not a reason to discard signed comments.
-    await process(id, await event('900', '250', { created_time: '1600000000' }))
-    await process(id, await event('900', '200'))
+    assert.equal((await process(id, await event('902', '1'))).status, 'not_winner')
+    assert.equal((await one('select count(*)::int n from orders')).n, 0)
+    await process(id, await event('900', '250'))
     await process(id, await event('901', '500'))
-    const confirmation = await event('900', '+1')
-    const first = await process(id, confirmation)
-    assert.equal(first.status, 'claimed')
-    assert.equal(first.amount, 250)
-    assert.deepEqual(await process(id, confirmation), first)
-    let order = await one('select * from orders where id=$1', [first.orderId])
-    assert.equal(Number(order.amount), 300)
-    assert.equal(Number(order.item_amount), 250)
-    assert.equal(order.live_auction_id, id)
+    assert.equal((await process(id, await event('900', '400'))).status, 'too_low')
+    let auction = await one('select * from auctions where id=$1', [id])
+    assert.equal(auction.leading_bidder_id, '901')
+    assert.equal(Number(auction.current_price), 500)
+    assert.equal((await process(id, await event('900', '+1'))).status, 'not_winner')
+    assert.equal((await one('select count(*)::int n from orders')).n, 0)
+    const confirmation = await event('901', '1')
+    const winner = await process(id, confirmation)
+    assert.equal(winner.status, 'confirmed')
     assert.equal(
-      (await one('select leading_bidder_id from auctions where id=$1', [id])).leading_bidder_id,
-      '901',
+      winner.amount,
+      500,
+      'the confirmation is never a bid of 1 or a forged client quote',
     )
+    assert.deepEqual(await process(id, confirmation), winner)
+    auction = await one('select * from auctions where id=$1', [id])
+    assert.equal(auction.status, 'closed')
+    assert.ok(auction.winner_confirmed_at)
+    assert.equal(auction.winner_confirmation_event_id, confirmation.id)
+    const order = await one(
+      'select o.*,c.platform_user_id from orders o join customers c on c.id=o.customer_id where o.id=$1',
+      [winner.orderId],
+    )
+    assert.equal(order.platform_user_id, '901')
+    assert.equal(Number(order.item_amount), 500)
     assert.equal(
-      (await one("select count(*) n from auction_deliveries where channel='public'")).n,
-      0,
+      Number(order.amount),
+      550,
+      'winning item price plus separately configured shipping',
     )
-    assert.equal((await one('select count(*) n from auction_deliveries')).n, 1)
-    const delivery = await one('select * from auction_deliveries where claim_id=$1', [
-      first.claimId,
-    ])
+    const deliveries = (
+      await db.query('select * from auction_deliveries where auction_id=$1', [id])
+    ).rows
+    assert.equal(deliveries.length, 1)
+    assert.equal(deliveries[0].channel, 'private')
     assert.equal(
-      (await one('select claim_auction_bill_delivery($1,999) ok', [delivery.id])).ok,
-      false,
+      deliveries[0].status,
+      'pending',
+      'confirmation releases immediate Messenger dispatch',
     )
-    assert.equal((await one('select claim_auction_bill_delivery($1,1) ok', [delivery.id])).ok, true)
+    assert.equal(deliveries[0].comment_id, confirmation.payload.value.comment_id)
+    assert.equal((await process(id, await event('900', '1000'))).status, 'closed')
+    assert.equal((await process(id, await event('901', '1'))).status, 'closed')
+    assert.equal((await one('select count(*)::int n from orders')).n, 1)
+    assert.equal((await one('select count(*)::int n from auction_deliveries')).n, 1)
     assert.equal(
-      (await one('select claim_auction_bill_delivery($1,1) ok', [delivery.id])).ok,
-      false,
+      Number((await one('select current_price from auctions where id=$1', [id])).current_price),
+      500,
     )
-    await assert.rejects(process(id, await event('900', '1')), /AUCTION_CLAIM_DELIVERY_BUSY/)
-    await one("update auction_deliveries set status='sent' where id=$1", [delivery.id])
-    const closed = await process(id, await event('999', '❌'))
-    assert.equal(closed.status, 'closed')
+
+    const custom = await round()
+    await db.query(
+      "update auctions set session_automation=jsonb_set(session_automation,'{keywords}','[\"confirm\"]') where id=$1",
+      [custom],
+    )
+    await process(custom, await event('900', '300'))
+    await process(custom, await event('901', '300'))
     assert.equal(
-      (await one('select count(*) n from orders')).n,
-      1,
-      'closing cannot invent or preannounce a bill',
-    )
-    assert.equal((await one('select order_id from auctions where id=$1', [id])).order_id, null)
-    // Late numeric bids remain valid history even if below the global leader.
-    await process(id, await event('900', '275'))
-    const updated = await process(id, await event('900', '11', { created_time: '1600000001' }))
-    assert.equal(updated.orderId, first.orderId)
-    assert.equal(updated.amount, 275)
-    order = await one('select * from orders where id=$1', [first.orderId])
-    assert.equal(Number(order.amount), 325)
-    assert.equal((await one('select count(*) n from customer_tab_items')).n, 1)
-    assert.equal(
-      (await one("select count(*) n from auction_deliveries where status='pending'")).n,
-      1,
-    )
-    const other = await process(id, await event('901', '1'))
-    assert.equal(other.amount, 500)
-    assert.notEqual(other.orderId, first.orderId)
-    assert.equal((await one('select count(*) n from orders')).n, 2)
-    await assert.rejects(
-      process(id, await event('900', '1', { post_id: '789' })),
-      /AUCTION_POST_MISMATCH/,
-    )
-    await assert.rejects(process(id, await event('900', '1'), randomUUID()), /AUCTION_NOT_FOUND/)
-    const second = await round()
-    assert.equal((await process(second, confirmation)).reason, 'COMMENT_ALREADY_PROCESSED')
-    const fresh = await process(second, await event('900', '1'))
-    assert.equal(fresh.reason, 'NO_BID_HISTORY', 'previous product history cannot be reused')
-    await process(second, await event('900', '100'))
-    const cumulative = await process(second, await event('900', '1'))
-    const nextOrder = await one('select * from orders where id=$1', [cumulative.orderId])
-    assert.equal(nextOrder.customer_tab_id, order.customer_tab_id)
-    assert.equal(Number(nextOrder.amount), 100, 'shipping is charged once per tab')
-    let tab = await one('select * from customer_tabs where id=$1', [order.customer_tab_id])
-    assert.equal(Number(tab.total_amount), 425)
-    assert.equal(
-      (await one('select live_session_dashboard($1,$2) snapshot', [tenant, order.live_session_id]))
-        .snapshot.metrics.auctionSales,
-      875,
-    )
-    // On-demand claims can be settled while the new product round is still active.
-    const slip = (
-      await one(
-        `insert into slips(tenant_id,customer_id,customer_tab_id,expected_amount)
-      values($1,$2,$3,$4) returning id`,
-        [tenant, order.customer_id, tab.id, tab.remaining_amount],
-      )
-    ).id
-    await assert.rejects(
-      one('select complete_auction_customer_tab_slip($1,$2,$3,$4,$5,$6,now(),$7,$8)', [
-        slip,
-        tenant,
-        order.customer_id,
-        '901',
-        tab.remaining_amount,
-        'ref-foreign',
-        '{}',
-        'verified',
-      ]),
-      /AUCTION_WINNER_MISMATCH/,
-    )
-    await one('select complete_auction_customer_tab_slip($1,$2,$3,$4,$5,$6,now(),$7,$8)', [
-      slip,
-      tenant,
-      order.customer_id,
+      (await one('select leading_bidder_id from auctions where id=$1', [custom])).leading_bidder_id,
       '900',
-      tab.remaining_amount,
-      'ref-own',
-      '{}',
-      'verified',
+      'a tie cannot replace the leader',
+    )
+    assert.equal((await process(custom, await event('901', 'CONFIRM'))).status, 'not_winner')
+    assert.equal((await process(custom, await event('900', ' CoNfIrM '))).status, 'confirmed')
+
+    const defaultRound = await round()
+    await db.query(
+      "update auctions set session_automation=jsonb_set(session_automation,'{keywords}','[]') where id=$1",
+      [defaultRound],
+    )
+    await process(defaultRound, await event('902', '350'))
+    assert.equal(
+      (await process(defaultRound, await event('902', '1'))).status,
+      'confirmed',
+      'empty legacy settings default to confirmation keyword 1',
+    )
+
+    const guarded = await round()
+    await db.query(
+      "update auctions set session_automation=jsonb_set(session_automation,'{winnerFlow}','\"highest_bid\"') where id=$1",
+      [guarded],
+    )
+    const older = await event('900', '200')
+    await db.query("update facebook_webhook_events set status='pending' where id=$1", [older.id])
+    const later = await event('901', '1')
+    await assert.rejects(process(guarded, later), /AUCTION_EVENT_OUT_OF_ORDER/)
+    await db.query("update facebook_webhook_events set status='completed' where id=$1", [older.id])
+    await process(guarded, older)
+    assert.equal((await process(guarded, later)).status, 'not_winner')
+    const wrongPost = await event('900', '1', { post_id: '999' })
+    await assert.rejects(process(guarded, wrongPost), /AUCTION_POST_MISMATCH/)
+    assert.equal(
+      (await process(guarded, await event('900', '1', { verb: 'edited' }))).status,
+      'ignored',
+    )
+    const other = (
+      await one("insert into tenants(name,page_id) values('Other','200') returning id")
+    ).id
+    await assert.rejects(process(guarded, await event('900', '1'), other), /AUCTION_NOT_FOUND/)
+    const concurrent = await Promise.all([
+      process(guarded, await event('900', '1')),
+      process(guarded, await event('900', '1')),
     ])
+    assert.deepEqual(concurrent.map((r) => r.status).sort(), ['closed', 'confirmed'])
+    await db.exec(fs.readFileSync('supabase/live-auction-highest-confirmation.sql', 'utf8'))
+    await db.exec(fs.readFileSync('supabase/live-auction-highest-confirmation.sql', 'utf8'))
     assert.equal(
-      (await one('select status from orders where id=$1', [cumulative.orderId])).status,
-      'paid',
-    )
-    await process(second, await event('900', '150'))
-    const protectedBill = await process(second, await event('900', '1'))
-    assert.equal(protectedBill.reason, 'BILL_REQUIRES_REVIEW')
-    assert.equal(
-      Number((await one('select amount from orders where id=$1', [cumulative.orderId])).amount),
-      100,
-    )
-    await db.exec(fs.readFileSync('supabase/live-auction-on-demand.sql', 'utf8'))
-    assert.equal(
-      (await one('select count(*) n from auction_winner_claims')).n,
-      3,
-      'migration reruns preserve claims',
+      (await one('select count(*)::int n from orders')).n,
+      4,
+      'migration reruns never generate invoices',
     )
   } finally {
     await db.close()

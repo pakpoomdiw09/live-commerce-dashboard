@@ -81,18 +81,35 @@ function externalId(value: unknown): string | undefined {
 
 /** Canonicalize before enqueue so persistence, deduplication and matching see the same comment. */
 export function normalizeCommentChange(event: WebhookObject): WebhookObject {
-  if (!['feed', 'live_comments'].includes(event.field) || !object(event.value)) return event
+  if (
+    !['feed', 'live_comments', 'live_videos', 'comments'].includes(event.field) ||
+    !object(event.value)
+  )
+    return event
   const v = event.value
+  const alternate = event.field === 'live_videos' || event.field === 'comments'
   const item = typeof v.item === 'string' ? v.item.toLowerCase() : null
   if (
+    !alternate &&
     event.field !== 'live_comments' &&
     item !== 'comment' &&
     item !== 'live_comment' &&
     !(!item && (v.comment_id != null || object(v.comment)))
   )
     return event
-  const author = object(v.from) ? v.from : object(v.comment?.from) ? v.comment.from : {}
+  const author = object(v.from)
+    ? v.from
+    : object(v.comment?.from)
+      ? v.comment.from
+      : object(v.sender)
+        ? v.sender
+        : {}
   const authorId = externalId(author.id ?? v.sender_id)
+  const commentId = externalId(v.comment_id ?? v.comment?.id ?? (alternate ? undefined : v.id))
+  const message = v.message ?? v.comment?.message ?? v.text
+  // Video lifecycle events are not comments merely because they include a title/message.
+  if (alternate && (!commentId || !authorId || typeof message !== 'string' || !message.trim()))
+    return event
   const postId = externalId(v.post_id ?? v.comment?.post_id)
   const videoId = externalId(v.video_id ?? v.video?.id)
   const liveVideoId = externalId(v.live_video_id)
@@ -100,17 +117,17 @@ export function normalizeCommentChange(event: WebhookObject): WebhookObject {
     ...event,
     value: {
       ...v,
-      comment_id: externalId(v.comment_id ?? v.comment?.id ?? v.id) ?? v.comment_id,
+      comment_id: commentId ?? v.comment_id,
       post_id: postId ?? videoId ?? liveVideoId,
       ...(videoId ? { video_id: videoId } : {}),
       ...(liveVideoId ? { live_video_id: liveVideoId } : {}),
       ...(authorId
         ? { from: { ...author, id: authorId, name: author.name ?? v.sender_name } }
         : {}),
-      message: v.message ?? v.comment?.message ?? v.text,
+      message,
       item: 'comment',
       verb:
-        typeof v.verb === 'string' ? v.verb.toLowerCase() : v.deleted === true ? 'remove' : 'add',
+        v.deleted === true ? 'remove' : typeof v.verb === 'string' ? v.verb.toLowerCase() : 'add',
     },
   }
 }
@@ -154,7 +171,8 @@ export function parseWebhook(bytes: Uint8Array): {
         const externalId =
           kind === 'message'
             ? event.message?.mid
-            : event.field === 'feed' || event.field === 'live_comments'
+            : ['feed', 'live_comments', 'live_videos', 'comments'].includes(event.field) &&
+                event.value?.item === 'comment'
               ? event.value?.comment_id
               : undefined
         if (

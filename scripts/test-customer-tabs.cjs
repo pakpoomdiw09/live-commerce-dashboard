@@ -22,6 +22,16 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
    alter default privileges in schema public grant all on sequences to anon,authenticated,service_role;`)
     await db.exec(build().completeSql)
     await db.exec(fs.readFileSync('supabase/customer-tabs.sql', 'utf8'))
+    await db.exec(fs.readFileSync('supabase/live-cf-order-post.sql', 'utf8'))
+    await db.exec(fs.readFileSync('supabase/live-cf-order-post.sql', 'utf8'))
+    // Exercise upgrades from the older RPC as well as the already-correct current definition.
+    const legacyOrder = fs
+      .readFileSync('supabase/live-cf-customer-variants.sql', 'utf8')
+      .match(/create or replace function public\.place_cf_order\([\s\S]*?end \$\$;/)?.[0]
+    assert.ok(legacyOrder)
+    await db.exec(legacyOrder)
+    await db.exec(fs.readFileSync('supabase/live-cf-order-post.sql', 'utf8'))
+    await db.exec(fs.readFileSync('supabase/live-cf-order-post.sql', 'utf8'))
     const tenant = (
       await one("insert into tenants(name,page_id) values('Live shop','100') returning id")
     ).id
@@ -172,7 +182,7 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
     ).id
     const rule = (
       await one(
-        "insert into comment_rules(tenant_id,name,page_ids,keywords,mode,live_product_id,live_post_id) values($1,'Live CF',array['100'],array['500'],'live_cf',$2,'777') returning id",
+        "insert into comment_rules(tenant_id,name,page_ids,keywords,mode,live_product_id,live_post_id) values($1,'Live CF',array['100'],array['500'],'live_cf',$2,null) returning id",
         [tenant, product],
       )
     ).id
@@ -182,6 +192,10 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
       rule,
     ])
     assert.equal(cf.r_status, 'created')
+    assert.equal(
+      (await one('select live_post_id from orders where id=$1', [cf.r_order_id])).live_post_id,
+      '777',
+    )
     assert.equal(
       (await one('select customer_tab_id from orders where id=$1', [cf.r_order_id]))
         .customer_tab_id,

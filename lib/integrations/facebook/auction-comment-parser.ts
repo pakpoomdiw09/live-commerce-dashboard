@@ -52,15 +52,14 @@ export function parseAuctionComment(
       return { type: 'HOST_CONTROL', action: 'close', count: null }
     return { type: 'IGNORE' }
   }
-  const matchesKeyword = (automation?.keywords ?? ['1', '+1', 'กด 1']).some(
+  const matchesKeyword = (automation?.keywords?.length ? automation.keywords : ['1']).some(
     (word) => word.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ') === value,
   )
-  if (automation?.winnerFlow === 'on_demand' && matchesKeyword) return { type: 'CONFIRM_BID' }
+  if (matchesKeyword) return { type: 'CONFIRM_BID' }
   if (
     /^(?:\+|(?:ขอ)?เปิด(?:ให้|ครับ|ค่ะ|คะ)?(?:\s.*)?|เจิม(?:ครับ|ค่ะ|คะ)?(?:\s.*)?)$/u.test(value)
   )
     return { type: 'OPENING_BID' }
-  if (matchesKeyword) return { type: 'STEP_BID' }
   // Whole price only; ignore phone numbers, product chatter and malformed grouping.
   if (/^(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?(?:\s*บาท)?$/u.test(value)) {
     const amount = Number(value.replace(/บาท|,|\s/g, ''))

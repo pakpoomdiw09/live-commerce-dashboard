@@ -243,8 +243,9 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           )
           const plan = auctionPrivateMessagePlan({
             enabled:
-              !!delivery.private_plan ||
-              auction.session_automation?.auto_accumulate_summary !== false,
+              !auction.winner_confirmation_comment_id &&
+              (!!delivery.private_plan ||
+                auction.session_automation?.auto_accumulate_summary !== false),
             hasPreviousUnpaid:
               !!delivery.private_plan ||
               pendingOrders.some((order) => order.id !== auction.order_id),
@@ -278,6 +279,21 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             billMessage = plan[0]
             buttonMessage = plan[0]
           }
+        }
+        if (auction.winner_confirmation_comment_id) {
+          // A winner confirmation is one complete receipt, even with a custom/short template.
+          billMessage = [
+            `ยืนยันผู้ชนะประมูล: ${auction.leading_bidder_name || 'ลูกค้า'}`,
+            `รายการ: ${auction.item_name}`,
+            `ราคาประมูลที่ชนะ: ${money(auction.current_price)} บาท`,
+            `ค่าจัดส่งของบิล: ${money(tab.shipping_fee ?? auction.shipping_fee)} บาท`,
+            `ยอดค้างชำระรวม: ${money(tab.remaining_amount)} บาท`,
+            `บัญชีรับเงิน: ${bill.account}`,
+            `QR / ชำระเงิน / แนบสลิป: ${bill.link}`,
+          ].join('\n')
+          buttonMessage = billMessage
+          splitMessages = null
+          splitCustomer = null
         }
       }
     }
@@ -507,64 +523,33 @@ export async function handleAuctionComment(input: {
     if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) return undefined
     if (active.error) throw active.error
     const candidate = active.data?.[0] as Auction | undefined
-    return candidate &&
-      !isOnDemandWinnerFlow(candidate.session_automation) &&
-      candidate.created_at > execution.event.created_at
-      ? undefined
-      : candidate
+    return candidate && candidate.created_at > execution.event.created_at ? undefined : candidate
   }
   let auction = await findAuction(ids)
-  type ActiveSession = { id: string; live_post_id: string; ended_at?: string | null }
-  let activeSession: ActiveSession | null = null
   if (!auction) {
-    const session = await db
-      .from('live_sessions')
-      .select('id,live_post_id,ended_at')
+    // Closed rounds still own late bid/confirmation text, even after the live session ends.
+    const historical = await db
+      .from('auctions')
+      .select('*')
       .eq('tenant_id', tenantId)
       .eq('page_id', pageId)
       .in('live_post_id', ids)
+      .in('status', ['closed', 'cancelled'])
+      .order('closed_at', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(1)
-      .maybeSingle()
-    if (session.error) {
-      if (!['42P01', 'PGRST205'].includes(session.error.code)) throw session.error
-      skipped('LIVE_SESSION_SCHEMA_MISSING', { code: session.error.code })
+    if (historical.error) {
+      if (!['42P01', 'PGRST205'].includes(historical.error.code)) throw historical.error
+      skipped('AUCTION_SCHEMA_MISSING', { code: historical.error.code })
       return false
     }
-    activeSession = (session.data as ActiveSession | null) ?? null
-    if (activeSession) {
-      const historical = await db
-        .from('auctions')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .eq('page_id', pageId)
-        .eq('live_post_id', activeSession.live_post_id)
-        .in('status', ['closed', 'cancelled'])
-        .order('closed_at', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(1)
-      if (historical.error) {
-        if (!['42P01', 'PGRST205'].includes(historical.error.code)) throw historical.error
-        skipped('AUCTION_SCHEMA_MISSING', { code: historical.error.code })
-        return true
-      }
-      auction = (historical.data?.[0] as Auction | undefined) ?? undefined
-      if (
-        auction &&
-        !isOnDemandWinnerFlow(auction.session_automation) &&
-        (activeSession.ended_at || auction.created_at > execution.event.created_at)
-      )
-        auction = undefined
-    }
+    auction = (historical.data?.[0] as Auction | undefined) ?? undefined
+    if (auction && auction.created_at > execution.event.created_at) auction = undefined
   }
   if (!auction) {
-    skipped(activeSession ? 'ACTIVE_LIVE_WITHOUT_AUCTION' : 'NO_MATCHING_ACTIVE_LIVE', {
+    skipped('NO_MATCHING_AUCTION', {
       postIds: ids,
     })
-    return !!activeSession
-  }
-  if (auction.status !== 'active' && !activeSession) {
-    skipped('HISTORICAL_AUCTION_WITHOUT_ACTIVE_LIVE_SESSION', { auctionId: auction.id })
     return false
   }
   const author = value.from as { id?: unknown } | undefined
@@ -576,11 +561,12 @@ export async function handleAuctionComment(input: {
     return true
   }
   const isHost = author.id === pageId || auction.host_ids.includes(author.id)
-  if (auction.status !== 'active' && !isOnDemandWinnerFlow(auction.session_automation)) {
-    skipped('AUCTION_ALREADY_CLOSED', { auctionId: auction.id })
-    return true
-  }
   const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
+  if (auction.status !== 'active') {
+    skipped('AUCTION_ALREADY_CLOSED', { auctionId: auction.id })
+    // Late bids/confirmations belong to this auction, never to product CF rules.
+    return parsed.type === 'NUMERIC_BID' || parsed.type === 'CONFIRM_BID'
+  }
   if (parsed.type === 'IGNORE') {
     skipped('NO_MATCHING_AUCTION_KEYWORD', {
       auctionId: auction.id,
@@ -613,7 +599,9 @@ export async function handleAuctionComment(input: {
     return true
   }
   if (parsed.type === 'CONFIRM_BID') {
-    if (result.claimId) await deliverAuctionNotifications(auction.id, result.claimId)
+    // Supabase checks sender == current leader under a row lock before creating any invoice.
+    if (result.status === 'confirmed' || result.status === 'already_confirmed')
+      await deliverAuctionNotifications(auction.id)
     return true
   }
   // The simplified seller workspace records bids silently; only the winner is notified.

@@ -15330,6 +15330,7 @@ execute $sql_107_25$revoke all on function public.process_live_auction_highest_b
 execute $sql_107_26$grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text),public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_107_26$;
 
 -- live-auction-on-demand.sql: source statement 27
+begin
 execute $sql_107_27$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
@@ -15448,6 +15449,10 @@ begin
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),case when confirming or host then null else amount end,false,outcome,r);
  return r;
 end $$$sql_107_27$;
+exception when invalid_function_definition then
+  -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-on-demand.sql: source statement 28
 execute $sql_107_28$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
@@ -15745,6 +15750,128 @@ execute $sql_111_3$notify pgrst,'reload schema'$sql_111_3$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-customer-item-labels.sql','88ad6da5c55d04a1dfa5059a7d6ae412cafbe89257643f8b18881e92dd175b80','6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de');
 end $migration_111$;
+
+-- 113. live-cf-order-post.sql
+do $migration_112$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-cf-order-post.sql';
+  if found then
+    if installed <> '15dd663c68fd9a0666e42fda3bd7c9969f34fb6ae921d9d2337b72d44e873993' then
+      raise exception 'Applied migration changed: live-cf-order-post.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-cf-order-post.sql: source statement 2
+execute $sql_112_2$do $$
+declare definition text;
+begin
+ definition:=pg_get_functiondef('public.place_cf_order(uuid,uuid,uuid,text,text,text,text)'::regprocedure);
+ -- customer-tabs.sql already appends the observed post to this INSERT.
+ if position('live_variant_selection_required,live_post_id)' in definition)>0
+  and position(',p_post) returning id' in definition)>0 then return;end if;
+ definition:=replace(definition,'live_rule_id,live_bank_account_id,','live_rule_id,live_post_id,live_bank_account_id,');
+ definition:=replace(definition,'lower(trim(p_code)),r.id,r.live_bank_account_id,','lower(trim(p_code)),r.id,p_post,r.live_bank_account_id,');
+ if position('live_rule_id,live_post_id,live_bank_account_id,' in definition)=0
+  or position('lower(trim(p_code)),r.id,p_post,r.live_bank_account_id,' in definition)=0 then
+  raise exception 'Unrecognized Live CF order insertion; no changes applied';
+ end if;
+ execute definition;
+end $$$sql_112_2$;
+
+-- live-cf-order-post.sql: source statement 3
+execute $sql_112_3$notify pgrst,'reload schema'$sql_112_3$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-cf-order-post.sql','15dd663c68fd9a0666e42fda3bd7c9969f34fb6ae921d9d2337b72d44e873993','0cc8add5f89d61723bafe7fbd8cf4d53486e74459bfdd331131d9c4929c82605');
+end $migration_112$;
+
+-- 114. live-auction-highest-confirmation.sql
+do $migration_113$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-highest-confirmation.sql';
+  if found then
+    if installed <> '1f839d204867f6e702f7e43f698d69b05331a1421e0681b23dfb0370fd30b40e' then
+      raise exception 'Applied migration changed: live-auction-highest-confirmation.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-highest-confirmation.sql: source statement 2
+execute $sql_113_2$do $$declare definition text;begin
+ definition:=pg_get_functiondef('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)'::regprocedure);
+ if position('process_live_auction_comment_legacy' in definition)=0 then
+  execute replace(definition,'FUNCTION public.process_live_auction_comment(', 'FUNCTION public.process_live_auction_comment_legacy(');
+ end if;
+end $$$sql_113_2$;
+
+-- live-auction-highest-confirmation.sql: source statement 3
+execute $sql_113_3$create or replace function public.process_live_auction_comment(
+ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
+ sender text;cid text;message text;keywords text[];host boolean;confirming boolean;numeric_price numeric;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then
+  raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+ if sender is null or cid is null or v->>'verb' is distinct from 'add'
+  or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id'
+  or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then
+  raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+ if found then return prior;end if;
+ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
+ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id
+  and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then
+  raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
+ host:=sender=a.page_id or sender=any(a.host_ids);
+ message:=lower(regexp_replace(normalize(trim(coalesce(v->>'message','')),NFKC),'\s+',' ','g'));
+ select coalesce(array_agg(lower(regexp_replace(normalize(trim(k),NFKC),'\s+',' ','g')))
+  filter(where length(trim(k))>0),array['1']) into keywords
+ from jsonb_array_elements_text(case when jsonb_typeof(a.session_automation->'keywords')='array'
+  then a.session_automation->'keywords' else '[]'::jsonb end) k;
+ confirming:=not host and message=any(keywords);
+ if a.status<>'active' then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
+ if not confirming then
+  numeric_price:=public.auction_numeric_price(v->>'message');
+  return public.process_live_auction_comment_legacy(p_auction,p_tenant,p_event,
+   case when numeric_price is not null and not host then 'NUMERIC_BID' else p_kind end,
+   case when numeric_price is not null then numeric_price else null end,p_control);
+ end if;
+ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then
+  r:=jsonb_build_object('status','not_winner');
+ else
+  -- The leader and price cannot change until the invoice/outbox transaction commits.
+  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,
+   winner_confirmed_at=clock_timestamp() where id=a.id;
+  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
+  update public.auction_deliveries set comment_id=cid
+   where auction_id=a.id and status in ('pending','awaiting_confirmation');
+  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+ end if;
+ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+ values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
+ return r;
+end $$$sql_113_3$;
+
+-- live-auction-highest-confirmation.sql: source statement 4
+execute $sql_113_4$revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text),
+ public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_113_4$;
+
+-- live-auction-highest-confirmation.sql: source statement 5
+execute $sql_113_5$grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text),
+ public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_113_5$;
+
+-- live-auction-highest-confirmation.sql: source statement 6
+execute $sql_113_6$notify pgrst,'reload schema'$sql_113_6$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-highest-confirmation.sql','1f839d204867f6e702f7e43f698d69b05331a1421e0681b23dfb0370fd30b40e','84447330d4b8d575a6437144bea213d14437c28219d5b2923aca8a5e1ca818f1');
+end $migration_113$;
 
 notify pgrst,'reload schema';
 

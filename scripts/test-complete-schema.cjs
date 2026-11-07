@@ -255,6 +255,8 @@ test('complete schema upgrades the older schema lacking newer Live CF, Messenger
     'vision-master-switch.sql',
     'vision-product-catalog.sql',
     'live-customer-item-labels.sql',
+    'live-cf-order-post.sql',
+    'live-auction-highest-confirmation.sql',
     'standalone-slips.sql',
   ])
   const db = await database()

@@ -7,7 +7,7 @@ import {
 } from './auction-templates'
 
 export type SessionAutomation = {
-  /** On-demand keywords claim the sender's own highest numeric bid in the current round. */
+  /** Confirmation keywords are accepted only from the round's current highest bidder. */
   winnerFlow?: 'on_demand' | 'highest_bid'
   keywords: string[]
   closeKeywords?: string[]
@@ -40,7 +40,7 @@ export const normalizeCloseKeyword = (text: string) =>
 export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation {
   return {
     winnerFlow: 'on_demand',
-    keywords: [],
+    keywords: ['1'],
     closeKeywords: [],
     publicReply: true,
     privateReply: true,
@@ -56,7 +56,7 @@ export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation 
 }
 export const normalizeBidKeyword = (text: string) =>
   text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
-/** Configured keywords request the sender's own bill; they never synthesize a price. */
+/** Retained for older saved workspace settings; confirmation always checks the global leader. */
 export const isOnDemandWinnerFlow = (settings?: Pick<SessionAutomation, 'winnerFlow'> | null) =>
   settings?.winnerFlow === 'on_demand'
 

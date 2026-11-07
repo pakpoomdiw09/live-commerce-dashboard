@@ -151,6 +151,11 @@ function fixture({
         }
         return { data: { status: 'confirmed' }, error: null }
       }
+      if (name === 'process_live_auction_comment' && result.status === 'confirmed') {
+        const auction = tables.auctions.find((row) => row.id === input.p_auction)
+        auction.winner_confirmation_comment_id = '456_789'
+        auction.status = 'closed'
+      }
       return { data: result, error: null }
     },
   }
@@ -228,7 +233,7 @@ function fixture({
   return { api, receive, tables, calls }
 }
 
-test('on-demand confirmation routes a closed round to the claimant and honors public reply off', async () => {
+test('highest-bid confirmation dispatches the active winner bill immediately and honors public reply off', async () => {
   for (const keyword of ['1', '11', '+1', '+', 'เปิด']) {
     assert.equal(
       parser.parseAuctionComment(keyword, false, {
@@ -240,7 +245,7 @@ test('on-demand confirmation routes a closed round to the claimant and honors pu
   }
   const claimId = '44444444-4444-4444-8444-444444444444'
   const f = fixture({
-    result: { status: 'claimed', claimId, amount: 250 },
+    result: { status: 'confirmed', orderId, amount: 250 },
     tab: {
       total_amount: 300,
       paid_amount: 0,
@@ -250,8 +255,9 @@ test('on-demand confirmation routes a closed round to the claimant and honors pu
     },
   })
   Object.assign(f.tables.auctions[0], {
-    status: 'closed',
-    created_at: '2026-03-01',
+    status: 'active',
+    leading_bidder_id: '901',
+    created_at: '2026-01-01',
     closed_at: '2026-03-02',
     session_automation: { ...automation.defaultSessionAutomation(), keywords: ['1', '11', '+1'] },
     public_reply_enabled: false,
@@ -289,7 +295,7 @@ test('on-demand confirmation routes a closed round to the claimant and honors pu
   assert.equal(f.calls.rpc[0].input.p_kind, 'CONFIRM_BID')
   assert.equal(f.calls.private.length, 1)
   assert.equal(f.calls.private[0][1], 'claim-comment')
-  assert.match(f.calls.private[0][2], /Claimant: 250/)
+  assert.match(f.calls.private[0][2], /ราคาประมูลที่ชนะ: 250/)
   assert.match(f.calls.private[0][2], /KTB 9260337828/)
   assert.equal(f.calls.public.length, 0)
   assert.equal(f.tables.messages[0].delivery_status, 'sent')
@@ -379,7 +385,7 @@ function splitFixture({ enabled = true, open = true, paidPrevious = false } = {}
   return f
 }
 
-test('split-summary switch defaults on, validates booleans and sends two ordered standalone messages', async () => {
+test('legacy split-summary deliveries retain their ordered recovery plan', async () => {
   const defaults = automation.defaultSessionAutomation('11111111-1111-4111-8111-111111111111')
   assert.equal(defaults.auto_accumulate_summary, true)
   assert.equal(
@@ -391,7 +397,7 @@ test('split-summary switch defaults on, validates booleans and sends two ordered
     false,
   )
   const f = splitFixture()
-  await f.receive('1', '901')
+  await f.api.deliverAuctionNotifications()
   assert.equal(f.calls.messenger.length, 2)
   assert.equal(f.calls.private.length, 0)
   assert.match(f.calls.messenger[0][2].text, /🏆.*Claimant.*Latest item/)
@@ -413,7 +419,7 @@ test('split-summary switch defaults on, validates booleans and sends two ordered
 test('disabled accumulation or paid historical orders send only the latest item bill', async () => {
   for (const options of [{ enabled: false }, { paidPrevious: true }]) {
     const f = splitFixture(options)
-    await f.receive('1', '901')
+    await f.api.deliverAuctionNotifications()
     assert.equal(f.calls.private.length, 1)
     assert.equal(f.calls.messenger.length, 0)
     assert.match(f.calls.private[0][2], /250/)
@@ -424,7 +430,7 @@ test('disabled accumulation or paid historical orders send only the latest item 
 
 test('closed Messenger windows defer only the second message and resume without repeating the first', async () => {
   const f = splitFixture({ open: false })
-  await f.receive('1', '901')
+  await f.api.deliverAuctionNotifications()
   assert.equal(f.calls.private.length, 1)
   assert.match(f.calls.private[0][2], /ตอบกลับข้อความนี้/)
   assert.equal(f.calls.messenger.length, 0)
@@ -444,7 +450,7 @@ test('closed Messenger windows defer only the second message and resume without 
 test('an ambiguous second send preserves the first receipt and cannot blindly retry either message', async () => {
   const f = splitFixture()
   f.calls.failMessengerAt = 2
-  await f.receive('1', '901')
+  await f.api.deliverAuctionNotifications()
   assert.equal(f.calls.messenger.length, 2)
   assert.equal(f.tables.auction_deliveries[0].status, 'requires_review')
   assert.equal(
@@ -477,7 +483,7 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   assert.equal(f.calls.rpc.at(-1).input.p_kind, 'HOST_CONTROL')
   assert.equal(f.calls.rpc.at(-1).input.p_control, '1')
   await f.receive('1', '901')
-  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'STEP_BID')
+  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'CONFIRM_BID')
   const before = f.calls.rpc.length
   await f.receive('ปิด', '901')
   assert.equal(f.calls.rpc.length, before, 'an ordinary customer cannot close')
@@ -485,22 +491,43 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   assert.equal(f.calls.rpc.at(-1).input.p_control, '3')
 })
 
-test('auction keywords and close words do not fall back to hardcoded defaults', () => {
-  assert.equal(parser.parseAuctionComment('+1').type, 'IGNORE')
-  assert.equal(parser.parseAuctionComment('กด 1').type, 'IGNORE')
-  assert.equal(parser.parseAuctionComment('ปิด', true).type, 'IGNORE')
-  assert.equal(parser.parseAuctionComment('1').type, 'NUMERIC_BID')
-  assert.equal(parser.parseAuctionComment('1').amount, 1)
+test('explicit empty auction keywords and close words override defaults', () => {
+  const empty = {
+    keywords: [],
+    closeKeywords: [],
+    countEnabled: false,
+    closeEnabled: true,
+    heartCloses: false,
+  }
+  assert.equal(parser.parseAuctionComment('+1', false, empty).type, 'IGNORE')
+  assert.equal(parser.parseAuctionComment('กด 1', false, empty).type, 'IGNORE')
+  assert.equal(parser.parseAuctionComment('ปิด', true, empty).type, 'IGNORE')
+  assert.equal(parser.parseAuctionComment('1', false, empty).type, 'CONFIRM_BID')
 })
 
-test('auction keywords never run against an unrelated post or a closed round without an active live session', async () => {
+test('unrelated posts fall through, but late auction confirmations never reach CF', async () => {
   const f = fixture()
   assert.equal(await f.receive('1', '900', '999'), false)
   assert.equal(f.calls.rpc.length, 0)
   assert.equal(f.calls.private.length, 0)
 
   f.tables.auctions[0].status = 'closed'
-  assert.equal(await f.receive('1', '900'), false)
+  assert.equal(await f.receive('1', '900'), true)
+  assert.equal(f.calls.rpc.length, 0)
+  assert.equal(f.calls.private.length, 0)
+})
+
+test('a CF live session without an active auction falls through instead of consuming comments', async () => {
+  const f = fixture()
+  f.tables.live_sessions.push({
+    id: 'cf-live',
+    tenant_id: tenantId,
+    page_id: '100',
+    live_post_id: '456',
+    ended_at: null,
+  })
+  f.tables.auctions.length = 0
+  assert.equal(await f.receive('CF A1'), false)
   assert.equal(f.calls.rpc.length, 0)
   assert.equal(f.calls.private.length, 0)
 })
@@ -515,7 +542,7 @@ test('seller-defined bid words record silently and only a trusted host can use t
     heartCloses: false,
   }
   await f.receive('เคาะ')
-  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'STEP_BID')
+  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'CONFIRM_BID')
   assert.equal(f.calls.public.length, 0)
   assert.equal(await f.receive('CF A1'), true, 'auction posts stay isolated from the CF pipeline')
   const count = f.calls.rpc.length

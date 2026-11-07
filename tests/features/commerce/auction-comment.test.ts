@@ -34,9 +34,9 @@ test('host identity determines commands; a customer cannot close or count', () =
     { type: 'HOST_CONTROL', action: 'count', count: '3' },
     'third knock is a count, not an implicit close',
   )
-  assert.deepEqual(parseAuctionComment('1'), { type: 'STEP_BID' })
-  assert.deepEqual(parseAuctionComment('+1'), { type: 'STEP_BID' })
-  assert.deepEqual(parseAuctionComment('กด 1'), { type: 'STEP_BID' })
+  assert.deepEqual(parseAuctionComment('1'), { type: 'CONFIRM_BID' })
+  assert.deepEqual(parseAuctionComment('+1'), { type: 'IGNORE' })
+  assert.deepEqual(parseAuctionComment('กด 1'), { type: 'IGNORE' })
   assert.deepEqual(parseAuctionComment('250', true), { type: 'IGNORE' })
 })
 
@@ -49,7 +49,7 @@ test('explicit empty closing keywords and disabled automation override defaults'
     heartCloses: false,
   }
   assert.deepEqual(parseAuctionComment('ปิด', true, automation), { type: 'IGNORE' })
-  assert.deepEqual(parseAuctionComment('1', false, automation), { type: 'NUMERIC_BID', amount: 1 })
+  assert.deepEqual(parseAuctionComment('1', false, automation), { type: 'CONFIRM_BID' })
   assert.deepEqual(
     parseAuctionComment('stop', true, {
       ...automation,

@@ -45,7 +45,7 @@ function clientFixture(fetch: typeof globalThis.fetch) {
   return { api, errors }
 }
 
-test('feed/live_comments canonicalize comment IDs, nested authors and video IDs before deduplication', () => {
+test('supported comment fields canonicalize IDs, authors and video IDs before deduplication', () => {
   const variants = [
     {
       comment_id: commentId,
@@ -61,9 +61,14 @@ test('feed/live_comments canonicalize comment IDs, nested authors and video IDs 
       video: { id: '456' },
     },
     { id: commentId, sender_id: '900', text: 'CF fc159', live_video_id: '456' },
+    { comment_id: commentId, sender: { id: '900' }, message: 'CF fc159', video_id: '456' },
+    { comment: { id: commentId, from: { id: 900 }, message: 'CF fc159' }, video_id: '456' },
   ]
   const parsed = variants.map(
-    (v, i) => envelope.parseWebhook(payload(v, i === 2 ? 'live_comments' : 'feed')).events[0],
+    (v, i) =>
+      envelope.parseWebhook(
+        payload(v, ['feed', 'feed', 'live_comments', 'comments', 'live_videos'][i]),
+      ).events[0],
   )
   for (const event of parsed) {
     assert.equal(event.payload.value.comment_id, commentId)
@@ -450,10 +455,15 @@ function handlerFixture(
 }
 
 test('signed comment pipeline matches literal SKUs case-insensitively, passes the matched video to SQL and deduplicates both replies', async () => {
-  for (const text of ['CF fc159', 'รับ fc159', 'FC159', 'เอา fc 159?']) {
+  for (const [field, text] of [
+    ['feed', 'CF fc159'],
+    ['live_comments', 'รับ fc159'],
+    ['comments', 'FC159'],
+    ['live_videos', 'เอา fc 159?'],
+  ]) {
     const f = handlerFixture()
-    await f.receive(text)
-    await f.receive(text)
+    await f.receive(text, {}, field)
+    await f.receive(text, {}, field)
     assert.equal(f.orders.length, 1)
     assert.equal(f.orders[0].code, 'fc159')
     assert.equal(f.orders[0].postId, '456')
@@ -530,8 +540,8 @@ test('auction host commands route before the Page-own-comment filter and consume
   )
   assert.equal(host.orders.length, 0)
   assert.equal(host.sends.length, 0)
-  const customer = handlerFixture({ auctionHandled: true })
-  await customer.receive('fc159')
+  const customer = handlerFixture({ auctionHandled: true, keywords: ['1', '250'] })
+  for (const text of ['1', '250', 'fc159']) await customer.receive(text)
   assert.equal(customer.orders.length, 0, 'auction-scoped comments cannot also place a CF order')
 })
 
@@ -557,6 +567,7 @@ test('wrong sessions, edits/removals, missing authors, Page replies, duplicate c
     options?: Parameters<typeof handlerFixture>[0]
     extra?: Record<string, unknown>
     text?: string
+    field?: string
   }[] = [
     { options: { post: '888' } },
     { options: { duplicate: true } },
@@ -564,13 +575,19 @@ test('wrong sessions, edits/removals, missing authors, Page replies, duplicate c
     { extra: { from: { id: '100' } } },
     { extra: { verb: 'edited' } },
     { extra: { verb: 'remove' } },
+    { extra: { deleted: true, verb: 'add' } },
+    { field: 'comments', extra: { comment_id: undefined, id: 'video-id' } },
+    { field: 'comments', extra: { from: undefined } },
+    { field: 'live_videos', extra: { message: null } },
+    { field: 'live_videos', text: '   ' },
+    { field: 'unrelated', text: 'fc159' },
     { options: { mode: 'exact' }, text: 'รับ fc159' },
     { text: 'สวัสดีค่ะ' },
     { options: { post: null }, extra: { video_id: undefined } },
   ]
   for (const scenario of scenarios) {
     const f = handlerFixture(scenario.options)
-    await f.receive(scenario.text ?? 'fc159', scenario.extra)
+    await f.receive(scenario.text ?? 'fc159', scenario.extra, scenario.field)
     assert.equal(f.orders.length, 0)
     assert.equal(f.sends.length, 0)
   }

@@ -395,7 +395,11 @@ test('no pending order, paid/cancelled orders and unrelated orders route images 
     assert.equal(f.calls.standaloneReplies[0].recipient.psid, '987654321')
     assert.equal(f.calls.standaloneReplies[0].recipient.token, 'fake')
     assert.equal(f.calls.ai, 0)
-    assert.equal(f.calls.images, 0)
+    assert.equal(
+      f.calls.images,
+      1,
+      'catalog routing is offered once before the standalone fallback',
+    )
     assert.ok(
       f.calls.queries.every(
         (q) =>
