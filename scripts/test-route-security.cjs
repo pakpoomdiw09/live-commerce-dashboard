@@ -35,6 +35,12 @@ function fixture({
 } = {}) {
   const calls = []
   const db = {
+    rpc: async (name, input) => {
+      assert.equal(name, 'approve_auction_payment_proof')
+      assert.equal(input.p_tenant, 'shop')
+      calls.push('approve_auction_payment_proof')
+      return { data: scope.approved_at, error: null }
+    },
     from() {
       const query = {
         select() {

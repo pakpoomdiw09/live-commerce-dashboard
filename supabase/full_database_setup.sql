@@ -14772,5 +14772,40 @@ grant execute on function public.save_shipping_integration(uuid,text,text,text,j
  public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role;
 
 commit;
+-- ============================================================================
+-- 111. vision-product-catalog.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+do $$
+declare signature text; definition text;
+begin
+ foreach signature in array array[
+  'public.claim_vision_job(uuid)', 'public.start_vision_analysis(uuid,uuid)',
+  'public.begin_vision_dispatch(uuid,uuid)', 'public.handover_vision_job(uuid,uuid,text)'
+ ] loop
+  definition:=pg_get_functiondef(signature::regprocedure);
+  definition:=replace(definition,
+   'not exists(select 1 from public.vision_settings where tenant_id=j.tenant_id and enabled)',
+   'not exists(select 1 from public.tenants where id=j.tenant_id and is_active and auto_reply_enabled)');
+  -- Catalog matching belongs to image_assistant, whose feature/quota guards remain intact.
+  definition:=regexp_replace(definition,
+   ' if j.decision->>''action''=''PRODUCT_SEARCH''[^\n]+then return false;end if;', '', 'g');
+  if position('vision_settings' in definition)>0 then
+   raise exception 'Unrecognized legacy Vision settings guard in %',signature;
+  end if;
+  execute definition;
+ end loop;
+end $$;
+
+-- Source statement 3
+notify pgrst,'reload schema';
+
+commit;
 
 notify pgrst, 'reload schema';

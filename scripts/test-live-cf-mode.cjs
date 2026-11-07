@@ -3,7 +3,11 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const { PGlite } = require('@electric-sql/pglite')
 const load = require('./helpers/load-typescript.cjs')
-const rules = load('lib/features/comments/comment-rules.ts')
+const cf = load('lib/features/commerce/cf-code.ts')
+const rules = load('lib/features/comments/comment-rules.ts', {
+  '@/lib/features/commerce/cf-code': cf,
+  '@/lib/features/commerce/live-cf-codes': load('lib/features/commerce/live-cf-codes.ts', { './cf-code': cf }),
+})
 const routing = load('lib/features/comments/live-comment-routing.ts', { './comment-rules': rules })
 const envelope = load(
   'lib/integrations/facebook/webhook-envelope.ts',

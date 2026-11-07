@@ -449,6 +449,39 @@ const { PGlite } = require(process.argv[2] || '@electric-sql/pglite')
       /permission denied/,
     )
     checks++
+    // Catalog automation needs no legacy training settings, while shop/human guards stay live.
+    await db.exec('reset role')
+    const catalogMigration = fs.readFileSync('supabase/vision-product-catalog.sql', 'utf8')
+    await db.exec(catalogMigration)
+    await db.exec(catalogMigration)
+    const automatic = await setup('pro', 'messenger')
+    await db.query('delete from vision_settings where tenant_id=$1', [automatic.tenant])
+    await db.exec('set role service_role')
+    const automaticJob = await claim(automatic.job)
+    assert.ok(automaticJob, 'no manual Vision setup is needed')
+    assert.equal(await start(automaticJob), true)
+    await setDecision(automaticJob, 'PRODUCT_SEARCH')
+    assert.equal(await dispatch(automaticJob), true, 'catalog mode requires no legacy settings')
+    const paused = await setup('pro', 'messenger')
+    const pausedJob = await claim(paused.job)
+    await db.query('update tenants set auto_reply_enabled=false where id=$1', [paused.tenant])
+    assert.equal(await start(pausedJob), false)
+    assert.equal(await dispatch(pausedJob), false)
+    const foreign = await setup('pro', 'messenger')
+    await db.query('update vision_jobs set customer_id=$1 where id=$2', [
+      automatic.customer,
+      foreign.job,
+    ])
+    assert.equal(await claim(foreign.job), undefined, 'foreign customers cannot claim catalog jobs')
+    const assignedCatalog = await setup('pro', 'messenger')
+    const assignedCatalogJob = await claim(assignedCatalog.job)
+    await db.query('update customers set assigned_user_id=$1 where id=$2', [
+      owner,
+      assignedCatalog.customer,
+    ])
+    assert.equal(await start(assignedCatalogJob), false)
+    assert.equal(await dispatch(assignedCatalogJob), false)
+    checks += 4
     console.log(
       `PASS: ${checks} PostgreSQL Vision scenarios: real entitlement migration, reruns, Free/Starter/Pro, expiry, quota, duplicate claims, refunds, recovery, safe retry, handoff, slip credits, tenant isolation, RLS and service-only RPCs`,
     )

@@ -3,8 +3,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasFeature } from '@/lib/feature-access'
 import { analyzeVision } from '@/lib/features/vision/vision-provider'
 import { validateVisionFile, downloadVisionImage } from '@/lib/features/vision/vision-image'
-import { decideVisionAction, type VisionJob } from '@/lib/features/vision/vision-types'
-import { IMAGE_RULE_COLUMNS, type ImageResponseRule } from '@/lib/features/vision/image-rules'
+import {
+  type VisionJob,
+  type VisionResult,
+  type VisionDecision,
+} from '@/lib/features/vision/vision-types'
+import { CATALOG_INQUIRY, loadVisionCatalog, catalogVisionDecision } from './vision-catalog'
 import { deliverRichOnce } from '@/lib/features/slips/notify'
 import { pageTokenFor } from '@/lib/integrations/facebook/client'
 
@@ -71,7 +75,7 @@ export async function enqueueVision(
   return saved.data.id as string
 }
 
-/** Called only after Meta signature verification. Explicitly disabled stores suppress image fallbacks. */
+/** Called only after Meta signature verification; no training/settings opt-in required. */
 export async function queueMessengerVision(
   db: SupabaseClient,
   tenantId: string,
@@ -81,19 +85,18 @@ export async function queueMessengerVision(
 ) {
   if (!urls.length) return false
   if (!(await hasFeature(db, tenantId, 'image_assistant'))) return false
-  const settings = await db
-    .from('vision_settings')
-    .select('enabled')
-    .eq('tenant_id', tenantId)
+  const tenant = await db
+    .from('tenants')
+    .select('auto_reply_enabled')
+    .eq('id', tenantId)
+    .eq('is_active', true)
     .maybeSingle()
-  if (settings.error) throw settings.error
-  if (settings.data?.enabled === false) return 'disabled' as const
-  if (!settings.data?.enabled) return false
-  // Once the center opts in, never route an unclassified image to the slip verifier as a fallback.
+  if (tenant.error) throw tenant.error
+  if (!tenant.data?.auto_reply_enabled) return 'disabled' as const
   for (const [index, url] of urls.entries())
     try {
       const file = await downloadVisionImage(url)
-      await enqueueVision(db, {
+      const jobId = await enqueueVision(db, {
         tenantId,
         customerId,
         messageId,
@@ -101,6 +104,8 @@ export async function queueMessengerVision(
         file,
         source: 'messenger',
       })
+      // Process now; the durable cron worker remains recovery for interrupted requests.
+      await runVisionJob(db, jobId)
     } catch (error) {
       console.error('[vision] ingestion failed', {
         tenantId,
@@ -139,7 +144,7 @@ async function handoverVisionJob(db: SupabaseClient, job: VisionJob, reason: str
   return routed.data === true
 }
 
-/** One claim = at most one AI request and one dispatch attempt. Uncertain work always needs review. */
+/** Durable analysis and one dispatch attempt; uncertain sends always need review. */
 export async function runVisionJob(db: SupabaseClient, jobId?: string) {
   const claimed = await db.rpc('claim_vision_job', { p_job: jobId ?? null })
   if (claimed.error) throw claimed.error
@@ -147,7 +152,6 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
   if (!job) return null
   let phase = 'analysis'
   try {
-    if (!process.env.GEMINI_API_KEY?.trim()) throw new Error('VISION_PROVIDER_NOT_CONFIGURED')
     if (process.env.AGENT_CONTROL_KILL_SWITCH === 'true') throw new Error('AI_EMERGENCY_STOP')
     if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
       await (await import('@/lib/automation-safety')).assertAutomationRunning(db, job.tenant_id)
@@ -172,19 +176,22 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
     if (process.env.AGENT_CONTROL_KILL_SWITCH === 'true') throw new Error('AI_EMERGENCY_STOP')
     if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
       await (await import('@/lib/automation-safety')).assertAutomationRunning(db, job.tenant_id)
-    const result = await analyzeVision(file, [])
+    let result: VisionResult = { category: 'UNKNOWN', confidence: 0, description: '' }
+    let decision: VisionDecision = {
+      action: 'RULE_REPLY',
+      reason: 'CATALOG_UNAVAILABLE',
+      responseText: CATALOG_INQUIRY,
+    }
+    try {
+      const products = await loadVisionCatalog(db, job.tenant_id)
+      result = await analyzeVision(file, products, job.tenant_id)
+      decision = await catalogVisionDecision(db, job.tenant_id, result, products)
+    } catch {
+      // A catalog/provider outage must not pause the conversation or invent a match.
+      console.warn('[vision] catalog matching unavailable', { jobId: job.id })
+    }
     if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
       await (await import('@/lib/automation-safety')).assertAutomationRunning(db, job.tenant_id)
-    const rules = await db
-      .from('image_response_rules')
-      .select(IMAGE_RULE_COLUMNS)
-      .eq('tenant_id', job.tenant_id)
-      .eq('is_active', true)
-      .order('priority', { ascending: false })
-      .order('id')
-      .limit(1000)
-    if (rules.error) throw rules.error
-    const decision = decideVisionAction(result, (rules.data ?? []) as ImageResponseRule[])
     await saveJob(db, job, { result, decision })
     if (job.source === 'test') {
       await saveJob(db, job, {
@@ -200,7 +207,7 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
         throw new Error('VISION_HANDOFF_BLOCKED')
       return job.id
     }
-    // The store's Master Switch is rechecked by the DB before sending.
+    // Shop automation, human ownership and the Messenger window are rechecked before sending.
     const dispatch = await db.rpc('begin_vision_dispatch', {
       p_job: job.id,
       p_claim: job.claim_token,
@@ -220,6 +227,27 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       token: pageTokenFor(tenant.data),
     }
     if (!recipient.token) throw new Error('PAGE_TOKEN_UNAVAILABLE')
+    // Only images classified as slips reach SlipOK; product inquiries never spend slip credits.
+    if (
+      result.category === 'PAYMENT_SLIP' &&
+      result.confidence >= 0.8 &&
+      tenant.data.auto_verify_enabled &&
+      (await hasFeature(db, job.tenant_id, 'slip_auto_pilot'))
+    ) {
+      const { processStandaloneSlip } = await import('@/lib/features/slips/standalone-verifier')
+      const { standaloneSlipReply } = await import('@/lib/features/slips/standalone-slip')
+      const slip = await processStandaloneSlip(db, {
+        tenantId: job.tenant_id,
+        file,
+        customerId: customer.data.id,
+        messageId: job.message_id!,
+      })
+      decision = {
+        action: 'RULE_REPLY',
+        reason: 'STANDALONE_SLIP',
+        responseText: standaloneSlipReply(slip),
+      }
+    }
     const messages: object[] = []
     if (decision.responseText) messages.push({ text: decision.responseText })
     if (decision.mediaUrl)
@@ -237,6 +265,7 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       decision.mediaUrl ? [{ type: 'image', payload: { url: decision.mediaUrl } }] : [],
     )
     await saveJob(db, job, {
+      decision,
       status: 'completed',
       reason: decision.reason,
       claim_token: null,

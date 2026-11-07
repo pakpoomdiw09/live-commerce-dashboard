@@ -9,10 +9,13 @@ export async function loadCatalogImages(
     commerce_images?: string[] | null
   }[],
   tenantId: string,
+  limit = 12,
 ) {
-  const candidates = products.filter((p) => p.image_url || p.commerce_images?.length).slice(0, 12)
+  const candidates = products
+    .filter((p) => p.image_url || p.commerce_images?.length)
+    .slice(0, limit)
   const references: { code: string; image: LlmImage }[] = []
-  // Small reference thumbnails, three downloads at a time, not a full-catalog image scan.
+  // Small reference thumbnails, three downloads at a time. Text chat defaults to twelve.
   for (let offset = 0; offset < candidates.length; offset += 3) {
     const batch = await Promise.all(
       candidates.slice(offset, offset + 3).map(async (product) => {

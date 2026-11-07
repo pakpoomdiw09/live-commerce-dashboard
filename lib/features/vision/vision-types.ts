@@ -23,6 +23,9 @@ export type VisionProduct = {
   price: number
   stock: number
   description: string | null
+  image_url?: string | null
+  commerce_images?: string[] | null
+  sales_page_url?: string | null
 }
 export type VisionDecision = {
   action: 'PRODUCT_SEARCH' | 'VERIFY_SLIP' | 'RULE_REPLY' | 'HUMAN_HANDOFF'

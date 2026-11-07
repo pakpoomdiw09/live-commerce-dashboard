@@ -42,7 +42,6 @@ const NAV: NavItem[] = [
     children: [
       { href: '/chatbot/conversations', label: 'ผู้ช่วยตอบบทสนทนา' },
       { href: '/comment-replies', label: 'ตอบกลับคอมเมนต์' },
-      { href: '/chatbot/images', label: 'ผู้ช่วยตอบรูปภาพ' },
       ...(SMART_FOLLOW_UP_ENABLED
         ? [{ href: '/chatbot/follow-ups', label: 'ผู้ช่วยติดตามลูกค้า' }]
         : []),
@@ -106,7 +105,6 @@ export function AppShell({
   const router = useRouter()
   const lockedPaths = [
     ...(!access?.ai_agent ? ['/chatbot/conversations'] : []),
-    ...(!access?.image_assistant ? ['/chatbot/images'] : []),
     ...(!access?.customer_management ? ['/customers', '/inbox'] : []),
     ...(!access?.slip_auto_pilot ? ['/slips'] : []),
     ...(!access?.customer_follow_up ? ['/chatbot/follow-ups'] : []),
@@ -416,7 +414,10 @@ function NavRow({
         aria-current={active ? 'page' : undefined}
         className={rowClass(active, collapsed, orangeActive)}
       >
-        <Icon className={cn('h-4 w-4 shrink-0', active && orangeActive && 'text-white')} aria-hidden />
+        <Icon
+          className={cn('h-4 w-4 shrink-0', active && orangeActive && 'text-white')}
+          aria-hidden
+        />
         <span className={cn('whitespace-nowrap', collapsed && 'sr-only')}>{item.label}</span>
         {lockedPaths.includes(item.href) && (
           <LockKeyhole

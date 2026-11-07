@@ -38,6 +38,7 @@ function load(file, dependencies = {}, globals = {}) {
       replyToMessengerProduct: async () => false,
     },
     '@/lib/features/commerce/live-cf-payment-link': {},
+    '@/lib/features/shipping/shipping-notifications': { deliverShippingTrackingNotifications: async () => {} },
     '@/lib/integrations/facebook/live-cf-adapter': {},
     '@/lib/feature-flags': { isFeatureEnabled: () => false },
     '@/lib/integrations/facebook/diagnostics': require('./helpers/load-typescript.cjs')(

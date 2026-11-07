@@ -15678,6 +15678,45 @@ execute $sql_109_13$grant execute on function public.save_shipping_integration(u
     values('shipping-integrations-beemove.sql','8bce2ab929c2549cc300f3ecf05a55a5a2a683e98b85aa876ddd77118b6b1639','d9d57a631be5139cd85320e430030d3791dba88caac9d83602c939bd810a409a');
 end $migration_109$;
 
+-- 111. vision-product-catalog.sql
+do $migration_110$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='vision-product-catalog.sql';
+  if found then
+    if installed <> 'aa668854836f26bbda56981dd8bff9687cf76c2aabb6140dc108ed047c353f37' then
+      raise exception 'Applied migration changed: vision-product-catalog.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- vision-product-catalog.sql: source statement 2
+execute $sql_110_2$do $$
+declare signature text; definition text;
+begin
+ foreach signature in array array[
+  'public.claim_vision_job(uuid)', 'public.start_vision_analysis(uuid,uuid)',
+  'public.begin_vision_dispatch(uuid,uuid)', 'public.handover_vision_job(uuid,uuid,text)'
+ ] loop
+  definition:=pg_get_functiondef(signature::regprocedure);
+  definition:=replace(definition,
+   'not exists(select 1 from public.vision_settings where tenant_id=j.tenant_id and enabled)',
+   'not exists(select 1 from public.tenants where id=j.tenant_id and is_active and auto_reply_enabled)');
+  -- Catalog matching belongs to image_assistant, whose feature/quota guards remain intact.
+  definition:=regexp_replace(definition,
+   ' if j.decision->>''action''=''PRODUCT_SEARCH''[^\n]+then return false;end if;', '', 'g');
+  if position('vision_settings' in definition)>0 then
+   raise exception 'Unrecognized legacy Vision settings guard in %',signature;
+  end if;
+  execute definition;
+ end loop;
+end $$$sql_110_2$;
+
+-- vision-product-catalog.sql: source statement 3
+execute $sql_110_3$notify pgrst,'reload schema'$sql_110_3$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('vision-product-catalog.sql','aa668854836f26bbda56981dd8bff9687cf76c2aabb6140dc108ed047c353f37','9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a');
+end $migration_110$;
+
 notify pgrst,'reload schema';
 
 commit;

@@ -172,6 +172,11 @@ test('real Gemini adapter sends image inline data and validates structured resul
       },
       '@/lib/features/agents/ai-agent': { aiModel: () => 'gemini-3-flash-preview' },
       '@/lib/features/vision/vision-types': types,
+      '@/lib/features/agents/llm-vision': {
+        loadCatalogImages: async () => [
+          { code: 'real', image: { mimeType: 'image/png', data: 'reference' } },
+        ],
+      },
       '@/lib/features/vision/vision-image': load('lib/features/vision/vision-image.ts', {
         'server-only': {},
       }),
@@ -179,7 +184,7 @@ test('real Gemini adapter sends image inline data and validates structured resul
     { process: { env: { GEMINI_API_KEY: 'test-only-not-a-key' } } },
   )
   assert.equal(
-    (await adapter.analyzeVision(png(), [{ id: 'real', name: 'Actual' }])).productId,
+    (await adapter.analyzeVision(png(), [{ id: 'real', name: 'Actual' }], tenant)).productId,
     'real',
   )
   assert.equal(request.contents[0].parts[1].inlineData.mimeType, 'image/png')
@@ -222,11 +227,13 @@ function fixture({
       id: tenant,
       plan: 'pro',
       auto_verify_enabled: true,
+      auto_reply_enabled: enabled,
       name: 'Shop',
       page_id: 'page',
       page_access_token: 'private',
     },
     products: [{ id: 'real', code: 'A1', name: 'Actual', price: 1, stock: 2 }],
+    commerce_stores: { slug: 'shop' },
     image_response_rules: [rule('rule', 1, trigger)],
     customers: { id: 'customer', platform_user_id: 'psid' },
   }
@@ -265,6 +272,9 @@ function fixture({
         limit() {
           return q
         },
+        range() {
+          return q
+        },
         update(v) {
           operation = 'update'
           values = v
@@ -301,12 +311,32 @@ function fixture({
       downloadVisionImage: async () => png(),
     },
     '@/lib/features/vision/vision-types': types,
+    './vision-catalog': load(
+      'lib/features/vision/vision-catalog.ts',
+      {
+        'server-only': {},
+        './vision-types': types,
+        '@/lib/features/commerce/messenger-product': load(
+          'lib/features/commerce/messenger-product.ts',
+        ),
+      },
+      { process: { env: { NEXT_PUBLIC_APP_URL: 'https://shop.test' } } },
+    ),
     '@/lib/features/vision/image-rules': rules,
     '@/lib/features/slips/process': {
       processSlip: async () => {
         slips++
         return { id: 'slip', status: 'valid' }
       },
+    },
+    '@/lib/features/slips/standalone-verifier': {
+      processStandaloneSlip: async () => {
+        slips++
+        return { status: 'valid' }
+      },
+    },
+    '@/lib/features/slips/standalone-slip': {
+      standaloneSlipReply: () => 'Verified standalone slip',
     },
     '@/lib/features/slips/notify': {
       deliverRichOnce: async () => {
@@ -346,38 +376,38 @@ test('real-image playground never verifies slips or messages customers', async (
   assert.equal(f.counts().slips, 0)
   assert.equal(f.job.reason, 'PREVIEW_ONLY')
 })
-test('slip rule replies without verifying or marking an order paid', async () => {
+test('confident slip detection routes to standalone verification, not product matching', async () => {
   const f = fixture({ category: 'PAYMENT_SLIP', trigger: 'slip' })
   await f.api.runVisionJob(f.db, id)
-  assert.equal(f.counts().slips, 0)
-  assert.equal(f.job.reason, 'MATCHED_RULE')
+  assert.equal(f.counts().slips, 1)
+  assert.equal(f.job.reason, 'STANDALONE_SLIP')
   assert.equal(f.counts().sends, 1)
 })
-test('product image in rule mode uses only the product rule, otherwise safely hands off', async () => {
+test('product image uses the catalog without manual reply rules or training mode', async () => {
   const f = fixture({ category: 'PRODUCT' })
   await f.api.runVisionJob(f.db, id)
-  assert.equal(f.job.decision.reason, 'NO_RULE')
-  assert.equal(f.counts().handoffs, 1)
-  assert.equal(f.counts().sends, 0)
+  assert.equal(f.job.decision.reason, 'CATALOG_MATCH')
+  assert.equal(f.counts().handoffs, 0)
+  assert.equal(f.counts().sends, 1)
 })
-test('low confidence and unknown images pause bot for human handoff without sending', async () => {
+test('low confidence and unknown images send an inquiry without pausing the bot', async () => {
   for (const config of [{ category: 'UNKNOWN' }, { confidence: 0.4 }]) {
     const f = fixture(config)
     await f.api.runVisionJob(f.db, id)
-    assert.equal(f.counts().handoffs, 1)
-    assert.equal(f.counts().sends, 0)
-    assert.equal(f.job.status, 'requires_review')
+    assert.equal(f.counts().handoffs, 0)
+    assert.equal(f.counts().sends, 1)
+    assert.equal(f.job.status, 'completed')
   }
 })
-test('AI failure and uncertain Messenger failure are durable review jobs, never automatically resent', async () => {
+test('AI failure sends one inquiry; uncertain Messenger sends require review without a retry', async () => {
   for (const config of [{ providerError: true }, { sendError: true }]) {
     const f = fixture(config)
     await f.api.runVisionJob(f.db, id)
     await f.api.runVisionJob(f.db, id)
     assert.equal(f.counts().ai, 1)
-    assert.equal(f.job.status, 'requires_review')
+    assert.equal(f.job.status, config.sendError ? 'requires_review' : 'completed')
     assert.ok(f.counts().sends <= 1)
-    assert.equal(f.counts().handoffs, 1)
+    assert.equal(f.counts().handoffs, config.sendError ? 1 : 0)
   }
 })
 test('handoff or expiry immediately before provider start blocks AI and refunds only unstarted quota', async () => {
@@ -387,7 +417,7 @@ test('handoff or expiry immediately before provider start blocks AI and refunds 
   assert.equal(f.counts().sends, 0)
   assert.ok(f.trace.includes('refund_unstarted_vision'))
 })
-test('store Master Switch controls execution independently of the legacy rollout flag', async () => {
+test('shop automation controls execution independently of the legacy training rollout flag', async () => {
   const f = fixture({ enabled: false })
   assert.equal((await f.api.runVisionQueue(f.db)).processed, 0)
   assert.equal(f.counts().ai, 0)

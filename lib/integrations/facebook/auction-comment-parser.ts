@@ -21,7 +21,13 @@ export function parseAuctionComment(
 ): AuctionComment {
   const value = text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
   if (isHost) {
-    const closeKeywords = automation?.closeKeywords ?? []
+    // Count commands take precedence over the default bare closing keyword "เคาะ".
+    const count = value.match(/^(?:เคาะ\s*)?([123])$/u)?.[1]
+    if (count || value === 'นับขิง')
+      return automation?.countEnabled === false
+        ? { type: 'IGNORE' }
+        : { type: 'HOST_CONTROL', action: 'count', count: count ?? 'นับขิง' }
+    const closeKeywords = automation?.closeKeywords ?? ['ปิด', 'ปิดประมูล', 'จบ', 'เคาะ', 'close', 'stop']
     if (
       automation?.closeEnabled !== false &&
       closeKeywords.some((keyword) => {
@@ -37,14 +43,9 @@ export function parseAuctionComment(
       return { type: 'HOST_CONTROL', action: 'close', count: null }
     if (automation?.heartCloses && /^(?:❤\uFE0F?|♥\uFE0F?)$/u.test(value))
       return { type: 'HOST_CONTROL', action: 'close', count: null }
-    const count = value.match(/^(?:เคาะ\s*)?([123])$/u)?.[1]
-    if (count || value === 'นับขิง')
-      return automation?.countEnabled === false
-        ? { type: 'IGNORE' }
-        : { type: 'HOST_CONTROL', action: 'count', count: count ?? 'นับขิง' }
     return { type: 'IGNORE' }
   }
-  const matchesKeyword = automation?.keywords.some(
+  const matchesKeyword = (automation?.keywords ?? ['1', '+1', 'กด 1']).some(
     (word) => word.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ') === value,
   )
   if (automation?.winnerFlow === 'on_demand' && matchesKeyword) return { type: 'CONFIRM_BID' }

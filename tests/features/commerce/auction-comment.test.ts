@@ -19,7 +19,7 @@ test('opening chatter uses opening intent, including incidental numbers', () => 
 })
 
 test('host identity determines commands; a customer cannot close or count', () => {
-  for (const text of ['ปิด', 'ปิดประมูล', 'กากบาท', 'x', 'X', 'xxx', 'ปุด', '❌']) {
+  for (const text of ['ปิด', 'ปิดประมูล', 'จบ', 'เคาะ', 'close', 'stop', 'CLOSE']) {
     assert.deepEqual(parseAuctionComment(text, true), {
       type: 'HOST_CONTROL',
       action: 'close',
@@ -30,14 +30,21 @@ test('host identity determines commands; a customer cannot close or count', () =
   for (const text of ['1', '2', '3', 'เคาะ 1', 'เคาะ 2', 'เคาะ 3', 'นับขิง'])
     assert.equal(parseAuctionComment(text, true).type, 'HOST_CONTROL')
   assert.equal(
-    parseAuctionComment('เคาะ 3', true).type,
-    'HOST_CONTROL',
+    parseAuctionComment('เคาะ 3', true),
+    { type: 'HOST_CONTROL', action: 'count', count: '3' },
     'third knock is a count, not an implicit close',
   )
   assert.deepEqual(parseAuctionComment('1'), { type: 'STEP_BID' })
   assert.deepEqual(parseAuctionComment('+1'), { type: 'STEP_BID' })
   assert.deepEqual(parseAuctionComment('กด 1'), { type: 'STEP_BID' })
   assert.deepEqual(parseAuctionComment('250', true), { type: 'IGNORE' })
+})
+
+test('explicit empty closing keywords and disabled automation override defaults', () => {
+  const automation = { keywords: [], closeKeywords: [], countEnabled: true, closeEnabled: true, heartCloses: false }
+  assert.deepEqual(parseAuctionComment('ปิด', true, automation), { type: 'IGNORE' })
+  assert.deepEqual(parseAuctionComment('1', false, automation), { type: 'NUMERIC_BID', amount: 1 })
+  assert.deepEqual(parseAuctionComment('stop', true, { ...automation, closeKeywords: ['stop'], closeEnabled: false }), { type: 'IGNORE' })
 })
 
 test('configured closing keywords include composed and repeated emoji text for the Page only', () => {

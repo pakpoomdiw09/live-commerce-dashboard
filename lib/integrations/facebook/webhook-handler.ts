@@ -485,8 +485,7 @@ async function onMessage(
     verifyAuctionSlipImages ||
     slipRoute.kind === 'ambiguous' ||
     slipRoute.kind === 'unmatched' ||
-    verifySlipImages ||
-    verifyStandaloneImages
+    verifySlipImages
       ? false
       : await queueMessengerVision(db, tenant.id, customer.id, message.id, images)
   const visionQueued = visionRoute === true
@@ -554,7 +553,7 @@ async function onMessage(
       await onSlipImage(url, { ...recipient, messageId: message.id }, tenant, execution)
     }
   }
-  if (verifyStandaloneImages) {
+  if (verifyStandaloneImages && !visionQueued) {
     for (const url of images)
       await onStandaloneSlipImage(
         url,
@@ -869,7 +868,6 @@ async function onComment(
           sendPrivateReply(token, commentId, message, pageId),
         publicText: async (commentId, message) => replyToComment(token, commentId, message),
       })
-      let cumulativeBill = false
       const handled = await handleLiveCfComment(
         { text: v.message, commentId: v.comment_id, code: selection.code },
         {
@@ -903,7 +901,6 @@ async function onComment(
               await import('@/lib/features/commerce/customer-tabs-server')
             const tab = await tabForOrder(db, orderId)
             if (!tab) return null
-            cumulativeBill = true
             return (
               await customerTabSummary(
                 db,
@@ -926,7 +923,8 @@ async function onComment(
                   await sendWithMessageCredit(db, tenant.id, () =>
                     meta.sendPrivateText(v.comment_id, message),
                   )
-                  if (cumulativeBill) {
+                  return null
+                }).then(() => execution.once('comment-cf-private-history', async () => {
                     const chat = await db.from('messages').insert({
                       customer_id: stored.customer!.id,
                       external_id: `cf-bill:${v.comment_id}`,
@@ -935,13 +933,12 @@ async function onComment(
                       delivery_status: 'sent',
                     })
                     if (chat.error && chat.error.code !== '23505') throw chat.error
-                  }
                   console.info('[live-cf/reply] succeeded', {
                     commentId: v.comment_id,
                     channel: 'private',
                   })
                   return null
-                })
+                }))
             : undefined,
           replyToComment: selectedRule.reply_enabled
             ? (message) =>
