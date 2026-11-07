@@ -138,6 +138,8 @@ const groups = [
       'live-customer-item-labels.sql',
       'live-cf-order-post.sql',
       'live-auction-highest-confirmation.sql',
+      'live-auction-dynamic-tags.sql',
+      'facebook-comment-configuration.sql',
     ],
   ],
 ]
@@ -331,6 +333,8 @@ const prerequisites = {
     'live-auction-on-demand.sql',
     'live-auction-winner-confirmation.sql',
   ],
+  'live-auction-dynamic-tags.sql': ['live-auction-highest-confirmation.sql'],
+  'facebook-comment-configuration.sql': ['live-auction-dynamic-tags.sql', 'live-cf-order-post.sql'],
 }
 
 function validateOrder(sources) {
@@ -350,6 +354,7 @@ function validateOrder(sources) {
 // Only these reviewed setup INSERTs are retained. Never remove DML inside a
 // function: that is application behavior, not an installation-time backfill.
 const setupTables = new Set([
+  'public.facebook_comment_defaults',
   'storage.buckets',
   'public.plan_features',
   'public.vision_plan_limits',

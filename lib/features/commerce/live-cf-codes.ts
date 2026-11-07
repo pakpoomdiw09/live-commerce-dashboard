@@ -62,10 +62,17 @@ export function matchLiveCfCode(
   )
 }
 
-export function liveCfCodeExamples(codes: readonly string[], mode: 'flexible' | 'strict') {
+export function liveCfCodeExamples(
+  codes: readonly string[],
+  mode: 'flexible' | 'strict',
+  prefixes: readonly string[] = [],
+) {
   return codes.flatMap((code) =>
     mode === 'strict'
       ? [code]
-      : [code, `รับ ${code}`, `จอง ${code}`, `เอา ${code}`, `${code} ครับ`, `${code} ค่ะ`],
+      : [
+          code,
+          ...prefixes.filter((prefix) => prefix.trim()).map((prefix) => `${prefix.trim()} ${code}`),
+        ],
   )
 }

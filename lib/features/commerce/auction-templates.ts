@@ -10,6 +10,9 @@ export const AUCTION_BID_TEMPLATE =
 export const AUCTION_CLOSE_TEMPLATE =
   '❌ ปิดประมูล {product_name} ผู้ชนะ: {bidder_name} ราคา {price} บาท'
 const aliases: Record<string, string> = {
+  customer_name: 'bidder_name',
+  item_name: 'product_name',
+  total_amount: 'total',
   ชื่อลูกค้า: 'bidder_name',
   รายการ: 'product_name',
   ยอดรวมสะสม: 'total',

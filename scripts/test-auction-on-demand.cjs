@@ -44,6 +44,14 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
       keywords: ['1', '11', '+1', '1'],
       closeKeywords: ['❌', '❌'],
       closeEnabled: true,
+      privateReply: true,
+      publicReply: false,
+      privateText: '{product_name} {price} {bank_account} {payment_link}',
+      bidText: '{product_name} {price}',
+      closeText: '{product_name} {price}',
+      bankAccountId: bank,
+      countEnabled: false,
+      heartCloses: false,
     }
     async function round() {
       return (
@@ -194,11 +202,94 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
       process(guarded, await event('900', '1')),
     ])
     assert.deepEqual(concurrent.map((r) => r.status).sort(), ['closed', 'confirmed'])
-    await db.exec(fs.readFileSync('supabase/live-auction-highest-confirmation.sql', 'utf8'))
-    await db.exec(fs.readFileSync('supabase/live-auction-highest-confirmation.sql', 'utf8'))
+    const locked = await round()
+    const dynamicSettings = {
+      ...settings,
+      keywords: ['11', '111'],
+      closeKeywords: ['XXX', 'XX', 'X'],
+    }
+    await db.query(
+      'update live_sessions set auction_settings=$1 where tenant_id=$2 and live_post_id=$3',
+      [JSON.stringify(dynamicSettings), tenant, '456'],
+    )
+    await process(locked, await event('900', '500'))
+    await process(locked, await event('901', '600'))
+    await process(locked, await event('999', 'ปิด'))
+    assert.equal(
+      (await one('select status from auctions where id=$1', [locked])).status,
+      'active',
+      'custom close tags replace the default',
+    )
+    assert.equal(
+      (await process(locked, await event('900', 'XX'))).status,
+      'ignored',
+      'customers cannot use admin closing tags',
+    )
+    const closedByAdmin = await process(locked, await event('999', ' xx '))
+    assert.equal(closedByAdmin.status, 'awaiting_confirmation')
+    assert.equal(closedByAdmin.winnerId, '901')
     assert.equal(
       (await one('select count(*)::int n from orders')).n,
       4,
+      'closing does not create an invoice',
+    )
+    const snapshot = await one('select * from auctions where id=$1', [locked])
+    assert.equal(snapshot.status, 'closed')
+    assert.ok(snapshot.winner_locked_at)
+    assert.equal((await process(locked, await event('900', '1000'))).status, 'closed')
+    assert.equal((await process(locked, await event('900', '11'))).status, 'not_winner')
+    assert.equal(
+      (await process(locked, await event('901', '1'))).status,
+      'closed',
+      'default confirmation cannot override saved tags',
+    )
+    // Opening the next item must not prevent the locked winner from paying the previous one.
+    const next = await round()
+    const lockedWinner = await process(locked, await event('901', '111'))
+    assert.equal(lockedWinner.status, 'confirmed')
+    assert.equal(lockedWinner.amount, 600)
+    assert.equal((await one('select status from auctions where id=$1', [next])).status, 'active')
+    assert.equal(
+      (await one('select leading_bidder_id from auctions where id=$1', [locked])).leading_bidder_id,
+      '901',
+    )
+
+    await db.query(
+      'update live_sessions set auction_settings=$1 where tenant_id=$2 and live_post_id=$3',
+      [JSON.stringify({ ...settings, keywords: [], closeKeywords: [] }), tenant, '456'],
+    )
+    await process(next, await event('900', '400'))
+    assert.equal((await process(next, await event('100', 'ปิด'))).status, 'ignored')
+    assert.equal(
+      (await process(next, await event('100', 'XX'))).status,
+      'awaiting_confirmation',
+      'empty session arrays fall through to the configured round snapshot',
+    )
+    assert.equal((await process(next, await event('900', '1'))).status, 'closed')
+    assert.equal((await process(next, await event('900', '111'))).status, 'confirmed')
+    const modeRound = await round()
+    for (const mode of ['cf', 'auto']) {
+      await db.query('update live_sessions set mode=$1 where tenant_id=$2', [mode, tenant])
+      assert.equal((await process(modeRound, await event('900', '500'))).reason, 'SESSION_MODE')
+    }
+    await db.query(
+      `update live_sessions set mode='auction',confirmation_keywords=array['ACCEPT'],closing_keywords=array['FINAL'],
+      auction_settings=auction_settings||'{"keywords":["DASHBOARD"],"closeKeywords":["ENDROUND"]}',
+      comment_settings='{"opening_tags":["start"],"counting_tags":{"last":"last"},"countEnabled":true}' where tenant_id=$1`,
+      [tenant],
+    )
+    assert.equal((await process(modeRound, await event('900', 'start'))).status, 'accepted')
+    assert.equal((await process(modeRound, await event('999', 'last'))).status, 'count')
+    assert.equal(
+      (await process(modeRound, await event('999', 'ENDROUND'))).status,
+      'awaiting_confirmation',
+    )
+    assert.equal((await process(modeRound, await event('900', 'DASHBOARD'))).status, 'confirmed')
+    await db.exec(fs.readFileSync('supabase/live-auction-dynamic-tags.sql', 'utf8'))
+    await db.exec(fs.readFileSync('supabase/live-auction-dynamic-tags.sql', 'utf8'))
+    assert.equal(
+      (await one('select count(*)::int n from orders')).n,
+      7,
       'migration reruns never generate invoices',
     )
   } finally {

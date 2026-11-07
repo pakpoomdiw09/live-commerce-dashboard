@@ -224,7 +224,7 @@ test('live comment CF orders match codes, protect stock, and send one secure pay
     const publicReplies: string[] = []
     const handle = (text: string, commentId: string) =>
       handleLiveCfComment(
-        { text, commentId },
+        { text, commentId, code: cfCode(text) ?? undefined },
         {
           placeOrder: (code) =>
             placeCommentOrder(db, code, commentId).then(
@@ -320,6 +320,40 @@ test('private reply template replaces all variables: product_name, variant_name,
     sent,
     'ยินดีด้วยค่ะ! เสื้อยืดแขนสั้น (สีขาว XL) ราคา 250.00 บาท ยอดสุทธิ 500.00 บาท ลิงก์: https://pay.example/live/token123',
   )
+})
+
+test('public and private stored templates support customer, item, total and bank aliases', async () => {
+  const sent: string[] = []
+  const template =
+    '{customer_name} {item_name} {price} {total_amount} {bank_account} {payment_link}'
+  await handleLiveCfComment(
+    { text: 'configured-tag', commentId: 'template-aliases', code: 'custom-code' },
+    {
+      placeOrder: async () => ({
+        status: 'created',
+        orderId: 'order',
+        name: 'Amulet',
+        code: 'custom-code',
+        amount: 250,
+        variantLabel: null,
+      }),
+      getPayment: async () => ({ bankName: 'Bank', accountNumber: '123', accountName: 'Shop' }),
+      getPendingTotal: async () => 500,
+      getPaymentLink: () => 'https://pay.example/signed',
+      privateTemplate: template,
+      publicTemplate: template,
+      customerName: 'Buyer',
+      sendPrivateReply: async (message) => {
+        sent.push(message)
+      },
+      replyToComment: async (message) => {
+        sent.push(message)
+      },
+    },
+  )
+  assert.equal(sent.length, 2)
+  for (const message of sent)
+    assert.equal(message, 'Buyer Amulet 250.00 500.00 Bank 123 (Shop) https://pay.example/signed')
 })
 
 test('each reply channel is attempted independently and delivery failures propagate to the queue', async () => {

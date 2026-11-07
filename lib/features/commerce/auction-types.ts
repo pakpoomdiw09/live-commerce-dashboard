@@ -26,6 +26,7 @@ export type Auction = {
   close_reply_template?: string
   session_automation?: SessionAutomation | null
   winner_confirmation_comment_id?: string | null
+  winner_locked_at?: string | null
 }
 
 export type AuctionBid = {

@@ -42,17 +42,14 @@ test('Contains matches partial keywords, punctuation and mixed letter/number spa
   assert.equal(matchLiveCfCode('a1', ['A-1'], 'flexible'), null)
 })
 
-test('draft codes immediately preview the six customer examples without adding a saved tag', () => {
+test('draft codes preview only configured prefixes without adding a saved tag', () => {
   const codes: string[] = []
   assert.deepEqual(previewLiveCfCodes(codes, ''), [])
-  assert.deepEqual(liveCfCodeExamples(previewLiveCfCodes(codes, 'A1'), 'flexible'), [
-    'A1',
-    'รับ A1',
-    'จอง A1',
-    'เอา A1',
-    'A1 ครับ',
-    'A1 ค่ะ',
-  ])
+  assert.deepEqual(
+    liveCfCodeExamples(previewLiveCfCodes(codes, 'A1'), 'flexible', ['RESERVE', 'รับ']),
+    ['A1', 'RESERVE A1', 'รับ A1'],
+  )
+  assert.deepEqual(liveCfCodeExamples(['A1'], 'flexible'), ['A1'])
   assert.deepEqual(codes, [])
   for (const code of ['01', '159', 'เสื้อ']) {
     assert.deepEqual(previewLiveCfCodes([], code), [code])

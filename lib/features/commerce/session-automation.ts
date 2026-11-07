@@ -1,3 +1,4 @@
+import { COMMENT_DEFAULTS, type CommentSettings } from './comment-config'
 import {
   SESSION_WINNER_TEMPLATE,
   SESSION_PUBLIC_WINNER_TEMPLATE,
@@ -6,7 +7,7 @@ import {
   validAuctionTemplate,
 } from './auction-templates'
 
-export type SessionAutomation = {
+export type SessionAutomation = CommentSettings & {
   /** Confirmation keywords are accepted only from the round's current highest bidder. */
   winnerFlow?: 'on_demand' | 'highest_bid'
   keywords: string[]
@@ -40,7 +41,7 @@ export const normalizeCloseKeyword = (text: string) =>
 export function defaultSessionAutomation(bankAccountId = ''): SessionAutomation {
   return {
     winnerFlow: 'on_demand',
-    keywords: ['1'],
+    keywords: [...COMMENT_DEFAULTS.confirmationTags],
     closeKeywords: [],
     publicReply: true,
     privateReply: true,

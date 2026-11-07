@@ -1,3 +1,10 @@
+import {
+  configuredTags,
+  normalizeCommentText,
+  resolveCommentSettings,
+  type CommentSettings,
+} from '@/lib/features/commerce/comment-config'
+
 export type AuctionComment =
   | { type: 'HOST_CONTROL'; action: 'close' | 'count'; count: string | null }
   | { type: 'OPENING_BID' }
@@ -6,60 +13,47 @@ export type AuctionComment =
   | { type: 'NUMERIC_BID'; amount: number }
   | { type: 'IGNORE' }
 
+/** One normalization for dashboard tags and inbound comments, including emoji selectors. */
+export const normalizeAuctionTag = normalizeCommentText
+
+export function auctionTags(
+  tags: readonly string[] | null | undefined,
+  fallback: string,
+): string[] {
+  return configuredTags(tags, [fallback])
+}
+
 /** Intent is deterministic: numbers in opening chatter (10 ลุ้น) are never prices. */
 export function parseAuctionComment(
   text: string,
   isHost = false,
-  automation?: {
-    keywords: string[]
-    winnerFlow?: 'on_demand' | 'highest_bid'
-    closeKeywords?: string[]
-    countEnabled: boolean
-    closeEnabled: boolean
-    heartCloses: boolean
-  } | null,
+  automation?:
+    | (CommentSettings & {
+        keywords: string[]
+        winnerFlow?: 'on_demand' | 'highest_bid'
+        closeKeywords?: string[]
+        countEnabled: boolean
+        closeEnabled: boolean
+        heartCloses: boolean
+      })
+    | null,
 ): AuctionComment {
-  const value = text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
+  const value = normalizeAuctionTag(text)
+  const settings = resolveCommentSettings({}, automation ?? {})
   if (isHost) {
-    // Count commands take precedence over the default bare closing keyword "เคาะ".
-    const count = value.match(/^(?:เคาะ\s*)?([123])$/u)?.[1]
-    if (count || value === 'นับขิง')
+    if (automation?.closeEnabled !== false && settings.closeKeywords.includes(value))
+      return { type: 'HOST_CONTROL', action: 'close', count: null }
+    // Counting remains separate from closing; configured closing tags take precedence.
+    const count = settings.counting_tags[value]
+    if (count)
       return automation?.countEnabled === false
         ? { type: 'IGNORE' }
-        : { type: 'HOST_CONTROL', action: 'count', count: count ?? 'นับขิง' }
-    const closeKeywords = automation?.closeKeywords ?? [
-      'ปิด',
-      'ปิดประมูล',
-      'จบ',
-      'เคาะ',
-      'close',
-      'stop',
-    ]
-    if (
-      automation?.closeEnabled !== false &&
-      closeKeywords.some((keyword) => {
-        const token = keyword
-          .normalize('NFKC')
-          .trim()
-          .toLowerCase()
-          .replace(/\s+/g, ' ')
-          .replace(/[\uFE0E\uFE0F]/gu, '')
-        return token.length > 0 && value.replace(/[\uFE0E\uFE0F]/gu, '').includes(token)
-      })
-    )
-      return { type: 'HOST_CONTROL', action: 'close', count: null }
-    if (automation?.heartCloses && /^(?:❤\uFE0F?|♥\uFE0F?)$/u.test(value))
-      return { type: 'HOST_CONTROL', action: 'close', count: null }
+        : { type: 'HOST_CONTROL', action: 'count', count }
     return { type: 'IGNORE' }
   }
-  const matchesKeyword = (automation?.keywords?.length ? automation.keywords : ['1']).some(
-    (word) => word.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ') === value,
-  )
+  const matchesKeyword = settings.keywords.includes(value)
   if (matchesKeyword) return { type: 'CONFIRM_BID' }
-  if (
-    /^(?:\+|(?:ขอ)?เปิด(?:ให้|ครับ|ค่ะ|คะ)?(?:\s.*)?|เจิม(?:ครับ|ค่ะ|คะ)?(?:\s.*)?)$/u.test(value)
-  )
-    return { type: 'OPENING_BID' }
+  if (settings.opening_tags.includes(value)) return { type: 'OPENING_BID' }
   // Whole price only; ignore phone numbers, product chatter and malformed grouping.
   if (/^(?:\d{1,9}|\d{1,3}(?:,\d{3}){1,2})(?:\.\d{1,2})?(?:\s*บาท)?$/u.test(value)) {
     const amount = Number(value.replace(/บาท|,|\s/g, ''))

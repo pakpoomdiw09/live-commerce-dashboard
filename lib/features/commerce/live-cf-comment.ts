@@ -1,4 +1,5 @@
-import { cfCode } from './cf-code'
+import { normalizeCfCode } from './cf-code'
+import { renderCommentTemplate } from './comment-config'
 
 export type LiveCfOrder =
   | {
@@ -57,9 +58,10 @@ export async function handleLiveCfComment(
     replyToComment?: (message: string) => Promise<unknown>
     privateTemplate?: string | null
     publicTemplate?: string | null
+    customerName?: string
   },
 ): Promise<boolean> {
-  const rawCode = input.code?.trim() || cfCode(input.text)
+  const rawCode = input.code?.trim() || normalizeCfCode(input.text)
   const code = rawCode ? rawCode.toLocaleLowerCase('en-US').trim() : null
   if (!code) {
     console.info('[live-cf/order] skipped', {
@@ -106,7 +108,7 @@ export async function handleLiveCfComment(
       channel: 'private',
       send: async () => {
         const cumulative = await dependencies.getCumulativeBill?.(order.orderId)
-        if (cumulative) {
+        if (cumulative && !dependencies.privateTemplate?.trim()) {
           await dependencies.sendPrivateReply!(cumulative)
           return
         }
@@ -123,17 +125,19 @@ export async function handleLiveCfComment(
         const product = dependencies.privateTemplate?.includes('{variant_name}')
           ? order.name
           : `${order.name}${variantLabel ? ` • ${variantLabel}` : ''}`
-        const priceText = money(
-          dependencies.privateTemplate?.includes('{total}') ? order.amount : total,
-        )
+        const priceText = money(order.amount)
         let message = dependencies.privateTemplate?.trim()
-          ? dependencies.privateTemplate
-              .replaceAll('{product_name}', product)
-              .replaceAll('{variant_name}', variantLabel)
-              .replaceAll('{price}', priceText)
-              .replaceAll('{total}', money(total))
-              .replaceAll('{payment_link}', paymentLink)
-              .trim()
+          ? renderCommentTemplate(dependencies.privateTemplate, {
+              product_name: product,
+              variant_name: variantLabel,
+              price: priceText,
+              bidder_name: dependencies.customerName ?? '',
+              total: money(total),
+              payment_link: paymentLink,
+              bank_account: payment
+                ? `${payment.bankName} ${payment.accountNumber}${payment.accountName ? ` (${payment.accountName})` : ''}`
+                : '',
+            }).trim()
           : [
               `รับออเดอร์ ${order.name}${variantLabel ? ` • ${variantLabel}` : ''} (${order.code})`,
               `ยอดชำระ ${money(total)} บาท`,
@@ -151,11 +155,35 @@ export async function handleLiveCfComment(
   if (dependencies.replyToComment)
     jobs.push({
       channel: 'public',
-      send: () =>
-        dependencies.replyToComment!(
-          dependencies.publicTemplate?.trim() ||
+      send: async () => {
+        const template = dependencies.publicTemplate?.trim()
+        if (!template)
+          return dependencies.replyToComment!(
             'รับออเดอร์แล้วค่ะ กรุณาตรวจสอบรายละเอียดและลิงก์ชำระเงินในข้อความส่วนตัว',
-        ),
+          )
+        const [bank, total, link] = await Promise.all([
+          template.includes('{bank_account}') ? dependencies.getPayment() : null,
+          /\{(?:total|total_amount)\}/u.test(template)
+            ? dependencies.getPendingTotal()
+            : order.amount,
+          template.includes('{payment_link}') ? dependencies.getPaymentLink(order.orderId) : '',
+        ])
+        if (!Number.isFinite(total) || total <= 0)
+          throw new Error('LIVE_CF_PAYMENT_TOTAL_UNAVAILABLE')
+        return dependencies.replyToComment!(
+          renderCommentTemplate(template, {
+            product_name: order.name,
+            variant_name: order.variantLabel ?? '',
+            price: money(order.amount),
+            total: money(total),
+            bidder_name: dependencies.customerName ?? '',
+            payment_link: link ?? '',
+            bank_account: bank
+              ? `${bank.bankName} ${bank.accountNumber}${bank.accountName ? ` (${bank.accountName})` : ''}`
+              : '',
+          }),
+        )
+      },
     })
   await deliverReplies(jobs, input.commentId)
   return true

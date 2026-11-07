@@ -56,7 +56,7 @@ test('customer status counts unique bills and separates unpaid, partial, exact a
 test('Session bid shortcuts and host switches are deterministic and preserve legacy parsing', () => {
   const settings = automation.defaultSessionAutomation(randomUUID())
   assert.equal(settings.winnerFlow, 'on_demand')
-  assert.deepEqual(Array.from(settings.keywords), [])
+  assert.deepEqual(Array.from(settings.keywords), ['1'])
   assert.deepEqual(Array.from(settings.closeKeywords), [])
   for (const text of settings.keywords)
     assert.equal(auctionParser.parseAuctionComment(text, false, settings).type, 'CONFIRM_BID')
@@ -71,7 +71,7 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
       closeKeywords: undefined,
       heartCloses: true,
     }).type,
-    'HOST_CONTROL',
+    'IGNORE',
   )
   assert.equal(
     auctionParser.parseAuctionComment('❌', true, { ...settings, closeEnabled: false }).type,
@@ -145,11 +145,11 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
   assert.equal(
     auctionParser.parseAuctionComment('❤️', true, {
       ...settings,
-      closeKeywords: undefined,
+      closeKeywords: ['❤️'],
       heartCloses: true,
     }).action,
     'close',
-    'the separate legacy console keeps its parser',
+    'emoji commands require an explicitly configured tag',
   )
   assert.equal(
     automation.validSessionAutomation({
@@ -293,7 +293,9 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     const process = async (id, sender, text, kind, amount = null, control = null, post = '456') => {
       const ev = await event(sender, text, post)
       return (
-        await one('select process_live_auction_comment($1,$2,$3,$4,$5,$6) result', [
+        // Seed ledger scenarios through the allocation primitive. The public winner-confirmation
+        // entry point is exercised independently in test-auction-on-demand.cjs.
+        await one('select process_live_auction_highest_bid($1,$2,$3,$4,$5,$6) result', [
           id,
           tenant,
           ev.id,
@@ -896,7 +898,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       false,
     )
     const preCloseConfirmation = await event('904', 'เคาะ', '989')
-    await process(thaiRound, '100', 'ปิดร้าน 🔨', 'HOST_CONTROL', null, 'close', '989')
+    await process(thaiRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
     assert.equal(
       (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [thaiRound]))
         .n,

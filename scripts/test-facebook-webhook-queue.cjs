@@ -8,6 +8,9 @@ const { PGlite } = require('@electric-sql/pglite')
 
 function load(file, dependencies = {}, globals = {}) {
   dependencies = {
+    '@/lib/features/commerce/comment-config': require('./helpers/load-typescript.cjs')(
+      'lib/features/commerce/comment-config.ts',
+    ),
     '@/lib/features/comments/live-comment-routing': require('./helpers/load-typescript.cjs')(
       'lib/features/comments/live-comment-routing.ts',
       {
@@ -1316,7 +1319,10 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
     let autoVerify = false,
       slipStatus = 'valid'
     const db = {
-      rpc: f.db.rpc,
+      rpc: (name, args) =>
+        name === 'facebook_comment_context'
+          ? Promise.resolve({ data: { mode: 'auto', settings: {} }, error: null })
+          : f.db.rpc(name, args),
       from(table) {
         let update = null
         const filters = {}
@@ -1366,6 +1372,7 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
               error: null,
             }
           if (table === 'comments') return { data: null, error: null }
+          if (table === 'messages') return { data: null, error: null }
           // This fixture pays an ordinary order, so there is no pending auction bill.
           if (table === 'orders') return { data: [], error: null }
           throw Error('Unexpected query: ' + table)
@@ -1380,6 +1387,9 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
           },
           update(value) {
             update = value
+            return query
+          },
+          insert() {
             return query
           },
           upsert() {

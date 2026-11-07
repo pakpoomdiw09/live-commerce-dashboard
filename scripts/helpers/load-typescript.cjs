@@ -8,6 +8,8 @@ module.exports = function loadTypeScript(file, dependencies = {}, globals = {}) 
   const context = {
     exports: {},
     require(name) {
+      if (name === '@/lib/features/commerce/comment-config' || name === './comment-config')
+        return module.exports('lib/features/commerce/comment-config.ts', {}, globals)
       if (name === '@/lib/single-flight') return module.exports('lib/single-flight.ts', {}, globals)
       if (Object.hasOwn(dependencies, name)) return dependencies[name]
       if (name === '@/lib/features/inbox/inbox-diagnostics') return { logInboxError() {} }

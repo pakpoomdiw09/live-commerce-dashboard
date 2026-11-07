@@ -102,7 +102,13 @@ function fixture({
           return q
         },
         is(key, value) {
-          predicates.push((row) => row[key] === value)
+          predicates.push((row) => (value === null ? row[key] == null : row[key] === value))
+          return q
+        },
+        not(key, operator, value) {
+          assert.equal(operator, 'is')
+          assert.equal(value, null)
+          predicates.push((row) => row[key] != null)
           return q
         },
         lte(key, value) {
@@ -469,6 +475,8 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   const f = fixture()
   f.tables.auctions[0].session_automation = {
     keywords: ['1'],
+    opening_tags: ['เปิดให้ 10 ลุ้น'],
+    counting_tags: { 1: '1', 'เคาะ 3': '3' },
     countEnabled: true,
     closeEnabled: true,
     heartCloses: false,
@@ -491,7 +499,7 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   assert.equal(f.calls.rpc.at(-1).input.p_control, '3')
 })
 
-test('explicit empty auction keywords and close words override defaults', () => {
+test('empty tag lists use the configured fallback keywords', () => {
   const empty = {
     keywords: [],
     closeKeywords: [],
@@ -501,8 +509,90 @@ test('explicit empty auction keywords and close words override defaults', () => 
   }
   assert.equal(parser.parseAuctionComment('+1', false, empty).type, 'IGNORE')
   assert.equal(parser.parseAuctionComment('กด 1', false, empty).type, 'IGNORE')
-  assert.equal(parser.parseAuctionComment('ปิด', true, empty).type, 'IGNORE')
+  assert.equal(parser.parseAuctionComment('ปิด', true, empty).type, 'HOST_CONTROL')
   assert.equal(parser.parseAuctionComment('1', false, empty).type, 'CONFIRM_BID')
+})
+
+test('dashboard admin closing tags replace stale round tags and do not dispatch a bill', async () => {
+  const f = fixture({ result: { status: 'awaiting_confirmation' } })
+  f.tables.auctions[0].session_automation = {
+    ...automation.defaultSessionAutomation(),
+    closeKeywords: ['ปิด'],
+  }
+  f.tables.live_sessions.push({
+    tenant_id: tenantId,
+    page_id: '100',
+    live_post_id: '456',
+    confirmation_keywords: ['STALE_CONFIRMATION'],
+    closing_keywords: ['STALE_CLOSING'],
+    auction_settings: {
+      ...automation.defaultSessionAutomation(),
+      keywords: ['11', '111'],
+      closeKeywords: ['XXX', 'XX', 'X'],
+    },
+  })
+  await f.receive(' xxx ', '100')
+  assert.equal(f.calls.rpc.length, 1)
+  assert.equal(f.calls.rpc[0].input.p_control, 'close')
+  assert.equal(f.calls.private.length, 0)
+  await f.receive('ปิด', '100')
+  await f.receive('prefixXXX', '999')
+  assert.equal(f.calls.rpc.length, 1)
+})
+
+test('configured confirmation tags reach the locked winner even while the next auction is active', async () => {
+  const f = fixture({
+    result: { status: 'confirmed', orderId, amount: 250 },
+    tab: {
+      total_amount: 300,
+      paid_amount: 0,
+      remaining_amount: 300,
+      shipping_fee: 50,
+      customer_tab_items: [],
+    },
+  })
+  Object.assign(f.tables.auctions[0], {
+    status: 'closed',
+    winner_locked_at: '2026-01-02',
+    winner_confirmed_at: null,
+    closed_at: '2026-01-02',
+    current_price: 250,
+    session_automation: { ...automation.defaultSessionAutomation(), keywords: ['1'] },
+  })
+  f.tables.auctions.push({
+    ...f.tables.auctions[0],
+    id: 'next-round',
+    status: 'active',
+    winner_locked_at: null,
+    leading_bidder_id: '901',
+    created_at: '2026-01-03',
+  })
+  f.tables.live_sessions.push({
+    tenant_id: tenantId,
+    page_id: '100',
+    live_post_id: '456',
+    auction_settings: {
+      ...automation.defaultSessionAutomation(),
+      keywords: ['11', '111'],
+      closeKeywords: ['X'],
+    },
+  })
+  f.tables.auction_deliveries.push({
+    id: 'locked-bill',
+    auction_id: auctionId,
+    channel: 'private',
+    status: 'pending',
+    comment_id: '456_789',
+  })
+  f.tables.messages.push({ external_id: `auction-bill:${auctionId}`, delivery_status: 'pending' })
+  await f.receive(' 111 ', '900')
+  assert.equal(f.calls.rpc[0].input.p_auction, auctionId)
+  assert.equal(f.calls.rpc[0].input.p_kind, 'CONFIRM_BID')
+  assert.equal(f.calls.private.length, 1)
+  assert.match(f.calls.private[0][2], /250/)
+  assert.match(f.calls.private[0][2], /KTB 9260337828/)
+  await f.receive('111', '900')
+  assert.equal(f.calls.private.length, 1)
 })
 
 test('unrelated posts fall through, but late auction confirmations never reach CF', async () => {
@@ -790,7 +880,7 @@ test('the previous winner bids in the next round immediately without losing a bi
 test('auction templates and switches control replies and use the cumulative net balance', async () => {
   const silentBid = fixture()
   silentBid.tables.auctions[0].public_reply_enabled = false
-  await silentBid.receive('เปิด')
+  await silentBid.receive('250')
   assert.equal(silentBid.calls.public.length, 0)
   assert.equal(silentBid.calls.rpc.length, 1, 'bids still count while replies are disabled')
   const custom = fixture({
@@ -812,7 +902,7 @@ test('auction templates and switches control replies and use the cumulative net 
     },
   })
   custom.tables.auctions[0].bid_reply_template = '{bidder_name} leads {product_name}: {price}'
-  await custom.receive('เปิด')
+  await custom.receive('250')
   assert.match(custom.calls.public[0][2], /Buyer leads .*200/)
   custom.tables.auctions[0].private_reply_template = 'Pay {total} for {product_name}'
   custom.tables.auction_deliveries.push({

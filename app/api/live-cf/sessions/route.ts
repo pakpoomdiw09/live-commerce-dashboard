@@ -112,6 +112,18 @@ export async function POST(req: NextRequest) {
     if (!UUID.test(input.sessionId ?? '') || !UUID.test(input.requestId ?? ''))
       return auctionReply({ error: 'รหัสคำขอไม่ถูกต้อง' }, 400)
     const revision = Number.isSafeInteger(input.revision) && input.revision >= 0
+    if (input.action === 'comment-config') {
+      if (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings))
+        return auctionReply({ error: 'ข้อมูลการตั้งค่าไม่ถูกต้อง' }, 400)
+      const saved = await supabaseAdmin().rpc('save_facebook_comment_config', {
+        p_tenant: input.tenantId,
+        p_session: input.sessionId,
+        p_actor: actor.id,
+        p_settings: input.settings,
+      })
+      if (saved.error) throw saved.error
+      return auctionReply(saved.data)
+    }
     let payload: Record<string, unknown>
     switch (input.action) {
       case 'costs':

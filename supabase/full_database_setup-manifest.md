@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 131 ไฟล์: รวมตาม dependencies 114 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 133 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 133 ไฟล์: รวมตาม dependencies 116 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 135 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1066020 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1111178 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (930013 bytes, 14951 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (970704 bytes, 15527 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -151,6 +151,8 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 112. [live-customer-item-labels.sql](live-customer-item-labels.sql) — 2 statements retained
 113. [live-cf-order-post.sql](live-cf-order-post.sql) — 2 statements retained
 114. [live-auction-highest-confirmation.sql](live-auction-highest-confirmation.sql) — 5 statements retained
+115. [live-auction-dynamic-tags.sql](live-auction-dynamic-tags.sql) — 9 statements retained
+116. [facebook-comment-configuration.sql](facebook-comment-configuration.sql) — 25 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -292,6 +294,8 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | live-customer-item-labels.sql | live-auction-on-demand.sql, live-order-types.sql |
 | live-cf-order-post.sql | live-cf-customer-variants.sql, live-session-dashboard.sql |
 | live-auction-highest-confirmation.sql | live-auction-on-demand.sql, live-auction-winner-confirmation.sql |
+| live-auction-dynamic-tags.sql | live-auction-highest-confirmation.sql |
+| facebook-comment-configuration.sql | live-auction-dynamic-tags.sql, live-cf-order-post.sql |
 
 ## ท่อนที่ตัดจากไฟล์ bootstrap เดิม
 
@@ -496,3 +500,5 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-customer-item-labels.sql: `6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de`
 - live-cf-order-post.sql: `0cc8add5f89d61723bafe7fbd8cf4d53486e74459bfdd331131d9c4929c82605`
 - live-auction-highest-confirmation.sql: `84447330d4b8d575a6437144bea213d14437c28219d5b2923aca8a5e1ca818f1`
+- live-auction-dynamic-tags.sql: `519739b3173ff89175f57388066e5b73bf2317b8486cfa1e45ff7d3524a935bd`
+- facebook-comment-configuration.sql: `1a11ed58af99077fa1fee1fa630bd27da3e528374db2294569d101d833807dbd`

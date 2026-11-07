@@ -1,4 +1,5 @@
 import 'server-only'
+import { resolveCommentSettings } from './comment-config'
 import { customerTabItemLabel } from './customer-tab-types'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import {
@@ -283,6 +284,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
         if (auction.winner_confirmation_comment_id) {
           // A winner confirmation is one complete receipt, even with a custom/short template.
           billMessage = [
+            renderAuctionTemplate(privateTemplate, values),
             `ยืนยันผู้ชนะประมูล: ${auction.leading_bidder_name || 'ลูกค้า'}`,
             `รายการ: ${auction.item_name}`,
             `ราคาประมูลที่ชนะ: ${money(auction.current_price)} บาท`,
@@ -509,6 +511,28 @@ export async function handleAuctionComment(input: {
     return false
   }
   const db = supabaseAdmin({ timeoutMs: 15000 })
+  const loadSessionTags = async (round: Auction) => {
+    const session = await db
+      .from('live_sessions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('page_id', pageId)
+      .eq('live_post_id', round.live_post_id)
+      .maybeSingle()
+    if (session.error && !['42P01', 'PGRST205'].includes(session.error.code)) throw session.error
+    const automation = {
+      ...round.session_automation,
+      ...resolveCommentSettings(session.data ?? {}, round.session_automation ?? {}),
+    } as NonNullable<Auction['session_automation']>
+    return {
+      ...round,
+      session_automation: automation,
+      private_reply_template:
+        automation.private_reply_template ?? automation.privateText ?? round.private_reply_template,
+      bid_reply_template:
+        automation.public_reply_template ?? automation.bidText ?? round.bid_reply_template,
+    }
+  }
   const findAuction = async (postIds: string[]): Promise<Auction | undefined> => {
     const query = () =>
       db
@@ -525,7 +549,32 @@ export async function handleAuctionComment(input: {
     const candidate = active.data?.[0] as Auction | undefined
     return candidate && candidate.created_at > execution.event.created_at ? undefined : candidate
   }
-  let auction = await findAuction(ids)
+  const senderId = (value.from as { id?: unknown } | undefined)?.id
+  let auction: Auction | undefined
+  if (typeof senderId === 'string' && senderId !== pageId) {
+    const waiting = await db
+      .from('auctions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('page_id', pageId)
+      .in('live_post_id', ids)
+      .eq('status', 'closed')
+      .eq('leading_bidder_id', senderId)
+      .not('winner_locked_at', 'is', null)
+      .is('winner_confirmed_at', null)
+      .order('closed_at', { ascending: false })
+      .limit(1)
+    if (waiting.error && !['42P01', 'PGRST205'].includes(waiting.error.code)) throw waiting.error
+    if (waiting.data?.[0]) {
+      const candidate = await loadSessionTags(waiting.data[0] as Auction)
+      if (
+        parseAuctionComment(value.message, false, candidate.session_automation).type ===
+        'CONFIRM_BID'
+      )
+        auction = candidate
+    }
+  }
+  auction ??= await findAuction(ids)
   if (!auction) {
     // Closed rounds still own late bid/confirmation text, even after the live session ends.
     const historical = await db
@@ -561,8 +610,17 @@ export async function handleAuctionComment(input: {
     return true
   }
   const isHost = author.id === pageId || auction.host_ids.includes(author.id)
+  // Session settings are the current dashboard configuration; old rounds retain a snapshot fallback.
+  auction = await loadSessionTags(auction)
+  if (auction.session_automation?.mode === 'cf' || auction.session_automation?.mode === 'auto')
+    return false
   const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
-  if (auction.status !== 'active') {
+  const awaitingWinner =
+    auction.status === 'closed' &&
+    auction.winner_locked_at &&
+    !auction.winner_confirmation_comment_id &&
+    parsed.type === 'CONFIRM_BID'
+  if (auction.status !== 'active' && !awaitingWinner) {
     skipped('AUCTION_ALREADY_CLOSED', { auctionId: auction.id })
     // Late bids/confirmations belong to this auction, never to product CF rules.
     return parsed.type === 'NUMERIC_BID' || parsed.type === 'CONFIRM_BID'
@@ -595,7 +653,7 @@ export async function handleAuctionComment(input: {
     amount: result.amount,
   })
   if (parsed.type === 'HOST_CONTROL') {
-    if (parsed.action === 'close') await deliverAuctionNotifications(auction.id)
+    // Closing locks bids; billing is released only by the recorded winner's confirmation.
     return true
   }
   if (parsed.type === 'CONFIRM_BID') {
@@ -605,8 +663,7 @@ export async function handleAuctionComment(input: {
     return true
   }
   // The simplified seller workspace records bids silently; only the winner is notified.
-  if (isOnDemandWinnerFlow(auction.session_automation) || auction.session_automation?.closeKeywords)
-    return true
+  if (isOnDemandWinnerFlow(auction.session_automation)) return true
   if (auction.public_reply_enabled === false) return true
   let message: string | null = null
   if (result.status === 'accepted')

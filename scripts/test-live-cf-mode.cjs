@@ -427,6 +427,10 @@ function webhookFixture({
       return q
     },
     rpc: async (name, args) => {
+      if (name === 'facebook_comment_context')
+        return { data: { mode: null, settings: {} }, error: null }
+      if (name === 'place_facebook_catalog_order')
+        return { data: [{ r_status: 'no_match' }], error: null }
       calls.rpc.push({ name, args })
       return {
         data: [

@@ -1,5 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase/server'
 import {
+  resolveCommentSettings,
+  renderCommentTemplate,
+} from '@/lib/features/commerce/comment-config'
+import {
   getCustomerProfile,
   getPageTokenStatus,
   resolveLiveCommentVideo,
@@ -740,9 +744,23 @@ async function onComment(
   tenant: PageTenant | null,
   execution: WebhookExecution,
 ) {
+  const db = supabaseAdmin({ timeoutMs: 15000 })
+  const context = tenant
+    ? await db.rpc('facebook_comment_context', {
+        p_tenant: tenant.id,
+        p_page: pageId,
+        p_posts: commentPostIds(v),
+      })
+    : { data: null, error: null }
+  if (context.error) throw context.error
+  const settings = resolveCommentSettings(context.data?.session ?? {}, context.data?.settings ?? {})
+  const mode = context.data?.mode ?? settings.mode
   // Auctions exclusively own bids and winner confirmations, including rejected confirmations.
+  // Tag matching is delegated to the round/session settings, never to a keyword in this handler.
   // Route before customer/comment persistence and product CF matching to prevent double billing.
   if (
+    mode !== 'cf' &&
+    mode !== 'auto' &&
     tenant &&
     isFeatureEnabled('live_cf') &&
     (await handleAuctionComment({
@@ -754,6 +772,7 @@ async function onComment(
     }))
   )
     return
+  if (mode === 'auction') return
   // the Page's own replies (including the auto-replies below): never answer them, or rules would loop
   if (v.from?.id === pageId) {
     console.info('[live-cf/comment] skipped', {
@@ -789,10 +808,9 @@ async function onComment(
     })
     return
   }
-  const db = supabaseAdmin({ timeoutMs: 15000 })
   const rules = await loadCommentRules(db, tenant.id, pageId)
   const psid = typeof v.from?.id === 'string' ? v.from.id : null
-  const liveEnabled = isFeatureEnabled('live_cf')
+  const liveEnabled = mode !== 'auto' && isFeatureEnabled('live_cf')
   const liveRules = rules.filter((r) => r.mode === 'live_cf')
   const matches = liveRules.map((rule) => ({ rule, code: liveRuleCode(rule, v.message) }))
   const possibleLive = liveEnabled ? matches.filter((m) => m.code).map((m) => m.rule) : []
@@ -923,6 +941,7 @@ async function onComment(
           },
           privateTemplate: selectedRule.inbox_text,
           publicTemplate: selectedRule.reply_text,
+          customerName: v.from?.name ?? '',
           sendPrivateReply: selectedRule.inbox_enabled
             ? (message) =>
                 execution
@@ -1000,12 +1019,102 @@ async function onComment(
       reason: !psid ? 'NO_COMMENT_AUTHOR' : 'NO_CUSTOMER_RECORD',
     })
   }
+  if (mode !== 'auto' && psid && stored.customer && isFeatureEnabled('live_cf')) {
+    const catalog = await execution.once('comment-catalog-order', async () => {
+      const result = await db.rpc('place_facebook_catalog_order', {
+        p_tenant: tenant.id,
+        p_customer: stored.customer!.id,
+        p_page: pageId,
+        p_post: commentPostIds(v)[0] ?? null,
+        p_comment: v.comment_id,
+        p_text: v.message,
+      })
+      if (result.error) throw result.error
+      return result.data?.[0] ?? { r_status: 'no_match' }
+    })
+    if (catalog.r_status !== 'no_match') {
+      const meta = createLiveCfMetaAdapter({
+        privateText: (id, text) => sendPrivateReply(pageTokenFor(tenant), id, text, pageId),
+        publicText: (id, text) => replyToComment(pageTokenFor(tenant), id, text),
+      })
+      await handleLiveCfComment(
+        { text: v.message, commentId: v.comment_id, code: catalog.r_code },
+        {
+          placeOrder: async () => ({
+            status: catalog.r_status,
+            orderId: catalog.r_order_id,
+            name: catalog.r_name,
+            code: catalog.r_code,
+            amount: Number(catalog.r_amount),
+            variantLabel: catalog.r_variant_label,
+          }),
+          getPayment: () => primaryBankPayment(db, tenant.id),
+          getPendingTotal: async () =>
+            (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
+          getPaymentLink: createLiveCfPaymentLink,
+          privateTemplate: settings.private_reply_template as string | undefined,
+          publicTemplate: settings.public_reply_template as string | undefined,
+          customerName: v.from?.name ?? '',
+          sendPrivateReply:
+            settings.privateReply === false
+              ? undefined
+              : async (message) => {
+                  const sent = await execution.once('catalog-private-send', async () => {
+                    await sendWithMessageCredit(db, tenant.id, () =>
+                      meta.sendPrivateText(v.comment_id, message),
+                    )
+                    return message.normalize('NFC').trim().slice(0, 2000)
+                  })
+                  await execution.once('catalog-private-history', async () => {
+                    const result = await db
+                      .from('messages')
+                      .insert({
+                        customer_id: stored.customer!.id,
+                        external_id: `catalog-reply:${v.comment_id}`,
+                        sender: 'bot',
+                        body: sent,
+                        delivery_status: 'sent',
+                      })
+                    if (result.error && result.error.code !== '23505') throw result.error
+                    return null
+                  })
+                },
+          replyToComment:
+            settings.publicReply === false
+              ? undefined
+              : (message) =>
+                  execution.once('catalog-public-send', async () => {
+                    await sendWithMessageCredit(db, tenant.id, () =>
+                      meta.sendPublicText(v.comment_id, message),
+                    )
+                    return null
+                  }),
+        },
+      )
+      return
+    }
+  }
+  if (stored.customer) {
+    await execution.once('general-comment-history', async () => {
+      const saved = await db
+        .from('messages')
+        .insert({
+          customer_id: stored.customer!.id,
+          external_id: `facebook-comment:${v.comment_id}`,
+          sender: 'customer',
+          body: v.message,
+        })
+      if (saved.error && saved.error.code !== '23505') throw saved.error
+      return null
+    })
+  }
   await runCommentRules(
     stored.id,
     v,
     tenant,
     execution,
     rules.filter((r) => r.mode !== 'live_cf'),
+    stored.customer?.id,
   )
 }
 
@@ -1063,6 +1172,7 @@ async function runCommentRules(
   tenant: PageTenant,
   execution: WebhookExecution,
   rules: CommentRule[],
+  customerId?: string,
 ) {
   const db = supabaseAdmin({ timeoutMs: 15000 })
   // without `from` the Page's own auto-replies can't be recognised above: don't answer our own reply text
@@ -1080,12 +1190,25 @@ async function runCommentRules(
   if (saved.error) throw saved.error
 
   const token = pageTokenFor(tenant)
+  const values = {
+    bidder_name: v.from?.name ?? '',
+    product_name: '',
+    price: '',
+    total: '',
+    bank_account: '',
+  }
+  if (rule.inbox_text?.includes('{bank_account}') || rule.reply_text?.includes('{bank_account}')) {
+    const bank = await primaryBankPayment(db, tenant.id)
+    values.bank_account = bank
+      ? `${bank.bankName} ${bank.accountNumber}${bank.accountName ? ` (${bank.accountName})` : ''}`
+      : ''
+  }
   const jobs: (() => Promise<unknown>)[] = []
   if (rule.reply_enabled && rule.reply_text)
     jobs.push(() =>
       execution.once('comment-public-reply', async () => {
         await sendWithMessageCredit(db, tenant.id, () =>
-          replyToComment(token, v.comment_id, rule.reply_text!),
+          replyToComment(token, v.comment_id, renderCommentTemplate(rule.reply_text!, values)),
         )
         return null
       }),
@@ -1102,16 +1225,35 @@ async function runCommentRules(
             }
           : null
         : rule.inbox_text
-          ? { text: rule.inbox_text }
+          ? { text: renderCommentTemplate(rule.inbox_text, values) }
           : null
     if (message)
       jobs.push(() =>
-        execution.once('comment-private-reply', async () => {
-          await sendWithMessageCredit(db, tenant.id, () =>
-            privateReply(token, v.comment_id, message),
-          )
-          return null
-        }),
+        execution
+          .once('comment-private-reply', async () => {
+            await sendWithMessageCredit(db, tenant.id, () =>
+              privateReply(token, v.comment_id, message),
+            )
+            return null
+          })
+          .then(() =>
+            customerId
+              ? execution.once('general-private-history', async () => {
+                  const saved = await db
+                    .from('messages')
+                    .insert({
+                      customer_id: customerId,
+                      external_id: `comment-private:${v.comment_id}`,
+                      sender: 'bot',
+                      body: 'text' in message ? message.text : null,
+                      attachments: 'attachment' in message ? [message.attachment] : [],
+                      delivery_status: 'sent',
+                    })
+                  if (saved.error && saved.error.code !== '23505') throw saved.error
+                  return null
+                })
+              : null,
+          ),
       )
   }
   // independent: a failed public reply must not stop the inbox message, and the other way round

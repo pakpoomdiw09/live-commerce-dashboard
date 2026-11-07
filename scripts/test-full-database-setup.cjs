@@ -216,7 +216,7 @@ test('setup only keeps reviewed config seeds and excludes historical locks/backf
   for (const q of retained.filter((s) => /^insert\b/i.test(s.sql))) {
     assert.match(
       q.sql,
-      /^insert into (storage\.buckets|(?:public\.)?(plan_features|vision_plan_limits|commerce_limits))\b/i,
+      /^insert into (storage\.buckets|(?:public\.)?(plan_features|vision_plan_limits|commerce_limits|facebook_comment_defaults))\b/i,
     )
   }
   for (const name of [

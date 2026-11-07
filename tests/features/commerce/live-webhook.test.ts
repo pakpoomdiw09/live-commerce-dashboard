@@ -288,6 +288,7 @@ function handlerFixture(
     privateFails?: boolean
     cumulative?: boolean
     historyFailsOnce?: boolean
+    flowMode?: 'auction' | 'cf' | 'auto'
   } = {},
 ) {
   const traces: { label: string; data: any }[] = []
@@ -311,6 +312,10 @@ function handlerFixture(
     page_ids: ['100'],
   }
   const db = {
+    rpc: async (name: string) =>
+      name === 'facebook_comment_context'
+        ? { data: { mode: options.flowMode ?? null, settings: {} }, error: null }
+        : { data: [{ r_status: 'no_match' }], error: null },
     from(table: string) {
       const query: any = {
         select: () => query,
@@ -543,6 +548,27 @@ test('auction host commands route before the Page-own-comment filter and consume
   const customer = handlerFixture({ auctionHandled: true, keywords: ['1', '250'] })
   for (const text of ['1', '250', 'fc159']) await customer.receive(text)
   assert.equal(customer.orders.length, 0, 'auction-scoped comments cannot also place a CF order')
+})
+
+test('configured modes isolate auction, CF and general ingestion even without an active round', async () => {
+  const auction = handlerFixture({
+    flowMode: 'auction',
+    auctionHandled: false,
+    keywords: ['READY', '250'],
+  })
+  for (const text of ['READY', '250']) await auction.receive(text)
+  assert.equal(auction.orders.length, 0)
+  assert.equal(auction.sends.length, 0)
+  const cfMode = handlerFixture({ flowMode: 'cf', auctionHandled: true })
+  await cfMode.receive('fc159')
+  assert.equal(cfMode.orders.length, 1)
+  assert.ok(!cfMode.traces.some((t) => t.label === 'auction-route'))
+  const auto = handlerFixture({ flowMode: 'auto', auctionHandled: true })
+  await auto.receive('fc159')
+  assert.equal(auto.orders.length, 0)
+  assert.ok(!auto.traces.some((t) => t.label === 'auction-route'))
+  assert.equal(auto.history[0].sender, 'customer')
+  assert.equal(auto.history[0].body, 'fc159')
 })
 
 test('diagnostics distinguish a configured keyword mismatch from a session mismatch', async () => {
