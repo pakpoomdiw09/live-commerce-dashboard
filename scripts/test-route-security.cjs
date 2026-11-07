@@ -32,6 +32,7 @@ function fixture({
   owner = true,
   scope = { tenant_id: 'shop' },
   scopeError = null,
+  auctionProof = null,
 } = {}) {
   const calls = []
   const db = {
@@ -41,7 +42,7 @@ function fixture({
       calls.push('approve_auction_payment_proof')
       return { data: scope.approved_at, error: null }
     },
-    from() {
+    from(table) {
       const query = {
         select() {
           return query
@@ -49,7 +50,15 @@ function fixture({
         eq() {
           return query
         },
-        maybeSingle: async () => ({ data: scope, error: scopeError }),
+        maybeSingle: async () => ({
+          data:
+            table === 'auction_payment_proofs'
+              ? auctionProof
+              : table === 'payment_pro_attempts'
+                ? null
+                : scope,
+          error: scopeError,
+        }),
       }
       calls.push('scope')
       return query
@@ -130,6 +139,16 @@ test('owner can approve idempotently', async () => {
   })
   const api = load('app/api/slips/[id]/approve/route.ts', f.mocks)
   assert.equal((await api.POST({}, { params: Promise.resolve({ id }) })).status, 200)
+})
+
+test('auction approval uses the scoped RPC instead of modifying all pending orders', async () => {
+  const f = fixture({
+    scope: { id, tenant_id: 'shop', status: 'valid', approved_at: 'existing' },
+    auctionProof: { order_id: 'auction-order' },
+  })
+  const api = load('app/api/slips/[id]/approve/route.ts', f.mocks)
+  assert.equal((await api.POST({}, { params: Promise.resolve({ id }) })).status, 200)
+  assert.ok(f.calls.includes('approve_auction_payment_proof'))
 })
 test('dashboard guard redirects without constructing service-role client', async () => {
   const api = load('lib/auth.ts', {

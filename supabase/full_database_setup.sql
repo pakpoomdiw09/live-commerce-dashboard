@@ -14807,5 +14807,30 @@ end $$;
 notify pgrst,'reload schema';
 
 commit;
+-- ============================================================================
+-- 112. live-customer-item-labels.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+do $$
+declare signature text; definition text;
+begin
+ foreach signature in array array['public.live_session_dashboard(uuid,uuid)', 'public.live_session_tab_proof(uuid,uuid,uuid)'] loop
+  definition:=pg_get_functiondef(signature::regprocedure);
+  definition:=replace(definition, '''name'',i.item_name',
+   '''name'',case when i.order_type=''auction'' then ''[ประมูล] ''||i.item_name when i.order_type=''cf'' then ''[CF''||case when i.source_code is not null then ''-''||upper(i.source_code) else '''' end||''] ''||i.item_name else i.item_name end');
+  execute definition;
+ end loop;
+end $$;
+
+-- Source statement 3
+notify pgrst,'reload schema';
+
+commit;
 
 notify pgrst, 'reload schema';

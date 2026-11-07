@@ -913,32 +913,38 @@ async function onComment(
           publicTemplate: selectedRule.reply_text,
           sendPrivateReply: selectedRule.inbox_enabled
             ? (message) =>
-                execution.once('comment-cf-private-reply', async () => {
-                  console.info('[live-cf/reply] started', {
-                    commentId: v.comment_id,
-                    ruleId: selectedRule.id,
-                    channel: 'private',
-                    recipientType: 'comment_id',
-                  })
-                  await sendWithMessageCredit(db, tenant.id, () =>
-                    meta.sendPrivateText(v.comment_id, message),
-                  )
-                  return null
-                }).then(() => execution.once('comment-cf-private-history', async () => {
-                    const chat = await db.from('messages').insert({
-                      customer_id: stored.customer!.id,
-                      external_id: `cf-bill:${v.comment_id}`,
-                      sender: 'bot',
-                      body: message,
-                      delivery_status: 'sent',
+                execution
+                  .once('comment-cf-private-reply', async () => {
+                    const sentText = message.normalize('NFC').trim().slice(0, 2000)
+                    console.info('[live-cf/reply] started', {
+                      commentId: v.comment_id,
+                      ruleId: selectedRule.id,
+                      channel: 'private',
+                      recipientType: 'comment_id',
                     })
-                    if (chat.error && chat.error.code !== '23505') throw chat.error
-                  console.info('[live-cf/reply] succeeded', {
-                    commentId: v.comment_id,
-                    channel: 'private',
+                    await sendWithMessageCredit(db, tenant.id, () =>
+                      meta.sendPrivateText(v.comment_id, sentText),
+                    )
+                    return sentText
                   })
-                  return null
-                }))
+                  .then((sentText) =>
+                    execution.once('comment-cf-private-history', async () => {
+                      const chat = await db.from('messages').insert({
+                        customer_id: stored.customer!.id,
+                        external_id: `cf-bill:${v.comment_id}`,
+                        sender: 'bot',
+                        // Old completed checkpoints returned null; new ones retain the exact sent text.
+                        body: sentText ?? message.normalize('NFC').trim().slice(0, 2000),
+                        delivery_status: 'sent',
+                      })
+                      if (chat.error && chat.error.code !== '23505') throw chat.error
+                      console.info('[live-cf/reply] succeeded', {
+                        commentId: v.comment_id,
+                        channel: 'private',
+                      })
+                      return null
+                    }),
+                  )
             : undefined,
           replyToComment: selectedRule.reply_enabled
             ? (message) =>

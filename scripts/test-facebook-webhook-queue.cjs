@@ -38,7 +38,9 @@ function load(file, dependencies = {}, globals = {}) {
       replyToMessengerProduct: async () => false,
     },
     '@/lib/features/commerce/live-cf-payment-link': {},
-    '@/lib/features/shipping/shipping-notifications': { deliverShippingTrackingNotifications: async () => {} },
+    '@/lib/features/shipping/shipping-notifications': {
+      deliverShippingTrackingNotifications: async () => {},
+    },
     '@/lib/integrations/facebook/live-cf-adapter': {},
     '@/lib/feature-flags': { isFeatureEnabled: () => false },
     '@/lib/integrations/facebook/diagnostics': require('./helpers/load-typescript.cjs')(
@@ -698,7 +700,11 @@ test('worker authentication fails closed and does not access the database for an
     ).status,
     200,
   )
-  assert.equal(dbCalls, 1)
+  assert.equal(
+    dbCalls,
+    2,
+    'authorized runs create clients for the webhook worker and shipping recovery',
+  )
 })
 
 test('HTTP acknowledges only after durable commit; failed persistence returns 503; worker is deferred', async () => {
@@ -1360,6 +1366,8 @@ test('concurrent deliveries across both URLs execute one shared profile, AI, tra
               error: null,
             }
           if (table === 'comments') return { data: null, error: null }
+          // This fixture pays an ordinary order, so there is no pending auction bill.
+          if (table === 'orders') return { data: [], error: null }
           throw Error('Unexpected query: ' + table)
         }
         const query = {

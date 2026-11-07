@@ -29,7 +29,7 @@ test('host identity determines commands; a customer cannot close or count', () =
   }
   for (const text of ['1', '2', '3', 'เคาะ 1', 'เคาะ 2', 'เคาะ 3', 'นับขิง'])
     assert.equal(parseAuctionComment(text, true).type, 'HOST_CONTROL')
-  assert.equal(
+  assert.deepEqual(
     parseAuctionComment('เคาะ 3', true),
     { type: 'HOST_CONTROL', action: 'count', count: '3' },
     'third knock is a count, not an implicit close',
@@ -41,10 +41,23 @@ test('host identity determines commands; a customer cannot close or count', () =
 })
 
 test('explicit empty closing keywords and disabled automation override defaults', () => {
-  const automation = { keywords: [], closeKeywords: [], countEnabled: true, closeEnabled: true, heartCloses: false }
+  const automation = {
+    keywords: [],
+    closeKeywords: [],
+    countEnabled: true,
+    closeEnabled: true,
+    heartCloses: false,
+  }
   assert.deepEqual(parseAuctionComment('ปิด', true, automation), { type: 'IGNORE' })
   assert.deepEqual(parseAuctionComment('1', false, automation), { type: 'NUMERIC_BID', amount: 1 })
-  assert.deepEqual(parseAuctionComment('stop', true, { ...automation, closeKeywords: ['stop'], closeEnabled: false }), { type: 'IGNORE' })
+  assert.deepEqual(
+    parseAuctionComment('stop', true, {
+      ...automation,
+      closeKeywords: ['stop'],
+      closeEnabled: false,
+    }),
+    { type: 'IGNORE' },
+  )
 })
 
 test('configured closing keywords include composed and repeated emoji text for the Page only', () => {

@@ -27,7 +27,14 @@ export function parseAuctionComment(
       return automation?.countEnabled === false
         ? { type: 'IGNORE' }
         : { type: 'HOST_CONTROL', action: 'count', count: count ?? 'นับขิง' }
-    const closeKeywords = automation?.closeKeywords ?? ['ปิด', 'ปิดประมูล', 'จบ', 'เคาะ', 'close', 'stop']
+    const closeKeywords = automation?.closeKeywords ?? [
+      'ปิด',
+      'ปิดประมูล',
+      'จบ',
+      'เคาะ',
+      'close',
+      'stop',
+    ]
     if (
       automation?.closeEnabled !== false &&
       closeKeywords.some((keyword) => {

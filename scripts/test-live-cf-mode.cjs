@@ -6,7 +6,9 @@ const load = require('./helpers/load-typescript.cjs')
 const cf = load('lib/features/commerce/cf-code.ts')
 const rules = load('lib/features/comments/comment-rules.ts', {
   '@/lib/features/commerce/cf-code': cf,
-  '@/lib/features/commerce/live-cf-codes': load('lib/features/commerce/live-cf-codes.ts', { './cf-code': cf }),
+  '@/lib/features/commerce/live-cf-codes': load('lib/features/commerce/live-cf-codes.ts', {
+    './cf-code': cf,
+  }),
 })
 const routing = load('lib/features/comments/live-comment-routing.ts', { './comment-rules': rules })
 const envelope = load(
@@ -92,7 +94,7 @@ async function fixture() {
   return { db, product, rule, place, one }
 }
 
-test('Live aliases match whole codes, reject glued codes, scope posts, and keep general matching unchanged', () => {
+test('Live aliases use the current Contains matcher, scope posts, and retain Exact matching', () => {
   const rule = {
     id: 'r',
     mode: 'live_cf',
@@ -103,8 +105,9 @@ test('Live aliases match whole codes, reject glued codes, scope posts, and keep 
   }
   for (const text of ['159', 'CF A1', 'รับ Z99 ค่ะ', 'สนใจ159ค่ะ'])
     assert.ok(rules.liveRuleCode(rule, text))
-  for (const text of ['1159', 'A12', 'BA1', 'Z99X', '159-1', 'รูปทั่วไป'])
-    assert.equal(rules.liveRuleCode(rule, text), null)
+  for (const text of ['1159', 'A12', 'BA1', 'Z99X', '159-1'])
+    assert.ok(rules.liveRuleCode(rule, text))
+  assert.equal(rules.liveRuleCode(rule, 'รูปทั่วไป'), null)
   assert.equal(rules.liveRuleCode({ ...rule, match_type: 'exact' }, 'CF A1'), null)
   assert.equal(routing.liveRuleCandidates([rule], 'A1', [], false).length, 0)
   assert.equal(routing.liveRuleCandidates([rule], 'A1', [], true).length, 1)
@@ -310,7 +313,7 @@ test('placeCfOrder routes Live CF through the atomic RPC and keeps chat CF param
     postId: '456',
     pageId: '100',
   })
-  assert.equal(calls[0].name, 'place_live_cf_order')
+  assert.equal(calls[0].name, 'place_cf_order')
   assert.equal(calls[0].args.p_customer, C)
   assert.equal(calls[0].args.p_code, '159')
   await api.placeCfOrder(db, { tenantId: T, customerId: C, code: 'SKU', messageId: 'm' })
@@ -339,6 +342,8 @@ function webhookFixture({
       keywords: ['Z99'],
       match_type: 'keyword',
       live_post_id: scoped ? '456' : null,
+      inbox_enabled: true,
+      reply_enabled: true,
     },
     {
       id: 'general',
@@ -368,6 +373,7 @@ function webhookFixture({
           },
           order: () => q,
           update: () => q,
+          insert: () => q,
           maybeSingle: () => Promise.resolve(result()),
           then: (yes, no) => Promise.resolve(result()).then(yes, no),
         }
@@ -395,6 +401,7 @@ function webhookFixture({
             error: null,
           }
         if (table === 'comments') return { data: null, error: null }
+        if (table === 'messages') return { data: null, error: null }
         if (table === 'orders') return { data: [{ id: 'order', amount: 250 }], error: null }
         if (table === 'bank_accounts')
           return {
@@ -452,6 +459,10 @@ function webhookFixture({
         calls.lookups++
         return graphLive
       },
+      resolveLiveCommentVideo: async () => {
+        calls.lookups++
+        return { live: graphLive, ids: ['456'] }
+      },
       sendPrivateReply: async (...args) => {
         calls.private.push(args)
         if (replyError) throw Error('META_SEND_FAILED')
@@ -465,6 +476,18 @@ function webhookFixture({
     },
     '@/lib/features/comments/comment-rules': rules,
     '@/lib/features/comments/live-comment-routing': routing,
+    '@/lib/features/commerce/messenger-product-server': {
+      replyToMessengerProduct: async () => false,
+    },
+    '@/lib/features/commerce/auction-server': { handleAuctionComment: async () => false },
+    '@/lib/features/commerce/customer-tabs-server': { tabForOrder: async () => null },
+    '@/lib/features/commerce/live-cf-payment-link': {
+      createLiveCfPaymentLink: () => 'https://test.invalid/pay/live/signed',
+    },
+    '@/lib/integrations/facebook/live-cf-adapter': load(
+      'lib/integrations/facebook/live-cf-adapter.ts',
+    ),
+    '@/lib/feature-flags': { isFeatureEnabled: () => true },
     '@/lib/features/commerce/orders': load('lib/features/commerce/orders.ts', {
       'server-only': {},
       '@/lib/features/banking/banks': {},
@@ -488,6 +511,7 @@ function webhookFixture({
   const handler = load('lib/integrations/facebook/webhook-handler.ts', deps, {
     console: { log() {}, warn() {}, info() {}, error() {} },
     process: { env: {} },
+    URL,
   })
   const steps = new Map()
   const execution = {
@@ -519,7 +543,7 @@ function webhookFixture({
   return { calls, execution, run: () => handler.handleFacebookWebhookEvent(execution) }
 }
 
-test('webhook configured Live CF creates pending order once, sends primary QR with the correct Page token and comment recipient, then public confirmation', async () => {
+test('webhook Live CF creates one pending order and sends a signed payment link with the correct Page token and comment recipient', async () => {
   for (const options of [
     { live: true },
     { live: false, scoped: true },
@@ -529,7 +553,7 @@ test('webhook configured Live CF creates pending order once, sends primary QR wi
     await f.run()
     await f.run()
     assert.equal(f.calls.rpc.length, 1)
-    assert.equal(f.calls.rpc[0].name, 'place_live_cf_order')
+    assert.equal(f.calls.rpc[0].name, 'place_cf_order')
     assert.equal(f.calls.rpc[0].args.p_customer, C)
     assert.equal(f.calls.rpc[0].args.p_page, '100')
     assert.equal(f.calls.rpc[0].args.p_code, 'z99')
@@ -537,7 +561,8 @@ test('webhook configured Live CF creates pending order once, sends primary QR wi
     assert.equal(f.calls.private[0][0], 'page-token')
     assert.equal(f.calls.private[0][1], '100_555')
     assert.match(f.calls.private[0][2], /250\.00/)
-    assert.equal(f.calls.private[0][3], 'https://test.invalid/signed-qr')
+    assert.equal(f.calls.private[0][3], '100')
+    assert.match(f.calls.private[0][2], /https:\/\/test.invalid\/pay\/live\/signed/)
     assert.equal(f.calls.public.length, 1)
     assert.match(f.calls.public[0][2], /รับออเดอร์/)
     assert.ok(
@@ -576,11 +601,11 @@ test('ordinary posts, disabled rules, duplicate comments, own replies, missing a
   assert.equal(general.calls.lookups, 0)
 })
 
-test('private reply rejection propagates to the durable worker without undoing the order or claiming publicly that delivery succeeded', async () => {
+test('private rejection propagates without undoing the order or suppressing the independent public reply', async () => {
   const f = webhookFixture({ replyError: true })
   await assert.rejects(f.run(), /META_SEND_FAILED/)
   assert.equal(f.calls.rpc.length, 1)
-  assert.equal(f.calls.public.length, 0)
+  assert.equal(f.calls.public.length, 1)
 })
 
 test('stock stream scopes subscriptions and reads, never lets stale snapshots overwrite events, and cleans up on disconnect', async () => {
@@ -653,7 +678,7 @@ test('stock stream scopes subscriptions and reads, never lets stale snapshots ov
   assert.equal(pending.length, 2)
 })
 
-test('Meta client verifies a feed video before treating it as Live and sends one comment-scoped private card', async () => {
+test('Meta client verifies a feed video and sends one comment-scoped private text reply', async () => {
   const requests = [],
     logs = []
   let kind = 'live'
@@ -700,7 +725,7 @@ test('Meta client verifies a feed video before treating it as Live and sends one
   kind = 'denied'
   await assert.rejects(
     client.isLiveVideoComment('test-token', '100_456'),
-    /LIVE_COMMENT_LOOKUP_FAILED/,
+    /Facebook message request failed/,
   )
   assert.ok(logs.length > 0)
   assert.ok(!JSON.stringify(logs).includes('test-token'))
@@ -708,14 +733,13 @@ test('Meta client verifies a feed video before treating it as Live and sends one
     'test-token',
     '100_555',
     'ยอดชำระ 250.00 บาท · เสื้อสีขาว\nโอน ธนาคารกสิกรไทย',
-    'https://test.invalid/qr.png',
+    '100',
   )
   const request = requests.at(-1),
     body = JSON.parse(request.options.body)
-  assert.match(request.url, /\/me\/messages$/)
-  assert.deepEqual(body.recipient, { comment_id: '100_555' })
-  assert.equal(body.message.attachment.payload.elements[0].image_url, 'https://test.invalid/qr.png')
-  assert.match(body.message.attachment.payload.elements[0].title, /250\.00/)
+  assert.match(request.url, /\/100_555\/private_replies$/)
+  assert.match(body.message, /250\.00/)
+  assert.equal(body.recipient, undefined)
   assert.equal(body.messaging_type, undefined)
   assert.equal(body.tag, undefined)
 })
@@ -733,6 +757,7 @@ test('editor catalog reads only active products and variants in the active tenan
           return q
         },
         order: () => q,
+        maybeSingle: async () => ({ data: { slug: 'test-shop' }, error: null }),
         limit: () =>
           Promise.resolve({
             data:

@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 128 ไฟล์: รวมตาม dependencies 111 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 130 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 129 ไฟล์: รวมตาม dependencies 112 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 131 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1056371 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1057932 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (922076 bytes, 14812 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (923210 bytes, 14837 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -148,6 +148,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 109. [live-auction-split-summary.sql](live-auction-split-summary.sql) — 3 statements retained
 110. [shipping-integrations-beemove.sql](shipping-integrations-beemove.sql) — 12 statements retained
 111. [vision-product-catalog.sql](vision-product-catalog.sql) — 2 statements retained
+112. [live-customer-item-labels.sql](live-customer-item-labels.sql) — 2 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -286,6 +287,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | tenant-ai-quota.sql | smart-inbox.sql, agent-control.sql |
 | vision-master-switch.sql | ai-vision.sql, tenant-ai-quota.sql |
 | vision-product-catalog.sql | vision-master-switch.sql, commerce-v2.sql |
+| live-customer-item-labels.sql | live-auction-on-demand.sql, live-order-types.sql |
 
 ## ท่อนที่ตัดจากไฟล์ bootstrap เดิม
 
@@ -487,3 +489,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-split-summary.sql: `ecebe98f42520036601611179211f30028fd29fd11616b6de93711a51e119ebf`
 - shipping-integrations-beemove.sql: `d9d57a631be5139cd85320e430030d3791dba88caac9d83602c939bd810a409a`
 - vision-product-catalog.sql: `9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a`
+- live-customer-item-labels.sql: `6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de`

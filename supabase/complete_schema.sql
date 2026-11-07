@@ -15717,6 +15717,35 @@ execute $sql_110_3$notify pgrst,'reload schema'$sql_110_3$;
     values('vision-product-catalog.sql','aa668854836f26bbda56981dd8bff9687cf76c2aabb6140dc108ed047c353f37','9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a');
 end $migration_110$;
 
+-- 112. live-customer-item-labels.sql
+do $migration_111$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-customer-item-labels.sql';
+  if found then
+    if installed <> '88ad6da5c55d04a1dfa5059a7d6ae412cafbe89257643f8b18881e92dd175b80' then
+      raise exception 'Applied migration changed: live-customer-item-labels.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-customer-item-labels.sql: source statement 2
+execute $sql_111_2$do $$
+declare signature text; definition text;
+begin
+ foreach signature in array array['public.live_session_dashboard(uuid,uuid)', 'public.live_session_tab_proof(uuid,uuid,uuid)'] loop
+  definition:=pg_get_functiondef(signature::regprocedure);
+  definition:=replace(definition, '''name'',i.item_name',
+   '''name'',case when i.order_type=''auction'' then ''[ประมูล] ''||i.item_name when i.order_type=''cf'' then ''[CF''||case when i.source_code is not null then ''-''||upper(i.source_code) else '''' end||''] ''||i.item_name else i.item_name end');
+  execute definition;
+ end loop;
+end $$$sql_111_2$;
+
+-- live-customer-item-labels.sql: source statement 3
+execute $sql_111_3$notify pgrst,'reload schema'$sql_111_3$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-customer-item-labels.sql','88ad6da5c55d04a1dfa5059a7d6ae412cafbe89257643f8b18881e92dd175b80','6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de');
+end $migration_111$;
+
 notify pgrst,'reload schema';
 
 commit;

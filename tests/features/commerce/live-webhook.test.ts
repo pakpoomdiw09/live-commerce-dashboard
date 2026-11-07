@@ -279,13 +279,19 @@ function handlerFixture(
     mode?: string
     keywords?: string[]
     auctionHandled?: boolean
+    orderStatus?: 'created' | 'sold_out' | 'require_variant'
+    privateFails?: boolean
+    cumulative?: boolean
+    historyFailsOnce?: boolean
   } = {},
 ) {
   const traces: { label: string; data: any }[] = []
   const orders: any[] = [],
     sends: any[] = [],
-    scopes: any[] = []
+    scopes: any[] = [],
+    history: any[] = []
   const checkpoints = new Map<string, unknown>()
+  let historyAttempts = 0
   const rule = {
     id: 'rule',
     tenant_id: 'tenant',
@@ -304,6 +310,13 @@ function handlerFixture(
       const query: any = {
         select: () => query,
         update: () => query,
+        insert: (row: unknown) => {
+          assert.equal(table, 'messages')
+          if (options.historyFailsOnce && historyAttempts++ === 0)
+            throw new Error('HISTORY_UNAVAILABLE')
+          history.push(row)
+          return query
+        },
         eq: (key: string, value: unknown) => {
           scopes.push([table, key, value])
           return query
@@ -325,6 +338,8 @@ function handlerFixture(
   }
   const client = clientFixture(async (url, init) => {
     sends.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+    if (options.privateFails && String(url).includes('/private_replies'))
+      return Response.json({ error: { message: 'Denied', code: 200 } })
     return Response.json({ id: 'sent' })
   }).api
   const handler = load(
@@ -345,7 +360,7 @@ function handlerFixture(
         placeCfOrder: async (_db: unknown, input: any) => {
           orders.push(input)
           return {
-            status: 'created',
+            status: options.orderStatus ?? 'created',
             orderId: 'order',
             name: 'เสื้อยืด',
             code: input.code,
@@ -357,7 +372,10 @@ function handlerFixture(
       },
       '@/lib/features/commerce/messenger-product-server': {},
       '@/lib/features/commerce/live-cf-comment': { handleLiveCfComment },
-      '@/lib/features/commerce/customer-tabs-server': { tabForOrder: async () => null },
+      '@/lib/features/commerce/customer-tabs-server': {
+        tabForOrder: async () => (options.cumulative ? { id: 'tab' } : null),
+        customerTabSummary: async () => ({ privateText: 'Cumulative bill' }),
+      },
       '@/lib/features/commerce/auction-server': {
         handleAuctionComment: async (input: any) => {
           traces.push({ label: 'auction-route', data: input.value })
@@ -395,6 +413,7 @@ function handlerFixture(
     traces,
     sends,
     scopes,
+    history,
     receive: async (text: string, extra: Record<string, unknown> = {}, field = 'feed') => {
       const event = envelope.parseWebhook(
         payload(
@@ -448,6 +467,10 @@ test('signed comment pipeline matches literal SKUs case-insensitively, passes th
       ),
     )
     assert.equal(f.sends.length, 2)
+    assert.equal(f.history.length, 1)
+    assert.equal(f.history[0].external_id, `cf-bill:${commentId}`)
+    assert.equal(f.history[0].customer_id, 'customer')
+    assert.equal(f.history[0].delivery_status, 'sent')
     assert.ok(
       f.sends.some(
         (s) =>
@@ -462,6 +485,41 @@ test('signed comment pipeline matches literal SKUs case-insensitively, passes th
   const attached = handlerFixture({ resolved: ['456'] })
   await attached.receive('CF fc159', { video_id: undefined })
   assert.equal(attached.orders[0].postId, '456')
+})
+
+test('all successful CF private reply types sync to Inbox; failed deliveries do not create sent history', async () => {
+  for (const options of [
+    {},
+    { cumulative: true },
+    { orderStatus: 'sold_out' as const },
+    { orderStatus: 'require_variant' as const },
+  ]) {
+    const f = handlerFixture(options)
+    await f.receive('fc159')
+    await f.receive('fc159')
+    assert.equal(f.history.length, 1)
+    assert.equal(f.history[0].sender, 'bot')
+    assert.equal(
+      f.history[0].body,
+      f.sends.find((s) => s.url.includes('/private_replies')).body.message,
+    )
+  }
+  const failed = handlerFixture({ privateFails: true })
+  await assert.rejects(failed.receive('fc159'))
+  assert.equal(failed.history.length, 0)
+})
+
+test('retrying a failed CF history insert retains the completed send checkpoint', async () => {
+  const f = handlerFixture({ historyFailsOnce: true })
+  await assert.rejects(f.receive('fc159'), /HISTORY_UNAVAILABLE/)
+  assert.equal(f.history.length, 0)
+  await f.receive('fc159')
+  assert.equal(f.history.length, 1)
+  assert.equal(f.sends.filter((s) => s.url.includes('/private_replies')).length, 1)
+  assert.equal(
+    f.history[0].body,
+    f.sends.find((s) => s.url.includes('/private_replies')).body.message,
+  )
 })
 
 test('auction host commands route before the Page-own-comment filter and consume the CF path', async () => {

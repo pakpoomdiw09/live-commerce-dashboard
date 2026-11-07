@@ -135,6 +135,7 @@ const groups = [
       'live-auction-split-summary.sql',
       'shipping-integrations-beemove.sql',
       'vision-product-catalog.sql',
+      'live-customer-item-labels.sql',
     ],
   ],
 ]
@@ -322,6 +323,7 @@ const prerequisites = {
   'tenant-ai-quota.sql': ['smart-inbox.sql', 'agent-control.sql'],
   'vision-master-switch.sql': ['ai-vision.sql', 'tenant-ai-quota.sql'],
   'vision-product-catalog.sql': ['vision-master-switch.sql', 'commerce-v2.sql'],
+  'live-customer-item-labels.sql': ['live-auction-on-demand.sql', 'live-order-types.sql'],
 }
 
 function validateOrder(sources) {
