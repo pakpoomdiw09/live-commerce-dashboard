@@ -126,8 +126,7 @@ export function normalizeCommentChange(event: WebhookObject): WebhookObject {
         : {}),
       message,
       item: 'comment',
-      verb:
-        v.deleted === true ? 'remove' : typeof v.verb === 'string' ? v.verb.toLowerCase() : 'add',
+      verb: v.deleted === true ? 'remove' : v.verb,
     },
   }
 }

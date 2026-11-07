@@ -112,6 +112,16 @@ export function resolveCommentSettings(
   }
 }
 
+/** Reserve the complete billing footer; only merchant-authored introduction text may be cut. */
+export function composeBillingMessage(header: string, footer: string, limit = 2000): string {
+  const required = footer.normalize('NFC').trim()
+  if (required.length > limit) throw new Error('BILLING_FOOTER_TOO_LONG')
+  const introduction = header.normalize('NFC').trim()
+    .slice(0, Math.max(0, limit - required.length - 2))
+    .replace(/[\uD800-\uDBFF]$/u, '').trimEnd()
+  return introduction ? `${introduction}\n\n${required}` : required
+}
+
 /** Single-pass interpolation; values containing braces never become template instructions. */
 export function renderCommentTemplate(template: string, values: Record<string, string>) {
   const aliases: Record<string, string> = {

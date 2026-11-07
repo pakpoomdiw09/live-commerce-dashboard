@@ -201,7 +201,7 @@ export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
   if (kind === 'message') await onMessage(payload, pageId, tenant, execution)
   else if (
     kind === 'change' &&
-    (payload.value?.verb == null || payload.value.verb === 'add') &&
+    payload.value?.verb === 'add' &&
     payload.value?.deleted !== true &&
     payload.value?.item === 'comment' &&
     (payload.field === 'feed' ||

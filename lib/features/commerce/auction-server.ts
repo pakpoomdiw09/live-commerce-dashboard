@@ -1,5 +1,5 @@
 import 'server-only'
-import { resolveCommentSettings } from './comment-config'
+import { resolveCommentSettings, composeBillingMessage } from './comment-config'
 import { customerTabItemLabel } from './customer-tab-types'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import {
@@ -283,8 +283,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
         }
         if (auction.winner_confirmation_comment_id) {
           // A winner confirmation is one complete receipt, even with a custom/short template.
-          billMessage = [
-            renderAuctionTemplate(privateTemplate, values),
+          const billingFooter = [
             `ยืนยันผู้ชนะประมูล: ${auction.leading_bidder_name || 'ลูกค้า'}`,
             `รายการ: ${auction.item_name}`,
             `ราคาประมูลที่ชนะ: ${money(auction.current_price)} บาท`,
@@ -293,6 +292,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             `บัญชีรับเงิน: ${bill.account}`,
             `QR / ชำระเงิน / แนบสลิป: ${bill.link}`,
           ].join('\n')
+          billMessage = composeBillingMessage(renderAuctionTemplate(privateTemplate, values), billingFooter)
           buttonMessage = billMessage
           splitMessages = null
           splitCustomer = null
@@ -482,6 +482,12 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
 }
 
 /** Returns true for an auction-scoped comment, so ordinary CF rules cannot also run. */
+/** Match an auction by its primary live post id or any recorded alias (ids are digits/underscore only). */
+function postFilter(ids: string[]) {
+  const safe = ids.filter((id) => /^\d+(?:_\d+)?$/.test(id))
+  return `live_post_id.in.(${safe.join(',')}),live_post_aliases.ov.{${safe.join(',')}}`
+}
+
 export async function handleAuctionComment(input: {
   value: Record<string, unknown>
   tenantId: string
@@ -540,7 +546,7 @@ export async function handleAuctionComment(input: {
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('page_id', pageId)
-        .in('live_post_id', postIds)
+        .or(postFilter(postIds))
         .order('created_at', { ascending: false })
         .limit(1)
     const active = await query().eq('status', 'active')
@@ -557,7 +563,7 @@ export async function handleAuctionComment(input: {
       .select('*')
       .eq('tenant_id', tenantId)
       .eq('page_id', pageId)
-      .in('live_post_id', ids)
+      .or(postFilter(ids))
       .eq('status', 'closed')
       .eq('leading_bidder_id', senderId)
       .not('winner_locked_at', 'is', null)
@@ -582,7 +588,7 @@ export async function handleAuctionComment(input: {
       .select('*')
       .eq('tenant_id', tenantId)
       .eq('page_id', pageId)
-      .in('live_post_id', ids)
+      .or(postFilter(ids))
       .in('status', ['closed', 'cancelled'])
       .order('closed_at', { ascending: false })
       .order('created_at', { ascending: false })

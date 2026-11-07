@@ -57,12 +57,13 @@ test('supported comment fields canonicalize IDs, authors and video IDs before de
     },
     {
       item: 'live_comment',
+      verb: 'add',
       comment: { id: commentId, from: { id: 900 }, message: 'CF fc159' },
       video: { id: '456' },
     },
-    { id: commentId, sender_id: '900', text: 'CF fc159', live_video_id: '456' },
-    { comment_id: commentId, sender: { id: '900' }, message: 'CF fc159', video_id: '456' },
-    { comment: { id: commentId, from: { id: 900 }, message: 'CF fc159' }, video_id: '456' },
+    { verb: 'add', id: commentId, sender_id: '900', text: 'CF fc159', live_video_id: '456' },
+    { verb: 'add', comment_id: commentId, sender: { id: '900' }, message: 'CF fc159', video_id: '456' },
+    { verb: 'add', comment: { id: commentId, from: { id: 900 }, message: 'CF fc159' }, video_id: '456' },
   ]
   const parsed = variants.map(
     (v, i) =>
@@ -84,6 +85,8 @@ test('supported comment fields canonicalize IDs, authors and video IDs before de
       envelope.parseWebhook(payload({ ...variants[0], verb })).events[0].payload.value.verb,
       verb,
     )
+  const { verb: _omit, ...unassigned } = variants[0]
+  assert.equal(envelope.parseWebhook(payload(unassigned)).events[0].payload.value.verb, undefined)
   const post = envelope.parseWebhook(payload({ item: 'post', id: '777', message: 'CF fc159' }))
     .events[0]
   assert.equal(post.payload.value.item, 'post')

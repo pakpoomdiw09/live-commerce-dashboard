@@ -109,16 +109,18 @@ begin
  if not exists(select 1 from public.tenants where id=p_tenant and page_id=p_page and is_active) then
   raise exception 'COMMENT_TENANT_PAGE_INVALID' using errcode='42501';end if;
  select d.settings into defaults from public.facebook_comment_defaults d where id;
- select * into s from public.live_sessions where tenant_id=p_tenant and page_id=p_page
-  and live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post)
-  order by created_at desc limit 1;
+ select session.* into s from public.live_sessions session where session.tenant_id=p_tenant and session.page_id=p_page
+  and (session.live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post)
+   or exists(select 1 from public.auctions a where a.tenant_id=p_tenant and a.page_id=p_page
+    and a.live_post_id=session.live_post_id and a.live_post_aliases && p_posts))
+  order by session.created_at desc limit 1;
  raw:=coalesce(s.auction_settings,'{}')||coalesce(s.comment_settings,'{}');
  settings:=public.resolve_facebook_comment_settings(to_jsonb(s),coalesce((select a.session_automation from public.auctions a where a.tenant_id=p_tenant and a.page_id=p_page
-  and a.live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post) order by a.created_at desc limit 1),'{}'));
+  and (a.live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post) or a.live_post_aliases && p_posts) order by a.created_at desc limit 1),'{}'));
  mode:=coalesce(s.mode,raw->>'mode');
  if mode is null then
   mode:=case when exists(select 1 from public.auctions where tenant_id=p_tenant and page_id=p_page
-    and live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post)) then 'auction' else 'cf' end;
+    and (live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post) or live_post_aliases && p_posts)) then 'auction' else 'cf' end;
  end if;
  return jsonb_build_object('mode',mode,'session',case when s.id is null then '{}'::jsonb else to_jsonb(s) end,'settings',settings);
 end $$;

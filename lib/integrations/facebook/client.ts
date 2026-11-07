@@ -1,4 +1,5 @@
 import type { MessageTag } from '@/lib/features/agents/chatbot'
+import { composeBillingMessage } from '@/lib/features/commerce/comment-config'
 import {
   createLogRequestId,
   logSafeEvent,
@@ -462,7 +463,12 @@ export async function sendAuctionPrivateReply(
   buttonText: string,
   link: string,
   pageId: string,
+  billingFooter?: string,
 ) {
+  if (billingFooter !== undefined) {
+    text = composeBillingMessage(text, billingFooter)
+    buttonText = text
+  }
   if (buttonText.length > 640 || !link.startsWith('https://'))
     return { ...(await sendPrivateReply(token, commentId, text, pageId)), auctionText: text }
   try {
@@ -499,7 +505,8 @@ export function sendPrivateReply(
   message: string,
   pageId?: string,
 ) {
-  const text = message.normalize('NFC').trim().slice(0, 2000)
+  const text = message.normalize('NFC').trim()
+  if (text.length > 2000) throw new Error('FACEBOOK_PRIVATE_TEXT_TOO_LONG')
   return facebookOperation(
     'facebook.private_reply',
     async () => {
