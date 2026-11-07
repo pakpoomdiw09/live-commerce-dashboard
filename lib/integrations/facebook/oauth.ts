@@ -189,6 +189,9 @@ export async function listPages(
   return [...pages.values()]
 }
 
+/** Page webhook fields: comments/live comments arrive via `feed`. */
+export const PAGE_SUBSCRIBED_FIELDS = 'feed,messages,messaging_postbacks'
+
 /**
  * Subscribe our app to the Page's webhook (messages, comments), so the shop doesn't have to do
  * it in the Meta dashboard. Needs pages_manage_metadata. Returns Meta's error text, or null.
@@ -201,12 +204,12 @@ export async function subscribePage(pageId: string, pageToken: string): Promise<
         'Content-Type': 'application/x-www-form-urlencoded',
         Authorization: `Bearer ${pageToken}`,
       },
-      body: new URLSearchParams({ subscribed_fields: 'messages,feed' }),
+      body: new URLSearchParams({ subscribed_fields: PAGE_SUBSCRIBED_FIELDS }),
       signal: AbortSignal.timeout(10_000),
     })
-    if (res.ok) return null
-    const e = (await res.json().catch(() => null))?.error
-    return e?.message ?? `HTTP ${res.status}`
+    const body = await res.json().catch(() => null)
+    if (res.ok && body?.success !== false) return null
+    return body?.error?.message ?? `HTTP ${res.status}`
   } catch (e) {
     return e instanceof Error ? e.message : 'network error'
   }
