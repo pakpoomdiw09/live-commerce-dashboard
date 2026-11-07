@@ -106,13 +106,29 @@ export async function POST(req: NextRequest) {
     })
     const graphBody = await res.json().catch(() => null)
     if (!res.ok) {
-      // Codes only: provider errors may echo credentials.
+      // Graph error text is safe to log (the token is sent in a header, never in the URL); strip
+      // it anyway if it were ever echoed back.
+      const g = graphBody?.error
       console.warn('[auction/poll] graph error', {
         pageId,
+        videoId: target.live_post_id,
         status: res.status,
-        code: graphBody?.error?.code ?? null,
+        code: g?.code ?? null,
+        subcode: g?.error_subcode ?? null,
+        type: g?.type ?? null,
+        message: typeof g?.message === 'string' ? g.message.split(token).join('[REDACTED]') : null,
       })
-      return json({ polled: false, reason: 'GRAPH_ERROR', code: graphBody?.error?.code ?? null }, 502)
+      // Code 100 on the comments edge: the round's live_post_id is not a video this Page token can
+      // read (wrong/test ID, not the Page's own live, or missing pages_read_user_content).
+      return json(
+        {
+          polled: false,
+          reason: g?.code === 100 ? 'VIDEO_NOT_ACCESSIBLE' : 'GRAPH_ERROR',
+          code: g?.code ?? null,
+          videoId: target.live_post_id,
+        },
+        502,
+      )
     }
 
     const startedAt = Date.parse(target.created_at)

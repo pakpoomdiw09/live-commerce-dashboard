@@ -37,6 +37,13 @@ export function LiveCommentPoller({ pageId }: { pageId: string }) {
             break
           }
           const data = await res.json().catch(() => null)
+          if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
+            setStatus(
+              `⚠️ อ่านวิดีโอ ${data.videoId} ไม่ได้ — ID ไม่ใช่ไลฟ์ของเพจนี้หรือยังไม่เริ่มไลฟ์ (ตรวจ live_post_id ของรอบประมูล)`,
+            )
+            delay = 10_000
+            break
+          }
           if (!res.ok || !data) {
             setStatus('ดึงคอมเมนต์ไม่สำเร็จ กำลังลองใหม่…')
             delay = 5000
