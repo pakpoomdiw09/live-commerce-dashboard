@@ -15,6 +15,7 @@ import {
   type ThreadChange,
 } from '@/lib/features/inbox/inbox-realtime'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { ChatList } from '@/components/inbox/ChatList'
 import { Conversation } from '@/components/inbox/Conversation'
 import { Inspector } from '@/components/inbox/Inspector'
@@ -67,6 +68,8 @@ export function InboxClient({
   const [comments, setComments] = useState(initialComments)
   const [selectedId, setSelectedId] = useState(initialSelectedId)
   const [messages, setMessages] = useState<MessageRow[]>([])
+  const [syncingCustomerId, setSyncingCustomerId] = useState<string | 'all' | null>(null)
+  const [syncError, setSyncError] = useState('')
   const [slips, setSlips] = useState<SlipRow[]>([])
   const [threadState, setThreadState] = useState<'idle' | 'loading' | 'error'>('idle')
   const [focusedSlipId, setFocusedSlipId] = useState<string | null>(null)
@@ -86,6 +89,9 @@ export function InboxClient({
   const changes = useRef(new Map<string, ThreadChange>())
   const revision = useRef(0)
   const threadRequest = useRef(0)
+  const syncBusy = useRef(false)
+  const syncAttempted = useRef(new Set<string>())
+  const threadLoadedFor = useRef<string | null>(null)
   const threadGate = useRef(new LatestInboxRequest())
   const olderGate = useRef(new LatestInboxRequest())
   const listBusy = useRef(false)
@@ -202,10 +208,90 @@ export function InboxClient({
       })
       if (!background) setOlderEnd((m.data?.length ?? 0) < 200)
       if (!s.error) setSlips((s.data ?? []) as SlipRow[])
+      threadLoadedFor.current = customerId
       setThreadState('idle')
     },
     [db, tenantId],
   )
+  const syncMessages = useCallback(
+    async (customerId?: string) => {
+      if (!tenantId || syncBusy.current) return
+      if (customerId) syncAttempted.current.add(customerId)
+      syncBusy.current = true
+      setSyncingCustomerId(customerId ?? 'all')
+      setSyncError('')
+      try {
+        const response = await fetch('/api/inbox/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId, ...(customerId ? { customerId } : {}) }),
+        })
+        const result = (await response.json().catch(() => null)) as {
+          error?: string
+          syncedMessages?: number
+        } | null
+        if (!response.ok) throw new Error(result?.error || 'ซิงค์ข้อความจาก Facebook ไม่สำเร็จ')
+
+        const listResponse = await fetch(
+          `/api/inbox/conversations?tenantId=${encodeURIComponent(tenantId)}${
+            customerId ? `&customerId=${encodeURIComponent(customerId)}` : ''
+          }`,
+          { cache: 'no-store' },
+        )
+        const listResult = (await listResponse.json().catch(() => null)) as {
+          chats?: ChatSummary[]
+          hasMore?: boolean
+          error?: string
+        } | null
+        if (!listResponse.ok || !Array.isArray(listResult?.chats))
+          throw new Error(listResult?.error || 'โหลดรายชื่อแชทหลังซิงค์ไม่สำเร็จ')
+
+        if (customerId) {
+          const refreshed = listResult.chats[0]
+          if (refreshed) {
+            setChats((previous) =>
+              [refreshed, ...previous.filter((chat) => chat.customer.id !== customerId)].sort(
+                byRecent,
+              ),
+            )
+          }
+          if (selectedRef.current === customerId) await loadThread(customerId)
+        } else {
+          setChats(listResult.chats.sort(byRecent))
+          listCursor.current = listResult.chats.at(-1)?.customer
+          setListEnd(!listResult.hasMore)
+          if (selectedRef.current) await loadThread(selectedRef.current)
+          else if (listResult.chats[0]) setSelectedId(listResult.chats[0].customer.id)
+        }
+        window.dispatchEvent(new Event('inbox:refresh'))
+      } catch (error) {
+        setSyncError(error instanceof Error ? error.message : 'ซิงค์ข้อความจาก Facebook ไม่สำเร็จ')
+      } finally {
+        syncBusy.current = false
+        setSyncingCustomerId(null)
+      }
+    },
+    [loadThread, tenantId],
+  )
+
+  useEffect(() => {
+    if (
+      !selectedId ||
+      threadLoadedFor.current !== selectedId ||
+      threadState !== 'idle' ||
+      messages.length > 0
+    )
+      return
+    if (syncAttempted.current.has(selectedId)) return
+    syncAttempted.current.add(selectedId)
+    void syncMessages(selectedId)
+  }, [messages.length, selectedId, syncMessages, threadState])
+
+  useEffect(() => {
+    if (!tenantId || chats.length > 0 || syncAttempted.current.has(`tenant:${tenantId}`)) return
+    syncAttempted.current.add(`tenant:${tenantId}`)
+    void syncMessages()
+  }, [chats.length, syncMessages, tenantId])
   // Keep callbacks current without making subscription lifetime depend on them.
   const latestThreadLoader = useRef(loadThread)
   useEffect(() => {
@@ -221,6 +307,7 @@ export function InboxClient({
       customerId: selectedId,
     })
     changes.current.clear()
+    threadLoadedFor.current = null
     threadRequest.current++
     setMessages([])
     setSlips([])
@@ -709,6 +796,23 @@ export function InboxClient({
           }}
         />
       )}
+      {tenant && (
+        <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={syncingCustomerId === 'all'}
+            onClick={() => void syncMessages()}
+          >
+            Sync Messages
+          </Button>
+          {syncError && (
+            <p role="alert" className="text-xs text-rose-700">
+              {syncError}
+            </p>
+          )}
+        </div>
+      )}
       {!inbox.data && (
         <div
           role={inbox.error ? 'alert' : 'status'}
@@ -794,6 +898,8 @@ export function InboxClient({
           state={threadState}
           focusedSlipId={inspectedSlipId}
           onRetry={() => selectedId && void loadThread(selectedId)}
+          onSync={() => selectedId && void syncMessages(selectedId)}
+          syncing={syncingCustomerId === selectedId}
           onBack={() => setMobileChat(false)}
           inspectorOpen={inspectorOpen}
           onOpenInspector={() => setInspectorOpen((open) => !open)}

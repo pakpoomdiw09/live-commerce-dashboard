@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, PanelRightOpen, ScanLine } from 'lucide-react'
+import { ArrowLeft, PanelRightOpen, RefreshCw, ScanLine } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { STALE_PENDING_MS } from '@/lib/status'
@@ -43,6 +43,8 @@ export function Conversation({
   state,
   focusedSlipId,
   onRetry,
+  onSync,
+  syncing,
   onBack,
   onOpenInspector,
   inspectorOpen = false,
@@ -64,6 +66,8 @@ export function Conversation({
   state: 'idle' | 'loading' | 'error'
   focusedSlipId: string | null
   onRetry: () => void
+  onSync: () => void
+  syncing: boolean
   onBack: () => void
   inspectorOpen?: boolean
   onOpenInspector: () => void
@@ -203,6 +207,18 @@ export function Conversation({
               : ''}
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1 px-2"
+          onClick={onSync}
+          loading={syncing}
+          aria-label="ซิงค์ข้อความจาก Facebook"
+          title="ซิงค์ข้อความจาก Facebook"
+        >
+          {!syncing && <RefreshCw className="h-4 w-4" />}
+          <span className="hidden sm:inline">ซิงค์</span>
+        </Button>
         <Button
           variant="ghost"
           size="icon"
