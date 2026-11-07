@@ -161,18 +161,27 @@ export function InboxClient({
       const ticket = threadGate.current.begin()
       const since = revision.current
       const [m, s] = await Promise.all([
-        // newest 200, shown oldest first
-        db
-          .from('messages')
-          .select(
-            'id, customer_id, sender, body, attachments, created_at, inbound_seq, provider_message_id, delivery_status, customers!inner(tenant_id)',
-          )
-          .eq('customer_id', customerId)
-          .eq('customers.tenant_id', tenantId)
-          .order('created_at', { ascending: false })
-          .order('id', { ascending: false })
-          .limit(200)
-          .abortSignal(ticket.signal),
+        // Server endpoint: it authorizes the tenant member and reads with the service role, so the
+        // browser's RLS (which has no counterpart of the app-level feature override) can't blank
+        // the thread. Returns the newest 100 oldest-first; flip to the newest-first shape below.
+        fetch(`/api/inbox/conversations/${customerId}/messages`, {
+          signal: ticket.signal,
+          cache: 'no-store',
+        })
+          .then(async (res) => {
+            if (!res.ok) return { data: null, hasMore: false, error: { code: `HTTP_${res.status}` } }
+            const body = (await res.json()) as { messages?: unknown[]; hasMore?: boolean }
+            return {
+              data: [...(body.messages ?? [])].reverse(),
+              hasMore: body.hasMore === true,
+              error: null,
+            }
+          })
+          .catch((error: unknown) => ({
+            data: null,
+            hasMore: false,
+            error: { code: (error as Error)?.name ?? 'FETCH_FAILED' },
+          })),
         db
           .from('slips')
           .select(SLIP_COLUMNS)
@@ -206,7 +215,7 @@ export function InboxClient({
           customerId,
         )
       })
-      if (!background) setOlderEnd((m.data?.length ?? 0) < 200)
+      if (!background) setOlderEnd(!m.hasMore)
       if (!s.error) setSlips((s.data ?? []) as SlipRow[])
       threadLoadedFor.current = customerId
       setThreadState('idle')
