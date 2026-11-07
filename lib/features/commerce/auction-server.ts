@@ -602,8 +602,20 @@ export async function handleAuctionComment(input: {
     if (auction && auction.created_at > execution.event.created_at) auction = undefined
   }
   if (!auction) {
-    skipped('NO_MATCHING_AUCTION', {
+    // Never drop silently: show which active rounds exist so a post-id mismatch is diagnosable.
+    const active = await db
+      .from('auctions')
+      .select('id,live_post_id,live_post_aliases')
+      .eq('tenant_id', tenantId)
+      .eq('page_id', pageId)
+      .eq('status', 'active')
+      .limit(5)
+    console.warn('[auction/comment] NO_MATCHING_AUCTION: comment post does not match any round', {
+      eventId: execution.event.id,
+      tenantId,
+      pageId,
       postIds: ids,
+      activeRounds: active.error ? `lookup failed (${active.error.code})` : active.data,
     })
     return false
   }
