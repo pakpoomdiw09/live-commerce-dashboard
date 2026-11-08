@@ -561,6 +561,10 @@ export function InboxClient({
           },
           ({ new: row }) => {
             const m = row as MessageRow
+            console.info('[inbox/realtime] message INSERT received', {
+              matchesActiveConversation: m.customer_id === selectedRef.current,
+              sender: m.sender,
+            })
             apply(m)
           },
         )

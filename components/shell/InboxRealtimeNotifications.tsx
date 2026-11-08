@@ -9,17 +9,45 @@ import { supabaseBrowser } from '@/lib/supabase/browser'
 type Notice = { customerId: string }
 
 /** Shows a dashboard-wide, privacy-safe notice for new messages in the active tenant. */
-export function InboxRealtimeNotifications({ tenantId }: { tenantId: string | null }) {
+export function InboxRealtimeNotifications({
+  tenantId,
+  onUnreadCountChange,
+}: {
+  tenantId: string | null
+  onUnreadCountChange: (count: number) => void
+}) {
   const pathname = usePathname()
   const [notice, setNotice] = useState<Notice | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!tenantId || pathname === '/inbox' || pathname.startsWith('/inbox/')) return
+    if (!tenantId) {
+      onUnreadCountChange(0)
+      return
+    }
 
     const db = supabaseBrowser()
     const seen = new Set<string>()
     let disposed = false
+    let unreadRefresh: ReturnType<typeof setTimeout> | null = null
+    const refreshUnreadCount = async () => {
+      const response = await fetch(`/api/inbox/state?tenantId=${encodeURIComponent(tenantId)}`, {
+        cache: 'no-store',
+      }).catch(() => null)
+      const state = response?.ok ? await response.json().catch(() => null) : null
+      if (disposed || !Array.isArray(state?.conversations)) return
+      const count = state.conversations.reduce(
+        (total: number, conversation: { unread_count?: unknown }) =>
+          total + Math.max(0, Number(conversation.unread_count) || 0),
+        0,
+      )
+      onUnreadCountChange(count)
+    }
+    const scheduleUnreadRefresh = () => {
+      if (unreadRefresh) clearTimeout(unreadRefresh)
+      unreadRefresh = setTimeout(() => void refreshUnreadCount(), 200)
+    }
+    void refreshUnreadCount()
     const channel = db
       .channel(`dashboard-inbox:${tenantId}:${Math.random().toString(36).slice(2)}`)
       .on(
@@ -48,9 +76,13 @@ export function InboxRealtimeNotifications({ tenantId }: { tenantId: string | nu
             .maybeSingle()
           if (disposed || error || !data) return
 
-          setNotice({ customerId: data.id })
-          if (timer.current) clearTimeout(timer.current)
-          timer.current = setTimeout(() => setNotice(null), 10_000)
+          console.info('[dashboard/inbox] incoming message received')
+          scheduleUnreadRefresh()
+          if (pathname !== '/inbox' && !pathname.startsWith('/inbox/')) {
+            setNotice({ customerId: data.id })
+            if (timer.current) clearTimeout(timer.current)
+            timer.current = setTimeout(() => setNotice(null), 10_000)
+          }
         },
       )
       .subscribe((status, error) => {
@@ -66,9 +98,10 @@ export function InboxRealtimeNotifications({ tenantId }: { tenantId: string | nu
     return () => {
       disposed = true
       if (timer.current) clearTimeout(timer.current)
+      if (unreadRefresh) clearTimeout(unreadRefresh)
       void db.removeChannel(channel)
     }
-  }, [pathname, tenantId])
+  }, [onUnreadCountChange, pathname, tenantId])
 
   if (!notice) return null
 

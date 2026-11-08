@@ -102,7 +102,7 @@ export function AppShell({
   access?: FeatureAccess
   accessExpiresAt?: string | null
   messagesRemaining?: number | null
-  tenantId: string | null
+  tenantId?: string | null
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -120,6 +120,7 @@ export function AppShell({
     return () => clearTimeout(timer)
   }, [accessExpiresAt, router])
   const [drawer, setDrawer] = useState(false)
+  const [inboxUnread, setInboxUnread] = useState(0)
   const [sidebarHovered, setSidebarHovered] = useState(false)
   const [sidebarFocused, setSidebarFocused] = useState(false)
   const inboxRail = pathname === '/inbox'
@@ -234,6 +235,7 @@ export function AppShell({
                 pathname={pathname}
                 lockedPaths={lockedPaths}
                 collapsed={collapsed}
+                unreadCount={item.href === '/inbox' ? inboxUnread : 0}
               />
             ),
           )}
@@ -287,7 +289,7 @@ export function AppShell({
 
   return (
     <div className="snap-dashboard fixed inset-x-0 top-0 flex h-dvh w-full overflow-hidden bg-slate-50 text-slate-900">
-      <InboxRealtimeNotifications tenantId={tenantId} />
+      <InboxRealtimeNotifications tenantId={tenantId ?? null} onUnreadCountChange={setInboxUnread} />
       <a href="#main-content" className="skip-link">
         ข้ามไปเนื้อหาหลัก
       </a>
@@ -401,11 +403,13 @@ function NavRow({
   pathname,
   lockedPaths,
   collapsed = false,
+  unreadCount = 0,
 }: {
   item: NavItem
   pathname: string
   lockedPaths: string[]
   collapsed?: boolean
+  unreadCount?: number
 }) {
   const active = isActive(pathname, item.href)
   const orangeActive = item.href === '/live-auction' || item.href === '/shipping'
@@ -416,13 +420,24 @@ function NavRow({
         href={item.href === '/slips' ? '/slips?tab=banks' : item.href}
         title={item.label}
         aria-current={active ? 'page' : undefined}
-        className={rowClass(active, collapsed, orangeActive)}
+        className={cn(rowClass(active, collapsed, orangeActive), collapsed && unreadCount > 0 && 'relative')}
       >
         <Icon
           className={cn('h-4 w-4 shrink-0', active && orangeActive && 'text-white')}
           aria-hidden
         />
         <span className={cn('whitespace-nowrap', collapsed && 'sr-only')}>{item.label}</span>
+        {unreadCount > 0 && (
+          <span
+            aria-label={`${unreadCount} unread conversations`}
+            className={cn(
+              'ml-auto rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white',
+              collapsed && 'absolute -right-1 -top-1 ml-0 min-w-4 px-1 text-center',
+            )}
+          >
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
         {lockedPaths.includes(item.href) && (
           <LockKeyhole
             className={cn('ml-auto h-4 w-4 shrink-0', collapsed && 'sr-only')}

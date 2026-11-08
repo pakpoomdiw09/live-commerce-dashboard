@@ -345,6 +345,7 @@ async function onMessage(
   }
   const incoming = facebookInboundMessage(ev, pageId, execution.event.created_at)
   if (!incoming) {
+    console.info('[facebook-webhook/message] skipped', { parsed: false, reason: 'INELIGIBLE' })
     await execution.persistRecord(tenant?.id ?? null)
     return
   }
@@ -365,9 +366,22 @@ async function onMessage(
   // worker processing time: delayed/replayed webhooks cannot renew an old window.
   // Persist before any optional Graph diagnostics or profile requests.
   const stored = await execution.persistRecord(tenant?.id ?? null)
-  if (stored.duplicate || stored.ignored) return
+  if (stored.duplicate || stored.ignored) {
+    console.info('[facebook-webhook/message] not inserted', {
+      parsed: true,
+      outcome: stored.duplicate ? 'duplicate' : 'ignored',
+    })
+    return
+  }
   let customer = stored.customer
   if (!customer || !stored.id) throw new Error('MESSAGE_PERSISTENCE_INVALID')
+  console.info('[facebook-webhook/message] inserted', {
+    parsed: true,
+    has_sender: Boolean(incoming.senderId),
+    has_message_id: Boolean(incoming.messageId),
+    has_text: typeof m.text === 'string' && m.text.trim().length > 0,
+    attachment_count: Array.isArray(m.attachments) ? m.attachments.length : 0,
+  })
   const message = { id: stored.id }
 
   // Profile lookup is optional. Give every persisted Facebook customer a useful
