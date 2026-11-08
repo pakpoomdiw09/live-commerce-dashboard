@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
 
 export async function middleware(request: NextRequest) {
+  // Meta has no browser session. The route verifies its own challenge/signature.
+  if (request.nextUrl.pathname === '/webhook') return NextResponse.next({ request })
   try {
     return await updateSession(request)
   } catch (e) {
@@ -27,6 +29,6 @@ export const config = {
   // ยกเว้น /api ทั้งหมด: webhook ของ Facebook และ /api/slips/verify (Bearer secret) ต้องไม่ถูก redirect
   // route เหล่านั้นตรวจสิทธิ์เองอยู่แล้ว
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!api|webhook(?:/|$)|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

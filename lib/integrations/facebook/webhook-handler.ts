@@ -41,7 +41,10 @@ import { sendWithMessageCredit } from '@/lib/message-quota'
 import { observeFollowUpMessage } from '@/lib/features/follow-ups/followup-ai'
 import { queueMessengerVision } from '@/lib/features/vision/vision'
 import { inboundBroadcastEvidence } from '@/lib/features/broadcast/broadcast-policy'
-import { facebookInboundMessage } from '@/lib/integrations/facebook/message-window'
+import {
+  facebookInboundMessage,
+  facebookMessageEcho,
+} from '@/lib/integrations/facebook/message-window'
 import { InboxAutomationWindowError } from '@/lib/features/inbox/inbox-automation-window'
 
 import type { WebhookExecution } from '@/lib/integrations/facebook/webhook-worker'
@@ -228,7 +231,7 @@ export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
 }
 
 /** Only signed Meta events for this Page/customer can mark outgoing messages delivered/read. */
-async function recordReceipt(ev: any, tenantId: string, pageId: string) {
+export async function recordReceipt(ev: any, tenantId: string, pageId: string) {
   if (String(ev.recipient?.id) !== pageId || typeof ev.sender?.id !== 'string') return
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const customer = await db
@@ -240,8 +243,15 @@ async function recordReceipt(ev: any, tenantId: string, pageId: string) {
     .maybeSingle()
   if (customer.error) throw customer.error
   if (!customer.data) return
-  if (ev.delivery?.mids?.length) {
+  if (Array.isArray(ev.delivery?.mids) && ev.delivery.mids.length) {
     const mids = ev.delivery.mids.filter((id: unknown) => typeof id === 'string').slice(0, 100)
+    const result = await db
+      .from('messages')
+      .update({ delivery_status: 'delivered' })
+      .eq('customer_id', customer.data.id)
+      .in('provider_message_id', mids)
+      .in('delivery_status', ['sent', 'pending', 'unknown'])
+    if (result.error) throw result.error
     const broadcast = await db
       .from('broadcast_deliveries')
       .update({ status: 'delivered' })
@@ -249,29 +259,19 @@ async function recordReceipt(ev: any, tenantId: string, pageId: string) {
       .eq('customer_id', customer.data.id)
       .in('provider_message_id', mids)
       .eq('status', 'accepted')
-    if (broadcast.error) throw broadcast.error
-    const result = await db
-      .from('messages')
-      .update({ delivery_status: 'delivered' })
-      .eq('customer_id', customer.data.id)
-      .in('provider_message_id', mids)
-      .in('delivery_status', ['sent', 'pending'])
-    if (result.error) throw result.error
+    if (broadcast.error) {
+      console.error('[facebook-webhook/receipt] broadcast delivery update failed', {
+        code: broadcast.error.code,
+      })
+      throw broadcast.error
+    }
   }
   if (
     typeof ev.read?.watermark === 'number' &&
-    Number.isFinite(ev.read.watermark) &&
+    Number.isSafeInteger(ev.read.watermark) &&
     ev.read.watermark <= Date.now() + 120000 &&
     ev.read.watermark > 0
   ) {
-    const broadcast = await db
-      .from('broadcast_deliveries')
-      .update({ status: 'read' })
-      .eq('tenant_id', tenantId)
-      .eq('customer_id', customer.data.id)
-      .lte('accepted_at', new Date(ev.read.watermark).toISOString())
-      .in('status', ['accepted', 'delivered'])
-    if (broadcast.error) throw broadcast.error
     const result = await db
       .from('messages')
       .update({ delivery_status: 'read' })
@@ -279,8 +279,21 @@ async function recordReceipt(ev: any, tenantId: string, pageId: string) {
       .neq('sender', 'customer')
       .not('provider_message_id', 'is', null)
       .lte('created_at', new Date(ev.read.watermark).toISOString())
-      .in('delivery_status', ['sent', 'delivered'])
+      .in('delivery_status', ['sent', 'delivered', 'pending', 'unknown'])
     if (result.error) throw result.error
+    const broadcast = await db
+      .from('broadcast_deliveries')
+      .update({ status: 'read' })
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customer.data.id)
+      .lte('accepted_at', new Date(ev.read.watermark).toISOString())
+      .in('status', ['accepted', 'delivered'])
+    if (broadcast.error) {
+      console.error('[facebook-webhook/receipt] broadcast read update failed', {
+        code: broadcast.error.code,
+      })
+      throw broadcast.error
+    }
   }
 }
 
@@ -290,6 +303,31 @@ async function onMessage(
   tenant: PageTenant | null,
   execution: WebhookExecution,
 ) {
+  if (tenant && facebookMessageEcho(ev, pageId, execution.event.created_at)) {
+    await execution.assertLease()
+    const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc('persist_facebook_message_echo', {
+      p_event: execution.event.id,
+      p_claim: execution.event.claim_token,
+      p_tenant: tenant.id,
+      p_app: (process.env.FB_APP_ID || process.env.NEXT_PUBLIC_FB_APP_ID || '').trim(),
+    })
+    if (result.error) {
+      console.error('[facebook-webhook/echo] persistence failed', {
+        eventId: execution.event.id,
+        code: result.error.code,
+      })
+      throw result.error
+    }
+    if (!result.data || (!result.data.id && result.data.ignored !== true))
+      throw new Error('ECHO_PERSISTENCE_INVALID')
+    console.info('[facebook-webhook/echo] persisted', {
+      eventId: execution.event.id,
+      recordId: result.data?.id,
+      ignored: result.data?.ignored,
+      reason: result.data?.reason,
+    })
+    return
+  }
   if (tenant && (ev.delivery || ev.read)) {
     await recordReceipt(ev, tenant.id, pageId)
     return
@@ -298,6 +336,14 @@ async function onMessage(
   if (!incoming) {
     await execution.persistRecord(tenant?.id ?? null)
     return
+  }
+  if (!tenant) {
+    const error = Object.assign(new Error('Facebook Page is not linked to an active tenant'), {
+      code: 'PAGE_NOT_LINKED',
+    })
+    // The signed event is already durable. Retry after the Page is connected;
+    // never acknowledge persistence into an invisible tenant_id=null conversation.
+    throw error
   }
   const m = ev.message
   const psid = incoming.senderId
@@ -1066,15 +1112,13 @@ async function onComment(
                     return message.normalize('NFC').trim().slice(0, 2000)
                   })
                   await execution.once('catalog-private-history', async () => {
-                    const result = await db
-                      .from('messages')
-                      .insert({
-                        customer_id: stored.customer!.id,
-                        external_id: `catalog-reply:${v.comment_id}`,
-                        sender: 'bot',
-                        body: sent,
-                        delivery_status: 'sent',
-                      })
+                    const result = await db.from('messages').insert({
+                      customer_id: stored.customer!.id,
+                      external_id: `catalog-reply:${v.comment_id}`,
+                      sender: 'bot',
+                      body: sent,
+                      delivery_status: 'sent',
+                    })
                     if (result.error && result.error.code !== '23505') throw result.error
                     return null
                   })
@@ -1096,14 +1140,12 @@ async function onComment(
   }
   if (stored.customer) {
     await execution.once('general-comment-history', async () => {
-      const saved = await db
-        .from('messages')
-        .insert({
-          customer_id: stored.customer!.id,
-          external_id: `facebook-comment:${v.comment_id}`,
-          sender: 'customer',
-          body: v.message,
-        })
+      const saved = await db.from('messages').insert({
+        customer_id: stored.customer!.id,
+        external_id: `facebook-comment:${v.comment_id}`,
+        sender: 'customer',
+        body: v.message,
+      })
       if (saved.error && saved.error.code !== '23505') throw saved.error
       return null
     })
@@ -1239,16 +1281,14 @@ async function runCommentRules(
           .then(() =>
             customerId
               ? execution.once('general-private-history', async () => {
-                  const saved = await db
-                    .from('messages')
-                    .insert({
-                      customer_id: customerId,
-                      external_id: `comment-private:${v.comment_id}`,
-                      sender: 'bot',
-                      body: 'text' in message ? message.text : null,
-                      attachments: 'attachment' in message ? [message.attachment] : [],
-                      delivery_status: 'sent',
-                    })
+                  const saved = await db.from('messages').insert({
+                    customer_id: customerId,
+                    external_id: `comment-private:${v.comment_id}`,
+                    sender: 'bot',
+                    body: 'text' in message ? message.text : null,
+                    attachments: 'attachment' in message ? [message.attachment] : [],
+                    delivery_status: 'sent',
+                  })
                   if (saved.error && saved.error.code !== '23505') throw saved.error
                   return null
                 })

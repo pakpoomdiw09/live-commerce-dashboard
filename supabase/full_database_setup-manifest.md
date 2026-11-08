@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 133 ไฟล์: รวมตาม dependencies 116 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 135 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 134 ไฟล์: รวมตาม dependencies 117 ไฟล์ และแยกไว้ 17 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 136 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1111178 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1118538 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (970704 bytes, 15527 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (977232 bytes, 15640 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -153,6 +153,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 114. [live-auction-highest-confirmation.sql](live-auction-highest-confirmation.sql) — 5 statements retained
 115. [live-auction-dynamic-tags.sql](live-auction-dynamic-tags.sql) — 9 statements retained
 116. [facebook-comment-configuration.sql](facebook-comment-configuration.sql) — 25 statements retained
+117. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -280,6 +281,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | dashboard-read-models.sql | dashboard-performance.sql |
 | premium-overview.sql | dashboard-read-models.sql |
 | inbox-realtime.sql | schema.sql, security.sql |
+| facebook-message-echoes.sql | facebook-message-window.sql, smart-inbox.sql |
 | inbox-load-indexes.sql | inbox-realtime.sql |
 | facebook-inbox-recovery.sql | facebook-webhook-queue.sql, smart-inbox.sql |
 | live-cf-variants.sql | commerce-v2.sql, facebook-webhook-queue.sql |
@@ -501,4 +503,5 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-cf-order-post.sql: `0cc8add5f89d61723bafe7fbd8cf4d53486e74459bfdd331131d9c4929c82605`
 - live-auction-highest-confirmation.sql: `84447330d4b8d575a6437144bea213d14437c28219d5b2923aca8a5e1ca818f1`
 - live-auction-dynamic-tags.sql: `519739b3173ff89175f57388066e5b73bf2317b8486cfa1e45ff7d3524a935bd`
-- facebook-comment-configuration.sql: `1a11ed58af99077fa1fee1fa630bd27da3e528374db2294569d101d833807dbd`
+- facebook-comment-configuration.sql: `5bdf7e2cc6cc0f43375e2a9753fd7b02f1a122bf35aaea95871324b9e45ace80`
+- facebook-message-echoes.sql: `b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2`

@@ -112,6 +112,7 @@ function callback(options = {}) {
     logs = [],
     rpcCalls = [],
     pageCalls = [],
+    subscriptionCalls = [],
     cookieWrites = []
   const mod = load(
     'app/auth/callback/route.ts',
@@ -150,6 +151,10 @@ function callback(options = {}) {
         }),
       },
       '@/lib/integrations/facebook/oauth': {
+        subscribePage: async (...args) => {
+          subscriptionCalls.push(args)
+          return options.subscribeError ?? null
+        },
         verifiedAdminPages: async (pages) => pages,
         listPages: async (token) => {
           pageCalls.push(token)
@@ -170,8 +175,60 @@ function callback(options = {}) {
       cookies: { get: () => (cookie === undefined ? undefined : { value: cookie }) },
     })
   }
-  return { run, exchanges, logs, rpcCalls, pageCalls, cookieWrites }
+  return { run, exchanges, logs, rpcCalls, pageCalls, cookieWrites, subscriptionCalls }
 }
+
+test('Facebook sign-in subscribes each saved Page and reports subscription failures', async () => {
+  const f = callback()
+  const result = await f.run('/auth/callback?code=private-code')
+  assert.equal(new URL(result.location).searchParams.get('fb'), 'connected')
+  assert.deepEqual(f.subscriptionCalls, [['page-id', 'private-page-token']])
+  const failed = callback({ subscribeError: 'permission denied' })
+  const response = await failed.run('/auth/callback?code=private-code')
+  assert.match(new URL(response.location).searchParams.get('fb_error'), /เปิดรับข้อความ/)
+  assert.equal(
+    failed.rpcCalls.length,
+    1,
+    'a failed subscription does not undo saved Page membership',
+  )
+})
+
+test('Page subscriptions include message echoes and receipts and require an explicit success acknowledgement', async () => {
+  const sent = []
+  let success = true
+  const api = load(
+    'lib/integrations/facebook/oauth.ts',
+    {
+      'server-only': {},
+      '@/lib/integrations/facebook/client': { graph: (path) => path },
+    },
+    {
+      process: { env: {} },
+      AbortSignal,
+      URLSearchParams,
+      fetch: async (url, options) => {
+        sent.push({ url, options })
+        return { ok: true, json: async () => (success ? { success: true } : {}) }
+      },
+    },
+  )
+  assert.equal(await api.subscribePage('123', 'private-token'), null)
+  const request = sent[0]
+  assert.equal(request.url, '123/subscribed_apps')
+  assert.equal(request.options.method, 'POST')
+  const fields = request.options.body.get('subscribed_fields').split(',')
+  for (const field of [
+    'messages',
+    'messaging_postbacks',
+    'message_echoes',
+    'message_reads',
+    'message_deliveries',
+  ])
+    assert.ok(fields.includes(field))
+  assert.equal(request.options.headers.Authorization, 'Bearer private-token')
+  success = false
+  assert.notEqual(await api.subscribePage('123', 'private-token'), null)
+})
 
 test('OAuth callback URL matches the browser origin and never carries the destination query', () => {
   for (const origin of ['http://localhost:3000', 'http://localhost:3001', 'https://shop.example']) {

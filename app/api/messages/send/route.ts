@@ -134,6 +134,7 @@ export async function POST(req: NextRequest) {
         customer.platform_user_id,
         message,
         messagingType,
+        externalId,
       )
       const saved = await db
         .from('messages')

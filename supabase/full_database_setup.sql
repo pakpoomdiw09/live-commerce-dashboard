@@ -15075,7 +15075,7 @@ notify pgrst,'reload schema';
 commit;
 -- ============================================================================
 -- 116. facebook-comment-configuration.sql | Latest delivery safety, reporting and index patches
--- SHA256: 1a11ed58af99077fa1fee1fa630bd27da3e528374db2294569d101d833807dbd
+-- SHA256: 5bdf7e2cc6cc0f43375e2a9753fd7b02f1a122bf35aaea95871324b9e45ace80
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -15207,16 +15207,18 @@ begin
  if not exists(select 1 from public.tenants where id=p_tenant and page_id=p_page and is_active) then
   raise exception 'COMMENT_TENANT_PAGE_INVALID' using errcode='42501';end if;
  select d.settings into defaults from public.facebook_comment_defaults d where id;
- select * into s from public.live_sessions where tenant_id=p_tenant and page_id=p_page
-  and live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post)
-  order by created_at desc limit 1;
+ select session.* into s from public.live_sessions session where session.tenant_id=p_tenant and session.page_id=p_page
+  and (session.live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post)
+   or exists(select 1 from public.auctions a where a.tenant_id=p_tenant and a.page_id=p_page
+    and a.live_post_id=session.live_post_id and a.live_post_aliases && p_posts))
+  order by session.created_at desc limit 1;
  raw:=coalesce(s.auction_settings,'{}')||coalesce(s.comment_settings,'{}');
  settings:=public.resolve_facebook_comment_settings(to_jsonb(s),coalesce((select a.session_automation from public.auctions a where a.tenant_id=p_tenant and a.page_id=p_page
-  and a.live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post) order by a.created_at desc limit 1),'{}'));
+  and (a.live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post) or a.live_post_aliases && p_posts) order by a.created_at desc limit 1),'{}'));
  mode:=coalesce(s.mode,raw->>'mode');
  if mode is null then
   mode:=case when exists(select 1 from public.auctions where tenant_id=p_tenant and page_id=p_page
-    and live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post)) then 'auction' else 'cf' end;
+    and (live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post) or live_post_aliases && p_posts)) then 'auction' else 'cf' end;
  end if;
  return jsonb_build_object('mode',mode,'session',case when s.id is null then '{}'::jsonb else to_jsonb(s) end,'settings',settings);
 end $$;
@@ -15519,6 +15521,117 @@ grant execute on function public.first_configured_facebook_comment_tags(jsonb),p
  public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role;
 
 -- Source statement 26
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 117. facebook-message-echoes.sql | Latest delivery safety, reporting and index patches
+-- SHA256: b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.preserve_message_receipt_status() returns trigger
+language plpgsql set search_path=pg_catalog,public as $$
+begin
+ if old.delivery_status='read' then new.delivery_status:='read';
+ elsif old.delivery_status='delivered' and new.delivery_status is distinct from 'read' then new.delivery_status:='delivered';end if;
+ return new;
+end $$;
+
+-- Source statement 3
+drop trigger if exists messages_preserve_receipt_status on public.messages;
+
+-- Source statement 4
+create trigger messages_preserve_receipt_status before update of delivery_status on public.messages
+for each row execute function public.preserve_message_receipt_status();
+
+-- Source statement 5
+revoke all on function public.preserve_message_receipt_status() from public,anon,authenticated;
+
+-- Source statement 6
+create or replace function public.persist_facebook_message_echo(
+  p_event uuid,p_claim uuid,p_tenant uuid,p_app text default null
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare e public.facebook_webhook_events; c public.customers; m jsonb; mirrored jsonb;
+ event_time timestamptz; existing_id uuid; message_id uuid; provider_id text; local_key text; result jsonb;
+begin
+ select * into e from public.facebook_webhook_events where id=p_event and claim_token=p_claim
+  and status='processing' and lease_until>clock_timestamp() for update;
+ if not found then raise exception 'Webhook lease lost' using errcode='40001';end if;
+ if p_tenant is null or not exists(select 1 from public.tenants where id=p_tenant and page_id=e.page_id and is_active)
+  then raise exception 'Page tenant changed' using errcode='42501';end if;
+ select s.result into result from public.facebook_webhook_steps s
+  where s.event_id=e.id and s.name='echo' and s.status='completed';
+ if found then return result;end if;
+ m:=e.payload->'message';
+ if e.kind<>'message' or m->'is_echo' is distinct from 'true'::jsonb
+  or e.payload->'sender'->>'id' is distinct from e.page_id then
+  raise exception 'Invalid echo' using errcode='22023';end if;
+ mirrored:=e.payload||jsonb_build_object('sender',e.payload->'recipient','recipient',e.payload->'sender','message',m-'is_echo');
+ event_time:=public.facebook_inbound_message_at(mirrored,e.page_id,e.created_at);
+ if event_time is null then raise exception 'Invalid echo content or time' using errcode='22023';end if;
+ provider_id:=m->>'mid';
+ -- Serialize duplicates/echoes from concurrent receivers for this Page-scoped customer.
+ perform pg_advisory_xact_lock(hashtextextended('fb-echo:'||p_tenant::text||':'||(e.payload->'recipient'->>'id'),0));
+ insert into public.customers(platform,platform_user_id,tenant_id)
+ values('facebook',e.payload->'recipient'->>'id',p_tenant)
+ on conflict(platform,platform_user_id) do update set tenant_id=coalesce(customers.tenant_id,excluded.tenant_id)
+ returning * into c;
+ if c.tenant_id is distinct from p_tenant then raise exception 'Customer tenant mismatch' using errcode='42501';end if;
+ select id into existing_id from public.messages where customer_id=c.id
+  and (provider_message_id=provider_id or external_id=provider_id) order by created_at limit 1 for update;
+ -- Our outgoing metadata identifies the durable row even when an echo beats the Send API response.
+ if existing_id is null and nullif(p_app,'') is not null and m->>'app_id'=p_app
+  and left(m->>'metadata',8)='snapbot:' then
+  local_key:=substr(m->>'metadata',9);
+  select id into existing_id from public.messages where customer_id=c.id and external_id=local_key
+   and sender<>'customer' limit 1 for update;
+ end if;
+ if existing_id is not null then
+  update public.messages set provider_message_id=coalesce(provider_message_id,provider_id),
+   delivery_status=case when delivery_status in ('delivered','read') then delivery_status else 'sent' end
+   where id=existing_id;
+  message_id:=existing_id;
+ elsif nullif(p_app,'') is not null and m->>'app_id'=p_app then
+  -- Old uncorrelated sends already have dashboard rows. Never invent a duplicate or guess by text.
+  result:=jsonb_build_object('id',null,'ignored',true,'reason','UNMATCHED_APP_ECHO');
+ else
+  insert into public.messages(customer_id,external_id,provider_message_id,sender,body,attachments,created_at,delivery_status)
+  values(c.id,'fb-echo:'||e.page_id||':'||provider_id,provider_id,'agent',m->>'text',coalesce(m->'attachments','[]'::jsonb),event_time,'sent')
+  on conflict(external_id) do update set provider_message_id=excluded.provider_message_id
+  returning id into message_id;
+ end if;
+ if message_id is not null then
+  update public.customers set last_message_at=greatest(coalesce(last_message_at,event_time),event_time) where id=c.id;
+  result:=jsonb_build_object('id',message_id,'ignored',false);
+ end if;
+ insert into public.facebook_webhook_steps(event_id,name,status,result,completed_at)
+ values(e.id,'echo','completed',result,clock_timestamp());
+ return result;
+end $$;
+
+-- Source statement 7
+revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public,anon,authenticated;
+
+-- Source statement 8
+grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role;
+
+-- Source statement 9
+do $$ declare tab text; begin
+ if exists(select 1 from pg_publication where pubname='supabase_realtime') then
+  foreach tab in array array['messages','customers','comments','slips','conversation_reads'] loop
+   if to_regclass(format('public.%I',tab)) is not null and not exists(
+    select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=tab
+   ) then execute format('alter publication supabase_realtime add table public.%I',tab);end if;
+  end loop;
+ end if;
+end $$;
+
+-- Source statement 10
 notify pgrst,'reload schema';
 
 commit;

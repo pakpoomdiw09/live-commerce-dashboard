@@ -160,7 +160,29 @@ function fixture(errors = {}, options = {}) {
     Set,
     AbortController,
     fetch: async (url, options) => {
-      const query = new URL(url, 'https://offline.test').searchParams
+      const parsed = new URL(url, 'https://offline.test')
+      const threadId = parsed.pathname.match(
+        /^\/api\/inbox\/conversations\/([^/]+)\/messages$/,
+      )?.[1]
+      if (threadId) {
+        const owner = customers.find((customer) => customer.id === threadId)
+        queries.push({
+          table: 'api:messages',
+          filters: [
+            ['customer_id', threadId],
+            ['customers.tenant_id', owner?.tenant_id],
+          ],
+          signal: options.signal,
+        })
+        return {
+          ok: true,
+          json: async () => ({
+            messages: messages.filter((row) => row.customer_id === threadId),
+            hasMore: false,
+          }),
+        }
+      }
+      const query = parsed.searchParams
       const tenant = query.get('tenantId')
       const id = query.get('customerId')
       queries.push({
@@ -323,7 +345,7 @@ test('Inbox subscribes to Realtime, scopes reads to the shop and immediately ins
   const f = fixture()
   await flush()
   assert.match(f.channelName, /^inbox:shop-a:/)
-  const thread = f.queries.find((query) => query.table === 'messages')
+  const thread = f.queries.find((query) => query.table === 'api:messages')
   assert.ok(thread.filters.some(([key, value]) => key === 'customer_id' && value === 'customer-a'))
   assert.ok(
     thread.filters.some(([key, value]) => key === 'customers.tenant_id' && value === 'shop-a'),
@@ -352,7 +374,7 @@ test('new conversation is hydrated even if message event arrives before customer
   await flush()
   assert.ok(f.states[5].some((m) => m.id === 'missed'))
   await f.subscribe('TIMED_OUT')
-  assert.equal(f.states[11], 'offline')
+  assert.equal(f.states[13], 'offline')
   assert.equal(f.intervals.length, 1)
   f.cleanup()
 })
@@ -377,6 +399,11 @@ test('outgoing replies and delivery updates render directly without snapshot req
   f.dispatch('messages', 'UPDATE', { ...sent, delivery_status: 'sent' })
   assert.equal(f.states[5].find((row) => row.id === sent.id).delivery_status, 'sent')
   assert.equal(f.states[5].filter((row) => row.id === sent.id).length, 1)
+  for (const status of ['delivered', 'read']) {
+    f.dispatch('messages', 'UPDATE', { ...sent, delivery_status: status })
+    assert.equal(f.states[5].find((row) => row.id === sent.id).delivery_status, status)
+    assert.equal(f.states[5].filter((row) => row.id === sent.id).length, 1)
+  }
   assert.equal(f.queries.length, before)
   f.cleanup()
 })

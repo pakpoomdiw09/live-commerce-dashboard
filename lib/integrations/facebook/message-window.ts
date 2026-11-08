@@ -25,6 +25,25 @@ export type FacebookInboundMessage = {
   occurredAt: string
 }
 
+/** Validate Page-to-person echoes separately; they must never count as inbound activity. */
+export function facebookMessageEcho(event: unknown, pageId: string, receivedAt: string | number) {
+  if (
+    !record(event) ||
+    !record(event.message) ||
+    event.message.is_echo !== true ||
+    !record(event.sender) ||
+    event.sender.id !== pageId ||
+    !record(event.recipient)
+  )
+    return null
+  const { is_echo: _echo, ...message } = event.message
+  return facebookInboundMessage(
+    { ...event, sender: event.recipient, recipient: event.sender, message },
+    pageId,
+    receivedAt,
+  )
+}
+
 /** The caller must obtain the event and its immutable receipt time from the signature-verified queue. */
 export function facebookInboundMessage(
   event: unknown,

@@ -32,6 +32,8 @@ function fixture({
   vm.runInNewContext(facebookCode, {
     exports: facebook,
     require: (name) => {
+      if (name === '@/lib/features/commerce/comment-config')
+        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
       assert.equal(name, '@/lib/safe-logging')
       return require('./helpers/load-safe-logging.cjs')({
         info: (...args) => logs.push(args),

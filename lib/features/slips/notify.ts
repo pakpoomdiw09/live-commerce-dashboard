@@ -90,14 +90,14 @@ async function deliverTextOnce(
       meter(async () => {
         if (card) {
           // the card is nicer, but plain text works on every client and in more Page setups
-          await sendPaymentCard(customer.token, customer.psid, card).catch((e) => {
+          await sendPaymentCard(customer.token, customer.psid, card, externalId).catch((e) => {
             // A timeout may have delivered the card. Fall back only after an explicit rejection.
             if (!(e instanceof SendApiError) || e.status >= 500) throw e
             console.warn('[notify] payment card rejected, falling back to text', e)
-            return sendText(customer.token, customer.psid, body)
+            return sendText(customer.token, customer.psid, body, 'RESPONSE', externalId)
           })
         } else {
-          await sendText(customer.token, customer.psid, body)
+          await sendText(customer.token, customer.psid, body, 'RESPONSE', externalId)
         }
       }),
     [],
@@ -125,7 +125,7 @@ export async function deliverRichOnce(
     body,
     async (meter) => {
       for (const m of messages)
-        await meter(() => sendMessage(customer.token, customer.psid, m, messagingType))
+        await meter(() => sendMessage(customer.token, customer.psid, m, messagingType, externalId))
     },
     attachments,
   )

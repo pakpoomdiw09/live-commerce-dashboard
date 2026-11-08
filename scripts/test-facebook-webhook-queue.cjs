@@ -137,7 +137,7 @@ async function database() {
   await pg.exec(`create role anon;create role authenticated;create role service_role;
     create table tenants(id uuid primary key,page_id text,is_active boolean default true);
     create table customers(id uuid primary key default gen_random_uuid(),platform text,platform_user_id text,tenant_id uuid,display_name text,bot_enabled boolean default true,last_message_at timestamptz,last_interaction_at timestamptz,inbound_seq bigint not null default 0,conversation_status text default 'open',conversation_version integer default 0,unique(platform,platform_user_id));
-    create table messages(id uuid primary key default gen_random_uuid(),customer_id uuid,external_id text unique,sender text,body text,attachments jsonb,created_at timestamptz default now(),inbound_seq bigint);
+    create table messages(id uuid primary key default gen_random_uuid(),customer_id uuid,external_id text unique,sender text,body text,attachments jsonb,created_at timestamptz default now(),inbound_seq bigint,provider_message_id text,delivery_status text);
     create table comments(id uuid primary key default gen_random_uuid(),customer_id uuid,tenant_id uuid,external_id text unique,post_id text,author_name text,body text);`)
   const migration = fs.readFileSync('supabase/facebook-webhook-queue.sql', 'utf8')
   await pg.exec(migration)
@@ -146,6 +146,8 @@ async function database() {
   await pg.exec(fs.readFileSync('supabase/facebook-webhook-nonblocking.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-webhook-nonblocking.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-message-window.sql', 'utf8'))
+  await pg.exec(fs.readFileSync('supabase/facebook-message-echoes.sql', 'utf8'))
+  await pg.exec(fs.readFileSync('supabase/facebook-message-echoes.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-message-window.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-inbox-recovery.sql', 'utf8'))
   await pg.exec(fs.readFileSync('supabase/facebook-inbox-recovery.sql', 'utf8'))
@@ -185,6 +187,194 @@ async function database() {
   const one = async (sql) => (await pg.query(sql)).rows[0]
   return { pg, db: { rpc }, enqueue, one }
 }
+
+test('echoes persist outgoing history, deduplicate metadata races and never renew the inbound window', async () => {
+  const f = await database()
+  try {
+    await f.pg.exec('create publication supabase_realtime')
+    await f.pg.exec(fs.readFileSync('supabase/facebook-message-echoes.sql', 'utf8'))
+    assert.equal(
+      Number(
+        (
+          await f.one(
+            "select count(*) n from pg_publication_tables where pubname='supabase_realtime' and tablename='messages'",
+          )
+        ).n,
+      ),
+      1,
+    )
+    const base = payload().entry[0].messaging[0]
+    const echo = (mid, extra = {}) => ({
+      object: 'page',
+      entry: [
+        {
+          id: pageId,
+          messaging: [
+            {
+              ...base,
+              sender: { id: pageId },
+              recipient: { id: senderId },
+              message: { mid, text: 'Page reply', is_echo: true, ...extra },
+            },
+          ],
+        },
+      ],
+    })
+    const parsed = envelope.parseWebhook(encode(echo('native-echo')))
+    assert.equal(parsed.events[0].orderingKey, senderId)
+    assert.equal(
+      messageWindow.facebookInboundMessage(parsed.events[0].payload, pageId, Date.now()),
+      null,
+    )
+    assert.ok(messageWindow.facebookMessageEcho(parsed.events[0].payload, pageId, Date.now()))
+    const processEcho = async () =>
+      worker.runFacebookWebhookWorker(f.db, async (execution) => {
+        const result = await f.db.rpc('persist_facebook_message_echo', {
+          p_event: execution.event.id,
+          p_claim: execution.event.claim_token,
+          p_tenant: tenantId,
+          p_app: '999',
+        })
+        assert.equal(result.error, null)
+        const repeat = await f.db.rpc('persist_facebook_message_echo', {
+          p_event: execution.event.id,
+          p_claim: execution.event.claim_token,
+          p_tenant: tenantId,
+          p_app: '999',
+        })
+        assert.deepEqual(repeat.data, result.data)
+      })
+    await f.enqueue(echo('native-echo'))
+    assert.equal((await processEcho()).completed, 1)
+    let customer = await f.one('select * from customers')
+    assert.equal(customer.platform_user_id, senderId)
+    assert.equal(customer.tenant_id, tenantId)
+    assert.equal(customer.last_interaction_at, null)
+    assert.equal(customer.window_expires_at, null)
+    assert.equal(Number(customer.inbound_seq), 0)
+    assert.equal((await f.one('select sender from messages')).sender, 'agent')
+    await f.enqueue(echo('native-echo'))
+    assert.equal((await processEcho()).claimed, 0)
+    await f.pg.query(
+      "insert into messages(customer_id,external_id,sender,body,delivery_status) values($1,'agent:local-key','agent','Local reply','pending')",
+      [customer.id],
+    )
+    await f.enqueue(echo('our-app-mid', { app_id: 999, metadata: 'snapbot:agent:local-key' }))
+    assert.equal((await processEcho()).completed, 1)
+    assert.equal(Number((await f.one('select count(*) n from messages')).n), 2)
+    const local = await f.one("select * from messages where external_id='agent:local-key'")
+    assert.equal(local.provider_message_id, 'our-app-mid')
+    assert.equal(local.delivery_status, 'sent')
+    assert.equal(local.body, 'Local reply')
+    await f.pg.exec(
+      "update messages set delivery_status='read' where external_id='agent:local-key'",
+    )
+    await f.pg.exec(
+      "update messages set delivery_status='sent' where external_id='agent:local-key'",
+    )
+    assert.equal(
+      (await f.one("select delivery_status from messages where external_id='agent:local-key'"))
+        .delivery_status,
+      'read',
+      'a late Send API response must not undo the read receipt',
+    )
+    await f.enqueue(echo('our-app-mid-2', { app_id: '999', metadata: 'snapbot:agent:local-key' }))
+    await processEcho()
+    assert.equal(
+      (await f.one("select delivery_status from messages where external_id='agent:local-key'"))
+        .delivery_status,
+      'read',
+    )
+    await f.enqueue(echo('unmatched-own-echo', { app_id: '999' }))
+    await processEcho()
+    assert.equal(Number((await f.one('select count(*) n from messages')).n), 2)
+    customer = await f.one('select * from customers')
+    assert.equal(customer.last_interaction_at, null)
+    assert.equal(customer.window_expires_at, null)
+    assert.equal(Number(customer.inbound_seq), 0)
+  } finally {
+    await f.pg.close()
+  }
+})
+
+test('receipt updates reach Inbox messages even if optional broadcast storage fails', async () => {
+  const writes = []
+  const db = {
+    from(table) {
+      const query = {
+        select() {
+          return query
+        },
+        eq() {
+          return query
+        },
+        neq() {
+          return query
+        },
+        not() {
+          return query
+        },
+        lte() {
+          return query
+        },
+        in(key, values) {
+          if (key === 'delivery_status') writes.at(-1).eligible = values
+          return query
+        },
+        update(patch) {
+          writes.push({ table, patch })
+          return query
+        },
+        maybeSingle: async () => ({ data: { id: 'customer' }, error: null }),
+        then(resolve) {
+          return Promise.resolve({
+            error: table === 'broadcast_deliveries' ? { code: '42P01' } : null,
+          }).then(resolve)
+        },
+      }
+      return query
+    },
+  }
+  const stubs = Object.fromEntries(
+    [
+      '@/lib/features/comments/comment-rules',
+      '@/lib/features/agents/chatbot-server',
+      '@/lib/features/commerce/orders',
+      '@/lib/features/slips/process',
+      '@/lib/features/slips/notify',
+      '@/lib/features/slips/image',
+      '@/lib/message-quota',
+      '@/lib/features/follow-ups/followup-ai',
+      '@/lib/features/vision/vision',
+      '@/lib/features/broadcast/broadcast-policy',
+    ].map((name) => [name, {}]),
+  )
+  const api = load('lib/integrations/facebook/webhook-handler.ts', {
+    ...stubs,
+    '@/lib/supabase/server': { supabaseAdmin: () => db },
+    '@/lib/integrations/facebook/client': {},
+    '@/lib/integrations/facebook/message-window': messageWindow,
+  })
+  for (const receipt of [
+    { delivery: { mids: ['outgoing-mid'] } },
+    { read: { watermark: 1700000000000 } },
+  ]) {
+    writes.length = 0
+    await assert.rejects(
+      api.recordReceipt(
+        { sender: { id: senderId }, recipient: { id: pageId }, ...receipt },
+        tenantId,
+        pageId,
+      ),
+      (e) => e.code === '42P01',
+    )
+    assert.equal(writes[0].table, 'messages')
+    assert.equal(writes[1].table, 'broadcast_deliveries')
+    assert.equal(writes[0].patch.delivery_status, receipt.read ? 'read' : 'delivered')
+    assert.ok(writes[0].eligible.includes('unknown'))
+    assert.ok(!writes[0].eligible.includes('read'), 'out-of-order receipts cannot downgrade read')
+  }
+})
 
 test('canonical comment keys enqueue, deduplicate and reject keys from another Page atomically', async () => {
   const f = await database()
@@ -232,6 +422,31 @@ test('canonical comment keys enqueue, deduplicate and reject keys from another P
       assert.equal(result.error?.code, '22023')
     }
     assert.equal((await f.one('select count(*)::int n from facebook_webhook_events')).n, 1)
+  } finally {
+    await f.pg.close()
+  }
+})
+
+test('incoming PSIDs reuse the existing customer and attach an unassigned record to the verified Page tenant', async () => {
+  const f = await database()
+  try {
+    const customerId = crypto.randomUUID()
+    await f.pg.query(
+      "insert into customers(id,platform,platform_user_id,display_name) values($1,'facebook',$2,'Known bidder')",
+      [customerId, senderId],
+    )
+    for (const mid of ['first-inbound-for-bidder', 'second-inbound-for-bidder']) {
+      await f.enqueue(payload(mid))
+      const result = await worker.runFacebookWebhookWorker(f.db, async (execution) => {
+        const stored = await execution.persistRecord(tenantId)
+        assert.equal(stored.customer.id, customerId)
+      })
+      assert.equal(result.completed, 1)
+    }
+    assert.equal(Number((await f.one('select count(*) n from customers')).n), 1)
+    assert.equal((await f.one('select tenant_id from customers')).tenant_id, tenantId)
+    assert.equal(Number((await f.one('select count(*) n from messages')).n), 2)
+    assert.equal((await f.one('select customer_id from messages limit 1')).customer_id, customerId)
   } finally {
     await f.pg.close()
   }
@@ -1156,7 +1371,8 @@ test('the inbox trigger cannot extend Facebook windows from local created_at; ot
 
 test('the real handler refuses ineligible messages before calling profile, AI, orders or image services', async () => {
   let persisted = 0,
-    external = 0
+    external = 0,
+    pageLinked = true
   const forbidden = () => {
     external++
     throw Error('Unexpected external service')
@@ -1171,7 +1387,7 @@ test('the real handler refuses ineligible messages before calling profile, AI, o
           return query
         },
         maybeSingle: async () => ({
-          data: table === 'tenants' ? { id: tenantId, page_id: pageId } : null,
+          data: table === 'tenants' && pageLinked ? { id: tenantId, page_id: pageId } : null,
           error: null,
         }),
       }
@@ -1225,9 +1441,27 @@ test('the real handler refuses ineligible messages before calling profile, AI, o
     })
   assert.equal(persisted, invalid.length)
   assert.equal(external, 0)
+  pageLinked = false
+  await assert.rejects(
+    api.handleFacebookWebhookEvent({
+      event: {
+        id: crypto.randomUUID(),
+        page_id: pageId,
+        kind: 'message',
+        payload: base,
+        created_at: createdAt,
+      },
+      persistRecord: async () => {
+        persisted++
+        throw Error('Must not create an orphan customer')
+      },
+    }),
+    (error) => error.code === 'PAGE_NOT_LINKED',
+  )
+  assert.equal(persisted, invalid.length)
 })
 
-test('both registered URLs share verification, signature checks and persistence failure responses without redirects', async () => {
+test('all webhook aliases share verification, signature checks and persistence failure responses without redirects', async () => {
   const env = {
     FB_APP_SECRET: 'secret',
     FB_VERIFY_TOKEN: 'primary',
@@ -1258,15 +1492,20 @@ test('both registered URLs share verification, signature checks and persistence 
     },
     { process: { env } },
   )
-  const routes = ['app/api/webhook/facebook/route.ts', 'app/api/webhooks/facebook/route.ts'].map(
-    (path) => load(path, { '@/lib/integrations/facebook/webhook-http': shared }),
-  )
+  const routes = [
+    'app/api/webhook/facebook/route.ts',
+    'app/api/webhooks/facebook/route.ts',
+    'app/webhook/route.ts',
+  ].map((path) => load(path, { '@/lib/integrations/facebook/webhook-http': shared }))
   assert.equal(routes[0].GET, routes[1].GET)
   assert.equal(routes[0].POST, routes[1].POST)
   for (const [index, route] of routes.entries()) {
     assert.equal(route.runtime, 'nodejs')
     assert.equal(route.maxDuration, 300)
-    const url = 'https://example.test/api/' + (index ? 'webhooks' : 'webhook') + '/facebook'
+    const url =
+      index === 2
+        ? 'https://example.test/webhook'
+        : 'https://example.test/api/' + (index ? 'webhooks' : 'webhook') + '/facebook'
     const verify = (token) => {
       const request = new Request(
         url + '?hub.mode=subscribe&hub.verify_token=' + token + '&hub.challenge=challenge-123',
@@ -1296,7 +1535,25 @@ test('both registered URLs share verification, signature checks and persistence 
       503,
     )
   }
-  assert.equal(writes, 2)
+  assert.equal(writes, routes.length)
+})
+
+test('/webhook bypasses browser authentication while retaining the route signature checks', async () => {
+  let authCalls = 0
+  const api = load('middleware.ts', {
+    'next/server': { NextResponse: { next: () => ({ status: 200 }) } },
+    '@/lib/supabase/middleware': {
+      updateSession: async () => {
+        authCalls++
+        throw Error('Must not authenticate Meta')
+      },
+    },
+  })
+  assert.equal((await api.middleware({ nextUrl: { pathname: '/webhook' } })).status, 200)
+  assert.equal(authCalls, 0)
+  const matcher = new RegExp('^' + api.config.matcher[0] + '$')
+  assert.equal(matcher.test('/webhook'), false)
+  assert.equal(matcher.test('/inbox'), true)
 })
 
 test('concurrent deliveries across both URLs execute one shared profile, AI, tracking, image and comment pipeline', async () => {

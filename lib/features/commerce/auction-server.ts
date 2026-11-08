@@ -371,11 +371,17 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
               { onConflict: 'external_id', ignoreDuplicates: true },
             )
             if (queued.error) throw queued.error
-            const receipt = await sendAuctionInvoiceWithReceipt(token, recipient, latestText, {
-              id: delivery.comment_id,
-              pageId: auction.page_id,
-              invoiceText: splitMessages[1],
-            })
+            const receipt = await sendAuctionInvoiceWithReceipt(
+              token,
+              recipient,
+              latestText,
+              {
+                id: delivery.comment_id,
+                pageId: auction.page_id,
+                invoiceText: splitMessages[1],
+              },
+              `${billMessageKey(delivery)}:latest`,
+            )
             if (receipt.privateReply) summaryReceipt = receipt.message_id
             recipient = receipt.recipient_id || recipient
             const progress = await db
@@ -403,10 +409,16 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           const messageId =
             summaryReceipt ??
             (
-              await sendAuctionInvoiceWithReceipt(token, recipient, splitMessages[1], {
-                id: delivery.comment_id,
-                pageId: auction.page_id,
-              })
+              await sendAuctionInvoiceWithReceipt(
+                token,
+                recipient,
+                splitMessages[1],
+                {
+                  id: delivery.comment_id,
+                  pageId: auction.page_id,
+                },
+                billMessageKey(delivery),
+              )
             ).message_id
           const chat = await db
             .from('messages')
@@ -420,10 +432,16 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           if (chat.error) throw chat.error
         } else {
           const receipt = invoiceRecipient
-            ? await sendAuctionInvoiceWithReceipt(token, invoiceRecipient, billMessage, {
-                id: delivery.comment_id,
-                pageId: auction.page_id,
-              })
+            ? await sendAuctionInvoiceWithReceipt(
+                token,
+                invoiceRecipient,
+                billMessage,
+                {
+                  id: delivery.comment_id,
+                  pageId: auction.page_id,
+                },
+                billMessageKey(delivery),
+              )
             : await sendAuctionPrivateReply(
                 token,
                 delivery.comment_id,

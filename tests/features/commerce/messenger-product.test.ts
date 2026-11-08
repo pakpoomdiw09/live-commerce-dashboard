@@ -4,7 +4,10 @@ import { createRequire } from 'node:module'
 import { test } from 'node:test'
 import { PGlite } from '@electric-sql/pglite'
 import { parseWebhook } from '../../../lib/integrations/facebook/webhook-envelope'
-import { facebookInboundMessage } from '../../../lib/integrations/facebook/message-window'
+import {
+  facebookInboundMessage,
+  facebookMessageEcho,
+} from '../../../lib/integrations/facebook/message-window'
 import {
   buildProductReply,
   extractProductCode,
@@ -411,7 +414,7 @@ function webhookHarness(
       '@/lib/features/follow-ups/followup-ai': { observeFollowUpMessage: async () => {} },
       '@/lib/features/vision/vision': { queueMessengerVision: async () => false },
       '@/lib/features/broadcast/broadcast-policy': { inboundBroadcastEvidence: () => null },
-      '@/lib/integrations/facebook/message-window': { facebookInboundMessage },
+      '@/lib/integrations/facebook/message-window': { facebookInboundMessage, facebookMessageEcho },
       '@/lib/features/inbox/inbox-automation-window': {
         InboxAutomationWindowError: class extends Error {},
       },

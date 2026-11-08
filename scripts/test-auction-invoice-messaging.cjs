@@ -38,7 +38,7 @@ const windowError = {
 const success = { body: { message_id: 'receipt' } }
 
 test('invoice uses MESSAGE_TAG and POST_PURCHASE_UPDATE; normal chat remains RESPONSE', async () => {
-  const f = facebook([success, success])
+  const f = facebook([success, success, success])
   await f.api.sendAuctionInvoiceWithReceipt('token', 'psid', invoice, comment)
   assert.equal(f.calls[0].url, 'https://graph.facebook.com/v22.0/me/messages')
   assert.deepEqual(f.calls[0].body, {
@@ -50,6 +50,14 @@ test('invoice uses MESSAGE_TAG and POST_PURCHASE_UPDATE; normal chat remains RES
   await f.api.sendMessageWithReceipt('token', 'psid', { text: 'hello' })
   assert.equal(f.calls[1].body.messaging_type, 'RESPONSE')
   assert.equal(f.calls[1].body.tag, undefined)
+  await f.api.sendMessageWithReceipt(
+    'token',
+    'psid',
+    { text: 'correlated reply' },
+    'RESPONSE',
+    'agent:client-id',
+  )
+  assert.equal(f.calls[2].body.message.metadata, 'snapbot:agent:client-id')
 })
 
 test('definite window or missing-recipient rejection falls back to the winning comment exactly once', async () => {

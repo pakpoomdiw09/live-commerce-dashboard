@@ -140,6 +140,7 @@ const groups = [
       'live-auction-highest-confirmation.sql',
       'live-auction-dynamic-tags.sql',
       'facebook-comment-configuration.sql',
+      'facebook-message-echoes.sql',
     ],
   ],
 ]
@@ -310,6 +311,7 @@ const prerequisites = {
   'dashboard-read-models.sql': ['dashboard-performance.sql'],
   'premium-overview.sql': ['dashboard-read-models.sql'],
   'inbox-realtime.sql': ['schema.sql', 'security.sql'],
+  'facebook-message-echoes.sql': ['facebook-message-window.sql', 'smart-inbox.sql'],
   'inbox-load-indexes.sql': ['inbox-realtime.sql'],
   'facebook-inbox-recovery.sql': ['facebook-webhook-queue.sql', 'smart-inbox.sql'],
   'live-cf-variants.sql': ['commerce-v2.sql', 'facebook-webhook-queue.sql'],

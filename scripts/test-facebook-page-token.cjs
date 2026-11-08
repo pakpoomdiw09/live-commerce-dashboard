@@ -19,6 +19,8 @@ function facebook({ env = {}, status = 200, json = null, networkError = false } 
   vm.runInNewContext(code, {
     exports,
     require: (name) => {
+      if (name === '@/lib/features/commerce/comment-config')
+        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
       assert.equal(name, '@/lib/safe-logging')
       return require('./helpers/load-safe-logging.cjs')()
     },
@@ -81,6 +83,28 @@ test('messaging Page is verified without profile-reading permissions', async () 
   assert.match(api.calls[0].url, /\/debug_token\?input_token=saved-page-token$/)
   assert.equal(api.calls[0].options.headers.Authorization, 'Bearer saved-page-token')
   assert.equal(api.calls[0].options.cache, 'no-store')
+})
+
+test('tokens from the previous Facebook App require reauthorization', async () => {
+  const api = facebook({
+    env: { FB_APP_ID: 'new-app', FB_APP_SECRET: 'secret' },
+    json: { data: { ...validData(), app_id: 'old-app' } },
+  })
+  assert.equal(await api.getPageTokenStatus('saved-token', 'page-123'), 'invalid')
+  const checked = await api.inspectPageToken('saved-token', 'page-123')
+  assert.equal(checked.ok, false)
+  assert.match(checked.error, /App เดิมหรือ App อื่น/)
+})
+
+test('saving a token rejects expired token or data access even if debug is_valid is true', async () => {
+  for (const field of ['expires_at', 'data_access_expires_at']) {
+    const api = facebook({
+      json: { data: { ...validData(), [field]: Math.floor(Date.now() / 1000) - 60 } },
+    })
+    const checked = await api.inspectPageToken('saved-token', 'page-123')
+    assert.equal(checked.ok, false)
+    assert.match(checked.error, /หมดอายุ/)
+  }
 })
 
 test('customer profile uses the configured Graph version and bearer token without URL leakage', async () => {

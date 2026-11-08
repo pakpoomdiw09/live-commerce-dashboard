@@ -91,10 +91,18 @@ export async function GET(req: NextRequest) {
       'เชื่อมต่อร้านค้าไม่สำเร็จ กรุณาตรวจสอบการติดตั้ง facebook-tenants.sql เวอร์ชันล่าสุด',
     )
   }
+  let subscriptionFailed = false
   for (const page of pages) {
     const subError = await subscribePage(page.id, page.accessToken)
-    if (subError) console.error('[fb-connect] webhook subscribe failed', page.id, subError)
+    if (subError) {
+      subscriptionFailed = true
+      console.error('[fb-connect] webhook subscribe failed', { pageId: page.id })
+    }
   }
+  if (subscriptionFailed)
+    return fail(
+      'บันทึกเพจแล้ว แต่เปิดรับข้อความจาก Facebook ไม่สำเร็จ กรุณาตรวจสิทธิ์ pages_manage_metadata และเชื่อมต่อเพจใหม่',
+    )
 
   return done({ fb: 'connected', pages: String(pages.length), updated: String(updated ?? 0) })
 }

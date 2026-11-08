@@ -190,7 +190,8 @@ export async function listPages(
 }
 
 /** Page webhook fields: comments/live comments arrive via `feed`. */
-export const PAGE_SUBSCRIBED_FIELDS = 'feed,messages,messaging_postbacks'
+export const PAGE_SUBSCRIBED_FIELDS =
+  'feed,messages,messaging_postbacks,message_echoes,message_reads,message_deliveries'
 
 /**
  * Subscribe our app to the Page's webhook (messages, comments), so the shop doesn't have to do
@@ -208,7 +209,7 @@ export async function subscribePage(pageId: string, pageToken: string): Promise<
       signal: AbortSignal.timeout(10_000),
     })
     const body = await res.json().catch(() => null)
-    if (res.ok && body?.success !== false) return null
+    if (res.ok && body?.success === true) return null
     return body?.error?.message ?? `HTTP ${res.status}`
   } catch (e) {
     return e instanceof Error ? e.message : 'network error'

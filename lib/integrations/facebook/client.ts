@@ -285,6 +285,7 @@ export async function sendMessageWithReceipt(
   psid: string,
   message: object,
   messagingType: MessagingType = 'RESPONSE',
+  externalId?: string,
 ): Promise<string> {
   return facebookOperation(
     'facebook.send_message',
@@ -302,7 +303,7 @@ export async function sendMessageWithReceipt(
         body: JSON.stringify({
           ...messagingFields(messagingType),
           recipient: { id: psid },
-          message,
+          message: externalId ? { ...message, metadata: `snapbot:${externalId}` } : message,
         }),
         signal: AbortSignal.timeout(10_000),
       })
@@ -342,8 +343,9 @@ export async function sendMessage(
   psid: string,
   message: object,
   messagingType: MessagingType = 'RESPONSE',
+  externalId?: string,
 ): Promise<void> {
-  await sendMessageWithReceipt(token, psid, message, messagingType)
+  await sendMessageWithReceipt(token, psid, message, messagingType, externalId)
 }
 
 /** Only server-rendered order invoices use this tag. Never apply it to arbitrary chat text.
@@ -355,6 +357,7 @@ export async function sendAuctionInvoiceWithReceipt(
   psid: string,
   text: string,
   comment?: { id: string; pageId: string; invoiceText?: string },
+  externalId?: string,
 ): Promise<{ message_id: string; recipient_id?: string; privateReply: boolean }> {
   if (!text.trim() || text.length > 2000) throw new Error('FACEBOOK_INVOICE_TEXT_INVALID')
   try {
@@ -365,6 +368,7 @@ export async function sendAuctionInvoiceWithReceipt(
       {
         tag: 'POST_PURCHASE_UPDATE',
       },
+      externalId,
     )
     return { message_id: messageId, privateReply: false }
   } catch (error) {
@@ -372,7 +376,13 @@ export async function sendAuctionInvoiceWithReceipt(
     // rejection is safe to retry as a normal response; Meta still enforces 24 h.
     if (isUnsupportedPurchaseTag(error)) {
       try {
-        const messageId = await sendMessageWithReceipt(token, psid, { text }, 'RESPONSE')
+        const messageId = await sendMessageWithReceipt(
+          token,
+          psid,
+          { text },
+          'RESPONSE',
+          externalId,
+        )
         return { message_id: messageId, privateReply: false }
       } catch (responseError) {
         error = responseError
@@ -405,7 +415,8 @@ export const sendText = (
   psid: string,
   text: string,
   messagingType: MessagingType = 'RESPONSE',
-) => sendMessage(token, psid, { text }, messagingType)
+  externalId?: string,
+) => sendMessage(token, psid, { text }, messagingType, externalId)
 
 /** Quick reply buttons under a message: tapping one sends its title back as the customer's text. */
 export const quickReplies = (titles: string[]) => {
@@ -425,22 +436,33 @@ export type PaymentCard = { title: string; subtitle: string; imageUrl?: string |
  * Payment summary as a Messenger generic template (Messenger's counterpart of a LINE Flex card).
  * Meta limits title and subtitle to 80 characters each.
  */
-export const sendPaymentCard = (token: string | null, psid: string, card: PaymentCard) =>
-  sendMessage(token, psid, {
-    attachment: {
-      type: 'template',
-      payload: {
-        template_type: 'generic',
-        elements: [
-          {
-            title: card.title.slice(0, 80),
-            subtitle: card.subtitle.slice(0, 80),
-            ...(card.imageUrl ? { image_url: card.imageUrl } : {}),
-          },
-        ],
+export const sendPaymentCard = (
+  token: string | null,
+  psid: string,
+  card: PaymentCard,
+  externalId?: string,
+) =>
+  sendMessage(
+    token,
+    psid,
+    {
+      attachment: {
+        type: 'template',
+        payload: {
+          template_type: 'generic',
+          elements: [
+            {
+              title: card.title.slice(0, 80),
+              subtitle: card.subtitle.slice(0, 80),
+              ...(card.imageUrl ? { image_url: card.imageUrl } : {}),
+            },
+          ],
+        },
       },
     },
-  })
+    'RESPONSE',
+    externalId,
+  )
 
 /** Public reply under a comment. Needs the pages_manage_engagement permission. */
 export async function replyToComment(token: string | null, commentId: string, text: string) {
@@ -843,6 +865,7 @@ export async function getPageTokenStatus(token: string, pageId: string): Promise
   const data = result.json?.data
   if (!data || typeof data !== 'object' || typeof data.is_valid !== 'boolean') return 'unverified'
   if (!data.is_valid) return 'invalid'
+  if (appId && data.app_id != null && String(data.app_id) !== appId) return 'invalid'
   if (typeof data.type !== 'string') return 'unverified'
   if (data.type !== 'PAGE') return 'invalid'
   if (!['string', 'number'].includes(typeof data.profile_id) || !String(data.profile_id).trim())
@@ -891,6 +914,18 @@ export async function inspectPageToken(
   const d = r.json?.data
   if (!d?.is_valid) {
     return fail('token ใช้ไม่ได้แล้ว (หมดอายุ ถูกเพิกถอน หรือเปลี่ยนรหัสผ่าน)')
+  }
+  const configuredAppId = (process.env.FB_APP_ID || process.env.NEXT_PUBLIC_FB_APP_ID || '').trim()
+  if (configuredAppId && d.app_id != null && String(d.app_id) !== configuredAppId)
+    return fail(
+      'token นี้เป็นของ Facebook App เดิมหรือ App อื่น กรุณาเชื่อมต่อ Facebook ใหม่กับ App ปัจจุบัน',
+    )
+  for (const expiry of [d.expires_at, d.data_access_expires_at]) {
+    if (expiry === undefined) continue
+    if (typeof expiry !== 'number' || !Number.isFinite(expiry) || expiry < 0)
+      return fail('ตรวจสอบวันหมดอายุของ token ไม่สำเร็จ กรุณาเชื่อมต่อ Facebook ใหม่')
+    if (expiry > 0 && expiry <= Date.now() / 1000)
+      return fail('token หรือสิทธิ์เข้าถึงข้อมูลหมดอายุแล้ว กรุณาเชื่อมต่อ Facebook ใหม่')
   }
   if (d.type === 'USER') return exchangeUserToken(token, pageId)
   if (d.type !== 'PAGE' || !d.profile_id)

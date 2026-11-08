@@ -97,7 +97,13 @@ export async function POST(req: NextRequest) {
     if (inserted.error) throw inserted.error
     const id = inserted.data.id
     try {
-      const receipt = await sendAuctionInvoiceWithReceipt(token, customer.platform_user_id, text)
+      const receipt = await sendAuctionInvoiceWithReceipt(
+        token,
+        customer.platform_user_id,
+        text,
+        undefined,
+        externalId,
+      )
       const saved = await db
         .from('messages')
         .update({ delivery_status: 'sent', provider_message_id: receipt.message_id })

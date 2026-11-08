@@ -193,7 +193,12 @@ export function parseWebhook(bytes: Uint8Array): {
               `${kind}:${externalId}:${kind === 'change' ? String(event.value?.verb ?? '') : ''}`,
             )
           : hash(`${kind}:${canonical(event)}`)
-        const sender = kind === 'message' ? event.sender?.id : event.value?.from?.id
+        const sender =
+          kind === 'message'
+            ? event.message?.is_echo === true && event.sender?.id === pageId
+              ? event.recipient?.id
+              : event.sender?.id
+            : event.value?.from?.id
         const orderingKey =
           kind === 'change' && event.value?.item === 'comment'
             ? `comments:${pageId}`

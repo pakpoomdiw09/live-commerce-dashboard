@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin, supabaseServer } from '@/lib/supabase/server'
-import { listPages, verifiedAdminPages } from '@/lib/integrations/facebook/oauth'
+import { listPages, verifiedAdminPages, subscribePage } from '@/lib/integrations/facebook/oauth'
 import { OAUTH_NEXT_COOKIE, OAUTH_COOKIE_PATH, safeAuthNext, oauthErrorCode } from '@/lib/oauth'
 
 export const runtime = 'nodejs'
@@ -103,6 +103,21 @@ export async function GET(req: NextRequest) {
     if (error) {
       console.error('[facebook-sync] database failed', error.code)
       return done({ fb_error: databaseErrorMessage(error) })
+    }
+    const subscriptions = await Promise.all(
+      pages.map(async (page) => ({
+        pageId: page.id,
+        error: await subscribePage(page.id, page.accessToken),
+      })),
+    )
+    if (subscriptions.some((result) => result.error)) {
+      console.error('[facebook-sync] webhook subscription incomplete', {
+        pageIds: subscriptions.filter((result) => result.error).map((result) => result.pageId),
+      })
+      return done({
+        fb_error:
+          'บันทึกเพจแล้ว แต่เปิดรับข้อความจาก Facebook ไม่สำเร็จ กรุณาตรวจสิทธิ์ pages_manage_metadata และเชื่อมต่อเพจใหม่',
+      })
     }
     return next === '/select-page'
       ? done({ fb: 'connected', pages: String(pages.length), updated: String(data ?? 0) })
