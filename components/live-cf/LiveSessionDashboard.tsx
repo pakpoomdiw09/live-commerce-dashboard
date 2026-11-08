@@ -66,6 +66,10 @@ export function LiveSessionDashboard({
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [skippedAuthors, setSkippedAuthors] = useState(0)
+  const [skips, setSkips] = useState<Record<string, number>>({})
+  const [reviews, setReviews] = useState<{ channel: string; status: string }[]>([])
+  const [reviewsUnavailable, setReviewsUnavailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [version, setVersion] = useState(0)
   const [updated, setUpdated] = useState('')
@@ -114,6 +118,17 @@ export function LiveSessionDashboard({
               setUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }))
             }
           }
+          if (allInOne && chosen) {
+            try {
+              const workspace = await read('/api/live-auction/workspace?' + new URLSearchParams({ tenantId, sessionId: chosen }), controller.signal)
+              if (!controller.signal.aborted && request === sequence.current) {
+                setReviews(workspace.deliveryReviews ?? [])
+                setReviewsUnavailable(false)
+              }
+            } catch {
+              if (!controller.signal.aborted) setReviewsUnavailable(true)
+            }
+          }
           if (!controller.signal.aborted) setError('')
         }
       } catch (cause) {
@@ -159,6 +174,10 @@ export function LiveSessionDashboard({
     [tenantId, sessionId],
   )
   function choose(id: string) {
+    setSkippedAuthors(0)
+    setSkips({})
+    setReviews([])
+    setReviewsUnavailable(false)
     setSessionId(id)
     setSnapshot(null)
     setSelected([])
@@ -425,12 +444,14 @@ export function LiveSessionDashboard({
         (data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id) && (
           // Keyed by session: switching the selected live resets state and retargets at once.
           <LiveCommentPoller
+            onSkipped={setSkips}
             key={sessionId}
             sessionId={sessionId}
             pageId={(data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id)!}
             onVideoUnavailable={() =>
               setNotice('ไม่สามารถเข้าถึงวิดีโอไลฟ์นี้ได้ กรุณาเลือกไลฟ์หรือเซสชันใหม่')
             }
+            onSkippedAuthors={setSkippedAuthors}
           />
         )}
       {!auction && (
@@ -462,6 +483,25 @@ export function LiveSessionDashboard({
       {notice && (
         <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
           {notice}
+        </p>
+      )}
+      {auction && (reviews.length > 0 || reviewsUnavailable) && (
+        <section role="alert" className="rounded-xl border border-red-200 p-3 text-sm text-red-900">
+          <strong>การส่งข้อความที่ต้องตรวจสอบ ({reviews.length}{reviews.length === 50 ? '+' : ''})</strong>
+          {reviewsUnavailable && <p>ยังตรวจสอบสถานะการส่งไม่ได้ กรุณาโหลดใหม่</p>}
+          <ul>{reviews.map((review, index) => <li key={index}>
+            {review.channel === 'private' ? 'ข้อความส่วนตัว' : 'ตอบกลับสาธารณะ'}: {review.status === 'failed' ? 'ส่งไม่สำเร็จ' : 'รอตรวจสอบ'}
+          </li>)}</ul>
+        </section>
+      )}
+      {auction && Object.entries(skips).some(([reason]) => reason !== 'MISSING_FROM_ID') && (
+        <div role="status" className="text-sm text-slate-600">
+          {Object.entries({ MISSING_COMMENT_ID: 'ไม่มีรหัสคอมเมนต์', MISSING_MESSAGE: 'ไม่มีข้อความ', INVALID_CREATED_TIME: 'เวลาไม่ถูกต้อง', BEFORE_ROUND_START: 'ก่อนเริ่มรอบ', BEFORE_HIGH_WATER_OVERLAP: 'ก่อนช่วงตรวจสอบ', ALREADY_SEEN_IN_PROCESS: 'ตรวจสอบแล้ว' }).map(([reason, label]) => skips[reason] ? <p key={reason}>{label}: {skips[reason]}</p> : null)}
+        </div>
+      )}
+      {auction && skippedAuthors > 0 && (
+        <p role="status" className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+          มี {skippedAuthors.toLocaleString('th-TH')} คอมเมนต์ที่ไม่มีข้อมูลผู้เขียน
         </p>
       )}
 

@@ -30,21 +30,11 @@ function failure(error: unknown) {
   return auctionReply({ error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, 503)
 }
 
-// Workspace reads are optional hydration. Writes still report database failures.
-async function workspaceRead<T>(
-  query: PromiseLike<{ data: T; error: unknown }>,
-): Promise<T | null> {
-  try {
-    const result = await query
-    if (result.error) throw result.error
-    return result.data
-  } catch (error) {
-    const code = (error as { code?: string } | null)?.code
-    console.error('[live-auction/workspace] optional read failed', {
-      code: /^[A-Z0-9_]{1,80}$/i.test(code ?? '') ? code : 'UNAVAILABLE',
-    })
-    return null
-  }
+// A failed read must never masquerade as a new, empty workspace.
+async function workspaceRead<T>(query: PromiseLike<{ data: T; error: unknown }>): Promise<T> {
+  const result = await query
+  if (result.error) throw result.error
+  return result.data
 }
 
 export async function GET(req: NextRequest) {
@@ -74,6 +64,7 @@ export async function GET(req: NextRequest) {
     const session = await workspaceRead(
       query.order('created_at', { ascending: false }).limit(1).maybeSingle(),
     )
+    if (sessionId && !session) return auctionReply({ ready: false, error: 'Session not found' }, 404)
     // A new live can inherit the merchant's previous preferences without creating data on GET.
     let previous = session
     if (!previous && pageId) {
@@ -100,8 +91,20 @@ export async function GET(req: NextRequest) {
         : await workspaceRead(
             rounds.order('created_at', { ascending: false }).limit(1).maybeSingle(),
           )
+    let reviews = db.from('auction_deliveries')
+      .select('channel,status,auctions!inner(tenant_id,page_id,live_post_id)')
+      .eq('auctions.tenant_id', tenantId!)
+      .in('status', ['requires_review', 'failed'])
+    if (selectedPage) reviews = reviews.eq('auctions.page_id', selectedPage)
+    if (selectedPost) reviews = reviews.eq('auctions.live_post_id', selectedPost)
+    const reviewRows = await workspaceRead(reviews.limit(50))
+    const deliveryReviews = (reviewRows ?? []).map(row => ({
+      channel: row.channel === 'private' ? 'private' : 'public',
+      status: row.status === 'failed' ? 'failed' : 'requires_review',
+    }))
     return auctionReply({
       ready: true,
+      deliveryReviews,
       auction: round,
       bids: [],
       session,
@@ -114,16 +117,8 @@ export async function GET(req: NextRequest) {
       preferencesOnly: !session,
     })
   } catch {
-    console.error('[live-auction/workspace] using empty workspace')
-    return auctionReply({
-      ready: true,
-      auction: null,
-      bids: [],
-      session: null,
-      round: null,
-      settings: null,
-      preferencesOnly: true,
-    })
+    console.error('[live-auction/workspace]', { category: 'READ_UNAVAILABLE' })
+    return auctionReply({ ready: false, degraded: true, error: 'Workspace temporarily unavailable. Please retry.' }, 503)
   }
 }
 

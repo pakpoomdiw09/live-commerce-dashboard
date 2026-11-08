@@ -190,7 +190,7 @@ export async function postFacebookWebhook(req: NextRequest) {
         try {
           await drain
         } catch (workerErr) {
-          console.error('[facebook-webhook/worker] deferred drain error', workerErr)
+          console.error('[facebook-webhook/worker] deferred drain error', { category: 'WORKER_FAILURE' })
         } finally {
           if (activeDrain === drain) activeDrain = null
         }
@@ -215,8 +215,8 @@ export async function postFacebookWebhook(req: NextRequest) {
       })
       return new NextResponse(error.message, { status: error.status })
     }
-    console.log('[WEBHOOK DROP] เหตุผล:', { reason: 'RECEIVER_EXCEPTION', status: 503, error })
-    console.error('[facebook-webhook/ingress] request unexpected error', error)
+    console.log('[WEBHOOK DROP] เหตุผล:', { reason: 'RECEIVER_EXCEPTION', status: 503 })
+    console.error('[facebook-webhook/ingress] request unexpected error', { category: 'RECEIVER_EXCEPTION' })
     return new NextResponse('Webhook unavailable', {
       status: 503,
       headers: { 'Retry-After': '30' },

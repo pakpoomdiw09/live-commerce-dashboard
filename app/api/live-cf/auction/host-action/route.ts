@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
     if (!auction.data) return auctionReply({ error: 'ไม่พบรายการประมูลของร้านนี้' }, 404)
     if (auction.data.status !== 'active')
       return auctionReply({ error: 'รายการนี้ปิดหรือยกเลิกแล้ว' }, 409)
-    const activeSession = await db.from('live_sessions')
+    const activeSession = await db
+      .from('live_sessions')
       .select('mode,auction_settings,comment_settings,confirmation_keywords,closing_keywords')
       .eq('tenant_id', input.tenantId)
       .eq('page_id', auction.data.page_id)
@@ -47,12 +48,15 @@ export async function POST(req: NextRequest) {
       .limit(1)
       .maybeSingle()
     if (activeSession.error) throw activeSession.error
-    const automation = resolveCommentSettings(activeSession.data ?? {}, auction.data.session_automation ?? {})
+    const automation = resolveCommentSettings(
+      activeSession.data ?? {},
+      auction.data.session_automation ?? {},
+    )
     if (
       automation &&
       (input.action === 'close'
         ? automation.closeEnabled === false
-        : automation.countEnabled === false)
+        : automation.countEnabled !== true)
     )
       return auctionReply({ error: 'คำสั่งนี้ปิดไว้ในค่าตั้งค่า Session' }, 409)
     const tenant = await db
@@ -69,13 +73,23 @@ export async function POST(req: NextRequest) {
     if (!token)
       return auctionReply({ error: 'กรุณาเชื่อมต่อ Facebook Page ใหม่ก่อนส่งคอมเมนต์' }, 409)
     const tags = automation
-    const command = input.action === 'close'
-      ? tags.closeKeywords[0] ?? null
-      : (Object.entries(tags.counting_tags ?? {}).find(([, count]) => String(count) === input.action)?.[0] ?? input.action)
-    const parsed = typeof command === 'string'
-      ? parseAuctionComment(command, true, tags as Parameters<typeof parseAuctionComment>[2])
-      : { type: 'IGNORE' as const }
-    if (typeof command !== 'string' || parsed.type !== 'HOST_CONTROL' || (input.action === 'close' ? parsed.action !== 'close' : parsed.action !== 'count' || parsed.count !== input.action))
+    const command =
+      input.action === 'close'
+        ? (tags.closeKeywords[0] ?? null)
+        : (Object.entries(tags.counting_tags ?? {}).find(
+            ([, count]) => String(count) === input.action,
+          )?.[0] ?? input.action)
+    const parsed =
+      typeof command === 'string'
+        ? parseAuctionComment(command, true, tags as Parameters<typeof parseAuctionComment>[2])
+        : { type: 'IGNORE' as const }
+    if (
+      typeof command !== 'string' ||
+      parsed.type !== 'HOST_CONTROL' ||
+      (input.action === 'close'
+        ? parsed.action !== 'close'
+        : parsed.action !== 'count' || parsed.count !== input.action)
+    )
       return auctionReply({ error: 'แท็กคำสั่งไม่ตรงกับการตั้งค่า Session' }, 409)
     let receipt: { id?: unknown }
     try {
@@ -107,7 +121,7 @@ export async function POST(req: NextRequest) {
                 post_id: auction.data.live_post_id,
                 from: { id: auction.data.page_id },
                 message: command,
-                created_time: Math.floor(Date.now() / 1000),
+                created_time: new Date().toISOString(),
               },
             },
           ],

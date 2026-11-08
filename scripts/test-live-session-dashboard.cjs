@@ -1,3 +1,4 @@
+const confirmWinner = require('./helpers/confirm-auction-winner.cjs')
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
@@ -292,7 +293,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       ).id
     const process = async (id, sender, text, kind, amount = null, control = null, post = '456') => {
       const ev = await event(sender, text, post)
-      return (
+      const result = (
         // Seed ledger scenarios through the allocation primitive. The public winner-confirmation
         // entry point is exercised independently in test-auction-on-demand.cjs.
         await one('select process_live_auction_highest_bid($1,$2,$3,$4,$5,$6) result', [
@@ -304,6 +305,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
           control,
         ])
       ).result
+      return kind === 'HOST_CONTROL' && control === 'close' && result.status !== 'ignored' ? confirmWinner(db, id, tenant) : result
     }
     const manage = async (session, input, request = randomUUID(), shop = tenant) =>
       (
@@ -342,7 +344,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     await pay(order.customer_tab_id, 100)
     let snapshot = (await one('select live_session_dashboard($1,$2) result', [tenant, session]))
       .result
-    assert.equal(snapshot.metrics.comments, 3)
+    assert.equal(snapshot.metrics.comments, 4)
     assert.equal(snapshot.metrics.matched, 2)
     assert.equal(snapshot.metrics.commenters, 2)
     assert.equal(snapshot.metrics.slips, 1)
@@ -911,7 +913,7 @@ test('session financial transactions preserve proofs/payments, fence revisions a
           [thaiRound],
         )
       ).comment_id,
-      winning.comment_id,
+      (await one('select winner_confirmation_comment_id from auctions where id=$1', [thaiRound])).winner_confirmation_comment_id,
       'winner confirmation targets the customer comment, not the seller close command',
     )
     await process(thaiRound, '100', 'ปิดร้าน', 'HOST_CONTROL', null, 'close', '989')
@@ -925,18 +927,17 @@ test('session financial transactions preserve proofs/payments, fence revisions a
     ).result
     assert.equal(thaiSnapshot.activeAuction, null)
     assert.equal(thaiSnapshot.tabs[0].total, 270)
-    // Closing queues both channels immediately at the original winning comment.
+    // Confirming queues both channels at the confirmation comment.
     {
       const ready = (
         await db.query('select * from auction_deliveries where auction_id=$1', [thaiRound])
       ).rows
-      assert.ok(
-        ready.every((row) => row.status === 'pending' && row.comment_id === winning.comment_id),
-      )
+      const confirmedComment = (await one('select winner_confirmation_comment_id from auctions where id=$1', [thaiRound])).winner_confirmation_comment_id
+      assert.ok(ready.every((row) => row.status === 'pending' && row.comment_id === confirmedComment))
       assert.equal(
         (await one('select winner_confirmation_comment_id from auctions where id=$1', [thaiRound]))
           .winner_confirmation_comment_id,
-        null,
+        confirmedComment,
       )
       assert.equal(
         (
@@ -967,7 +968,8 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       ).rows
       assert.equal(recovered.find((row) => row.channel === 'public').status, 'sent')
       assert.equal(recovered.find((row) => row.channel === 'private').status, 'pending')
-      assert.ok(recovered.every((row) => row.comment_id === winning.comment_id))
+      assert.equal(recovered.find(row => row.channel === 'public').comment_id, confirmedComment)
+      assert.equal(recovered.find(row => row.channel === 'private').comment_id, winning.comment_id)
       assert.equal(
         (await process(thaiRound, '900', '999', 'NUMERIC_BID', 999, null, '989')).status,
         'closed',

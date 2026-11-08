@@ -405,7 +405,6 @@ async function onMessage(
       if (fallback.error) {
         console.warn('[fb webhook] customer fallback name save failed', {
           tenantId: tenant?.id ?? null,
-          senderId: psid,
           code: fallback.error.code,
         })
       } else if (fallback.data?.display_name) {
@@ -416,7 +415,6 @@ async function onMessage(
       // must never turn a successful inbound delivery into a failed webhook.
       console.warn('[fb webhook] customer fallback name refresh failed', {
         tenantId: tenant?.id ?? null,
-        senderId: psid,
       })
     }
   }
@@ -504,30 +502,23 @@ async function onMessage(
         if (profileError) {
           console.error('[fb webhook] customer profile save failed', {
             tenantId: tenant.id,
-            senderId: psid,
             code: profileError.code,
-            message: profileError.message,
           })
         } else if (savedProfile) {
           console.log('[fb webhook] customer profile saved', {
-            customerId: savedProfile.id,
             tenantId: savedProfile.tenant_id,
-            senderId: savedProfile.platform_user_id,
             namePresent: Boolean(savedProfile.display_name),
             avatarPresent: Boolean(savedProfile.avatar_url),
             updatedFields: Object.keys(profile),
           })
         } else {
           console.warn('[fb webhook] customer profile not saved: no matching tenant/PSID', {
-            customerId: customer.id,
             tenantId: tenant.id,
-            senderId: psid,
           })
         }
       } else {
         console.warn('[fb webhook] customer profile unchanged: Graph returned no usable profile', {
           tenantId: tenant.id,
-          senderId: psid,
         })
       }
     } catch {
@@ -1224,7 +1215,6 @@ async function loadCommentRules(
       tenantId,
       pageId,
       code: error.code,
-      message: error.message,
     })
     throw new Error(
       `comment rules: ${error.message} (did you run supabase/comment-rules.sql and platform.sql?)`,

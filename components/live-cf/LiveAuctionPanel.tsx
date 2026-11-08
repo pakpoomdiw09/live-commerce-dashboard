@@ -217,7 +217,16 @@ export function LiveAuctionPanel({
           {showForm ? 'ซ่อนแบบฟอร์ม' : 'เปิดรายการใหม่'}
         </button>
       </header>
-      {auction && <LiveAuctionTimer key={auction.id} tenantId={tenantId} auctionId={auction.id} onResolved={() => { void refresh() }} />}
+      {auction && (
+        <LiveAuctionTimer
+          key={auction.id}
+          tenantId={tenantId}
+          auctionId={auction.id}
+          onResolved={() => {
+            void refresh()
+          }}
+        />
+      )}
       <div className="space-y-5 p-5">
         <p className="text-xs text-slate-500" aria-live="polite">
           อัปเดตอัตโนมัติทุก 3 วินาที{lastUpdated ? ` • ล่าสุด ${lastUpdated}` : ''}
@@ -507,7 +516,7 @@ export function LiveAuctionPanel({
                       key={action}
                       data-auction-action={action}
                       type="button"
-                      disabled={busy || auction.session_automation?.countEnabled === false}
+                      disabled={busy || auction.session_automation?.countEnabled !== true}
                       onClick={() =>
                         void mutate('/api/live-cf/auction/host-action', {
                           auctionId: auction.id,

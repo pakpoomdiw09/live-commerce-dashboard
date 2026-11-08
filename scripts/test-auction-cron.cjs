@@ -12,9 +12,9 @@ test('external cron GET requests require authentication and drain webhook and au
       'node:crypto': require('node:crypto'),
       'next/server': { NextResponse },
       '@/lib/supabase/server': { supabaseAdmin: () => ({ rpc: async (name) => {
-        assert.equal(name, 'expire_live_auctions')
+        assert.equal(name, 'expire_live_auctions_report')
         calls.push('expiry')
-        return { data: 1, error: null }
+        return { data: { closed: 1, failed: 2 }, error: null }
       } }) },
       '@/lib/integrations/facebook/webhook-worker': {
         runFacebookWebhookWorker: async () => {
@@ -50,6 +50,6 @@ test('external cron GET requests require authentication and drain webhook and au
   assert.deepEqual(calls, [])
   const result = await route.GET(request('test-cron-secret'))
   assert.equal(result.status, 200)
-  assert.deepEqual(await result.json(), { completed: 1 })
+  assert.deepEqual(await result.json(), { completed: 1, auctionExpiry: { closed: 1, failed: 2 } })
   assert.deepEqual(calls, ['webhooks', 'expiry', 'outbox', 'tracking', 'reminders'])
 })

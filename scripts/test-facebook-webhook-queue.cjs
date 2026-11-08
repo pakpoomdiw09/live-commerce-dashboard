@@ -889,7 +889,7 @@ test('worker authentication fails closed and does not access the database for an
         supabaseAdmin: () => {
           dbCalls++
           return { rpc: async (name) => {
-            assert.equal(name, 'expire_live_auctions')
+            assert.equal(name, 'expire_live_auctions_report')
             return { data: 0, error: null }
           } }
         },

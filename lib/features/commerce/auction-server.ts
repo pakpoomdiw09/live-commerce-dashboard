@@ -591,7 +591,9 @@ export async function handleAuctionComment(input: {
     if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) return undefined
     if (active.error) throw active.error
     const candidate = active.data?.[0] as Auction | undefined
-    return candidate && candidate.created_at > execution.event.created_at ? undefined : candidate
+    return candidate && Date.parse(candidate.created_at) > Date.parse(execution.event.created_at)
+      ? undefined
+      : candidate
   }
   let auction: Auction | undefined
   if (typeof senderId === 'string' && senderId !== pageId) {
@@ -636,7 +638,8 @@ export async function handleAuctionComment(input: {
       return false
     }
     auction = (historical.data?.[0] as Auction | undefined) ?? undefined
-    if (auction && auction.created_at > execution.event.created_at) auction = undefined
+    if (auction && Date.parse(auction.created_at) > Date.parse(execution.event.created_at))
+      auction = undefined
   }
   if (!auction) {
     // Never drop silently: show which active rounds exist so a post-id mismatch is diagnosable.

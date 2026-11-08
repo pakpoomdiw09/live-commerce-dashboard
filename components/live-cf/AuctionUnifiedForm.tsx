@@ -34,6 +34,7 @@ import { field, orange, read } from './session-ui'
 import { LiveAuctionTimer } from './LiveAuctionTimer'
 
 type Config = {
+  ready: boolean
   session: LiveSession | null
   round: Auction | null
   settings: SessionAutomation | null
@@ -100,6 +101,7 @@ export function AuctionUnifiedForm({
   const [source, setSource] = useState<{ pageId: string; livePostId: string } | null>(null)
   const [reload, setReload] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [degraded, setDegraded] = useState(true)
   const [error, setError] = useState(''),
     [notice, setNotice] = useState('')
   const dirty = useRef(false)
@@ -146,6 +148,7 @@ export function AuctionUnifiedForm({
   useEffect(() => {
     const controller = new AbortController()
     setError('')
+    setDegraded(true)
     const params = new URLSearchParams({ tenantId })
     if (source?.pageId) {
       params.set('pageId', source.pageId)
@@ -153,7 +156,9 @@ export function AuctionUnifiedForm({
     } else if (sessionId) params.set('sessionId', sessionId)
     void read(`/api/live-auction/workspace?${params}`, controller.signal)
       .then((config: Config) => {
+        if (!config.ready) throw new Error('Workspace unavailable')
         if (!controller.signal.aborted) {
+          setDegraded(false)
           // A slow settings read must never replace edits made while it was loading.
           if (!dirty.current) hydrate(config, source)
           else setBase(config)
@@ -162,7 +167,10 @@ export function AuctionUnifiedForm({
         }
       })
       .catch(() => {
-        // Saved settings are optional; keep the usable draft on read failures.
+        if (!controller.signal.aborted) {
+          setDegraded(true)
+          setError('โหลดข้อมูลไม่สำเร็จ กรุณาโหลดใหม่ก่อนบันทึก')
+        }
       })
     return () => controller.abort()
     // Hydrate only on explicit selection/reload, never on the dashboard polling interval.
@@ -204,7 +212,7 @@ export function AuctionUnifiedForm({
   }
   async function handleSubmitAll(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy) return
+    if (busy || degraded) return
     setBusy(true)
     setError('')
     setNotice('')
@@ -235,9 +243,12 @@ export function AuctionUnifiedForm({
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || 'บันทึกไม่สำเร็จ')
+      setDegraded(true)
       const config: Config = await read(
         `/api/live-auction/workspace?${new URLSearchParams({ tenantId, sessionId: result.sessionId })}`,
       )
+      if (!config.ready) throw new Error('Workspace unavailable')
+      setDegraded(false)
       hydrate(config)
       setSource(null)
       request.current = { key: '', id: '' }
@@ -249,7 +260,7 @@ export function AuctionUnifiedForm({
       setBusy(false)
     }
   }
-  const disabled = busy || !!base?.session?.ended_at
+  const disabled = busy || degraded || !!base?.session?.ended_at
   const locked =
     disabled ||
     (!base?.preferencesOnly && base?.round?.status === 'active' && !!base.round.leading_bidder_id)
@@ -352,6 +363,7 @@ export function AuctionUnifiedForm({
           </span>
         </label>
       )}
+      {degraded && <button type="button" className={orange} disabled={busy} onClick={() => setReload(n => n + 1)}>โหลดข้อมูลใหม่</button>}
       {error && (
         <p
           role="alert"

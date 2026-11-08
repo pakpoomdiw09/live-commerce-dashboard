@@ -32,6 +32,7 @@ test('workspace API restores scoped saved values and commits a single normalized
         auction_settings: settings,
       },
     ],
+    auction_deliveries: [{ channel: 'private', status: 'requires_review', comment_id: 'PRIVATE_COMMENT', bidder_id: 'PRIVATE_AUTHOR', body: 'PRIVATE_BODY' }],
     auctions: [
       {
         id: randomUUID(),
@@ -50,6 +51,8 @@ test('workspace API restores scoped saved values and commits a single normalized
       const filters = []
       const query = {
         select: () => query,
+        in: () => query,
+        then(resolve) { return Promise.resolve({ data: rows[table] ?? [], error: table === failedTable ? { code: '42501' } : null }).then(resolve) },
         order: () => query,
         limit: () => query,
         eq(key, value) {
@@ -135,6 +138,8 @@ test('workspace API restores scoped saved values and commits a single normalized
       ),
     )
   ).json()
+  assert.deepEqual(restored.deliveryReviews, [{ channel: 'private', status: 'requires_review' }])
+  assert.ok(!JSON.stringify(restored).includes('PRIVATE_'))
   assert.equal(restored.round.shipping_fee, 47)
   assert.deepEqual(restored.settings.keywords, ['raise'])
   assert.equal(restored.settings.privateText, settings.privateText)
@@ -146,22 +151,20 @@ test('workspace API restores scoped saved values and commits a single normalized
         ),
       )
     ).status,
-    200,
+    404,
   )
-  for (const table of ['live_sessions', 'auctions']) {
+  for (const table of ['live_sessions', 'auctions', 'auction_deliveries']) {
     failedTable = table
     const response = await api.GET(
       new NextRequest(
         `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
       ),
     )
-    assert.equal(response.status, 200)
+    assert.equal(response.status, 503)
     const body = await response.json()
-    assert.equal(body.ready, true)
-    assert.deepEqual(body.bids, [])
-    if (table === 'auctions') assert.equal(body.auction, null)
-    else
-      assert.equal(body.auction.shipping_fee, 47, 'session failures must not block auction reads')
+    assert.equal(body.ready, false)
+    assert.equal(body.degraded, true)
+    assert.equal(body.auction, undefined)
   }
   failedTable = null
   const foreign = await (

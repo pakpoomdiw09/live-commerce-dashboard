@@ -1,0 +1,50 @@
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const { fixture } = require('./helpers/auction-hardening-db.cjs')
+
+test('host-source seconds resolve the confirmation race while older confirmations remain stale', async () => {
+  const f = await fixture()
+  try {
+    const a = await f.open()
+    const second = Math.floor(Date.now() / 1000)
+    await f.db.query('update auctions set created_at=to_timestamp($2) where id=$1', [a.id, second - 10])
+    await f.receive(a, '900', '100')
+    await f.receive(a, '901', '200')
+    assert.equal((await f.receive(a, '999', 'close', second)).result.status, 'awaiting_confirmation')
+    assert.equal((await f.receive(a, '901', 'confirm', second - 1)).result.status, 'stale')
+    const confirmation = await f.receive(a, '901', 'confirm', second)
+    assert.equal(confirmation.result.status, 'confirmed')
+    assert.deepEqual(await f.processEvent(a, confirmation.event, confirmation.parsed), confirmation.result)
+    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [a.id])).n, 1)
+  } finally { await f.db.close() }
+})
+
+test('expiry reports no-op, draining, locked winners and audited failures without issuing an order', async () => {
+  const f = await fixture()
+  try {
+    const a = await f.open()
+    assert.equal((await f.one('select close_due_live_auction($1,$2) r', [a.id, f.tenant])).r.status, 'not_due')
+    await f.receive(a, '900', '100')
+    const pending = await f.event(a, '901', '200')
+    await f.db.query("update facebook_webhook_events set status='pending',created_at=clock_timestamp()-interval '2 seconds' where id=$1", [pending.id])
+    await f.db.query("update auctions set created_at=clock_timestamp()-interval '10 seconds',ends_at=clock_timestamp()-interval '1 second' where id=$1", [a.id])
+    assert.equal((await f.one('select close_due_live_auction($1,$2) r', [a.id, f.tenant])).r.status, 'draining')
+    await f.db.query("update facebook_webhook_events set status='completed' where id=$1", [pending.id])
+    const report = (await f.one('select expire_live_auctions_report($1) r', [f.tenant])).r
+    assert.deepEqual(report, { closed: 1, failed: 0 })
+    const row = await f.one('select status,winner_locked_at,order_id from auctions where id=$1', [a.id])
+    assert.equal(row.status, 'closed')
+    assert.ok(row.winner_locked_at)
+    assert.equal(row.order_id, null)
+    assert.equal((await f.receive(a, '900', 'confirm', new Date(Date.parse(row.winner_locked_at)-1).toISOString())).result.status, 'stale')
+    const broken = await f.open()
+    await f.db.exec("create function reject_audit_close() returns trigger language plpgsql as $$begin if new.status='closed' then raise exception 'fixture failure' using errcode='23514';end if;return new;end $$;create trigger reject_audit_close before update on auctions for each row execute function reject_audit_close();")
+    await f.db.query("update auctions set ends_at=clock_timestamp()-interval '1 second' where id=$1", [broken.id])
+    assert.deepEqual((await f.one('select expire_live_auctions_report($1) r', [f.tenant])).r, { closed: 0, failed: 1 })
+    const failure = await f.one('select sqlstate,auction_id,occurred_at from auction_expiry_failures')
+    assert.equal(failure.sqlstate, '23514')
+    assert.equal(failure.auction_id, broken.id)
+    assert.ok(failure.occurred_at)
+    assert.deepEqual((await f.db.query("select column_name from information_schema.columns where table_name='auction_expiry_failures' order by ordinal_position")).rows.map(r=>r.column_name), ['sqlstate','auction_id','occurred_at'])
+  } finally { await f.db.close() }
+})

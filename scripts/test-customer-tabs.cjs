@@ -1,3 +1,4 @@
+const confirmWinner = require('./helpers/confirm-auction-winner.cjs')
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
@@ -64,7 +65,8 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
           [tenant, post, `พระราคา ${price}`, shipping, price, randomUUID(), bank],
         )
       ).id
-      const result = (await one('select finalize_live_auction($1,$2) result', [a, tenant])).result
+      await one('select finalize_live_auction($1,$2) result', [a, tenant])
+      const result = await confirmWinner(db, a, tenant)
       return one('select * from orders where id=$1', [result.orderId])
     }
     async function pay(tab, amount, ref = randomUUID(), owner = customer) {

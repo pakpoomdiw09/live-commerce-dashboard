@@ -1,3 +1,4 @@
+const confirmWinner = require('./helpers/confirm-auction-winner.cjs')
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
@@ -277,8 +278,8 @@ test('paid bills become parcel allocations; confirmation, stale print fencing, s
           [tenant, price, bank, randomUUID()],
         )
       ).id
-      const close = (await one('select finalize_live_auction($1,$2) result', [auction, tenant]))
-        .result
+      await one('select finalize_live_auction($1,$2) result', [auction, tenant])
+      const close = await confirmWinner(db, auction, tenant)
       return one('select * from orders where id=$1', [close.orderId])
     }
     const first = await win(200)

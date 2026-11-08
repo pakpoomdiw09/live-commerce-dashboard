@@ -151,3 +151,55 @@ test('inaccessible videos notify once and stop headless polling', async () => {
   assert.equal(scheduled, 0)
   cleanup()
 })
+
+test('headless polling forwards only aggregate missing-author counts to the dashboard', async () => {
+  let effect,
+    count = null
+  const { LiveCommentPoller } = load(
+    'components/live-cf/LiveCommentPoller.tsx',
+    {
+      react: {
+        useRef: (current) => ({ current }),
+        useEffect: (callback) => {
+          effect = callback
+        },
+      },
+    },
+    {
+      AbortController,
+      setTimeout: () => 1,
+      clearTimeout() {},
+      fetch: async () => ({
+        status: 200,
+        ok: true,
+        json: async () => ({ skipped: { MISSING_FROM_ID: 4 } }),
+      }),
+    },
+  )
+  assert.equal(
+    LiveCommentPoller({
+      pageId: '100',
+      sessionId: 'session',
+      onSkippedAuthors: (value) => {
+        count = value
+      },
+    }),
+    null,
+  )
+  const cleanup = effect()
+  await new Promise(setImmediate)
+  assert.equal(count, 4)
+  cleanup()
+})
+
+test('headless polling exposes only recognized aggregate skip reasons', async () => {
+ let effect, result
+ const { LiveCommentPoller } = load('components/live-cf/LiveCommentPoller.tsx', {
+ react: { useRef: current => ({ current }), useEffect: callback => { effect = callback } }
+ }, { AbortController, setTimeout: () => 1, clearTimeout() {}, fetch: async () => ({ status: 200, ok: true,
+ json: async () => ({ skipped: { MISSING_MESSAGE: 3, INVALID_CREATED_TIME: 2, MISSING_FROM_ID: 1, unexpected_private_data: 7 } }) }) })
+ assert.equal(LiveCommentPoller({ pageId: '100', sessionId: 'fixture', onSkipped: value => { result = value } }), null)
+ const cleanup = effect(); await new Promise(setImmediate)
+ assert.deepEqual(JSON.parse(JSON.stringify(result ?? null)), { MISSING_FROM_ID: 1, MISSING_MESSAGE: 3, INVALID_CREATED_TIME: 2 })
+ cleanup()
+})

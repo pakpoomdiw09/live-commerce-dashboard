@@ -32,13 +32,13 @@ type GraphComment = {
   from?: { id?: string; name?: string }
 }
 
-function graphPagingUrl(value: string): URL {
+function graphPagingUrl(value: string, expectedPath: string): URL {
   const url = new URL(value)
   if (
     url.protocol !== 'https:' ||
     url.hostname !== 'graph.facebook.com' ||
     url.username ||
-    url.password
+    url.password || url.pathname !== expectedPath
   )
     throw Object.assign(new Error('INVALID_GRAPH_PAGING_URL'), { code: 'INVALID_GRAPH_PAGING_URL' })
   url.searchParams.delete('access_token')
@@ -131,10 +131,12 @@ export async function POST(req: NextRequest) {
     const token = pageTokenFor(tenant.data)
     if (!token) return json({ error: 'ยังไม่ได้เชื่อมต่อ Facebook' }, 409)
 
+    const pollPath = new URL(graph(`${target.live_post_id}/comments`)).pathname
     const fetchComments = async (videoId: string) => {
-      const url = graphPagingUrl(graph(`${videoId}/comments`))
+      const url = graphPagingUrl(graph(`${videoId}/comments`), pollPath)
       url.searchParams.set('order', 'reverse_chronological')
       url.searchParams.set('filter', 'stream')
+      url.searchParams.set('live_filter', 'no_filter')
       url.searchParams.set('limit', '100')
       url.searchParams.set('fields', 'id,message,created_time,from{id,name}')
       const response = await fetch(url, {
@@ -179,7 +181,7 @@ export async function POST(req: NextRequest) {
       cursor.data?.live_video_id === pollId ? Date.parse(cursor.data.high_water_at) : 0
     let pages = (graphBody?.data ?? []) as GraphComment[]
     const pageOneNext = graphBody?.paging?.next as string | undefined
-    const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext).toString() : null
+    const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext, pollPath).toString() : null
     const overlapMs = 20_000
     // SQL uses auctions.created_at as the round's started_at boundary.
     const startedAt = Date.parse(target.created_at)
@@ -201,9 +203,9 @@ export async function POST(req: NextRequest) {
         if (
           pageOneLink &&
           cursorState.continuation_anchor_url &&
-          graphPagingUrl(cursorState.continuation_anchor_url).toString() === pageOneLink
+          graphPagingUrl(cursorState.continuation_anchor_url, pollPath).toString() === pageOneLink
         ) {
-          next = graphPagingUrl(cursorState.continuation_url).toString()
+          graphPagingUrl(cursorState.continuation_url, pollPath)
           boundary = Math.max(startedAt, savedBoundary)
         }
       } catch {
@@ -220,7 +222,7 @@ export async function POST(req: NextRequest) {
       next = undefined
     }
     for (let page = 2; next && page <= 10; page++) {
-      const nextUrl = graphPagingUrl(next)
+      const nextUrl = graphPagingUrl(next, pollPath)
       const response = await fetch(nextUrl, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
@@ -238,7 +240,9 @@ export async function POST(req: NextRequest) {
       }
       const batch = (body?.data ?? []) as GraphComment[]
       pages = pages.concat(batch)
-      next = body?.paging?.next
+      // Follow the freshly observed chain. A matching old anchor alone cannot
+      // prove that intermediate pages have not shifted since the previous poll.
+      next = body?.paging?.next ? graphPagingUrl(body.paging.next, pollPath).toString() : undefined
       if (oldestTimestamp(batch) <= boundary) {
         next = undefined
         break
@@ -290,7 +294,7 @@ export async function POST(req: NextRequest) {
       // This is the single persistence choke-point: validate and strip any legacy
       // access_token before the continuation URL can reach the database.
       const safeContinuation = continuationForSave
-        ? graphPagingUrl(continuationForSave).toString()
+        ? graphPagingUrl(continuationForSave, pollPath).toString()
         : null
       const highWaterToSave = Math.max(highWater || 0, newestSeen || 0, startedAt)
       const cursorSaved = await db.from('auction_poll_cursors').upsert(

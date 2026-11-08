@@ -224,6 +224,7 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
 }
 
 const pageUrl = (page) => `https://graph.facebook.com/v25.0/${videoId}/comments?page=${page}`
+module.exports = { fixture, comment, pageUrl }
 
 test('queues all 250 comments across Graph pages and advances the cursor', async () => {
   const createdAt = (index) =>
@@ -408,11 +409,14 @@ test('linked continuation resumes backlog without applying the advanced high-wat
     pages: (page) =>
       page === 1
         ? { data: [comment('fresh', '2026-02-01T00:10:01Z')], paging: { next: pageUrl(2) } }
-        : { data: [comment('backlog', '2026-02-01T00:01:00Z')] },
+        : page === 2
+          ? { data: [comment('bridge', '2026-02-01T00:09:59Z')], paging: { next: pageUrl(3) } }
+          : { data: [comment('backlog', '2026-02-01T00:01:00Z')] },
   })
   const result = await f.poll()
-  assert.equal(result.body.queued, 2)
-  assert.equal(new URL(f.graphCalls[1].url).searchParams.get('page'), '11')
+  assert.equal(result.body.queued, 3)
+  assert.equal(new URL(f.graphCalls[1].url).searchParams.get('page'), '2')
+  assert.equal(new URL(f.graphCalls[2].url).searchParams.get('page'), '3')
   assert.equal(f.tables.auction_poll_cursors[0].continuation_url, null)
   assert.equal(f.tables.auction_poll_cursors[0].high_water_at, '2026-02-01T00:10:01.000Z')
 })

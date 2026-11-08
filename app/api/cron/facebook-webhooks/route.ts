@@ -23,7 +23,7 @@ async function run(req: NextRequest) {
     return NextResponse.json(
       await singleFlight('cron:facebook-webhooks', async () => {
         const summary = await runFacebookWebhookWorker(supabaseAdmin(), handleFacebookWebhookEvent)
-        const expired = await supabaseAdmin().rpc('expire_live_auctions')
+        const expired = await supabaseAdmin().rpc('expire_live_auctions_report')
         if (expired.error) console.error('[auction/expiry] recovery failed', { code: expired.error.code })
         try {
           await deliverAuctionNotifications()
@@ -42,7 +42,7 @@ async function run(req: NextRequest) {
         } catch {
           console.warn('[customer-tabs/reminder] worker unavailable or not installed')
         }
-        return summary
+        return { ...summary, auctionExpiry: expired.error ? { closed: 0, failed: 1, unavailable: true } : expired.data }
       }),
       { headers: { 'Cache-Control': 'no-store' } },
     )

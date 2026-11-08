@@ -2,6 +2,10 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { NextRequest, NextResponse } = require('next/server')
 const load = require('./helpers/load-typescript.cjs')
+const config = load('lib/features/commerce/comment-config.ts')
+const parser = load('lib/integrations/facebook/auction-comment-parser.ts', {
+  '@/lib/features/commerce/comment-config': config,
+})
 const envelope = load(
   'lib/integrations/facebook/webhook-envelope.ts',
   { 'node:crypto': require('node:crypto') },
@@ -34,16 +38,26 @@ function fixture(options = {}) {
                   page_id: '100',
                   live_post_id: '456',
                   status: options.closed ? 'closed' : 'active',
-                  session_automation: options.automation ?? { closeKeywords: ['ปิด'], closeEnabled: true, countEnabled: true, counting_tags: { '3': '3', '2': '2', '1': '1' } },
+                  session_automation: options.automation ?? {
+                    closeKeywords: ['ปิด'],
+                    closeEnabled: true,
+                    countEnabled: true,
+                    counting_tags: { 3: '3', 2: '2', 1: '1' },
+                  },
                 }
               : table === 'live_sessions'
-                ? { tenant_id: tenantId, page_id: '100', live_post_id: '456', ...(options.sessionSettings ?? {}) }
-              : {
-                  id: tenantId,
-                  page_id: '100',
-                  page_access_token: options.missingToken ? null : 'TEST_PAGE_SECRET',
-                  is_active: true,
-                }
+                ? {
+                    tenant_id: tenantId,
+                    page_id: '100',
+                    live_post_id: '456',
+                    ...(options.sessionSettings ?? {}),
+                  }
+                : {
+                    id: tenantId,
+                    page_id: '100',
+                    page_access_token: options.missingToken ? null : 'TEST_PAGE_SECRET',
+                    is_active: true,
+                  }
           return {
             data:
               options.foreign || !filters.every(([key, value]) => row[key] === value) ? null : row,
@@ -88,17 +102,8 @@ function fixture(options = {}) {
       },
       '@/lib/integrations/facebook/webhook-handler': { handleFacebookWebhookEvent: async () => {} },
       '@/lib/utils': { UUID: /^[a-f0-9-]{36}$/ },
-      '@/lib/integrations/facebook/auction-comment-parser': {
-        parseAuctionComment: (text, isHost, automation) => {
-          if (options.invalidHostControl) return { type: 'IGNORE' }
-          if (isHost && automation.closeKeywords.includes(text)) return { type: 'HOST_CONTROL', action: 'close', count: null }
-          const count = automation.counting_tags[text]
-          return count && automation.countEnabled !== false
-            ? { type: 'HOST_CONTROL', action: 'count', count }
-            : { type: 'IGNORE' }
-        },
-      },
-      '@/lib/features/commerce/comment-config': load('lib/features/commerce/comment-config.ts'),
+      '@/lib/integrations/facebook/auction-comment-parser': parser,
+      '@/lib/features/commerce/comment-config': config,
     },
     { console: silent, TextEncoder, Date },
   )
@@ -174,9 +179,50 @@ test('close action uses active session settings and refuses a tag that does not 
   const configured = fixture({ sessionSettings: { comment_settings: { closing_tags: ['終了'] } } })
   assert.equal((await configured.send('close')).status, 202)
   assert.equal(configured.calls.sends[0][2], '終了')
-  const invalid = fixture({ invalidHostControl: true })
+  const invalid = fixture({ sessionSettings: { comment_settings: { closeEnabled: false } } })
   assert.equal((await invalid.send('close')).status, 409)
   assert.equal(invalid.calls.sends.length, 0)
+})
+
+test('custom count tokens use real comment_settings and session overrides; disabled defaults never post', async () => {
+  const enabled = fixture({
+    automation: { countEnabled: false, counting_tags: { stale: '3' } },
+    sessionSettings: {
+      comment_settings: { countEnabled: true, counting_tags: { ' LAST CALL ': '3' } },
+    },
+  })
+  assert.equal((await enabled.send('3')).status, 202)
+  assert.equal(enabled.calls.sends[0][2], 'last call')
+  assert.equal(
+    parser.parseAuctionComment(
+      'last call extra',
+      true,
+      config.resolveCommentSettings({
+        comment_settings: { countEnabled: true, counting_tags: { 'last call': '3' } },
+      }),
+    ).type,
+    'IGNORE',
+    'count tokens match the whole normalized comment',
+  )
+  for (const options of [
+    { automation: {} },
+    { automation: { counting_tags: { 3: '3' } } },
+    { sessionSettings: { comment_settings: { countEnabled: false } } },
+    {
+      automation: { countEnabled: true, counting_tags: { 3: '3' } },
+      sessionSettings: { comment_settings: { countEnabled: false } },
+    },
+  ]) {
+    const disabled = fixture(options)
+    assert.equal((await disabled.send('3')).status, 409)
+    assert.equal(disabled.calls.sends.length, 0)
+    assert.equal(disabled.calls.queued.length, 0)
+    assert.equal(
+      disabled.calls.scopes.some(([table]) => table === 'tenants'),
+      false,
+      'disabled actions stop before reading Page credentials',
+    )
+  }
 })
 
 test('provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment', async () => {
