@@ -96,7 +96,9 @@ export function InboxClient({
   const olderGate = useRef(new LatestInboxRequest())
   const listBusy = useRef(false)
   const olderBusy = useRef(false)
-  const [connection, setConnection] = useState<'connecting' | 'live' | 'offline'>('connecting')
+  const [connection, setConnection] = useState<
+    'connecting' | 'realtime' | 'polling' | 'offline'
+  >('connecting')
   const inbox = useInboxState(
     tenant?.id,
     chats.map((chat) => chat.customer.id),
@@ -441,6 +443,7 @@ export function InboxClient({
         try {
           const snapshot = await chatSnapshot('&includeComments=true')
           if (disposed) return
+          if (!live) setConnection('polling')
           if (Array.isArray(snapshot.comments)) setComments(snapshot.comments)
           const next = (snapshot.chats ?? []).map((chat) => replayPreview(chat, since))
           const arrived = new Set([...knownCustomers.current].filter((id) => !startingIds.has(id)))
@@ -468,7 +471,10 @@ export function InboxClient({
             if (!disposed && selectedRef.current === selected) await loadThread(selected, true)
           }
         } catch {
-          if (!disposed) console.error('[inbox] snapshot recovery failed')
+          if (!disposed) {
+            if (!live) setConnection('offline')
+            console.error('[inbox] snapshot recovery failed')
+          }
         } finally {
           recovering = false
         }
@@ -666,12 +672,12 @@ export function InboxClient({
           console.info('[inbox/realtime] status', { status, tenantId: tenantId })
           if (status === 'SUBSCRIBED') {
             live = true
-            setConnection('live')
+            setConnection('realtime')
             void recover()
           } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
             setConnection('offline')
             live = false
-            console.warn('[inbox/realtime] disconnected; polling continues every 60 seconds', {
+            console.warn('[inbox/realtime] disconnected; database recovery continues every 5 seconds', {
               status,
               tenantId: tenantId,
             })
@@ -689,9 +695,9 @@ export function InboxClient({
       // Keep a safety snapshot for silent replication failures, but prefer events.
       const timer = setInterval(() => {
         if (document.visibilityState === 'hidden') return
-        if (live && Date.now() - lastRecovery < 120000) return
+        if (live && Date.now() - lastRecovery < 15000) return
         void recover()
-      }, 60000)
+      }, 5000)
       const onVisible = () => {
         if (document.visibilityState === 'visible') void recover()
       }
@@ -870,14 +876,14 @@ export function InboxClient({
             {inbox.error}
           </p>
         )}
-        {connection !== 'live' && (
+        {(connection === 'connecting' || connection === 'offline') && (
           <p
             role="status"
             className="absolute bottom-2 left-2 z-20 max-w-xs rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow ring-1 ring-amber-200"
           >
             {connection === 'connecting'
-              ? 'กำลังเชื่อมต่อแชทสด…'
-              : 'การเชื่อมต่อแชทสดขัดข้อง ระบบจะตรวจข้อความใหม่ทุก 30 วินาที'}
+              ? 'กำลังเชื่อมต่อแชทสดและตรวจข้อความใหม่อัตโนมัติ…'
+              : 'แชทสดขัดข้อง ระบบกำลังตรวจข้อความใหม่อัตโนมัติ'}
           </p>
         )}
         <ChatList

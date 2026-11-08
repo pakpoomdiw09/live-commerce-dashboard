@@ -206,9 +206,11 @@ function fixture(errors = {}, options = {}) {
       }
     },
     process: { env: { NODE_ENV: 'test' } },
+    Date: options.Date ?? Date,
     setTimeout: () => 8,
     clearTimeout: (id) => removed.push(id),
-    setInterval: (fn) => {
+    setInterval: (fn, ms) => {
+      assert.equal(ms, 5000)
       intervals.push(fn)
       return 7
     },
@@ -315,6 +317,7 @@ test('polling recovers chat messages when comments and slips fail without Realti
   const f = fixture({ comments: { code: '42P01' }, slips: { code: '42501' } })
   await flush()
   assert.equal(f.states[5].length, 1)
+  assert.equal(f.states[13], 'polling')
   f.messages.push(message('missed'))
   await f.intervals[0]()
   await flush()
@@ -339,6 +342,24 @@ test('known customer updates use payloads without per-event queries; healthy Rea
   await f.intervals[0]()
   await flush()
   assert.ok(f.queries.length > before)
+  assert.equal(f.states[13], 'polling')
+  f.cleanup()
+})
+
+test('a subscribed but silent publication recovers new messages within 15 seconds without Graph sync', async () => {
+  let now = 1_000_000
+  class Clock extends Date { static now() { return now } }
+  const f = fixture({}, { Date: Clock })
+  await flush()
+  await f.subscribe('SUBSCRIBED')
+  await flush()
+  f.messages.push(message('silent-publication'))
+  now += 15000
+  await f.intervals[0]()
+  await flush()
+  assert.ok(f.states[5].some((row) => row.id === 'silent-publication'))
+  assert.equal(f.states[2][0].preview.body, 'silent-publication')
+  assert.equal(f.states[13], 'realtime')
   f.cleanup()
 })
 test('Inbox subscribes to Realtime, scopes reads to the shop and immediately inserts incoming messages once', async () => {
