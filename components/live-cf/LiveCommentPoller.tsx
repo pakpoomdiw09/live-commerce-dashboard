@@ -1,17 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-
-type PollState = 'running' | 'stopped' | 'unavailable'
+import { useEffect, useRef } from 'react'
 
 /** Polls the selected session in the background while its dashboard is mounted. */
 export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessionId: string }) {
-  const [state, setState] = useState<PollState>('running')
   const stopped = useRef(false)
 
   useEffect(() => {
     stopped.current = false
-    setState('running')
     let timer: ReturnType<typeof setTimeout> | undefined
     const controller = new AbortController()
 
@@ -27,7 +23,6 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
         })
 
         if ([401, 403, 404].includes(response.status)) {
-          setState('stopped')
           stopped.current = true
           return
         }
@@ -36,7 +31,6 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
         } else {
           const data = await response.json().catch(() => null)
           if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
-            setState('unavailable')
             stopped.current = true
             return
           }
@@ -44,8 +38,6 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
             delay = 10_000
           } else if (!response.ok || !data) {
             delay = 5000
-          } else {
-            setState('running')
           }
         }
       } catch (error) {
@@ -64,20 +56,5 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
     }
   }, [pageId, sessionId])
 
-  // Keep the poller mounted and observable to assistive technology without
-  // showing comment bodies, counters, or per-poll status in the dashboard.
-  return (
-    <span
-      className="sr-only"
-      role="status"
-      aria-live="polite"
-      data-poller-state={state}
-    >
-      {state === 'running'
-        ? 'Live comment polling is active.'
-        : state === 'unavailable'
-          ? 'The selected live video is unavailable.'
-          : 'Live comment polling is stopped.'}
-    </span>
-  )
+  return null
 }

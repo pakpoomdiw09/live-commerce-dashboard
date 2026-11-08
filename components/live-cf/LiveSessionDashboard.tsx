@@ -459,7 +459,7 @@ export function LiveSessionDashboard({
         </p>
       )}
 
-      {loading && !data && <p role="status">กำลังโหลดข้อมูลไลฟ์สด…</p>}
+      {!auction && loading && !data && <p role="status">กำลังโหลดข้อมูลไลฟ์สด…</p>}
       {auction ? (
         <>
           <AuctionUnifiedForm

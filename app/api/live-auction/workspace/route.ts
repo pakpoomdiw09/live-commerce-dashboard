@@ -28,7 +28,7 @@ function failure(error: unknown) {
   if (['P0001', '22P02', '23514'].includes(issue.code ?? ''))
     return auctionReply({ error: 'ตรวจข้อมูลราคาและเงื่อนไข รอบที่รับบิดแล้วแก้ราคาไม่ได้' }, 400)
   return auctionReply(
-    { error: 'โหลดหรือบันทึกไม่สำเร็จ กรุณาตรวจการติดตั้ง live-auction-workspace.sql' },
+    { error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' },
     503,
   )
 }
