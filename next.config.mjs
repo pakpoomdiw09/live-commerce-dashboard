@@ -8,6 +8,7 @@ export default {
   // permit a future next/image migration for Meta's profile-picture hosts.
   images: {
     remotePatterns: [
+      { protocol: 'https', hostname: 'graph.facebook.com' },
       { protocol: 'https', hostname: 'platform-lookaside.fbsbx.com' },
       { protocol: 'https', hostname: '**.fbcdn.net' },
     ],

@@ -10,6 +10,7 @@ import { apiError, cn } from '@/lib/utils'
 
 export type ActivePage = {
   tenantId: string
+  pageId?: string | null
   name: string
   picture: string | null
   pageLinked: boolean
@@ -68,10 +69,20 @@ export function PageStatus({ page }: { page: ActivePage | null }) {
         {/* no Page linked yet, Graph unreachable or an expired CDN URL: the Facebook mark instead */}
         <FallbackImg
           src={page.picture}
+          fallbackSrc={
+            page.pageId
+              ? `https://graph.facebook.com/${encodeURIComponent(page.pageId)}/picture?type=large`
+              : null
+          }
+          alt={page.name}
           size={40}
           className="h-10 w-10 max-w-10 shrink-0 rounded-full bg-white object-cover ring-2 ring-white"
           fallback={
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#1877f2] ring-2 ring-white">
+            <span
+              role="img"
+              aria-label={`เพจ ${page.name}`}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#1877f2] ring-2 ring-white"
+            >
               <FacebookIcon className="h-5 w-5" />
             </span>
           }

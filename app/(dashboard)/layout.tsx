@@ -56,7 +56,11 @@ function TenantPageStatus({
       page={
         active && {
           tenantId: active.id,
-          name: profile && profile.name !== `เพจ ${profile.id}` ? profile.name : active.name,
+          pageId: active.page_id,
+          name:
+            (profile && profile.name !== `เพจ ${profile.id}` ? profile.name : null) ||
+            active.page_name?.trim() ||
+            active.name,
           picture: profile?.picture ?? null,
           pageLinked: !!active.page_id,
           autoReply: active.auto_reply_enabled,
