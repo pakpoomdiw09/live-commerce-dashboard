@@ -6,9 +6,9 @@ import {
   pageTokenFor,
   replyToComment,
   sendAuctionPrivateReply,
-  sendMessageWithReceipt,
-  sendPrivateReply,
+  sendAuctionInvoiceWithReceipt,
   SendApiError,
+  needsMessengerSession,
 } from '@/lib/integrations/facebook/client'
 import { createLiveCfPaymentLink } from './live-cf-payment-link'
 import { parseAuctionComment } from '@/lib/integrations/facebook/auction-comment-parser'
@@ -28,6 +28,7 @@ import {
 
 const money = (value: number) => Number(value).toLocaleString('th-TH', { maximumFractionDigits: 2 })
 const safeCode = (error: unknown) => {
+  if (needsMessengerSession(error)) return 'MESSENGER_SESSION_REQUIRED'
   const code = (error as { code?: unknown } | null)?.code
   return typeof code === 'string' && /^[A-Z0-9_]{1,80}$/i.test(code)
     ? code
@@ -171,11 +172,15 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
     let buttonMessage = message
     let splitMessages: string[] | null = null
     let splitCustomer: { id: string; fbId: string } | null = null
+    // Comment-scoped sender IDs are not necessarily Messenger PSIDs. Resolve the
+    // recipient through the order's customer ledger before using the Send API.
+    let invoiceRecipient: string | null = null
     if (delivery.channel === 'private' && auction.order_id) {
       const { tabForOrder, customerTabSummary } = await import('./customer-tabs-server')
       const tab = await tabForOrder(db, auction.order_id)
       if (!tab && auction.session_automation) throw new Error('AUCTION_TAB_UNAVAILABLE')
       if (tab) {
+        invoiceRecipient = tab.customer_fb_id
         const bill = await customerTabSummary(db, tab)
         const privateTemplate =
           auction.session_automation &&
@@ -293,11 +298,32 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             `บัญชีรับเงิน: ${bill.account}`,
             `QR / ชำระเงิน / แนบสลิป: ${bill.link}`,
           ].join('\n')
-          billMessage = composeBillingMessage(renderAuctionTemplate(privateTemplate, values), billingFooter)
+          billMessage = composeBillingMessage(
+            renderAuctionTemplate(privateTemplate, values),
+            billingFooter,
+          )
           buttonMessage = billMessage
           splitMessages = null
           splitCustomer = null
         }
+      }
+    }
+    // A first-contact private reply must include the full invoice/link in one message.
+    // Do not consume its one reply on the first half of a legacy split plan.
+    if (splitMessages && splitCustomer && !delivery.latest_sent_at) {
+      const customer = await db
+        .from('customers')
+        .select('window_expires_at')
+        .eq('id', splitCustomer.id)
+        .eq('tenant_id', auction.tenant_id)
+        .eq('platform', 'facebook')
+        .eq('platform_user_id', splitCustomer.fbId)
+        .maybeSingle()
+      if (customer.error) throw customer.error
+      if (!(Date.parse(customer.data?.window_expires_at ?? '') > Date.now())) {
+        billMessage = splitMessages[1]
+        splitMessages = null
+        splitCustomer = null
       }
     }
     const claimed = delivery.claim_id
@@ -318,24 +344,10 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
     try {
       if (delivery.channel === 'private') {
         if (splitMessages && splitCustomer) {
-          const openRecipient = async (recipient: string) => {
-            const customer = await db
-              .from('customers')
-              .select('window_expires_at')
-              .eq('id', splitCustomer.id)
-              .eq('tenant_id', auction.tenant_id)
-              .eq('platform', 'facebook')
-              .eq('platform_user_id', recipient)
-              .maybeSingle()
-            if (customer.error) throw customer.error
-            return Date.parse(customer.data?.window_expires_at ?? '') > Date.now()
-          }
+          let summaryReceipt: string | null = null
           let recipient = delivery.latest_recipient_id || splitCustomer.fbId
           if (!delivery.latest_sent_at) {
-            const withinWindow = await openRecipient(recipient)
-            const latestText =
-              splitMessages[0] +
-              (withinWindow ? '' : '\nตอบกลับข้อความนี้เพื่อรับสรุปบิลรวมและลิงก์ชำระเงินครับ')
+            const latestText = splitMessages[0]
             const snapshot = await db
               .from('auction_deliveries')
               .update({ private_plan: [latestText, splitMessages[1]] })
@@ -359,13 +371,12 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
               { onConflict: 'external_id', ignoreDuplicates: true },
             )
             if (queued.error) throw queued.error
-            const receipt = withinWindow
-              ? {
-                  message_id: await sendMessageWithReceipt(token, recipient, {
-                    text: latestText,
-                  }),
-                }
-              : await sendPrivateReply(token, delivery.comment_id, latestText, auction.page_id)
+            const receipt = await sendAuctionInvoiceWithReceipt(token, recipient, latestText, {
+              id: delivery.comment_id,
+              pageId: auction.page_id,
+              invoiceText: splitMessages[1],
+            })
+            if (receipt.privateReply) summaryReceipt = receipt.message_id
             recipient = receipt.recipient_id || recipient
             const progress = await db
               .from('auction_deliveries')
@@ -380,31 +391,23 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
                 external_id: `${billMessageKey(delivery)}:latest`,
                 sender: 'bot',
                 body: latestText,
-                delivery_status: 'sent',
-                provider_message_id: receipt.message_id ?? receipt.id,
+                delivery_status: receipt.privateReply ? 'failed' : 'sent',
+                provider_message_id: receipt.privateReply ? null : receipt.message_id,
               },
               { onConflict: 'external_id' },
             )
             if (latest.error) throw latest.error
           }
-          // A comment private reply does not create a Messenger inbound window.
-          if (!(await openRecipient(recipient))) {
-            const deferred = await db
-              .from('auction_deliveries')
-              .update({
-                status: 'pending',
-                error_code: 'MESSAGE_WINDOW_CLOSED',
-                started_at: null,
-                next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+          // Transactional summaries use their own tag; a private reply never
+          // fabricates an inbound window for subsequent ordinary chat messages.
+          const messageId =
+            summaryReceipt ??
+            (
+              await sendAuctionInvoiceWithReceipt(token, recipient, splitMessages[1], {
+                id: delivery.comment_id,
+                pageId: auction.page_id,
               })
-              .eq('id', delivery.id)
-              .eq('status', 'sending')
-            if (deferred.error) throw deferred.error
-            continue
-          }
-          const messageId = await sendMessageWithReceipt(token, recipient, {
-            text: splitMessages[1],
-          })
+            ).message_id
           const chat = await db
             .from('messages')
             .update({
@@ -416,18 +419,23 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             .eq('external_id', billMessageKey(delivery))
           if (chat.error) throw chat.error
         } else {
-          const receipt = await sendAuctionPrivateReply(
-            token,
-            delivery.comment_id,
-            billMessage,
-            buttonMessage,
-            link!,
-            auction.page_id,
-          )
+          const receipt = invoiceRecipient
+            ? await sendAuctionInvoiceWithReceipt(token, invoiceRecipient, billMessage, {
+                id: delivery.comment_id,
+                pageId: auction.page_id,
+              })
+            : await sendAuctionPrivateReply(
+                token,
+                delivery.comment_id,
+                billMessage,
+                buttonMessage,
+                link!,
+                auction.page_id,
+              )
           const chat = await db
             .from('messages')
             .update({
-              body: receipt?.auctionText ?? billMessage,
+              body: 'auctionText' in receipt ? receipt.auctionText : billMessage,
               delivery_status: 'sent',
               attachments: [{ type: 'link', payload: { url: link! } }],
               ...(receipt?.message_id ? { provider_message_id: receipt.message_id } : {}),

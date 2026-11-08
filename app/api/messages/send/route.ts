@@ -4,7 +4,8 @@ import {
   pageTokenFor,
   sendMessageWithReceipt,
   SendApiError,
-  isWindowOrTagError,
+  needsMessengerSession,
+  MESSENGER_FIRST_MESSAGE_REQUIRED,
 } from '@/lib/integrations/facebook/client'
 import { UUID } from '@/lib/utils'
 export const runtime = 'nodejs'
@@ -164,8 +165,8 @@ export async function POST(req: NextRequest) {
         })
       }
       throw new InboxError(
-        isWindowOrTagError(error)
-          ? 'เฟซบุ๊ก ปฏิเสธ: อยู่นอกช่วงเวลาที่อนุญาต'
+        needsMessengerSession(error)
+          ? MESSENGER_FIRST_MESSAGE_REQUIRED
           : rejected
             ? 'เฟซบุ๊ก ปฏิเสธการส่งข้อความ กรุณาตรวจสิทธิ์เพจ'
             : 'ยังยืนยันผลการส่งไม่ได้ กรุณาตรวจข้อความใน ช่องทางแชทของเพจ ก่อนส่งใหม่',

@@ -179,6 +179,33 @@ export const isWindowOrTagError = (e: unknown) =>
 export const WINDOW_OR_TAG_ERROR =
   'เกินระยะเวลาที่ระบบ Facebook อนุญาต หรือหมวดหมู่ข้อความไม่ตรงกับเนื้อหา'
 
+export const MESSENGER_FIRST_MESSAGE_REQUIRED =
+  'กรุณาให้ผู้ประมูลส่งข้อความหาเพจก่อน แล้วลองส่งบิลอีกครั้ง หากทักแล้วให้ตรวจสิทธิ์ส่งข้อความของเพจ'
+
+/** A permission error is not proof of a closed window, but needs the same host guidance. */
+export const needsMessengerSession = (error: unknown) =>
+  error instanceof SendApiError &&
+  (error.code === 10 ||
+    error.code === 551 ||
+    isWindowOrTagError(error) ||
+    isMissingMessengerRecipient(error))
+
+const isMissingMessengerRecipient = (error: unknown) =>
+  error instanceof SendApiError &&
+  [10, 100].includes(error.code ?? -1) &&
+  /(?:has not|hasn't|never).*(?:messaged|message|conversation)|no (?:matching user|conversation)|recipient.*(?:unavailable|not found)/i.test(
+    error.providerMessage ?? '',
+  )
+
+export const isUnsupportedPurchaseTag = (error: unknown) =>
+  error instanceof SendApiError &&
+  error.status >= 400 &&
+  error.status < 500 &&
+  error.code === 100 &&
+  /(?:POST_PURCHASE_UPDATE|message tag|messaging tag|tag)[^\n]*(?:deprecated|invalid|unsupported|not (?:supported|allowed)|no longer|must be|one of)|(?:invalid|unsupported|deprecated)[^\n]*tag/i.test(
+    error.providerMessage ?? '',
+  )
+
 /** Diagnose only evidence in Meta's response; code 10 alone does not prove Development mode. */
 function graphFailureDiagnosis(error: unknown) {
   if (error instanceof MissingPageTokenError)
@@ -317,6 +344,60 @@ export async function sendMessage(
   messagingType: MessagingType = 'RESPONSE',
 ): Promise<void> {
   await sendMessageWithReceipt(token, psid, message, messagingType)
+}
+
+/** Only server-rendered order invoices use this tag. Never apply it to arbitrary chat text.
+ * Meta can reject legacy purchase tags; a definite rejection may fall back to the
+ * winning comment's one private reply. Transport failures must not trigger another send.
+ */
+export async function sendAuctionInvoiceWithReceipt(
+  token: string | null,
+  psid: string,
+  text: string,
+  comment?: { id: string; pageId: string; invoiceText?: string },
+): Promise<{ message_id: string; recipient_id?: string; privateReply: boolean }> {
+  if (!text.trim() || text.length > 2000) throw new Error('FACEBOOK_INVOICE_TEXT_INVALID')
+  try {
+    const messageId = await sendMessageWithReceipt(
+      token,
+      psid,
+      { text },
+      {
+        tag: 'POST_PURCHASE_UPDATE',
+      },
+    )
+    return { message_id: messageId, privateReply: false }
+  } catch (error) {
+    // Current Meta versions can reject legacy utility tags. A definite tag
+    // rejection is safe to retry as a normal response; Meta still enforces 24 h.
+    if (isUnsupportedPurchaseTag(error)) {
+      try {
+        const messageId = await sendMessageWithReceipt(token, psid, { text }, 'RESPONSE')
+        return { message_id: messageId, privateReply: false }
+      } catch (responseError) {
+        error = responseError
+      }
+    }
+    const canUseComment =
+      error instanceof SendApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      error.code !== 190 &&
+      (isWindowOrTagError(error) ||
+        error.code === 551 ||
+        isUnsupportedPurchaseTag(error) ||
+        isMissingMessengerRecipient(error))
+    if (!comment || !canUseComment) throw error
+    const receipt = await sendPrivateReply(
+      token,
+      comment.id,
+      comment.invoiceText ?? text,
+      comment.pageId,
+    )
+    const messageId = receipt.message_id ?? receipt.id
+    if (!messageId) throw new Error('Messenger private reply did not return a receipt')
+    return { message_id: messageId, recipient_id: receipt.recipient_id, privateReply: true }
+  }
 }
 
 export const sendText = (

@@ -1,11 +1,7 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CustomerTab } from '@/lib/features/commerce/customer-tab-types'
-import {
-  customerTabItemLabel,
-  splitTabMessage,
-  tabMoney,
-} from '@/lib/features/commerce/customer-tab-types'
+import { customerTabItemLabel, tabMoney } from '@/lib/features/commerce/customer-tab-types'
 
 type Reminder = {
   id: string
@@ -27,6 +23,7 @@ export function CustomerTabsPanel({
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const invoiceRequests = useRef(new Map<string, string>())
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
       try {
@@ -64,22 +61,22 @@ export function CustomerTabsPanel({
     setBusy(true)
     setNotice('')
     try {
-      const response = await fetch(
-        `/api/customer-tabs?customerId=${encodeURIComponent(customerId)}&summary=${encodeURIComponent(tabId)}`,
-        { cache: 'no-store' },
-      )
-      const summary = await response.json()
-      if (!response.ok) throw new Error(summary.error || 'อ่านสรุปบิลไม่ได้')
-      for (const text of splitTabMessage(summary.text)) {
-        const sent = await fetch('/api/messages/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customerId, clientId: crypto.randomUUID(), text }),
-        })
-        const data = await sent.json()
-        if (!sent.ok)
-          throw new Error(data.error || 'ส่งสรุปยอดไม่สำเร็จ กรุณาตรวจข้อความที่ส่งแล้วในแชท')
+      const requestKey = `${customerId}:${tabId}`
+      const clientId = invoiceRequests.current.get(requestKey) ?? crypto.randomUUID()
+      invoiceRequests.current.set(requestKey, clientId)
+      const response = await fetch('/api/customer-tabs/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId, tabId, clientId }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        // Only a definitive rejection permits a new request. Keep ambiguous IDs for reconciliation.
+        if (['SEND_REJECTED', 'MESSENGER_SESSION_REQUIRED'].includes(data.code))
+          invoiceRequests.current.delete(requestKey)
+        throw new Error(data.error || 'ส่งสรุปยอดไม่สำเร็จ กรุณาตรวจข้อความในแชท')
       }
+      invoiceRequests.current.delete(requestKey)
       setNotice('ส่งสรุปยอดเข้า Messenger แล้ว')
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'ส่งสรุปยอดไม่สำเร็จ')
@@ -125,6 +122,10 @@ export function CustomerTabsPanel({
           {notice}
         </p>
       )}
+      <p className="text-xs text-slate-500">
+        ส่งบิลธุรกรรมได้จากปุ่มสรุปยอด แม้ช่องแชททั่วไปหมดเวลา หาก Facebook ปฏิเสธ
+        ให้ผู้ซื้อทักเพจก่อน
+      </p>
       {!tabs.length && !error && <p className="text-xs text-slate-400">ยังไม่มีบิลสะสมในระบบ</p>}
       {tabs.map((tab) => (
         <article key={tab.id} className="space-y-3 rounded-xl bg-slate-50 p-3">

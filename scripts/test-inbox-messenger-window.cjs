@@ -205,6 +205,8 @@ test('manual send requires ownership and consent, attaches the server tag, and r
       },
       '@/lib/integrations/facebook/client': {
         pageTokenFor: (page) => page.page_access_token,
+        needsMessengerSession: (error) => error instanceof FakeSendApiError,
+        MESSENGER_FIRST_MESSAGE_REQUIRED: 'Ask the buyer to message the Page first',
         SendApiError: FakeSendApiError,
         isWindowOrTagError: () => false,
         sendMessageWithReceipt: async (_token, _psid, _message, type) => {

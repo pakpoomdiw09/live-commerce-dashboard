@@ -562,7 +562,13 @@ export function LiveAuctionPanel({
                       : d.status === 'requires_review'
                         ? 'ต้องตรวจสอบการส่งใน Inbox ก่อนส่งซ้ำ'
                         : 'รอส่ง'}
-                    {d.error_code && <span className="ml-2 text-xs">({d.error_code})</span>}
+                    {d.error_code && (
+                      <span className="ml-2 text-xs">
+                        {d.error_code === 'MESSENGER_SESSION_REQUIRED'
+                          ? 'ให้ผู้ประมูลส่งข้อความหาเพจก่อน แล้วลองส่งบิลอีกครั้ง หากทักแล้วให้ตรวจสิทธิ์เพจ'
+                          : `(${d.error_code})`}
+                      </span>
+                    )}
                   </p>
                 ))}
               </div>

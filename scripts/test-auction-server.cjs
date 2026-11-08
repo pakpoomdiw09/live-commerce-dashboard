@@ -173,6 +173,18 @@ function fixture({
       '@/lib/supabase/server': { supabaseAdmin: () => db },
       '@/lib/integrations/facebook/client': {
         pageTokenFor: (row) => row.page_access_token,
+        SendApiError: class extends Error {},
+        needsMessengerSession: () => false,
+        sendAuctionInvoiceWithReceipt: async (token, psid, text, comment) => {
+          calls.messenger.push([token, psid, { text }, { tag: 'POST_PURCHASE_UPDATE' }])
+          if (privateFails || calls.failMessengerAt === calls.messenger.length)
+            throw { code: 'PROVIDER_TIMEOUT' }
+          if (calls.privateInvoiceAt === calls.messenger.length) {
+            calls.private.push([token, comment.id, comment.invoiceText ?? text])
+            return { message_id: 'private-invoice', privateReply: true }
+          }
+          return { message_id: 'messenger-' + calls.messenger.length, privateReply: false }
+        },
         replyToComment: async (...args) => {
           calls.timeline.push('public')
           calls.public.push(args)
@@ -418,7 +430,7 @@ test('legacy split-summary deliveries retain their ordered recovery plan', async
   assert.match(summary, /KTB 9260337828/)
   assert.match(summary, /https:\/\/shop.example\/pay\/live\/signed/)
   assert.equal(f.tables.messages.filter((row) => row.delivery_status === 'sent').length, 2)
-  await f.receive('1', '901')
+  await f.api.deliverAuctionNotifications()
   assert.equal(f.calls.messenger.length, 2, 'webhook replay cannot resend either part')
 })
 
@@ -426,31 +438,41 @@ test('disabled accumulation or paid historical orders send only the latest item 
   for (const options of [{ enabled: false }, { paidPrevious: true }]) {
     const f = splitFixture(options)
     await f.api.deliverAuctionNotifications()
-    assert.equal(f.calls.private.length, 1)
-    assert.equal(f.calls.messenger.length, 0)
-    assert.match(f.calls.private[0][2], /250/)
-    assert.match(f.calls.private[0][2], /KTB 9260337828/)
-    assert.doesNotMatch(f.calls.private[0][2], /Old item|800 บาท|📊/)
+    assert.equal(f.calls.private.length, 0)
+    assert.equal(f.calls.messenger.length, 1)
+    assert.match(f.calls.messenger[0][2].text, /250/)
+    assert.match(f.calls.messenger[0][2].text, /KTB 9260337828/)
+    assert.doesNotMatch(f.calls.messenger[0][2].text, /Old item|800 บาท|📊/)
   }
 })
 
-test('closed Messenger windows defer only the second message and resume without repeating the first', async () => {
+test('closed Messenger windows send one complete tagged invoice without waiting for inbound chat', async () => {
   const f = splitFixture({ open: false })
   await f.api.deliverAuctionNotifications()
-  assert.equal(f.calls.private.length, 1)
-  assert.match(f.calls.private[0][2], /ตอบกลับข้อความนี้/)
-  assert.equal(f.calls.messenger.length, 0)
-  assert.equal(f.tables.auction_deliveries[0].status, 'pending')
-  assert.equal(f.tables.auction_deliveries[0].error_code, 'MESSAGE_WINDOW_CLOSED')
-  await f.api.deliverAuctionNotifications()
-  assert.equal(f.calls.private.length, 1)
-  f.tables.customers[0].window_expires_at = '2100-01-01T00:00:00Z'
-  f.tables.auction_deliveries[0].next_attempt_at = '2000-01-01'
-  await f.api.deliverAuctionNotifications()
-  assert.equal(f.calls.private.length, 1)
+  assert.equal(f.calls.private.length, 0)
   assert.equal(f.calls.messenger.length, 1)
   assert.match(f.calls.messenger[0][2].text, /📊/)
+  assert.match(f.calls.messenger[0][2].text, /https:\/\/shop.example\/pay\/live\/signed/)
+  assert.equal(f.calls.messenger[0][3].tag, 'POST_PURCHASE_UPDATE')
   assert.equal(f.tables.auction_deliveries[0].status, 'sent')
+  await f.api.deliverAuctionNotifications()
+  assert.equal(f.calls.messenger.length, 1, 'a completed invoice is never resent by the poller')
+})
+
+test('a window closing during a split invoice sends the full private invoice without a second summary', async () => {
+  const f = splitFixture()
+  f.calls.privateInvoiceAt = 1
+  await f.api.deliverAuctionNotifications()
+  assert.equal(f.calls.messenger.length, 1)
+  assert.equal(f.calls.private.length, 1)
+  assert.match(f.calls.private[0][2], /📊/)
+  assert.match(f.calls.private[0][2], /https:\/\/shop.example\/pay\/live\/signed/)
+  assert.equal(f.tables.auction_deliveries[0].status, 'sent')
+  const summary = f.tables.messages.find((row) => row.external_id === 'auction-claim:split-claim:1')
+  assert.equal(summary.provider_message_id, 'private-invoice')
+  assert.equal(summary.delivery_status, 'sent')
+  await f.api.deliverAuctionNotifications()
+  assert.equal(f.calls.private.length, 1)
 })
 
 test('an ambiguous second send preserves the first receipt and cannot blindly retry either message', async () => {
