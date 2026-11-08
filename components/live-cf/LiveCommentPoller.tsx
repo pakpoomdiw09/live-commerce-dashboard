@@ -1,86 +1,62 @@
 'use client'
+
 import { useEffect, useRef, useState } from 'react'
 
-type Comment = { id: string; name: string | null; message: string; at?: string }
+type PollState = 'running' | 'stopped' | 'unavailable'
 
-/**
- * Pulls live comments through the server (which holds the Page token) every 2.5s while an
- * auction round is active, and shows the latest ones. Slows down when no round is active.
- */
+/** Polls the selected session in the background while its dashboard is mounted. */
 export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessionId: string }) {
-  const [comments, setComments] = useState<Comment[]>([])
-  const [status, setStatus] = useState('กำลังเริ่มดึงคอมเมนต์สด…')
-  const [sessionError, setSessionError] = useState(false)
+  const [state, setState] = useState<PollState>('running')
   const stopped = useRef(false)
 
   useEffect(() => {
     stopped.current = false
-    setSessionError(false)
+    setState('running')
     let timer: ReturnType<typeof setTimeout> | undefined
     const controller = new AbortController()
+
     const tick = async () => {
       let delay = 2500
       try {
-        do {
-          const res = await fetch('/api/live-cf/auction/poll-comments', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ page_id: pageId, session_id: sessionId }),
-            signal: controller.signal,
-            cache: 'no-store',
-          })
-          if ([401, 403, 404].includes(res.status)) {
-            setStatus('หยุดดึงคอมเมนต์: ไม่มีสิทธิ์หรือยังไม่ได้เปิดใช้งาน')
-            stopped.current = true
-            return
-          }
-          if (res.status === 429) {
-            delay = 10_000
-            break
-          }
-          const data = await res.json().catch(() => null)
+        const response = await fetch('/api/live-cf/auction/poll-comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ page_id: pageId, session_id: sessionId }),
+          signal: controller.signal,
+          cache: 'no-store',
+        })
+
+        if ([401, 403, 404].includes(response.status)) {
+          setState('stopped')
+          stopped.current = true
+          return
+        }
+        if (response.status === 429) {
+          delay = 10_000
+        } else {
+          const data = await response.json().catch(() => null)
           if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
-            setSessionError(true)
-            setStatus('This live video is unavailable. Please select the active live session again.')
+            setState('unavailable')
             stopped.current = true
             return
           }
-          if (data?.reason === 'SESSION_NOT_FOUND') {
-            setStatus('ไม่พบเซสชันหรือรหัสไลฟ์ไม่ถูกต้อง กรุณาเลือกเซสชันใหม่')
+          if (data?.reason === 'SESSION_NOT_FOUND' || data?.reason === 'NO_ACTIVE_ROUND') {
             delay = 10_000
-            break
-          }
-          if (!res.ok || !data) {
-            setStatus('ดึงคอมเมนต์ไม่สำเร็จ กำลังลองใหม่…')
+          } else if (!response.ok || !data) {
             delay = 5000
-            break
+          } else {
+            setState('running')
           }
-          if (data.polled === false && data.reason === 'NO_ACTIVE_ROUND') {
-            setStatus(
-              data.videoId
-                ? `ยังไม่มีรอบประมูลที่เปิดอยู่ในเซสชันนี้ (ไลฟ์ ${data.videoId})`
-                : 'ยังไม่มีรอบประมูลที่เปิดอยู่',
-            )
-            delay = 10_000
-            break
-          }
-          const skipped = data.skipped && typeof data.skipped === 'object' ? data.skipped as Record<string, number> : {}
-          const missingAuthorCount = Number(skipped.MISSING_FROM_ID ?? 0)
-          const skippedCount = Object.values(skipped).reduce((total, count) => total + Number(count || 0), 0)
-          setStatus(`Polling live comments every 2.5 seconds${missingAuthorCount ? ` · skipped ${missingAuthorCount} without author identity` : skippedCount ? ` · skipped ${skippedCount} comments` : ''}`)
-          if (Array.isArray(data.comments) && data.comments.length)
-            setComments((old) => {
-              const known = new Set(old.map((c) => c.id))
-              return [...old, ...data.comments.filter((c: Comment) => !known.has(c.id))].slice(-30)
-            })
-        } while (false)
+        }
       } catch (error) {
         if ((error as Error)?.name === 'AbortError') return
         delay = 5000
       }
+
       if (!stopped.current) timer = setTimeout(tick, delay)
     }
-    tick()
+
+    void tick()
     return () => {
       stopped.current = true
       controller.abort()
@@ -88,22 +64,20 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
     }
   }, [pageId, sessionId])
 
+  // Keep the poller mounted and observable to assistive technology without
+  // showing comment bodies, counters, or per-poll status in the dashboard.
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
-      <div className="mb-2 font-medium text-slate-700">คอมเมนต์สด • {status}</div>
-      {sessionError && (
-        <p role="alert" className="mb-2 rounded-lg bg-amber-50 p-2 text-amber-900">
-          This live video is unavailable. Select the live session you want to poll again.
-        </p>
-      )}
-      <ul className="max-h-48 space-y-1 overflow-y-auto">
-        {[...comments].reverse().map((c) => (
-          <li key={c.id} className="truncate">
-            <span className="font-medium">{c.name ?? 'ลูกค้า'}:</span> {c.message}
-          </li>
-        ))}
-        {!comments.length && <li className="text-slate-400">ยังไม่มีคอมเมนต์ใหม่</li>}
-      </ul>
-    </div>
+    <span
+      className="sr-only"
+      role="status"
+      aria-live="polite"
+      data-poller-state={state}
+    >
+      {state === 'running'
+        ? 'Live comment polling is active.'
+        : state === 'unavailable'
+          ? 'The selected live video is unavailable.'
+          : 'Live comment polling is stopped.'}
+    </span>
   )
 }

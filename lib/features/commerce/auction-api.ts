@@ -34,8 +34,16 @@ export function auctionFailure(error: unknown) {
   })
   if (code === '23505')
     return auctionReply({ error: 'ไลฟ์นี้มีรายการประมูลที่กำลังเปิดอยู่แล้ว' }, 409)
+  // Only schema/catalog errors justify asking the operator to install the SQL.
+  // Authentication, network, and other transient database failures must not
+  // leave a false migration banner on an otherwise installed instance.
+  if (['42P01', '42703', '42883', 'PGRST202', 'PGRST204', 'PGRST205'].includes(code ?? ''))
+    return auctionReply(
+      { error: 'ไม่พบตาราง คอลัมน์ หรือฟังก์ชันที่ Live Auction ต้องใช้ กรุณาตรวจสอบการติดตั้ง live-auctions.sql และ schema cache ของ Supabase' },
+      503,
+    )
   return auctionReply(
-    { error: 'ดำเนินการไม่สำเร็จ กรุณาตรวจสอบการติดตั้ง live-auctions.sql แล้วลองใหม่' },
+    { error: 'ดำเนินการไม่สำเร็จชั่วคราว กรุณาลองใหม่อีกครั้ง' },
     503,
   )
 }
