@@ -29,6 +29,7 @@ async function DashboardContent({ children }: { children: React.ReactNode }) {
   return (
     <AppShell
       access={access}
+      tenantId={active?.id ?? null}
       messagesRemaining={messageBilling ? messageBilling.monthly + messageBilling.topup : null}
       accessExpiresAt={expiry?.data?.plan_expires_at ?? null}
       email={user.email ?? 'ผู้ใช้'}

@@ -888,7 +888,10 @@ test('worker authentication fails closed and does not access the database for an
       '@/lib/supabase/server': {
         supabaseAdmin: () => {
           dbCalls++
-          return {}
+          return { rpc: async (name) => {
+            assert.equal(name, 'expire_live_auctions')
+            return { data: 0, error: null }
+          } }
         },
       },
       '@/lib/integrations/facebook/webhook-worker': {
@@ -920,8 +923,8 @@ test('worker authentication fails closed and does not access the database for an
   )
   assert.equal(
     dbCalls,
-    2,
-    'authorized runs create clients for the webhook worker and shipping recovery',
+    3,
+    'authorized runs create clients for the webhook worker, auction expiry, and shipping recovery',
   )
 })
 

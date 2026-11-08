@@ -627,7 +627,7 @@ test('wrong sessions, edits/removals, missing authors, Page replies, duplicate c
   }
 })
 
-test('invalid signatures neither log customer payloads nor enqueue; verified raw logs redact secrets', async () => {
+test('invalid signatures do not log customer payloads; verified ingress diagnostics omit payload bodies and secrets', async () => {
   const logs: string[] = []
   let queued = 0
   const secret = 'TEST_APP_SECRET'
@@ -674,10 +674,7 @@ test('invalid signatures neither log customer payloads nor enqueue; verified raw
   const signature = 'sha256=' + createHmac('sha256', secret).update(body).digest('hex')
   assert.equal((await http.postFacebookWebhook(request(signature))).status, 200)
   assert.equal(queued, 1)
-  assert.ok(logs.join().includes('CUSTOMER_PAYLOAD'))
+  assert.ok(logs.join().includes('[facebook-webhook/ingress] verified payload'))
+  assert.ok(!logs.join().includes('CUSTOMER_PAYLOAD'))
   assert.ok(!logs.join().includes(token))
-  const rawLog = logs
-    .flatMap((line) => JSON.parse(line))
-    .find((line) => typeof line === 'string' && line.startsWith('[facebook-webhook/raw] '))
-  assert.ok(rawLog.includes('\n  "object"'), 'verified JSON is pretty-printed')
 })

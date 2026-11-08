@@ -2,7 +2,7 @@
 begin;
 
 create or replace function public.auction_comment_timestamp(value text) returns timestamptz
-language plpgsql immutable set search_path=pg_catalog,public as $$
+language plpgsql stable set search_path=pg_catalog,public as $$
 declare n numeric;
 begin
  if value is null or btrim(value)='' then return null; end if;
@@ -31,32 +31,47 @@ grant all on public.auction_poll_cursors to service_role;
 
 create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
-declare a public.auctions; leader record;
+declare a public.auctions;locked_at timestamptz;
 begin
  select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
  if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002'; end if;
- if a.status in ('cancelled','closed') then
-  return jsonb_build_object('status',case when a.status='closed' and a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else a.status end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
+ if a.status='cancelled' then return jsonb_build_object('status','cancelled','orderId',a.order_id);end if;
+ if a.status='closed' then
+  return jsonb_build_object('status',case when a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else 'closed' end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
  end if;
+ if a.status<>'active' then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
  if p_cancel then
   update public.auctions set status='cancelled',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
   return jsonb_build_object('status','cancelled','orderId',null);
  end if;
- if coalesce(a.session_automation->>'winnerFlow','highest_bid')='on_demand' then
-  select bidder_id,bidder_name,bid_amount,comment_id into leader from public.auction_bids
-   where auction_id=a.id and bid_amount>0 and status in ('accepted','claimed')
-   order by bid_amount desc,created_at asc,id asc limit 1;
-  if found then
-   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
-    winner_locked_at=coalesce(winner_locked_at,clock_timestamp()),leading_bidder_id=leader.bidder_id,
-    leading_bidder_name=leader.bidder_name,current_price=leader.bid_amount,leading_comment_id=leader.comment_id
-    where id=a.id;
-   return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',leader.bidder_id,'amount',leader.bid_amount);
+ -- The locked auctions row is the authoritative leader for both winner flows.
+ -- Closing creates no order; the winner's later confirmation creates it atomically.
+ if a.leading_bidder_id is not null and coalesce(a.current_price,0)>0 then
+  locked_at:=coalesce(a.winner_locked_at,clock_timestamp());
+  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
+   winner_locked_at=locked_at where id=a.id;
+  if a.public_reply_enabled then
+   if a.session_automation ? 'closeKeywords' then
+    insert into public.auction_deliveries(auction_id,channel,comment_id)
+     values(a.id,'public',a.leading_comment_id)
+     on conflict(auction_id,channel) where claim_id is null do nothing;
+   elsif p_event is not null then
+    insert into public.auction_deliveries(auction_id,channel,comment_id)
+     select a.id,'public',payload->'value'->>'comment_id'
+      from public.facebook_webhook_events where id=p_event
+     on conflict(auction_id,channel) where claim_id is null do nothing;
+   end if;
   end if;
-  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
-  return jsonb_build_object('status','closed','orderId',null);
+  return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',a.leading_bidder_id,'amount',a.current_price);
  end if;
- return public.finalize_live_auction_highest_bid(p_auction,p_tenant,p_event,false);
+ update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+ if p_event is not null and a.public_reply_enabled then
+  insert into public.auction_deliveries(auction_id,channel,comment_id)
+   select a.id,'public',payload->'value'->>'comment_id'
+    from public.facebook_webhook_events where id=p_event
+   on conflict(auction_id,channel) where claim_id is null do nothing;
+ end if;
+ return jsonb_build_object('status','closed','orderId',null);
 end $$;
 
 -- Keep historical bidding/confirmation behavior, but enforce the source comment's round window
@@ -91,9 +106,16 @@ begin
   elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
   end if;
  end if;
- if confirming or (p_kind='HOST_CONTROL' and (p_control='close' or counting)) then
+ if confirming then
   source_at:=public.auction_comment_timestamp(v->>'created_time');
-  if source_at is null or source_at<a.created_at-interval '1 second' or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
+  if source_at is null or source_at<a.created_at-interval '1 second'
+   or (a.winner_locked_at is not null and source_at<a.winner_locked_at) then
+   return jsonb_build_object('status','stale');
+  end if;
+ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+  source_at:=public.auction_comment_timestamp(v->>'created_time');
+  if source_at is null or source_at<a.created_at-interval '1 second'
+   or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
    return jsonb_build_object('status','stale');
   end if;
  end if;

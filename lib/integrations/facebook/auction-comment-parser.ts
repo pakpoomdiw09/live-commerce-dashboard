@@ -46,9 +46,9 @@ export function parseAuctionComment(
     // Counting remains separate from closing; configured closing tags take precedence.
     const count = settings.counting_tags[value]
     if (count)
-      return automation?.countEnabled === false
-        ? { type: 'IGNORE' }
-        : { type: 'HOST_CONTROL', action: 'count', count }
+      return automation?.countEnabled === true
+        ? { type: 'HOST_CONTROL', action: 'count', count }
+        : { type: 'IGNORE' }
     return { type: 'IGNORE' }
   }
   const matchesKeyword = settings.keywords.includes(value)

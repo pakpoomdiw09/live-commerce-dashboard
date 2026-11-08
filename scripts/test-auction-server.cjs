@@ -96,6 +96,36 @@ function fixture({
           predicates.push((row) => row[key] === value)
           return q
         },
+        or(filters) {
+          const clauses = []
+          let start = 0
+          let depth = 0
+          for (let i = 0; i < filters.length; i++) {
+            if (filters[i] === '(' || filters[i] === '{') depth++
+            else if (filters[i] === ')' || filters[i] === '}') depth--
+            else if (filters[i] === ',' && depth === 0) {
+              clauses.push(filters.slice(start, i))
+              start = i + 1
+            }
+          }
+          clauses.push(filters.slice(start))
+          const matches = (row, clause) => {
+            let match = clause.match(/^([a-z_]+)\.eq\.(.+)$/)
+            if (match) return row[match[1]] === match[2]
+            match = clause.match(/^([a-z_]+)\.in\.\((.*)\)$/)
+            if (match) return match[2].split(',').includes(String(row[match[1]]))
+            match = clause.match(/^([a-z_]+)\.ov\.\{(.*)\}$/)
+            if (match) {
+              const values = new Set(match[2].split(','))
+              return Array.isArray(row[match[1]]) && row[match[1]].some((value) => values.has(String(value)))
+            }
+            match = clause.match(/^([a-z_]+)\.not\.is\.null$/)
+            if (match) return row[match[1]] != null
+            throw new Error(`Unsupported mock PostgREST .or() clause: ${clause}`)
+          }
+          predicates.push((row) => clauses.some((clause) => matches(row, clause)))
+          return q
+        },
         in(key, values) {
           if (key === 'live_post_id') assert.ok(values.every((id) => /^\d+(?:_\d+)?$/.test(id)))
           predicates.push((row) => values.includes(row[key]))
@@ -193,6 +223,7 @@ function fixture({
           calls.timeline.push('private')
           calls.private.push(args)
           if (privateFails) throw { code: 'PROVIDER_TIMEOUT' }
+          return { message_id: 'private-receipt' }
         },
         sendPrivateReply: async (...args) => {
           calls.private.push(args)

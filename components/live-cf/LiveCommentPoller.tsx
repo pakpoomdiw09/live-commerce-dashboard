@@ -10,10 +10,12 @@ type Comment = { id: string; name: string | null; message: string; at?: string }
 export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessionId: string }) {
   const [comments, setComments] = useState<Comment[]>([])
   const [status, setStatus] = useState('กำลังเริ่มดึงคอมเมนต์สด…')
+  const [sessionError, setSessionError] = useState(false)
   const stopped = useRef(false)
 
   useEffect(() => {
     stopped.current = false
+    setSessionError(false)
     let timer: ReturnType<typeof setTimeout> | undefined
     const controller = new AbortController()
     const tick = async () => {
@@ -38,11 +40,10 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
           }
           const data = await res.json().catch(() => null)
           if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
-            setStatus(
-              `⚠️ อ่านวิดีโอ ${data.videoId} ไม่ได้ — ไลฟ์จบแล้วหรือไม่ใช่ไลฟ์ของเพจนี้${Array.isArray(data.liveVideos) && data.liveVideos.length > 1 ? ` (พบไลฟ์สด ${data.liveVideos.length} รายการ กรุณาเริ่มเซสชันจากไลฟ์ที่ต้องการ)` : ' — เริ่มเซสชันใหม่จากไลฟ์ที่กำลังออกอากาศ'}`,
-            )
-            delay = 10_000
-            break
+            setSessionError(true)
+            setStatus('This live video is unavailable. Please select the active live session again.')
+            stopped.current = true
+            return
           }
           if (data?.reason === 'SESSION_NOT_FOUND') {
             setStatus('ไม่พบเซสชันหรือรหัสไลฟ์ไม่ถูกต้อง กรุณาเลือกเซสชันใหม่')
@@ -63,7 +64,10 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
             delay = 10_000
             break
           }
-          setStatus('กำลังดึงคอมเมนต์สด (ทุก 2.5 วินาที)')
+          const skipped = data.skipped && typeof data.skipped === 'object' ? data.skipped as Record<string, number> : {}
+          const missingAuthorCount = Number(skipped.MISSING_FROM_ID ?? 0)
+          const skippedCount = Object.values(skipped).reduce((total, count) => total + Number(count || 0), 0)
+          setStatus(`Polling live comments every 2.5 seconds${missingAuthorCount ? ` · skipped ${missingAuthorCount} without author identity` : skippedCount ? ` · skipped ${skippedCount} comments` : ''}`)
           if (Array.isArray(data.comments) && data.comments.length)
             setComments((old) => {
               const known = new Set(old.map((c) => c.id))
@@ -87,6 +91,11 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
       <div className="mb-2 font-medium text-slate-700">คอมเมนต์สด • {status}</div>
+      {sessionError && (
+        <p role="alert" className="mb-2 rounded-lg bg-amber-50 p-2 text-amber-900">
+          This live video is unavailable. Select the live session you want to poll again.
+        </p>
+      )}
       <ul className="max-h-48 space-y-1 overflow-y-auto">
         {[...comments].reverse().map((c) => (
           <li key={c.id} className="truncate">

@@ -29,6 +29,7 @@ import { PageTransition } from '@/components/shell/PageTransition'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
 import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
+import { InboxRealtimeNotifications } from '@/components/shell/InboxRealtimeNotifications'
 
 type NavLink = { href: string; label: string }
 type NavItem = NavLink & { icon: LucideIcon; children?: NavLink[] }
@@ -92,6 +93,7 @@ export function AppShell({
   access,
   accessExpiresAt,
   messagesRemaining,
+  tenantId,
 }: {
   page: ReactNode
   email: string
@@ -100,6 +102,7 @@ export function AppShell({
   access?: FeatureAccess
   accessExpiresAt?: string | null
   messagesRemaining?: number | null
+  tenantId: string | null
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -284,6 +287,7 @@ export function AppShell({
 
   return (
     <div className="snap-dashboard fixed inset-x-0 top-0 flex h-dvh w-full overflow-hidden bg-slate-50 text-slate-900">
+      <InboxRealtimeNotifications tenantId={tenantId} />
       <a href="#main-content" className="skip-link">
         ข้ามไปเนื้อหาหลัก
       </a>
