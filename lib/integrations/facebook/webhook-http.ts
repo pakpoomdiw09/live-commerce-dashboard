@@ -9,7 +9,6 @@ import {
 } from '@/lib/integrations/facebook/webhook-envelope'
 import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
 import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
-import { redactFacebookDiagnostic } from '@/lib/integrations/facebook/diagnostics'
 
 // All ingress requests in this process share one drain. Database leases still
 // fence independent cron workers / other server instances.
@@ -72,27 +71,34 @@ export async function postFacebookWebhook(req: NextRequest) {
       return new NextResponse('Invalid signature', { status: 401 })
     }
     const envelope = parseWebhook(bytes)
-    console.log(
-      '[facebook-webhook/raw] ' +
-        JSON.stringify(redactFacebookDiagnostic(JSON.parse(envelope.raw)), null, 2),
-    )
+    const isCommentChange = (event: (typeof envelope.events)[number]) =>
+      event.kind === 'change' && (
+        event.payload.value?.item === 'comment' ||
+        typeof event.payload.value?.comment_id === 'string' ||
+        ['comments', 'live_comments'].includes(event.payload.field ?? '')
+      )
+    const commentDiagnostics = envelope.events
+      .filter(isCommentChange)
+      .map((event, index) => {
+        const from = event.payload.value?.from
+        return {
+          index,
+          has_from: Boolean(from && typeof from === 'object'),
+          has_from_id: typeof from?.id === 'string' && from.id.length > 0,
+          decision: 'awaiting_queue_insert',
+          reason: null,
+        }
+      })
     console.log('[facebook-webhook/ingress] verified payload', {
       hash: envelope.hash.slice(0, 12),
       bytes: bytes.length,
       eventCount: envelope.events.length,
-      events: envelope.events.slice(0, 10).map((e) => ({
-        pageId: e.pageId,
+      comments: commentDiagnostics,
+      events: envelope.events.filter((event) => !isCommentChange(event)).slice(0, 10).map((e) => ({
         kind: e.kind,
-        eventKey: e.eventKey.slice(0, 12),
-        messageId: e.payload.message?.mid ?? null,
         echo: e.payload.message?.is_echo === true,
         field: e.payload.field ?? null,
         item: e.payload.value?.item ?? null,
-        verb: e.payload.value?.verb ?? null,
-        commentId: e.payload.value?.comment_id ?? null,
-        postId: e.payload.value?.post_id ?? null,
-        videoId: e.payload.value?.video_id ?? e.payload.value?.live_video_id ?? null,
-        hasAuthor: Boolean(e.payload.value?.from?.id),
         textLength: String(e.payload.message?.text ?? e.payload.value?.message ?? '').length,
         attachments: Array.isArray(e.payload.message?.attachments)
           ? e.payload.message.attachments.length
@@ -125,15 +131,7 @@ export async function postFacebookWebhook(req: NextRequest) {
         reason: saved.error ? 'QUEUE_INSERT_FAILED' : 'QUEUE_RECEIPT_INVALID',
         status: 503,
         rpc: 'enqueue_facebook_webhook',
-        error: saved.error
-          ? {
-              code: saved.error.code,
-              message: saved.error.message,
-              details: saved.error.details,
-              hint: saved.error.hint,
-            }
-          : null,
-        receipt: saved.error ? undefined : saved.data,
+        errorCode: saved.error?.code ?? null,
         elapsedMs: Date.now() - started,
       })
       console.error('[facebook-webhook/ingress] persistence unavailable', {

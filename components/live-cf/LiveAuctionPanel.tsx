@@ -6,6 +6,7 @@ import type { Auction, AuctionBid } from '@/lib/features/commerce/auction-types'
 import type { LiveSession } from '@/lib/features/commerce/live-session-types'
 import { LiveSourcePicker, type LiveSourcePage } from './LiveSourcePicker'
 import { LiveSwitch, LiveTemplateEditor, ReceivingBankPicker } from './LiveReplyControls'
+import { LiveAuctionTimer } from './LiveAuctionTimer'
 import {
   AUCTION_PRIVATE_TEMPLATE,
   AUCTION_BID_TEMPLATE,
@@ -203,7 +204,7 @@ export function LiveAuctionPanel({
           <div>
             <h1 className="text-lg font-bold text-slate-900">ห้องควบคุมการประมูลสด</h1>
             <p className="text-sm text-slate-500">
-              ผู้ขายคุมจังหวะผ่านคอมเมนต์ • ไม่มีเวลานับถอยหลัง
+              ปิดรอบอัตโนมัติเมื่อครบเวลา • รอบใหม่เริ่มต้น 5 นาที
             </p>
           </div>
         </div>
@@ -216,6 +217,7 @@ export function LiveAuctionPanel({
           {showForm ? 'ซ่อนแบบฟอร์ม' : 'เปิดรายการใหม่'}
         </button>
       </header>
+      {auction && <LiveAuctionTimer key={auction.id} tenantId={tenantId} auctionId={auction.id} onResolved={() => { void refresh() }} />}
       <div className="space-y-5 p-5">
         <p className="text-xs text-slate-500" aria-live="polite">
           อัปเดตอัตโนมัติทุก 3 วินาที{lastUpdated ? ` • ล่าสุด ${lastUpdated}` : ''}

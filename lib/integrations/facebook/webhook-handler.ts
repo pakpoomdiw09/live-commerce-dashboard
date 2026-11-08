@@ -183,6 +183,33 @@ async function tenantForPage(pageId: string): Promise<PageTenant | null> {
 
 export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
   const { page_id: pageId, kind, payload } = execution.event
+  const value = payload.value
+  const isCommentPayload = kind === 'change' &&
+    (value?.item === 'comment' || typeof value?.comment_id === 'string' ||
+      ['comments', 'live_comments'].includes(payload.field ?? ''))
+  const hasFrom = Boolean(value?.from && typeof value.from === 'object')
+  const hasFromId = typeof value?.from?.id === 'string' && value.from.id.length > 0
+  const isNewComment = kind === 'change' && value?.verb === 'add' &&
+    value?.deleted !== true && value?.item === 'comment'
+  const supportedCommentField = payload.field === 'feed' || payload.field === 'live_comments' ||
+    ['live_videos', 'comments'].includes(payload.field ?? '')
+  const legacyCommentFieldsValid = typeof value?.comment_id === 'string' && !!value.comment_id &&
+    typeof value?.message === 'string' && !!value.message.trim() && hasFromId
+  const canRouteComment = isNewComment && supportedCommentField &&
+    (payload.field === 'feed' || payload.field === 'live_comments' || legacyCommentFieldsValid)
+  const commentSkipReason = value?.verb !== 'add' ? 'NOT_ADD'
+    : value?.deleted === true ? 'DELETED'
+    : value?.item !== 'comment' ? 'NOT_COMMENT_ITEM'
+    : !supportedCommentField ? 'UNSUPPORTED_FIELD'
+    : !value?.comment_id ? 'MISSING_COMMENT_ID'
+    : typeof value?.message !== 'string' || !value.message.trim() ? 'MISSING_MESSAGE'
+    : !hasFromId ? 'MISSING_FROM_ID' : 'COMMENT_FILTERED'
+  if (isCommentPayload) console.info('[live-cf/comment] payload diagnostic', {
+    has_from: hasFrom,
+    has_from_id: hasFromId,
+    decision: canRouteComment ? 'sent_to_comment_handler' : 'skipped',
+    reason: canRouteComment ? null : commentSkipReason,
+  })
   const tenant = await tenantForPage(pageId)
   const configuredPageId = process.env.FB_PAGE_ID?.trim()
   console.info('[facebook-webhook/page] resolved', {
@@ -202,30 +229,14 @@ export async function handleFacebookWebhookEvent(execution: WebhookExecution) {
       { eventId: execution.event.id, pageId },
     )
   if (kind === 'message') await onMessage(payload, pageId, tenant, execution)
-  else if (
-    kind === 'change' &&
-    payload.value?.verb === 'add' &&
-    payload.value?.deleted !== true &&
-    payload.value?.item === 'comment' &&
-    (payload.field === 'feed' ||
-      payload.field === 'live_comments' ||
-      (['live_videos', 'comments'].includes(payload.field) &&
-        typeof payload.value.comment_id === 'string' &&
-        !!payload.value.comment_id &&
-        typeof payload.value.message === 'string' &&
-        !!payload.value.message.trim() &&
-        typeof payload.value.from?.id === 'string' &&
-        !!payload.value.from.id))
-  ) {
-    await onComment(payload.value, pageId, tenant, execution)
+  else if (canRouteComment) {
+    await onComment(value, pageId, tenant, execution)
   } else if (kind === 'change') {
     console.info('[live-cf/comment] skipped', {
-      reason: 'NOT_NEW_COMMENT',
-      raw_value: payload.value,
-      pageId,
-      field: payload.field,
-      item: payload.value?.item,
-      verb: payload.value?.verb,
+      has_from: hasFrom,
+      has_from_id: hasFromId,
+      decision: 'skipped',
+      reason: isCommentPayload ? commentSkipReason : 'NOT_NEW_COMMENT',
     })
   }
 }
@@ -818,22 +829,30 @@ async function onComment(
     }))
   )
     return
-  if (mode === 'auction') return
+  if (mode === 'auction') {
+    console.info('[live-cf/comment] skipped', {
+      has_from: Boolean(v.from && typeof v.from === 'object'),
+      has_from_id: typeof v.from?.id === 'string' && v.from.id.length > 0,
+      decision: 'skipped',
+      reason: 'AUCTION_HANDLER_DID_NOT_MATCH',
+    })
+    return
+  }
   // the Page's own replies (including the auto-replies below): never answer them, or rules would loop
   if (v.from?.id === pageId) {
     console.info('[live-cf/comment] skipped', {
       reason: 'PAGE_OWN_COMMENT',
-      commentId: v.comment_id,
     })
     return
   }
   // Meta leaves out `from` when the app lacks pages_read_engagement / Page Public Content Access,
   // or (in Development mode) when the commenter has no role on the app
-  if (!v.from)
-    console.warn(
-      '[live-cf/comment] NO_COMMENT_AUTHOR; check Page permissions and Meta delivery payload:',
-      v.comment_id,
-    )
+  if (!v.from) console.warn('[live-cf/comment] author missing', {
+    has_from: false,
+    has_from_id: false,
+    decision: 'customer_matching_skipped',
+    reason: 'NO_COMMENT_AUTHOR',
+  })
 
   if (typeof v.comment_id !== 'string' || !v.comment_id) {
     console.warn('[live-cf/comment] skipped', { reason: 'MISSING_COMMENT_ID', pageId })
@@ -843,26 +862,29 @@ async function onComment(
   if (stored.duplicate || !stored.id) {
     console.info('[live-cf/comment] skipped', {
       reason: stored.duplicate ? 'DUPLICATE_COMMENT' : 'COMMENT_NOT_STORED',
-      commentId: v.comment_id,
     })
     return
   }
   if (typeof v.message !== 'string' || !tenant) {
     console.warn('[live-cf/comment] skipped', {
       reason: !tenant ? 'NO_TENANT' : 'NO_TEXT',
-      commentId: v.comment_id,
     })
     return
   }
   const rules = await loadCommentRules(db, tenant.id, pageId)
   const psid = typeof v.from?.id === 'string' ? v.from.id : null
+  if (!psid && v.from) console.warn('[live-cf/comment] author id missing', {
+    has_from: true,
+    has_from_id: false,
+    decision: 'customer_matching_skipped',
+    reason: 'NO_COMMENT_AUTHOR_ID',
+  })
   const liveEnabled = mode !== 'auto' && isFeatureEnabled('live_cf')
   const liveRules = rules.filter((r) => r.mode === 'live_cf')
   const matches = liveRules.map((rule) => ({ rule, code: liveRuleCode(rule, v.message) }))
   const possibleLive = liveEnabled ? matches.filter((m) => m.code).map((m) => m.rule) : []
   console.info('[live-cf/match] evaluated', {
     eventId: execution.event.id,
-    commentId: v.comment_id,
     pageId,
     tenantId: tenant.id,
     liveEnabled,
@@ -906,7 +928,6 @@ async function onComment(
     })
     console.info('[live-cf/session] evaluated', {
       eventId: execution.event.id,
-      commentId: v.comment_id,
       pageId,
       postIds: ids,
       liveEvidence: live,
@@ -914,14 +935,13 @@ async function onComment(
       selection,
     })
     if (selection?.ambiguous) {
-      console.warn('[live-cf] ambiguous rules; no order created', { commentId: v.comment_id })
+      console.warn('[live-cf] ambiguous rules; no order created')
       return
     }
     if (selection) {
       const selectedRule = possibleLive.find((rule) => rule.id === selection.ruleId)
       if (!selectedRule) {
         console.warn('[live-cf/comment] skipped', {
-          commentId: v.comment_id,
           reason: 'SELECTED_RULE_CHANGED',
           ruleId: selection.ruleId,
         })
@@ -929,7 +949,6 @@ async function onComment(
       }
       if (!selectedRule.inbox_enabled && !selectedRule.reply_enabled)
         console.warn('[live-cf/reply] disabled', {
-          commentId: v.comment_id,
           ruleId: selectedRule.id,
           reason: 'BOTH_REPLY_CHANNELS_DISABLED',
         })
@@ -961,7 +980,6 @@ async function onComment(
               }),
             )
             console.info('[live-cf/order]', {
-              commentId: v.comment_id,
               ruleId: selection.ruleId,
               postId: selection.postId,
               status: order.status,
@@ -994,7 +1012,6 @@ async function onComment(
                   .once('comment-cf-private-reply', async () => {
                     const sentText = message.normalize('NFC').trim().slice(0, 2000)
                     console.info('[live-cf/reply] started', {
-                      commentId: v.comment_id,
                       ruleId: selectedRule.id,
                       channel: 'private',
                       recipientType: 'comment_id',
@@ -1016,7 +1033,6 @@ async function onComment(
                       })
                       if (chat.error && chat.error.code !== '23505') throw chat.error
                       console.info('[live-cf/reply] succeeded', {
-                        commentId: v.comment_id,
                         channel: 'private',
                       })
                       return null
@@ -1027,7 +1043,6 @@ async function onComment(
             ? (message) =>
                 execution.once('comment-cf-public-reply', async () => {
                   console.info('[live-cf/reply] started', {
-                    commentId: v.comment_id,
                     ruleId: selectedRule.id,
                     channel: 'public',
                     recipientType: 'comment_id',
@@ -1036,7 +1051,6 @@ async function onComment(
                     meta.sendPublicText(v.comment_id, message),
                   )
                   console.info('[live-cf/reply] succeeded', {
-                    commentId: v.comment_id,
                     channel: 'public',
                   })
                   return null
@@ -1049,7 +1063,6 @@ async function onComment(
       return
     }
     console.info('[live-cf/comment] skipped', {
-      commentId: v.comment_id,
       reason: !liveEnabled
         ? 'LIVE_CF_DISABLED'
         : !liveRules.length
@@ -1061,7 +1074,6 @@ async function onComment(
     })
   } else if (possibleLive.length) {
     console.warn('[live-cf/comment] skipped', {
-      commentId: v.comment_id,
       reason: !psid ? 'NO_COMMENT_AUTHOR' : 'NO_CUSTOMER_RECORD',
     })
   }
@@ -1220,9 +1232,7 @@ async function runCommentRules(
   // without `from` the Page's own auto-replies can't be recognised above: don't answer our own reply text
   if (!v.from && rules.some((r) => r.reply_text?.trim() === v.message.trim())) return
   const rule = rules.find((r) => ruleMatches(r, v.message))
-  console.log(
-    `[fb webhook] comment ${v.comment_id} → ${rule ? `rule "${rule.name}"` : 'no matching rule'}`,
-  )
+  console.log('[fb webhook] comment rule evaluated', { matched: Boolean(rule) })
   if (!rule) return
   const saved = await db
     .from('comments')

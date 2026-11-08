@@ -141,11 +141,15 @@ const groups = [
       'live-auction-dynamic-tags.sql',
       'facebook-comment-configuration.sql',
       'facebook-message-echoes.sql',
+      'inbox-realtime-access.sql',
+      'live-auction-deadlines.sql',
+      'live-auction-audit-hardening.sql',
     ],
   ],
 ]
 
 const excluded = {
+  'live-auction-cron-setup.sql': 'Optional hosted Supabase Cron extension setup; run after live-auction-deadlines.sql.',
   'backfill_patch.sql':
     'Historical customer/comment ownership backfill; not needed on an empty database.',
   'migrate-followup-variables.sql':
@@ -312,6 +316,9 @@ const prerequisites = {
   'premium-overview.sql': ['dashboard-read-models.sql'],
   'inbox-realtime.sql': ['schema.sql', 'security.sql'],
   'facebook-message-echoes.sql': ['facebook-message-window.sql', 'smart-inbox.sql'],
+  'inbox-realtime-access.sql': ['facebook-message-echoes.sql', 'feature-access.sql'],
+  'live-auction-deadlines.sql': ['facebook-comment-configuration.sql', 'live-auction-production-readiness.sql'],
+  'live-auction-audit-hardening.sql': ['facebook-comment-configuration.sql', 'live-auction-on-demand.sql', 'live-auction-deadlines.sql'],
   'inbox-load-indexes.sql': ['inbox-realtime.sql'],
   'facebook-inbox-recovery.sql': ['facebook-webhook-queue.sql', 'smart-inbox.sql'],
   'live-cf-variants.sql': ['commerce-v2.sql', 'facebook-webhook-queue.sql'],

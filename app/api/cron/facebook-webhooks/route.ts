@@ -23,6 +23,8 @@ async function run(req: NextRequest) {
     return NextResponse.json(
       await singleFlight('cron:facebook-webhooks', async () => {
         const summary = await runFacebookWebhookWorker(supabaseAdmin(), handleFacebookWebhookEvent)
+        const expired = await supabaseAdmin().rpc('expire_live_auctions')
+        if (expired.error) console.error('[auction/expiry] recovery failed', { code: expired.error.code })
         try {
           await deliverAuctionNotifications()
         } catch {

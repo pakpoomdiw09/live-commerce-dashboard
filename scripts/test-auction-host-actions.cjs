@@ -23,6 +23,8 @@ function fixture(options = {}) {
           calls.scopes.push([table, key, value])
           return q
         },
+        order: () => q,
+        limit: () => q,
         async maybeSingle() {
           const row =
             table === 'auctions'
@@ -32,7 +34,10 @@ function fixture(options = {}) {
                   page_id: '100',
                   live_post_id: '456',
                   status: options.closed ? 'closed' : 'active',
+                  session_automation: options.automation ?? { closeKeywords: ['ปิด'], closeEnabled: true, countEnabled: true, counting_tags: { '3': '3', '2': '2', '1': '1' } },
                 }
+              : table === 'live_sessions'
+                ? { tenant_id: tenantId, page_id: '100', live_post_id: '456', ...(options.sessionSettings ?? {}) }
               : {
                   id: tenantId,
                   page_id: '100',
@@ -83,6 +88,17 @@ function fixture(options = {}) {
       },
       '@/lib/integrations/facebook/webhook-handler': { handleFacebookWebhookEvent: async () => {} },
       '@/lib/utils': { UUID: /^[a-f0-9-]{36}$/ },
+      '@/lib/integrations/facebook/auction-comment-parser': {
+        parseAuctionComment: (text, isHost, automation) => {
+          if (options.invalidHostControl) return { type: 'IGNORE' }
+          if (isHost && automation.closeKeywords.includes(text)) return { type: 'HOST_CONTROL', action: 'close', count: null }
+          const count = automation.counting_tags[text]
+          return count && automation.countEnabled !== false
+            ? { type: 'HOST_CONTROL', action: 'count', count }
+            : { type: 'IGNORE' }
+        },
+      },
+      '@/lib/features/commerce/comment-config': load('lib/features/commerce/comment-config.ts'),
     },
     { console: silent, TextEncoder, Date },
   )
@@ -115,7 +131,7 @@ test('host shortcuts post Page-owned comments to the stored live video and enque
     assert.equal(body.commentId, '456_789')
     assert.ok(!JSON.stringify(body).includes('TEST_PAGE_SECRET'))
     assert.deepEqual(f.calls.sends, [
-      ['TEST_PAGE_SECRET', '456', action === 'close' ? '❌' : action],
+      ['TEST_PAGE_SECRET', '456', action === 'close' ? 'ปิด' : action],
     ])
     assert.ok(
       f.calls.scopes.some(
@@ -152,6 +168,15 @@ test('invalid, unauthorized, foreign, closed and disconnected host actions never
     assert.equal(f.calls.sends.length, 0)
     assert.equal(f.calls.queued.length, 0)
   }
+})
+
+test('close action uses active session settings and refuses a tag that does not parse as HOST_CONTROL', async () => {
+  const configured = fixture({ sessionSettings: { comment_settings: { closing_tags: ['終了'] } } })
+  assert.equal((await configured.send('close')).status, 202)
+  assert.equal(configured.calls.sends[0][2], '終了')
+  const invalid = fixture({ invalidHostControl: true })
+  assert.equal((await invalid.send('close')).status, 409)
+  assert.equal(invalid.calls.sends.length, 0)
 })
 
 test('provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment', async () => {

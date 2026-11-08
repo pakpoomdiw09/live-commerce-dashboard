@@ -528,11 +528,17 @@ export async function handleAuctionComment(input: {
   execution: WebhookExecution
 }): Promise<boolean> {
   const { value, tenantId, pageId, token, execution } = input
+  const hasFrom = Boolean(value.from && typeof value.from === 'object')
+  const senderId = (value.from as { id?: unknown } | undefined)?.id
+  const hasFromId = typeof senderId === 'string' && senderId.length > 0
   const skipped = (reason: string, details: Record<string, unknown> = {}) =>
     console.info('[auction/comment] skipped', {
       eventId: execution.event.id,
       tenantId,
       pageId,
+      has_from: hasFrom,
+      has_from_id: hasFromId,
+      decision: 'skipped',
       reason,
       ...details,
     })
@@ -587,7 +593,6 @@ export async function handleAuctionComment(input: {
     const candidate = active.data?.[0] as Auction | undefined
     return candidate && candidate.created_at > execution.event.created_at ? undefined : candidate
   }
-  const senderId = (value.from as { id?: unknown } | undefined)?.id
   let auction: Auction | undefined
   if (typeof senderId === 'string' && senderId !== pageId) {
     const waiting = await db
@@ -654,8 +659,10 @@ export async function handleAuctionComment(input: {
   const author = value.from as { id?: unknown } | undefined
   if (typeof author?.id !== 'string') {
     console.warn('[auction/comment] missing author', {
-      auctionId: auction.id,
-      eventId: execution.event.id,
+      has_from: hasFrom,
+      has_from_id: hasFromId,
+      decision: 'auction_processing_skipped',
+      reason: 'NO_COMMENT_AUTHOR_ID',
     })
     return true
   }

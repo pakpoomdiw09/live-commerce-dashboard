@@ -79,6 +79,7 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
               comment_id: '456_' + randomUUID(),
               from: { id: sender, name: 'Buyer ' + sender },
               message: text,
+              created_time: new Date().toISOString(),
               ...extra,
             },
           }),

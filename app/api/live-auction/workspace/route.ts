@@ -102,6 +102,8 @@ export async function POST(req: NextRequest) {
     )
     if (
       !UUID.test(input.requestId ?? '') ||
+      (input.durationSeconds !== undefined &&
+        (!Number.isSafeInteger(input.durationSeconds) || input.durationSeconds < 30 || input.durationSeconds > 86400)) ||
       typeof input.pageId !== 'string' ||
       !/^\d{1,64}$/.test(input.pageId) ||
       typeof input.livePostId !== 'string' ||
@@ -157,6 +159,7 @@ export async function POST(req: NextRequest) {
       startPrice: Number(input.startPrice),
       minStep: Number(input.minStep),
       shippingFee: Number(input.shippingFee),
+      durationSeconds: input.durationSeconds ?? 300,
       settings,
       hostIds,
       finance,

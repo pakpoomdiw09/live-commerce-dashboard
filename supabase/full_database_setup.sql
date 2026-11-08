@@ -127,7 +127,8 @@ begin
     ('public.auction_workspace_requests'),
     ('public.shipping_tracking_deliveries'),
     ('public.auction_winner_claims'),
-    ('public.facebook_comment_defaults')) expected(name)
+    ('public.facebook_comment_defaults'),
+    ('public.auction_poll_cursors')) expected(name)
   where to_regclass(name) is not null;
   if existing is not null then
     raise exception 'Fresh database only. Existing application tables: %', existing
@@ -15632,6 +15633,437 @@ do $$ declare tab text; begin
 end $$;
 
 -- Source statement 10
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 118. inbox-realtime-access.sql | Latest delivery safety, reporting and index patches
+-- SHA256: f2c1e283a073b6967c64b37378a09ec179baedca837587b19efc0163a780ab65
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+drop policy if exists customer_feature_access on public.customers;
+
+-- Source statement 3
+drop policy if exists customer_feature_write_access on public.customers;
+
+-- Source statement 4
+create policy customer_feature_write_access on public.customers as restrictive
+ for update to authenticated
+ using(public.has_tenant_feature(tenant_id,'customer_management'))
+ with check(public.has_tenant_feature(tenant_id,'customer_management'));
+
+-- Source statement 5
+drop policy if exists message_feature_access on public.messages;
+
+-- Source statement 6
+drop policy if exists inbox_customer_tenant_read on public.customers;
+
+-- Source statement 7
+create policy inbox_customer_tenant_read on public.customers as restrictive
+ for select to authenticated using(public.can_access_tenant(tenant_id));
+
+-- Source statement 8
+drop policy if exists inbox_message_tenant_read on public.messages;
+
+-- Source statement 9
+create policy inbox_message_tenant_read on public.messages as restrictive
+ for select to authenticated using(exists(select 1 from public.customers c
+ where c.id=customer_id and public.can_access_tenant(c.tenant_id)));
+
+-- Source statement 10
+grant select on public.messages,public.customers to authenticated;
+
+-- Source statement 11
+drop policy if exists own_read on public.conversation_reads;
+
+-- Source statement 12
+create policy own_read on public.conversation_reads for select to authenticated
+ using(user_id=auth.uid() and exists(select 1 from public.customers c
+  where c.id=customer_id and public.can_access_tenant(c.tenant_id)));
+
+-- Source statement 13
+do $$ declare tab text; begin
+ if not exists(select 1 from pg_publication where pubname='supabase_realtime') then
+  create publication supabase_realtime;
+ end if;
+ -- This application uses customers as conversations, not a conversations table.
+ foreach tab in array array['messages','customers','conversation_reads','conversations'] loop
+  if to_regclass(format('public.%I',tab)) is not null and not exists(
+   select 1 from pg_publication_tables where pubname='supabase_realtime'
+    and schemaname='public' and tablename=tab
+  ) then execute format('alter publication supabase_realtime add table public.%I',tab);end if;
+ end loop;
+end $$;
+
+-- Source statement 14
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 119. live-auction-deadlines.sql | Latest delivery safety, reporting and index patches
+-- SHA256: ff20250c88520e5d08cf02ae057320554e181632961dc97dcb954829cd2894db
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.auctions add column if not exists duration_seconds integer;
+
+-- Source statement 3
+alter table public.auctions add column if not exists timer_started_at timestamptz;
+
+-- Source statement 4
+alter table public.auctions add column if not exists ends_at timestamptz;
+
+-- Source statement 5
+alter table public.auctions drop constraint if exists auction_duration_valid;
+
+-- Source statement 6
+alter table public.auctions add constraint auction_duration_valid
+ check(duration_seconds is null or duration_seconds between 30 and 86400);
+
+-- Source statement 7
+alter table public.auctions alter column duration_seconds set default 300;
+
+-- Source statement 8
+create index if not exists auctions_due on public.auctions(ends_at)
+ where status='active' and ends_at is not null;
+
+-- Source statement 9
+create or replace function public.initialize_auction_deadline() returns trigger
+language plpgsql set search_path=pg_catalog,public as $$ begin
+ new.duration_seconds:=coalesce(new.duration_seconds,300);
+ new.timer_started_at:=clock_timestamp();
+ new.ends_at:=new.timer_started_at+make_interval(secs=>new.duration_seconds);
+ return new;
+end $$;
+
+-- Source statement 10
+drop trigger if exists initialize_auction_deadline on public.auctions;
+
+-- Source statement 11
+create trigger initialize_auction_deadline before insert on public.auctions
+ for each row execute function public.initialize_auction_deadline();
+
+-- Source statement 12
+create or replace function public.close_due_live_auction(
+ p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions; result jsonb;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if a.status<>'active' then
+  return jsonb_build_object('status',a.status,'orderId',a.order_id);
+ end if;
+ if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then
+  return jsonb_build_object('status','not_due');
+ end if;
+ -- Give durably received pre-deadline comments their turn before locking the
+ -- winner. Late comments never extend the deadline. Failed/dead events are not
+ -- an endless barrier; queue retries/alerts remain owned by the webhook worker.
+ if not p_cancel and exists(select 1 from public.facebook_webhook_events e
+  where e.page_id=a.page_id and e.kind='change' and e.status in ('pending','processing')
+   and e.created_at>=a.created_at and (a.ends_at is null or e.created_at<a.ends_at)
+   and (a.live_post_id=regexp_replace(e.payload->'value'->>'post_id','^.*_','')
+    or a.live_post_id=e.payload->'value'->>'video_id'
+    or a.live_post_id=e.payload->'value'->>'live_video_id'
+    or e.payload->'value'->>'post_id'=any(a.live_post_aliases))
+ ) then return jsonb_build_object('status','draining');end if;
+ update public.auctions set winner_locked_at=clock_timestamp() where id=a.id;
+ result:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,null,p_cancel);
+ return result;
+end $$;
+
+-- Source statement 13
+create or replace function public.expire_live_auctions(p_tenant uuid default null)
+returns integer language plpgsql set search_path=pg_catalog,public as $$
+declare a record; result jsonb; count_closed integer:=0;
+begin
+ for a in select id,tenant_id from public.auctions
+  where status='active' and ends_at<=clock_timestamp()
+   and (p_tenant is null or tenant_id=p_tenant)
+  order by ends_at limit 100 for update skip locked
+ loop
+  begin
+   result:=public.close_due_live_auction(a.id,a.tenant_id);
+   if result->>'status'='closed' then count_closed:=count_closed+1;end if;
+  exception when others then
+   -- Isolate a bad round; keep other shops closing and make the fault visible.
+   raise warning 'Auction % resolution failed [%]: %',a.id,sqlstate,sqlerrm;
+  end;
+ end loop;
+ return count_closed;
+end $$;
+
+-- Source statement 14
+create or replace function public.enforce_auction_bid_deadline() returns trigger
+language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions; received_at timestamptz;
+begin
+ if new.status='accepted' then
+  select * into a from public.auctions where id=new.auction_id for update;
+  select created_at into received_at from public.facebook_webhook_events where id=new.event_id;
+  if a.ends_at is not null and coalesce(received_at,clock_timestamp())>=a.ends_at then
+   raise exception 'AUCTION_DEADLINE_PASSED' using errcode='22023';
+  end if;
+ end if;
+ return new;
+end $$;
+
+-- Source statement 15
+drop trigger if exists enforce_auction_bid_deadline on public.auction_bids;
+
+-- Source statement 16
+create trigger enforce_auction_bid_deadline before insert on public.auction_bids
+ for each row execute function public.enforce_auction_bid_deadline();
+
+-- Source statement 17
+do $$ begin
+ if to_regprocedure('public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text)') is null then
+  alter function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)
+   rename to process_live_auction_comment_without_deadline;
+ end if;
+end $$;
+
+-- Source statement 18
+create or replace function public.process_live_auction_comment(
+ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;e public.facebook_webhook_events;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ if a.ends_at is not null and e.created_at>=a.ends_at then
+  perform public.close_due_live_auction(a.id,a.tenant_id);
+  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
+ end if;
+ return public.process_live_auction_comment_without_deadline(p_auction,p_tenant,p_event,p_kind,p_amount,p_control);
+end $$;
+
+-- Source statement 19
+do $$ begin
+ if to_regprocedure('public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb)') is null then
+  alter function public.save_auction_workspace(uuid,uuid,uuid,jsonb) rename to save_auction_workspace_without_deadline;
+ end if;
+end $$;
+
+-- Source statement 20
+create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare result jsonb; duration integer; replay boolean;
+begin
+ duration:=coalesce((p_input->>'durationSeconds')::integer,300);
+ if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
+ replay:=exists(select 1 from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request);
+ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,p_input);
+ if replay then return result;end if;
+ update public.auctions set duration_seconds=duration,
+  timer_started_at=coalesce(timer_started_at,clock_timestamp()),
+  ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
+ where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active'
+  and (duration_seconds is distinct from duration or ends_at is null);
+ return result;
+end $$;
+
+-- Source statement 21
+create or replace function public.start_legacy_auction_timer(p_auction uuid,p_tenant uuid)
+returns void language sql set search_path=pg_catalog,public as $$
+ update public.auctions set timer_started_at=clock_timestamp(),duration_seconds=300,
+  ends_at=clock_timestamp()+interval '5 minutes'
+ where id=p_auction and tenant_id=p_tenant and status='active' and ends_at is null;
+$$;
+
+-- Source statement 22
+revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean),
+ public.expire_live_auctions(uuid),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
+ public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text),
+ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb),
+ public.start_legacy_auction_timer(uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 23
+grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean),
+ public.expire_live_auctions(uuid),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
+ public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text),
+ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb),
+ public.start_legacy_auction_timer(uuid,uuid) to service_role;
+
+-- Source statement 24
+do $$ begin
+ if to_regprocedure('cron.schedule(text,text,text)') is not null then
+  perform cron.schedule('snapbot-auction-expiry','5 seconds','select public.expire_live_auctions();');
+ else
+  raise notice 'Enable Supabase Cron and run supabase/live-auction-cron-setup.sql for browser-independent expiry';
+ end if;
+end $$;
+
+-- Source statement 25
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 120. live-auction-audit-hardening.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 960f8300baa2e0e101066a9bf4ec743e48c189d502058f49dd406ab179f1a7f9
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.auction_comment_timestamp(value text) returns timestamptz
+language plpgsql immutable set search_path=pg_catalog,public as $$
+declare n numeric;
+begin
+ if value is null or btrim(value)='' then return null; end if;
+ if value ~ '^[0-9]+(?:\.[0-9]+)?$' then
+  n:=value::numeric;
+  if length(split_part(value,'.',1))>=13 then n:=n/1000; end if;
+  return to_timestamp(n);
+ end if;
+ return value::timestamptz;
+exception when others then return null;
+end $$;
+
+-- Source statement 3
+create table if not exists public.auction_poll_cursors (
+ cursor_id uuid primary key,
+ auction_id uuid not null references public.auctions(id) on delete cascade,
+ tenant_id uuid not null references public.tenants(id) on delete cascade,
+ session_id uuid,
+ live_video_id text not null,
+ high_water_at timestamptz not null,
+ continuation_url text,
+ updated_at timestamptz not null default clock_timestamp()
+);
+
+-- Source statement 4
+alter table public.auction_poll_cursors enable row level security;
+
+-- Source statement 5
+revoke all on public.auction_poll_cursors from public,anon,authenticated;
+
+-- Source statement 6
+grant all on public.auction_poll_cursors to service_role;
+
+-- Source statement 7
+create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions; leader record;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002'; end if;
+ if a.status in ('cancelled','closed') then
+  return jsonb_build_object('status',case when a.status='closed' and a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else a.status end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
+ end if;
+ if p_cancel then
+  update public.auctions set status='cancelled',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+  return jsonb_build_object('status','cancelled','orderId',null);
+ end if;
+ if coalesce(a.session_automation->>'winnerFlow','highest_bid')='on_demand' then
+  select bidder_id,bidder_name,bid_amount,comment_id into leader from public.auction_bids
+   where auction_id=a.id and bid_amount>0 and status in ('accepted','claimed')
+   order by bid_amount desc,created_at asc,id asc limit 1;
+  if found then
+   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
+    winner_locked_at=coalesce(winner_locked_at,clock_timestamp()),leading_bidder_id=leader.bidder_id,
+    leading_bidder_name=leader.bidder_name,current_price=leader.bid_amount,leading_comment_id=leader.comment_id
+    where id=a.id;
+   return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',leader.bidder_id,'amount',leader.bid_amount);
+  end if;
+  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+  return jsonb_build_object('status','closed','orderId',null);
+ end if;
+ return public.finalize_live_auction_highest_bid(p_auction,p_tenant,p_event,false);
+end $$;
+
+-- Source statement 8
+create or replace function public.process_live_auction_comment(
+ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
+ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+ if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+ if found then return prior;end if;
+ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
+ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
+ host:=sender=a.page_id or sender=any(a.host_ids);
+ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
+ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
+ message:=public.normalize_auction_tag(v->>'message');
+ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
+ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
+ confirming:=not host and message=any(keywords);
+ if host then
+  if coalesce((settings->>'closeEnabled')::boolean,true) and message=any(close_keywords) then p_kind:='HOST_CONTROL';p_control:='close';
+  elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
+  end if;
+ end if;
+ if confirming or (p_kind='HOST_CONTROL' and (p_control='close' or counting)) then
+  source_at:=public.auction_comment_timestamp(v->>'created_time');
+  if source_at is null or source_at<a.created_at-interval '1 second' or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
+   return jsonb_build_object('status','stale');
+  end if;
+ end if;
+ if a.session_automation is distinct from settings then
+  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
+ end if;
+ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
+  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
+  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
+  return r;
+ end if;
+ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
+  update public.auctions set host_count=p_control where id=a.id;
+  r:=jsonb_build_object('status','count');
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
+  return r;
+ end if;
+ if host then return jsonb_build_object('status','ignored');end if;
+ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
+ if not confirming then
+  numeric_price:=public.auction_numeric_price(v->>'message');
+  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
+ end if;
+ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
+ else
+  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
+  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
+  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
+  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+ end if;
+ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
+ return r;
+end $$;
+
+-- Source statement 9
+revoke all on function public.auction_comment_timestamp(text) from public,anon,authenticated;
+
+-- Source statement 10
+grant execute on function public.auction_comment_timestamp(text) to service_role;
+
+-- Source statement 11
 notify pgrst,'reload schema';
 
 commit;

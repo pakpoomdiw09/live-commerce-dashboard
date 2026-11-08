@@ -1,0 +1,4572 @@
+{
+  "scope": "Source files; excludes dependencies/build/git/provider caches, credentials and reports themselves.",
+  "scannedPaths": 1129,
+  "keywordHits": 269,
+  "additionalDependencyFiles": 61,
+  "relevantFiles": 229,
+  "incidentalHits": 101,
+  "hooksKeywordHits": [],
+  "effectiveSqlDefinitions": {
+    "finalize_live_auction": {
+      "file": "supabase/live-auction-on-demand.sql",
+      "line": 167
+    },
+    "process_live_auction_comment": {
+      "file": "supabase/facebook-comment-configuration.sql",
+      "line": 321
+    },
+    "manage_live_session": {
+      "file": "supabase/live-auction-production-readiness.sql",
+      "line": 55
+    },
+    "queue_live_session_reminders": {
+      "file": "supabase/live-session-dashboard.sql",
+      "line": 301
+    },
+    "configure_auction_session": {
+      "file": "supabase/live-auction-empty-keyword-defaults.sql",
+      "line": 50
+    },
+    "save_auction_workspace": {
+      "file": "supabase/live-auction-production-readiness.sql",
+      "line": 168
+    },
+    "claim_auction_bill_delivery": {
+      "file": "supabase/live-auction-on-demand.sql",
+      "line": 32
+    },
+    "auction_numeric_price": {
+      "file": "supabase/live-auction-on-demand.sql",
+      "line": 49
+    },
+    "process_live_auction_highest_bid": {
+      "file": "supabase/facebook-comment-configuration.sql",
+      "line": 212
+    },
+    "finalize_live_auction_highest_bid": {
+      "file": "supabase/facebook-comment-configuration.sql",
+      "line": 274
+    }
+  },
+  "files": [
+    {
+      "path": "app/(dashboard)/comment-replies/[id]/page.tsx",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Dashboard editor for an existing Page comment/CF reply rule.",
+      "exports": [
+        "metadata"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/(dashboard)/comment-replies/page.tsx",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Dashboard listing Page comment auto-reply and CF product rules.",
+      "exports": [
+        "metadata"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/(dashboard)/live-auction/page.tsx",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Active-tenant auction entry page loading Page profiles/banks and mounting LiveSessionDashboard.",
+      "exports": [
+        "dynamic",
+        "metadata"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/(dashboard)/live-cf/page.tsx",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "comments;auction",
+      "summary": "Active-tenant product-CF/live-commerce dashboard entry page.",
+      "exports": [
+        "metadata",
+        "dynamic"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/auth/facebook/callback/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Existing-user Page connection callback, Page-token storage and webhook subscription.",
+      "exports": [
+        "runtime",
+        "GET"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/cron/customer-tabs/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Authenticated recovery runner for queued customer-tab reminders.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "dynamic",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/cron/facebook-webhooks/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Secret-authenticated recovery worker; also drains auction, shipping and tab-reminder outboxes.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "dynamic",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/customer-tabs/invoice/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Sends a server-rendered owned transactional invoice using a durable request/message key.",
+      "exports": [
+        "runtime",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/customer-tabs/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Reads customer invoices and queues manual/all-customer reminder operations.",
+      "exports": [
+        "maxDuration",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/facebook/live-videos/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Authorizes Page access before server-side live-video discovery.",
+      "exports": [
+        "GET"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/inbox/auction-status/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Returns tenant-scoped auction status for Inbox rows.",
+      "exports": [
+        "GET"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-auction/session/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Configures session automation, imports customers and loads the Thai auction dashboard RPC.",
+      "exports": [
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-auction/workspace/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Reads current session/round and performs idempotent unified workspace mutations.",
+      "exports": [
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/auction/close/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Owner close/cancel endpoint calling finalize_live_auction, then tries the notification outbox.",
+      "exports": [
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/auction/host-action/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Posts Page count/close comments and durably enqueues the confirmed provider comment.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/auction/poll-comments/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction;bid;comments;winner",
+      "summary": "Authenticated rate-limited latest-50 comment polling; normalizes Graph results into the webhook queue and drains worker/outbox.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "dynamic",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/auction/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Reads rounds/bids and creates validated tenant/Page/bank-scoped rounds.",
+      "exports": [
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/payment-variant/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Validates signed order access and persists required variant choices.",
+      "exports": [
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/products/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Lists/manages products and options available to live commerce.",
+      "exports": [
+        "GET"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/sessions/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Reads session read models and manages winners, costs, proof corrections and reminder batches.",
+      "exports": [
+        "maxDuration",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/live-cf/setup/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Persists validated CF products/rules and session setup.",
+      "exports": [
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/shipping/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Tenant-scoped fulfillment actions for paid orders/customer-tab shipments.",
+      "exports": [
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/slips/[id]/approve/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Authorized manual slip approval, including linked auction/tab payment evidence.",
+      "exports": [
+        "runtime",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/webhook/facebook/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Facebook webhook URL alias for the shared Meta ingress receiver.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/webhook/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Webhook URL alias for the shared Meta ingress receiver.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/webhooks/facebook/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Plural Facebook webhook URL alias for the shared Meta ingress receiver.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/webhooks/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Plural webhook URL alias for the shared Meta ingress receiver.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/auth/callback/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Facebook sign-in callback; verifies/saves tenant Pages and subscribes their webhook fields.",
+      "exports": [
+        "runtime",
+        "GET"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/pay/live/[token]/page.tsx",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Verifies the signed payment token and renders the appropriate order/tab payment experience.",
+      "exports": [
+        "metadata",
+        "dynamic"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/pay/live/[token]/slip/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "bid;auction",
+      "summary": "Validates payment-token ownership and handles proof/slip upload for the linked order/tab.",
+      "exports": [
+        "runtime",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/webhook/route.ts",
+      "category": "Application routes",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Root webhook URL alias for the shared Meta challenge/signature/queue receiver.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/comment-rules/RulesTable.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Lists and edits Page comment/CF automation rules.",
+      "exports": [
+        "RuleRow",
+        "RulesTable"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/inbox/ChatList.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction;comments",
+      "summary": "Inbox conversation list with auction status/payment badges.",
+      "exports": [
+        "ChatList"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/inbox/CommentsFeed.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Displays recent Page comments alongside Inbox activity.",
+      "exports": [
+        "CommentsFeed"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/inbox/CustomerTabsPanel.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Inbox customer bill summaries, transactional invoice sends and queued reminders.",
+      "exports": [
+        "CustomerTabsPanel"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/inbox/useAuctionStatuses.ts",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Fetches auction/order status badges for Inbox customer rows.",
+      "exports": [
+        "useAuctionStatuses"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionKeywordEditor.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Reusable confirmation and closing keyword editor.",
+      "exports": [
+        "AuctionKeywordEditor"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionRoundForm.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction;winner;bid",
+      "summary": "Creates, replaces or cancels a round with price, step, shipping and payment settings.",
+      "exports": [
+        "AuctionRoundForm"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionSessionAutomation.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "bid;auction",
+      "summary": "Merchant controls for confirmation/closing tags and notification templates.",
+      "exports": [
+        "AuctionSessionAutomation"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionSessionCustomers.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Displays/imports/edits auction-session customers and their bill rows.",
+      "exports": [
+        "AuctionSessionCustomers"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionSessionSections.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Groups session configuration form sections.",
+      "exports": [
+        "AuctionDashboardSection",
+        "SessionRequired",
+        "SessionEmptyFinance",
+        "AuctionSessionSlips",
+        "SessionCustomerStatus"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionSessionStart.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Starts/selects a live auction session.",
+      "exports": [
+        "AuctionDashboardOptions",
+        "AuctionSessionStart"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionSlipUpload.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Auction payment-proof upload and submission UI.",
+      "exports": [
+        "AuctionSlipUpload"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/AuctionUnifiedForm.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Unified seller form for round, automation, finance and source configuration.",
+      "exports": [
+        "AuctionUnifiedForm"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/CustomerTabPayment.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Customer-facing cumulative bill, balances, QR/payment and slip submission.",
+      "exports": [
+        "CustomerTabPayment"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveAuctionPanel.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Round/bid status polling, seller host-control buttons and delivery status display.",
+      "exports": [
+        "LiveAuctionPanel"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveAuctionWorkspace.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Composes the auction session, setup and active-round workspace.",
+      "exports": [
+        "LiveAuctionWorkspace"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveCfSetup.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Merchant editor for live-product rules, codes, options and public/private replies.",
+      "exports": [
+        "LiveCfSetup"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveCfVariantPayment.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Customer-side required product-variant selection before payment.",
+      "exports": [
+        "LiveCfPaymentVariant",
+        "LiveCfVariantPayment"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveCfWorkspace.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Composes live product/CF tools and session selection.",
+      "exports": [
+        "LiveCfMode",
+        "LiveCfWorkspace"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveCommentPoller.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "comments;auction;poller",
+      "summary": "Browser comment-fallback loop: 2.5-second cadence, retries, cancellation and a 30-comment feed.",
+      "exports": [
+        "LiveCommentPoller"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveReplyControls.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Shared live-reply toggles, template editing and receiving-bank selection controls.",
+      "exports": [
+        "LiveSwitch",
+        "LiveTemplateEditor",
+        "ReceivingBank",
+        "ReceivingBankPicker"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveSessionDashboard.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "winner;auction;poller;comments",
+      "summary": "Polls session metrics, customer ledgers, invoices and finance controls.",
+      "exports": [
+        "LiveSessionDashboard"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveSourcePicker.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Selects and verifies the Page/live video source.",
+      "exports": [
+        "LiveSourcePage",
+        "LiveSourcePicker"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/LiveVideoSelect.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Searchable list of discovered live videos.",
+      "exports": [
+        "LiveVideoSelect"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/QuickProductModal.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Creates/edits live products, stock and variant options.",
+      "exports": [
+        "QuickProductModal"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/session-ui.ts",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Shared styling tokens for session controls.",
+      "exports": [
+        "field",
+        "button",
+        "orange",
+        "sessionTime",
+        "stateText",
+        "Post",
+        "read"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/SessionDialog.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Shared session dialog container and interaction controls.",
+      "exports": [
+        "SessionDialog"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/SessionFinance.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Edits session costs, ads, shipping, fees and finance totals.",
+      "exports": [
+        "SessionFinance"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/SessionFollowupModal.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Selects unpaid customers and queues customized invoice reminders.",
+      "exports": [
+        "SessionFollowupModal"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/SessionProofModal.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Seller slip review and payment allocation dialog.",
+      "exports": [
+        "SessionProofModal"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/live-cf/SessionWinnerModal.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "bid;winner",
+      "summary": "Seller manual winner/order selection workflow.",
+      "exports": [
+        "SessionWinnerModal"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/shell/AppShell.tsx",
+      "category": "Components",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Dashboard navigation and feature-access shell with live-commerce entrypoints.",
+      "exports": [
+        "AppShell"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/auction-experience.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Schema/ledger changes: auctions. Defines/replaces RPCs: finalize_live_auction, auction_inbox_status.",
+      "exports": [],
+      "sqlFunctions": [
+        "finalize_live_auction",
+        "auction_inbox_status"
+      ]
+    },
+    {
+      "path": "supabase/bank-accounts.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Tenant receiving-bank records and order/payment bank associations.",
+      "exports": [],
+      "sqlFunctions": [
+        "can_manage_bank_accounts",
+        "sync_primary_bank_account",
+        "seed_tenant_bank_account"
+      ]
+    },
+    {
+      "path": "supabase/broadcast-policy.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Signed inbound message evidence and shared Messenger eligibility policy tables/functions.",
+      "exports": [],
+      "sqlFunctions": [
+        "freeze_broadcast_content",
+        "claim_broadcast_run",
+        "broadcast_recipient_reason",
+        "claim_broadcast_recipient",
+        "settle_broadcast_recipient",
+        "begin_broadcast_transport"
+      ]
+    },
+    {
+      "path": "supabase/commerce-v2.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Product variants, inventory/order primitives and shared commerce rate-limit support.",
+      "exports": [],
+      "sqlFunctions": [
+        "commerce_access",
+        "commerce_plan",
+        "commerce_rate_limit",
+        "commerce_product_version",
+        "commerce_product_quota",
+        "commerce_save_product",
+        "commerce_checkout",
+        "commerce_move_order",
+        "commerce_manage",
+        "place_cf_order"
+      ]
+    },
+    {
+      "path": "supabase/customer-tabs-setup.md",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Documentation: Cumulative live bills and Smart Inbox. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/customer-tabs.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Schema/ledger changes: live_sessions, customer_tabs, orders, slips, customer_tab_items. Defines/replaces RPCs: refresh_customer_tab, attach_customer_tab_order, sync_customer_tab_order, claim_customer_tab_slip, complete_customer_tab_slip.",
+      "exports": [],
+      "sqlFunctions": [
+        "refresh_customer_tab",
+        "attach_customer_tab_order",
+        "sync_customer_tab_order",
+        "claim_customer_tab_slip",
+        "complete_customer_tab_slip",
+        "guard_customer_tab_slip",
+        "end_customer_tab_live",
+        "queue_customer_tab_reminders",
+        "claim_customer_tab_reminder",
+        "place_cf_order",
+        "guard_live_cf_variant_slip",
+        "guard_live_cf_variant_payment"
+      ]
+    },
+    {
+      "path": "supabase/facebook-comment-configuration.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Schema/ledger changes: auctions, live_sessions, facebook_comment_defaults. Defines/replaces RPCs: normalize_auction_tag, auction_comment_tags, auction_close_keyword_matches, first_configured_facebook_comment_tags, resolve_facebook_comment_settings.",
+      "exports": [],
+      "sqlFunctions": [
+        "normalize_auction_tag",
+        "auction_comment_tags",
+        "auction_close_keyword_matches",
+        "first_configured_facebook_comment_tags",
+        "resolve_facebook_comment_settings",
+        "facebook_comment_context",
+        "save_facebook_comment_config",
+        "stamp_facebook_catalog_post",
+        "place_facebook_catalog_order",
+        "process_live_auction_highest_bid",
+        "finalize_live_auction_highest_bid",
+        "process_live_auction_comment"
+      ]
+    },
+    {
+      "path": "supabase/facebook-message-echoes.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Outgoing echo correlation, monotonic receipt status and Inbox publication repair for transactional messages.",
+      "exports": [],
+      "sqlFunctions": [
+        "preserve_message_receipt_status",
+        "persist_facebook_message_echo"
+      ]
+    },
+    {
+      "path": "supabase/facebook-message-window.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Verified inbound-time rules and transactional message persistence; auction comments cannot renew messaging windows.",
+      "exports": [],
+      "sqlFunctions": [
+        "facebook_inbound_message_at",
+        "inbox_incoming_message",
+        "persist_facebook_webhook_record"
+      ]
+    },
+    {
+      "path": "supabase/facebook-webhook-comment-ordering.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Canonical per-Page comment queue ordering and enqueue validation across bidders/host commands.",
+      "exports": [],
+      "sqlFunctions": [
+        "enqueue_facebook_webhook"
+      ]
+    },
+    {
+      "path": "supabase/facebook-webhook-cron-setup.md",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Documentation: เรียก Facebook Webhook Worker ทุก 1 นาทีด้วย cron-job.org. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/facebook-webhook-nonblocking.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Queue recovery policy that avoids permanently blocking later events behind dead/review work.",
+      "exports": [],
+      "sqlFunctions": [
+        "claim_facebook_webhook",
+        "finish_facebook_webhook"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-close-presets.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Defines/replaces RPCs: default_auction_close_keywords, auction_close_keyword_matches, normalize_auction_thai_settings, process_live_auction_comment.",
+      "exports": [],
+      "sqlFunctions": [
+        "default_auction_close_keywords",
+        "auction_close_keyword_matches",
+        "normalize_auction_thai_settings",
+        "process_live_auction_comment"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-customer-columns.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Defines/replaces RPCs: live_auction_thai_dashboard.",
+      "exports": [],
+      "sqlFunctions": [
+        "live_auction_thai_dashboard"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-customer-workspace.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;bid",
+      "summary": "Schema/ledger changes: live_session_customer_notes. Defines/replaces RPCs: live_auction_matched_customers, live_auction_customer_dashboard, save_auction_customer_note, collect_auction_session_customers.",
+      "exports": [],
+      "sqlFunctions": [
+        "live_auction_matched_customers",
+        "live_auction_customer_dashboard",
+        "save_auction_customer_note",
+        "collect_auction_session_customers"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-dashboard.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid;comments",
+      "summary": "Schema/ledger changes: live_sessions, auctions, auction_session_requests. Defines/replaces RPCs: configure_auction_session, inherit_auction_session_settings, live_auction_dashboard.",
+      "exports": [],
+      "sqlFunctions": [
+        "configure_auction_session",
+        "inherit_auction_session_settings",
+        "live_auction_dashboard"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-diagnostics.md",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid;winner;comments;bidding",
+      "summary": "Documentation: ผลตรวจ Live Auction จากฐานจริง วันที่ 3 พฤศจิกายน 2026. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/live-auction-dynamic-tags.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;bidding;bid",
+      "summary": "Schema/ledger changes: auctions. Defines/replaces RPCs: normalize_auction_tag, auction_comment_tags, auction_close_keyword_matches, process_live_auction_comment.",
+      "exports": [],
+      "sqlFunctions": [
+        "normalize_auction_tag",
+        "auction_comment_tags",
+        "auction_close_keyword_matches",
+        "process_live_auction_comment"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-empty-keyword-defaults.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Defines/replaces RPCs: live_auction_thai_dashboard, default_auction_close_keywords, normalize_auction_thai_settings, configure_auction_session.",
+      "exports": [],
+      "sqlFunctions": [
+        "live_auction_thai_dashboard",
+        "default_auction_close_keywords",
+        "normalize_auction_thai_settings",
+        "configure_auction_session"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-highest-confirmation.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Defines/replaces RPCs: process_live_auction_comment.",
+      "exports": [],
+      "sqlFunctions": [
+        "process_live_auction_comment"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-instant-winners.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;bid;comments",
+      "summary": "Defines/replaces RPCs: live_auction_dashboard.",
+      "exports": [],
+      "sqlFunctions": [
+        "live_auction_dashboard"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-on-demand.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;bid;comments",
+      "summary": "Schema/ledger changes: orders, auction_winner_claims, auction_deliveries. Defines/replaces RPCs: claim_auction_bill_delivery, auction_numeric_price, process_live_auction_highest_bid, finalize_live_auction_highest_bid, finalize_live_auction.",
+      "exports": [],
+      "sqlFunctions": [
+        "claim_auction_bill_delivery",
+        "auction_numeric_price",
+        "process_live_auction_highest_bid",
+        "finalize_live_auction_highest_bid",
+        "finalize_live_auction",
+        "normalize_auction_thai_settings",
+        "attach_customer_tab_order",
+        "stamp_customer_tab_proof",
+        "complete_auction_customer_tab_slip",
+        "process_live_auction_comment",
+        "live_session_dashboard"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-payment-auto-verify.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;bid",
+      "summary": "Defines/replaces RPCs: complete_auction_customer_tab_slip.",
+      "exports": [],
+      "sqlFunctions": [
+        "complete_auction_customer_tab_slip"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-production-readiness.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;comments;bid",
+      "summary": "Schema/ledger changes: shipping_integrations, shipping_provider_jobs, shipping_tracking_deliveries. Defines/replaces RPCs: live_session_dashboard, manage_live_session, save_auction_workspace, confirm_live_auction_winner, save_shipping_integration.",
+      "exports": [],
+      "sqlFunctions": [
+        "live_session_dashboard",
+        "manage_live_session",
+        "save_auction_workspace",
+        "confirm_live_auction_winner",
+        "save_shipping_integration",
+        "begin_shipping_provider_job",
+        "queue_shipping_tracking_delivery"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-split-summary.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Schema/ledger changes: auction_deliveries. Defines/replaces RPCs: normalize_auction_thai_settings.",
+      "exports": [],
+      "sqlFunctions": [
+        "normalize_auction_thai_settings"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-thai-workflow.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Defines/replaces RPCs: normalize_auction_thai_settings, inherit_auction_session_settings, live_auction_thai_dashboard, configure_auction_session, finalize_live_auction.",
+      "exports": [],
+      "sqlFunctions": [
+        "normalize_auction_thai_settings",
+        "inherit_auction_session_settings",
+        "live_auction_thai_dashboard",
+        "configure_auction_session",
+        "finalize_live_auction",
+        "collect_auction_session_customers",
+        "process_live_auction_comment"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-unlimited-keywords.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Defines/replaces RPCs: configure_auction_session.",
+      "exports": [],
+      "sqlFunctions": [
+        "configure_auction_session"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-winner-confirmation.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;comments;bid",
+      "summary": "Schema/ledger changes: auctions, auction_deliveries. Defines/replaces RPCs: hold_auction_winner_notifications, confirm_live_auction_winner.",
+      "exports": [],
+      "sqlFunctions": [
+        "hold_auction_winner_notifications",
+        "confirm_live_auction_winner"
+      ]
+    },
+    {
+      "path": "supabase/live-auction-workspace.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;bid",
+      "summary": "Schema/ledger changes: live_sessions, auction_workspace_requests. Defines/replaces RPCs: save_auction_workspace.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_auction_workspace"
+      ]
+    },
+    {
+      "path": "supabase/live-auctions-setup.md",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;winner;bid;comments",
+      "summary": "Documentation: Live auctions. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/live-auctions.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;bid;comments",
+      "summary": "Schema/ledger changes: auctions, auction_bids, auction_deliveries, auction_payment_proofs. Defines/replaces RPCs: submit_auction_payment_proof, approve_auction_payment_proof, auction_comment_ordering, finalize_live_auction, process_live_auction_comment.",
+      "exports": [],
+      "sqlFunctions": [
+        "submit_auction_payment_proof",
+        "approve_auction_payment_proof",
+        "auction_comment_ordering",
+        "finalize_live_auction",
+        "process_live_auction_comment"
+      ]
+    },
+    {
+      "path": "supabase/live-cf-customer-variants.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Schema/ledger changes: comment_rules, orders. Defines/replaces RPCs: validate_live_cf_setup_rule, place_cf_order, confirm_live_cf_variant, guard_live_cf_variant_payment, guard_live_cf_variant_slip.",
+      "exports": [],
+      "sqlFunctions": [
+        "validate_live_cf_setup_rule",
+        "place_cf_order",
+        "confirm_live_cf_variant",
+        "guard_live_cf_variant_payment",
+        "guard_live_cf_variant_slip"
+      ]
+    },
+    {
+      "path": "supabase/live-cf-mode.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Schema/ledger changes: comment_rules, orders. Defines/replaces RPCs: validate_live_cf_rule, on_order_status, place_live_cf_order.",
+      "exports": [],
+      "sqlFunctions": [
+        "validate_live_cf_rule",
+        "on_order_status",
+        "place_live_cf_order"
+      ]
+    },
+    {
+      "path": "supabase/live-cf-order-post.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/live-cf-setup.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Schema/ledger changes: comment_rules, orders, live_cf_webhook_receipts. Defines/replaces RPCs: validate_live_cf_setup_rule, on_order_status, place_cf_order, place_live_cf_order.",
+      "exports": [],
+      "sqlFunctions": [
+        "validate_live_cf_setup_rule",
+        "on_order_status",
+        "place_cf_order",
+        "place_live_cf_order"
+      ]
+    },
+    {
+      "path": "supabase/live-cf-variants.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: commerce_variants, orders. Defines/replaces RPCs: commerce_save_product, on_order_status, place_cf_order_core, place_cf_order.",
+      "exports": [],
+      "sqlFunctions": [
+        "commerce_save_product",
+        "on_order_status",
+        "place_cf_order_core",
+        "place_cf_order"
+      ]
+    },
+    {
+      "path": "supabase/live-customer-item-labels.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/live-order-types.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;comments;bid;winner",
+      "summary": "Schema/ledger changes: orders, customer_tab_items. Defines/replaces RPCs: stamp_live_item_type, live_session_dashboard.",
+      "exports": [],
+      "sqlFunctions": [
+        "stamp_live_item_type",
+        "live_session_dashboard"
+      ]
+    },
+    {
+      "path": "supabase/live-session-dashboard.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "auction;comments;bid;winner",
+      "summary": "Schema/ledger changes: live_sessions, customer_tab_reminders, customer_tabs, live_session_changes, live_reminder_dispatch_slots. Defines/replaces RPCs: ensure_auction_live_session, stamp_customer_tab_proof, attach_customer_tab_order, live_comment_time, live_session_dashboard.",
+      "exports": [],
+      "sqlFunctions": [
+        "ensure_auction_live_session",
+        "stamp_customer_tab_proof",
+        "attach_customer_tab_order",
+        "live_comment_time",
+        "live_session_dashboard",
+        "live_session_tab_proof",
+        "manage_live_session",
+        "queue_live_session_reminders",
+        "claim_customer_tab_reminder",
+        "finish_live_reminder_slot"
+      ]
+    },
+    {
+      "path": "supabase/platform.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Platform user/tenant/member tables and shared access primitives.",
+      "exports": [],
+      "sqlFunctions": [
+        "consume_slip_credit",
+        "refund_slip_credit"
+      ]
+    },
+    {
+      "path": "supabase/schema.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Base customer, message, comment and slip tables plus initial Realtime publication entries.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/security.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Tenant-membership RLS and browser table permissions supporting the live-commerce authorization boundary.",
+      "exports": [],
+      "sqlFunctions": [
+        "is_platform_admin",
+        "can_access_tenant"
+      ]
+    },
+    {
+      "path": "supabase/tenants.sql",
+      "category": "Database migrations and operations",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Tenant ownership columns and Page/token configuration underlying live commerce.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/AUCTION-EXPERIENCE.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Documentation: Live Auction setup and Inbox integration. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/auction-on-demand-winners.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "winner;comments;bid;auction",
+      "summary": "Documentation: Flexible On-Demand Winner Flow. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/FACEBOOK-LIVE-COMMENTS.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Documentation: ตรวจและแก้ Facebook Live Comment Webhook. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/LIVE-AUCTION-CONSOLE.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Documentation: Live Auction Console. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/LIVE-AUCTION-DASHBOARD.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "auction;winner",
+      "summary": "Documentation: แดชบอร์ดไลฟ์สดการประมูลครบวงจร. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/live-auction-highest-confirmation.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "bid;winner;auction;comments;bidding",
+      "summary": "Documentation: Highest-bid winner confirmation. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/live-auction-readiness-fixes-2026-11-06.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Documentation: Live Auction readiness fixes — 6 November 2026. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/live-cf-mode.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Documentation: โหมดไลฟ์สดในชุดตอบกลับคอมเมนต์. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/live-cf-setup.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Documentation: ตั้งค่าระบบดูดออเดอร์ไลฟ์สด. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/LIVE-SESSION-DASHBOARD.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Documentation: แดชบอร์ดประมูลราย Session. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/production-readiness-audit-2026-11-06.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "auction;comments;bid;winner",
+      "summary": "Documentation: Live Auction & Fulfillment Automation — Production Readiness Audit. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/SNAPBOT-SECURITY-AUDIT-2026-11-01.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Documentation: SnapBot / Live Commerce — Architecture & Security Audit. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/vision-product-catalog.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Documentation: Automatic product image replies. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "README.md",
+      "category": "Documentation",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Project setup and feature entrypoint documentation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/complete_schema.sql",
+      "category": "Generated schema",
+      "relevant": true,
+      "keywords": "comments;bid;auction;winner",
+      "summary": "Generated from the migration registry; includes repeated/overridden historical definitions. Do not infer final runtime behavior from the first definition.",
+      "exports": [],
+      "sqlFunctions": [
+        "consume_slip_credit",
+        "refund_slip_credit",
+        "place_cf_order",
+        "bump_chat_rule",
+        "clear_handover",
+        "schedule_follow_ups",
+        "on_order_status",
+        "cancel_paid_follow_ups",
+        "refresh_broadcast_credits",
+        "reserve_broadcast_credits",
+        "refund_broadcast_credits",
+        "approve_billing_request",
+        "is_platform_admin",
+        "can_access_tenant",
+        "sync_facebook_tenants",
+        "claim_payment_transfer",
+        "guard_payment_receipt",
+        "guard_sale_payment_transfer",
+        "activate_payment",
+        "payment_legacy_credit_mode",
+        "guard_ai_agent_plan",
+        "tenant_has_feature_bypass",
+        "public",
+        "platform_dashboard_overview",
+        "platform_update_tenant",
+        "claim_payment_image",
+        "guard_package_payment_image",
+        "guard_billing_payment_receipt",
+        "guard_billing_approved_image",
+        "activate_billing_payment",
+        "can_manage_bank_accounts",
+        "sync_primary_bank_account",
+        "seed_tenant_bank_account",
+        "can_manage_image_rules",
+        "touch_image_response_rule",
+        "guard_followup_plan",
+        "has_tenant_feature",
+        "guard_keyword_reply_limit",
+        "valid_fallback_messages",
+        "valid_handover_messages",
+        "inbox_incoming_message",
+        "manage_inbox_conversation",
+        "mark_inbox_read",
+        "start_inbox_delivery",
+        "end_inbox_delivery",
+        "start_inbox_handover",
+        "sync_inbox_pro_stage",
+        "manage_inbox_pro",
+        "inbox_pro_message_progress",
+        "inbox_pro_overview",
+        "manage_inbox_workspace",
+        "set_inbox_follow_up_flag",
+        "save_inbox_quick_reply",
+        "set_tenant_automation_stop",
+        "claim_and_start_inbox_reply",
+        "log_follow_up_state",
+        "enqueue_follow_up",
+        "confirm_cf_order",
+        "on_follow_up_customer",
+        "on_follow_up_message",
+        "on_follow_up_delivery",
+        "claim_follow_up_jobs",
+        "render_smart_follow_up",
+        "prepare_follow_up",
+        "complete_follow_up",
+        "follow_up_overview",
+        "save_smart_follow_up",
+        "act_follow_up_job",
+        "confirm_follow_up_order",
+        "record_agent_prompt",
+        "agent_customer_consent",
+        "guard_agent_consent",
+        "claim_agent_message",
+        "start_agent_ai_call",
+        "begin_agent_dispatch",
+        "recover_agent_jobs",
+        "agent_job_audit",
+        "save_agent_prompt",
+        "manage_agent_knowledge",
+        "restore_agent_prompt",
+        "agent_control_overview",
+        "set_agent_overview_capability",
+        "tenant_has_paid_ai_access",
+        "normalize_paid_ai_settings",
+        "prepare_paid_ai_purchase",
+        "vision_job_audit",
+        "retry_unstarted_vision",
+        "claim_vision_job",
+        "start_vision_analysis",
+        "refund_unstarted_vision",
+        "begin_vision_dispatch",
+        "save_vision_settings",
+        "audit_image_rule_change",
+        "commerce_access",
+        "commerce_plan",
+        "commerce_rate_limit",
+        "commerce_product_version",
+        "commerce_product_quota",
+        "commerce_save_product",
+        "commerce_checkout",
+        "commerce_move_order",
+        "commerce_manage",
+        "payment_pro_state_guard",
+        "payment_pro_audit_state",
+        "payment_pro_bank",
+        "payment_pro_account",
+        "payment_pro_receiver",
+        "claim_payment_pro",
+        "start_payment_pro_provider",
+        "apply_payment_pro",
+        "complete_payment_pro",
+        "review_payment_pro_failure",
+        "recover_payment_pro",
+        "act_payment_pro",
+        "payment_pro_overview",
+        "guard_payment_pro_slip",
+        "guard_payment_pro_order",
+        "payment_pro_dashboard_report",
+        "manage_slip_bank_account",
+        "bank_registry_code_valid",
+        "save_bank_receiving_qr",
+        "save_bank_account_qr",
+        "save_bank_account_with_qr",
+        "save_payment_receiving_code",
+        "set_payment_receiving_code_active",
+        "save_bank_qr_design",
+        "save_store_rule_items",
+        "assert_valid_store_rules",
+        "guard_store_rules_validation",
+        "save_validated_store_rules",
+        "enqueue_facebook_webhook",
+        "claim_facebook_webhook",
+        "heartbeat_facebook_webhook",
+        "begin_facebook_webhook_step",
+        "complete_facebook_webhook_step",
+        "finish_facebook_webhook",
+        "facebook_inbound_message_at",
+        "persist_facebook_webhook_record",
+        "freeze_broadcast_content",
+        "claim_broadcast_run",
+        "broadcast_recipient_reason",
+        "claim_broadcast_recipient",
+        "settle_broadcast_recipient",
+        "begin_broadcast_transport",
+        "guard_broadcast_selection",
+        "sync_broadcast_inbound_message",
+        "inbox_verified_inbound_at",
+        "guard_inbox_automation_window",
+        "guard_agent_dispatch_window",
+        "inbox_automation_window_open",
+        "expire_inbox_automation",
+        "expire_inbox_automation_windows",
+        "sync_payment_follow_up_switch",
+        "hold_payment_follow_up_for_slip",
+        "authorize_follow_up_dispatch",
+        "add_manual_follow_up",
+        "follow_up_window_open",
+        "save_follow_up_workflow",
+        "sync_facebook_customer_window",
+        "sync_facebook_evidence_window",
+        "follow_up_window_expires_at",
+        "expire_follow_up_if_outside_window",
+        "set_follow_up_approval_mode",
+        "apply_follow_up_approval_mode",
+        "retry_rejected_follow_up",
+        "overview_dashboard_stats",
+        "commerce_dashboard_stats",
+        "commerce_dashboard_page",
+        "customer_directory",
+        "agent_overview_stats",
+        "basic_overview_stats",
+        "premium_overview_summary",
+        "ensure_facebook_customer_fallback_name",
+        "place_cf_order_core",
+        "validate_live_cf_rule",
+        "place_live_cf_order",
+        "validate_live_cf_setup_rule",
+        "messenger_product_lookup",
+        "guard_standalone_slip",
+        "guard_tenant_ai_quota",
+        "reserve_tenant_ai_reply",
+        "authorize_tenant_ai_reply",
+        "account_tenant_ai_reply",
+        "settle_tenant_ai_reply",
+        "handover_tenant_ai_quota",
+        "handover_vision_job",
+        "confirm_live_cf_variant",
+        "guard_live_cf_variant_payment",
+        "guard_live_cf_variant_slip",
+        "submit_auction_payment_proof",
+        "approve_auction_payment_proof",
+        "auction_comment_ordering",
+        "finalize_live_auction",
+        "process_live_auction_comment",
+        "refresh_customer_tab",
+        "attach_customer_tab_order",
+        "sync_customer_tab_order",
+        "claim_customer_tab_slip",
+        "complete_customer_tab_slip",
+        "guard_customer_tab_slip",
+        "end_customer_tab_live",
+        "queue_customer_tab_reminders",
+        "claim_customer_tab_reminder",
+        "auction_inbox_status",
+        "ensure_auction_live_session",
+        "stamp_customer_tab_proof",
+        "live_comment_time",
+        "live_session_dashboard",
+        "live_session_tab_proof",
+        "manage_live_session",
+        "queue_live_session_reminders",
+        "finish_live_reminder_slot",
+        "shipping_address_valid",
+        "shipping_payment_ready",
+        "shipping_mirror_fields",
+        "reconcile_shipping",
+        "shipping_order_changed",
+        "shipping_balance_changed",
+        "shipping_guard_dispatched",
+        "shipping_snapshot",
+        "manage_shipping",
+        "capture_shipping_address",
+        "confirm_shipping_address",
+        "save_shipping_integration",
+        "begin_shipping_provider_job",
+        "complete_shipping_provider_job",
+        "finish_shipping_provider_job",
+        "mark_shipping_tracking_notification",
+        "stamp_live_item_type",
+        "configure_auction_session",
+        "inherit_auction_session_settings",
+        "live_auction_dashboard",
+        "live_auction_matched_customers",
+        "live_auction_customer_dashboard",
+        "save_auction_customer_note",
+        "collect_auction_session_customers",
+        "normalize_auction_thai_settings",
+        "live_auction_thai_dashboard",
+        "default_auction_close_keywords",
+        "auction_close_keyword_matches",
+        "hold_auction_winner_notifications",
+        "confirm_live_auction_winner",
+        "complete_auction_customer_tab_slip",
+        "save_auction_workspace",
+        "queue_shipping_tracking_delivery",
+        "claim_auction_bill_delivery",
+        "auction_numeric_price",
+        "process_live_auction_highest_bid",
+        "finalize_live_auction_highest_bid",
+        "normalize_auction_tag",
+        "auction_comment_tags",
+        "first_configured_facebook_comment_tags",
+        "resolve_facebook_comment_settings",
+        "facebook_comment_context",
+        "save_facebook_comment_config",
+        "stamp_facebook_catalog_post",
+        "place_facebook_catalog_order",
+        "preserve_message_receipt_status",
+        "persist_facebook_message_echo"
+      ]
+    },
+    {
+      "path": "supabase/full_database_setup-manifest.md",
+      "category": "Generated schema",
+      "relevant": true,
+      "keywords": "auction;winner;comments;bid",
+      "summary": "Generated from the migration registry; includes repeated/overridden historical definitions. Do not infer final runtime behavior from the first definition.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/full_database_setup.sql",
+      "category": "Generated schema",
+      "relevant": true,
+      "keywords": "comments;auction;bid;winner",
+      "summary": "Generated from the migration registry; includes repeated/overridden historical definitions. Do not infer final runtime behavior from the first definition.",
+      "exports": [],
+      "sqlFunctions": [
+        "consume_slip_credit",
+        "refund_slip_credit",
+        "place_cf_order",
+        "bump_chat_rule",
+        "clear_handover",
+        "schedule_follow_ups",
+        "on_order_status",
+        "cancel_paid_follow_ups",
+        "refresh_broadcast_credits",
+        "reserve_broadcast_credits",
+        "refund_broadcast_credits",
+        "approve_billing_request",
+        "is_platform_admin",
+        "can_access_tenant",
+        "sync_facebook_tenants",
+        "claim_payment_transfer",
+        "guard_payment_receipt",
+        "guard_sale_payment_transfer",
+        "activate_payment",
+        "payment_legacy_credit_mode",
+        "guard_ai_agent_plan",
+        "tenant_has_feature_bypass",
+        "public",
+        "platform_dashboard_overview",
+        "platform_update_tenant",
+        "claim_payment_image",
+        "guard_package_payment_image",
+        "guard_billing_payment_receipt",
+        "guard_billing_approved_image",
+        "activate_billing_payment",
+        "can_manage_bank_accounts",
+        "sync_primary_bank_account",
+        "seed_tenant_bank_account",
+        "can_manage_image_rules",
+        "touch_image_response_rule",
+        "guard_followup_plan",
+        "has_tenant_feature",
+        "guard_keyword_reply_limit",
+        "valid_fallback_messages",
+        "valid_handover_messages",
+        "inbox_incoming_message",
+        "manage_inbox_conversation",
+        "mark_inbox_read",
+        "start_inbox_delivery",
+        "end_inbox_delivery",
+        "start_inbox_handover",
+        "sync_inbox_pro_stage",
+        "manage_inbox_pro",
+        "inbox_pro_message_progress",
+        "inbox_pro_overview",
+        "manage_inbox_workspace",
+        "set_inbox_follow_up_flag",
+        "save_inbox_quick_reply",
+        "set_tenant_automation_stop",
+        "claim_and_start_inbox_reply",
+        "log_follow_up_state",
+        "enqueue_follow_up",
+        "confirm_cf_order",
+        "on_follow_up_customer",
+        "on_follow_up_message",
+        "on_follow_up_delivery",
+        "claim_follow_up_jobs",
+        "render_smart_follow_up",
+        "prepare_follow_up",
+        "complete_follow_up",
+        "follow_up_overview",
+        "save_smart_follow_up",
+        "act_follow_up_job",
+        "confirm_follow_up_order",
+        "record_agent_prompt",
+        "agent_customer_consent",
+        "guard_agent_consent",
+        "claim_agent_message",
+        "start_agent_ai_call",
+        "begin_agent_dispatch",
+        "recover_agent_jobs",
+        "agent_job_audit",
+        "save_agent_prompt",
+        "manage_agent_knowledge",
+        "restore_agent_prompt",
+        "agent_control_overview",
+        "set_agent_overview_capability",
+        "tenant_has_paid_ai_access",
+        "normalize_paid_ai_settings",
+        "prepare_paid_ai_purchase",
+        "vision_job_audit",
+        "retry_unstarted_vision",
+        "claim_vision_job",
+        "start_vision_analysis",
+        "refund_unstarted_vision",
+        "begin_vision_dispatch",
+        "save_vision_settings",
+        "audit_image_rule_change",
+        "commerce_access",
+        "commerce_plan",
+        "commerce_rate_limit",
+        "commerce_product_version",
+        "commerce_product_quota",
+        "commerce_save_product",
+        "commerce_checkout",
+        "commerce_move_order",
+        "commerce_manage",
+        "payment_pro_state_guard",
+        "payment_pro_audit_state",
+        "payment_pro_bank",
+        "payment_pro_account",
+        "payment_pro_receiver",
+        "claim_payment_pro",
+        "start_payment_pro_provider",
+        "apply_payment_pro",
+        "complete_payment_pro",
+        "review_payment_pro_failure",
+        "recover_payment_pro",
+        "act_payment_pro",
+        "payment_pro_overview",
+        "guard_payment_pro_slip",
+        "guard_payment_pro_order",
+        "payment_pro_dashboard_report",
+        "manage_slip_bank_account",
+        "bank_registry_code_valid",
+        "save_bank_receiving_qr",
+        "save_bank_account_qr",
+        "save_bank_account_with_qr",
+        "save_payment_receiving_code",
+        "set_payment_receiving_code_active",
+        "save_bank_qr_design",
+        "save_store_rule_items",
+        "assert_valid_store_rules",
+        "guard_store_rules_validation",
+        "save_validated_store_rules",
+        "enqueue_facebook_webhook",
+        "claim_facebook_webhook",
+        "heartbeat_facebook_webhook",
+        "begin_facebook_webhook_step",
+        "complete_facebook_webhook_step",
+        "finish_facebook_webhook",
+        "facebook_inbound_message_at",
+        "persist_facebook_webhook_record",
+        "freeze_broadcast_content",
+        "claim_broadcast_run",
+        "broadcast_recipient_reason",
+        "claim_broadcast_recipient",
+        "settle_broadcast_recipient",
+        "begin_broadcast_transport",
+        "guard_broadcast_selection",
+        "sync_broadcast_inbound_message",
+        "inbox_verified_inbound_at",
+        "guard_inbox_automation_window",
+        "guard_agent_dispatch_window",
+        "inbox_automation_window_open",
+        "expire_inbox_automation",
+        "expire_inbox_automation_windows",
+        "sync_payment_follow_up_switch",
+        "hold_payment_follow_up_for_slip",
+        "authorize_follow_up_dispatch",
+        "add_manual_follow_up",
+        "follow_up_window_open",
+        "save_follow_up_workflow",
+        "sync_facebook_customer_window",
+        "sync_facebook_evidence_window",
+        "follow_up_window_expires_at",
+        "expire_follow_up_if_outside_window",
+        "set_follow_up_approval_mode",
+        "apply_follow_up_approval_mode",
+        "retry_rejected_follow_up",
+        "overview_dashboard_stats",
+        "commerce_dashboard_stats",
+        "commerce_dashboard_page",
+        "customer_directory",
+        "agent_overview_stats",
+        "basic_overview_stats",
+        "premium_overview_summary",
+        "ensure_facebook_customer_fallback_name",
+        "place_cf_order_core",
+        "validate_live_cf_rule",
+        "place_live_cf_order",
+        "validate_live_cf_setup_rule",
+        "messenger_product_lookup",
+        "guard_standalone_slip",
+        "guard_tenant_ai_quota",
+        "reserve_tenant_ai_reply",
+        "authorize_tenant_ai_reply",
+        "account_tenant_ai_reply",
+        "settle_tenant_ai_reply",
+        "handover_tenant_ai_quota",
+        "handover_vision_job",
+        "confirm_live_cf_variant",
+        "guard_live_cf_variant_payment",
+        "guard_live_cf_variant_slip",
+        "submit_auction_payment_proof",
+        "approve_auction_payment_proof",
+        "auction_comment_ordering",
+        "finalize_live_auction",
+        "process_live_auction_comment",
+        "refresh_customer_tab",
+        "attach_customer_tab_order",
+        "sync_customer_tab_order",
+        "claim_customer_tab_slip",
+        "complete_customer_tab_slip",
+        "guard_customer_tab_slip",
+        "end_customer_tab_live",
+        "queue_customer_tab_reminders",
+        "claim_customer_tab_reminder",
+        "auction_inbox_status",
+        "ensure_auction_live_session",
+        "stamp_customer_tab_proof",
+        "live_comment_time",
+        "live_session_dashboard",
+        "live_session_tab_proof",
+        "manage_live_session",
+        "queue_live_session_reminders",
+        "finish_live_reminder_slot",
+        "shipping_address_valid",
+        "shipping_payment_ready",
+        "shipping_mirror_fields",
+        "reconcile_shipping",
+        "shipping_order_changed",
+        "shipping_balance_changed",
+        "shipping_guard_dispatched",
+        "shipping_snapshot",
+        "manage_shipping",
+        "capture_shipping_address",
+        "confirm_shipping_address",
+        "save_shipping_integration",
+        "begin_shipping_provider_job",
+        "complete_shipping_provider_job",
+        "finish_shipping_provider_job",
+        "mark_shipping_tracking_notification",
+        "stamp_live_item_type",
+        "configure_auction_session",
+        "inherit_auction_session_settings",
+        "live_auction_dashboard",
+        "live_auction_matched_customers",
+        "live_auction_customer_dashboard",
+        "save_auction_customer_note",
+        "collect_auction_session_customers",
+        "normalize_auction_thai_settings",
+        "live_auction_thai_dashboard",
+        "default_auction_close_keywords",
+        "auction_close_keyword_matches",
+        "hold_auction_winner_notifications",
+        "confirm_live_auction_winner",
+        "complete_auction_customer_tab_slip",
+        "save_auction_workspace",
+        "queue_shipping_tracking_delivery",
+        "claim_auction_bill_delivery",
+        "auction_numeric_price",
+        "process_live_auction_highest_bid",
+        "finalize_live_auction_highest_bid",
+        "normalize_auction_tag",
+        "auction_comment_tags",
+        "first_configured_facebook_comment_tags",
+        "resolve_facebook_comment_settings",
+        "facebook_comment_context",
+        "save_facebook_comment_config",
+        "stamp_facebook_catalog_post",
+        "place_facebook_catalog_order",
+        "preserve_message_receipt_status",
+        "persist_facebook_message_echo"
+      ]
+    },
+    {
+      "path": "app/(dashboard)/inbox/page.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Supporting module exposing dynamic, metadata.",
+      "exports": [
+        "dynamic",
+        "metadata"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/agent-control/playground/route.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing POST.",
+      "exports": [
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/cron/follow-ups/route.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing runtime, maxDuration, dynamic, GET, POST.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "dynamic",
+        "GET",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/follow-ups/run/route.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing runtime, maxDuration, POST.",
+      "exports": [
+        "runtime",
+        "maxDuration",
+        "POST"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "app/api/inbox/conversations/route.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Supporting module exposing GET.",
+      "exports": [
+        "GET"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/chatbot/ChatRuleForm.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Supporting module exposing ChatRuleForm.",
+      "exports": [
+        "ChatRuleForm"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/chatbot/VisionCenter.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing normalizeVisionOverview, VisionCenter.",
+      "exports": [
+        "normalizeVisionOverview",
+        "VisionCenter"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/comment-rules/RuleEditor.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: /; ,.",
+      "exports": [
+        "RuleEditor",
+        "KeywordInput"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/inbox/InboxClient.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Supporting module exposing Preview, ChatSummary, CommentItem, ActiveTenant, InboxClient.",
+      "exports": [
+        "Preview",
+        "ChatSummary",
+        "CommentItem",
+        "ActiveTenant",
+        "InboxClient"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "components/settings/SettingsDashboard.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing SettingsDashboard.",
+      "exports": [
+        "SettingsDashboard"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/ai-vision-implementation.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Documentation: SnapBot AI Vision Center. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/BROADCAST-2026-10-17.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Documentation: Broadcast workspace — 17 October 2026. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/INBOX-DELIVERY-DIAGNOSTICS.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Documentation: Inbox delivery diagnostics. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "docs/PROJECT-STRUCTURE.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Documentation: โครงสร้างโปรเจกต์. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/agents/agent-control-ai.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing AgentGeneration, prepareAgentGeneration, finishAgentGeneration, failAgentGeneration, sanitizeAgentHistory.",
+      "exports": [
+        "AgentGeneration",
+        "prepareAgentGeneration",
+        "finishAgentGeneration",
+        "failAgentGeneration",
+        "sanitizeAgentHistory"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/agents/agent-control-core.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing AGENT_FLAG_KEYS, AgentFlag, AgentFlags, AGENT_FLAGS, ConversationOwner, conversationOwner.",
+      "exports": [
+        "AGENT_FLAG_KEYS",
+        "AgentFlag",
+        "AgentFlags",
+        "AGENT_FLAGS",
+        "ConversationOwner",
+        "conversationOwner",
+        "canChangeOwner",
+        "routeMessage",
+        "AgentKnowledge",
+        "AgentProduct",
+        "IMAGE_PRODUCT_NOT_FOUND",
+        "ShopPersona",
+        "shopPersona",
+        "shopRulesKnowledge",
+        "inputRisk",
+        "containsSecret",
+        "knowledgeRequiresHuman",
+        "redactAgentText",
+        "knowledgeError",
+        "groundedAgentReply"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/agents/agent-orchestrator.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing orchestrateAgentMessage.",
+      "exports": [
+        "orchestrateAgentMessage"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/agents/chatbot.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Supporting module exposing ReplyMode, ChatReplyStrategy, chatReplyStrategy, DEFAULT_AI_INSTRUCTIONS, FollowUpStep, BotSettings.",
+      "exports": [
+        "ReplyMode",
+        "ChatReplyStrategy",
+        "chatReplyStrategy",
+        "DEFAULT_AI_INSTRUCTIONS",
+        "FollowUpStep",
+        "BotSettings",
+        "BOT_SETTINGS_COLUMNS",
+        "defaultBotSettings",
+        "ChatRule",
+        "CHAT_RULE_COLUMNS",
+        "QUICK_REPLY_MAX",
+        "QUICK_REPLY_TITLE_MAX",
+        "ruleOrder",
+        "matchChatRule",
+        "wantsHuman",
+        "FOLLOW_UP_DELAYS",
+        "renderFollowUp",
+        "FOLLOW_UP_REASON",
+        "BroadcastSegment",
+        "BROADCAST_SEGMENTS",
+        "BroadcastWindow",
+        "BROADCAST_WINDOWS",
+        "MessageTag",
+        "MESSAGE_TAGS",
+        "MESSAGE_TAG_VALUES",
+        "BroadcastRow",
+        "BROADCAST_COLUMNS",
+        "MESSAGING_WINDOW_MS",
+        "HUMAN_AGENT_WINDOW_MS",
+        "inWindow"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/broadcast/broadcast-policy.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing BROADCAST_POLICY_VERSION, STANDARD_WINDOW_MS, BroadcastReason, broadcastReasonLabels, BroadcastEvidence, standardWindowReason.",
+      "exports": [
+        "BROADCAST_POLICY_VERSION",
+        "STANDARD_WINDOW_MS",
+        "BroadcastReason",
+        "broadcastReasonLabels",
+        "BroadcastEvidence",
+        "standardWindowReason",
+        "recipientReason",
+        "broadcastUiEnabled",
+        "broadcastReadiness",
+        "broadcastPolicyVerified",
+        "inboundBroadcastEvidence"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/follow-ups/follow-ups.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing FollowUpRun, runFollowUps.",
+      "exports": [
+        "FollowUpRun",
+        "runFollowUps"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/overview/overview-tables.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing overviewFromTables.",
+      "exports": [
+        "overviewFromTables"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/vision/vision.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Supporting module exposing enqueueVision, queueMessengerVision, runVisionJob, runVisionQueue.",
+      "exports": [
+        "enqueueVision",
+        "queueMessengerVision",
+        "runVisionJob",
+        "runVisionQueue"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/inbox-pro/entry.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Isolated browser fixture/mocks for inbox-pro; no production engine ownership.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/inbox-pro/mocks.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Isolated browser fixture/mocks for inbox-pro; no production engine ownership.",
+      "exports": [
+        "MockLink",
+        "useRouter",
+        "customers",
+        "messages",
+        "metrics",
+        "workspaceControl",
+        "conversationControl",
+        "replay",
+        "reconnect",
+        "threadChange",
+        "supabaseBrowser",
+        "installFetch"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/payment-codes/mocks.tsx",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Isolated browser fixture/mocks for payment-codes; no production engine ownership.",
+      "exports": [
+        "account",
+        "codes",
+        "metrics",
+        "MockLink",
+        "useRouter",
+        "supabaseBrowser",
+        "PaymentChannelStatus",
+        "installFetch"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/lib/safe-db-migration.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: ..",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/run-safe-db-migration.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Generic comment/bid/winner text match; not an auction-engine implementation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/subscribe-page.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Generic comment/bid/winner text match; not an auction-engine implementation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-agent-control-sql.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: await db.exec(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-agent-control.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments;bid",
+      "summary": "Coverage: all six flags start off; routing makes keyword win before AI and skips duplicates/opt-outs; rule priority ties deterministically choose oldest and then ID.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-ai-paid-access-sql.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: await db.exec(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-ai-vision-sql.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Generic comment/bid/winner text match; not an auction-engine implementation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-bank-account-combined-save.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: one create/edit POST passes normalized account and QR to a single atomic RPC; retries do not upload or save twice; edits without a replacement preserve QR; changed receiver requires a new QR and stale snapshots fail before storage.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-broadcast-drafts.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: opening a draft returns fresh form fields without depending on delivery ledger; draft deletion requires owner membership before reading or mutating tenant data.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-broadcast-policy.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments;bid",
+      "summary": "Coverage: window boundaries, invalid/future/missing evidence and page mismatches fail closed; echoes, receipts, comments, postbacks and untrusted future timestamps cannot open a window.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-commerce-media.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: media validates membership before reading uploads and rejects SVG and disguised files; valid image is re-encoded, metadata removed and stored with a tenant-scoped random server filename.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-feature-access-api.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: customer PATCH is 403 FEATURE_LOCKED before updates despite a forged Pro body; slip API rejects missing package or exhausted quota before provider/storage work.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-feature-access-sql.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Generic comment/bid/winner text match; not an auction-engine implementation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-follow-up-cron.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Generic comment/bid/winner text match; not an auction-engine implementation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-followups-paused.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: the shared project flag defaults to paused; direct worker calls leave queued jobs untouched and cannot send even with the legacy bypass.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-full-access.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: temporary mode unlocks client helpers and exhausted capability entitlements; server feature helpers bypass package and slip balances but reject inactive or absent shops.",
+      "exports": [],
+      "sqlFunctions": [
+        "set_agent_overview_capability"
+      ]
+    },
+    {
+      "path": "scripts/test-full-database-setup.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: fresh-install bundle executes every source in dependency order and keeps tenant/security boundaries; the complete SQL file runs as one SQL Editor request and refuses reuse before DDL.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-gemini-ai-agent.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: missing or whitespace Gemini key does not activate AI or query services; Gemini receives tenant catalog, shop facts, customer history and the fixed Flash model.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-inbox-filters.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: tracked matches the distinct union of personal stars and follow-up flags; paid uses verified slip customer IDs and cannot be inferred from pending orders or conversation state.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-inbox-quick-replies.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: quick reply editing updates the same ID within the authorized tenant and validates input; quick reply deletion checks origin, tenant authorization, IDs and database errors.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-inbox-realtime.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: thread reconciliation preserves in-flight inserts/updates/deletes and deduplicates rows; polling recovers chat messages when comments and slips fail without Realtime.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-inbox-render-lifecycle.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room changes.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-payment-pro-sql.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: await db.exec(.",
+      "exports": [],
+      "sqlFunctions": [
+        "public"
+      ]
+    },
+    {
+      "path": "scripts/test-platform-migration.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Generic comment/bid/winner text match; not an auction-engine implementation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-safe-db-migration.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: splitter retains SQL bodies, quoted semicolons and nested comments as single statements; deadlock retry happens only after rollback, backs off, and never retries arbitrary SQL errors.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-shipping-dispatch-api.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: manual dispatch commits before notifying the buyer; parcel creation persists real tracking before notification and repeated requests reuse the parcel.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-shop-rules-form.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: structured rules round-trip all sections, multiline values, reserved labels and legacy text; validation rejects forged fields, non-string values and combined overflow.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-slip-single-page.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: bank guard rejects unauthenticated, internal, foreign tenant and staff writes before sensitive reads; QR only encodes an active registered supported PromptPay identifier, never a bank account.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-smart-followups.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: new payment template uses 30/180 minutes and preserves inserted names literally; workflow validation preserves three steps and rejects unordered delays, malformed timezone, booleans and limits.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-smart-inbox-v2.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: window rejects missing, invalid, future and exact 24h; warns in final hour; workspace migration: idempotence, tenant/package checks, personal stars, rate limit, no outbound messages.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-store-rule-items.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: stored item IDs and multiline content round-trip while the prompt contains only rule text; item API saves additions/edits/deletes with owner scope, prior-body checks and atomic compare-and-swap.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-store-rules-sql.cjs",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Coverage: await db.exec(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/agent-control.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: customers, agent_control_settings, agent_knowledge_sources, agent_prompt_versions, agent_message_jobs. Defines/replaces RPCs: record_agent_prompt, agent_customer_consent, guard_agent_consent, claim_agent_message, start_agent_ai_call.",
+      "exports": [],
+      "sqlFunctions": [
+        "record_agent_prompt",
+        "agent_customer_consent",
+        "guard_agent_consent",
+        "claim_agent_message",
+        "start_agent_ai_call",
+        "begin_agent_dispatch",
+        "recover_agent_jobs",
+        "agent_job_audit",
+        "save_agent_prompt",
+        "manage_agent_knowledge",
+        "restore_agent_prompt",
+        "agent_control_overview"
+      ]
+    },
+    {
+      "path": "supabase/agent-overview.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Defines/replaces RPCs: set_agent_overview_capability.",
+      "exports": [],
+      "sqlFunctions": [
+        "set_agent_overview_capability"
+      ]
+    },
+    {
+      "path": "supabase/ai-vision.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: image_response_rules, vision_plan_limits, vision_settings, vision_usage, vision_jobs. Defines/replaces RPCs: vision_job_audit, retry_unstarted_vision, claim_vision_job, start_vision_analysis, refund_unstarted_vision.",
+      "exports": [],
+      "sqlFunctions": [
+        "vision_job_audit",
+        "retry_unstarted_vision",
+        "claim_vision_job",
+        "start_vision_analysis",
+        "refund_unstarted_vision",
+        "begin_vision_dispatch",
+        "save_vision_settings",
+        "audit_image_rule_change"
+      ]
+    },
+    {
+      "path": "supabase/automation-safety.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: tenant_automation_controls, tenant_automation_audit. Defines/replaces RPCs: set_tenant_automation_stop, claim_and_start_inbox_reply.",
+      "exports": [],
+      "sqlFunctions": [
+        "set_tenant_automation_stop",
+        "claim_and_start_inbox_reply"
+      ]
+    },
+    {
+      "path": "supabase/backfill_patch.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Schema/ledger changes: or. SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/bank-account-combined-save.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: bank_account_save_requests. Defines/replaces RPCs: save_bank_account_with_qr.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_bank_account_with_qr"
+      ]
+    },
+    {
+      "path": "supabase/bank-qr-per-account.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: bank_receiving_qr. Defines/replaces RPCs: save_bank_account_qr.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_bank_account_qr"
+      ]
+    },
+    {
+      "path": "supabase/bank-qr-upload.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: bank_receiving_qr. Defines/replaces RPCs: save_bank_receiving_qr.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_bank_receiving_qr"
+      ]
+    },
+    {
+      "path": "supabase/comment-rules.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Schema/ledger changes: comment_rules, comments. SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/dashboard-performance.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Defines/replaces RPCs: overview_dashboard_stats, commerce_dashboard_stats, commerce_dashboard_page.",
+      "exports": [],
+      "sqlFunctions": [
+        "overview_dashboard_stats",
+        "commerce_dashboard_stats",
+        "commerce_dashboard_page"
+      ]
+    },
+    {
+      "path": "supabase/dashboard-read-models.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Defines/replaces RPCs: customer_directory, agent_overview_stats, basic_overview_stats.",
+      "exports": [],
+      "sqlFunctions": [
+        "customer_directory",
+        "agent_overview_stats",
+        "basic_overview_stats"
+      ]
+    },
+    {
+      "path": "supabase/facebook-webhook-queue.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Schema/ledger changes: customers, facebook_webhook_payloads, facebook_webhook_events, facebook_webhook_steps. Defines/replaces RPCs: enqueue_facebook_webhook, claim_facebook_webhook, heartbeat_facebook_webhook, begin_facebook_webhook_step, complete_facebook_webhook_step.",
+      "exports": [],
+      "sqlFunctions": [
+        "enqueue_facebook_webhook",
+        "claim_facebook_webhook",
+        "heartbeat_facebook_webhook",
+        "begin_facebook_webhook_step",
+        "complete_facebook_webhook_step",
+        "finish_facebook_webhook",
+        "facebook_inbound_message_at",
+        "inbox_incoming_message",
+        "persist_facebook_webhook_record"
+      ]
+    },
+    {
+      "path": "supabase/feature-access.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Schema/ledger changes: plan_features. Defines/replaces RPCs: has_tenant_feature, guard_ai_agent_plan, consume_slip_credit, refund_slip_credit.",
+      "exports": [],
+      "sqlFunctions": [
+        "has_tenant_feature",
+        "guard_ai_agent_plan",
+        "consume_slip_credit",
+        "refund_slip_credit"
+      ]
+    },
+    {
+      "path": "supabase/follow-up-approval-mode.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: follow_up_policies. Defines/replaces RPCs: set_follow_up_approval_mode, apply_follow_up_approval_mode, retry_rejected_follow_up.",
+      "exports": [],
+      "sqlFunctions": [
+        "set_follow_up_approval_mode",
+        "apply_follow_up_approval_mode",
+        "retry_rejected_follow_up"
+      ]
+    },
+    {
+      "path": "supabase/follow-up-simplified.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Defines/replaces RPCs: follow_up_window_open, prepare_follow_up, authorize_follow_up_dispatch, add_manual_follow_up, enqueue_follow_up.",
+      "exports": [],
+      "sqlFunctions": [
+        "follow_up_window_open",
+        "prepare_follow_up",
+        "authorize_follow_up_dispatch",
+        "add_manual_follow_up",
+        "enqueue_follow_up"
+      ]
+    },
+    {
+      "path": "supabase/follow-up-step-settings.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Defines/replaces RPCs: save_follow_up_workflow.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_follow_up_workflow"
+      ]
+    },
+    {
+      "path": "supabase/follow-up-worker-diagnostics.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/full-access.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: full_access_function_backup. Defines/replaces RPCs: start_agent_ai_call, set_agent_overview_capability, guard_keyword_reply_limit, guard_followup_plan, claim_vision_job.",
+      "exports": [],
+      "sqlFunctions": [
+        "start_agent_ai_call",
+        "set_agent_overview_capability",
+        "guard_keyword_reply_limit",
+        "guard_followup_plan",
+        "claim_vision_job",
+        "begin_vision_dispatch",
+        "save_vision_settings",
+        "has_tenant_feature",
+        "tenant_has_paid_ai_access",
+        "consume_slip_credit",
+        "reserve_broadcast_credits",
+        "refund_broadcast_credits",
+        "commerce_plan"
+      ]
+    },
+    {
+      "path": "supabase/inbox-actions.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Defines/replaces RPCs: manage_inbox_conversation.",
+      "exports": [],
+      "sqlFunctions": [
+        "manage_inbox_conversation"
+      ]
+    },
+    {
+      "path": "supabase/inbox-delivery-diagnostics.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/inbox-follow-up-flags.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: inbox_follow_up_flags. Defines/replaces RPCs: set_inbox_follow_up_flag.",
+      "exports": [],
+      "sqlFunctions": [
+        "set_inbox_follow_up_flag"
+      ]
+    },
+    {
+      "path": "supabase/inbox-load-indexes.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/inbox-messenger-window.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Defines/replaces RPCs: inbox_verified_inbound_at, start_inbox_delivery, guard_inbox_automation_window, guard_agent_dispatch_window, inbox_automation_window_open.",
+      "exports": [],
+      "sqlFunctions": [
+        "inbox_verified_inbound_at",
+        "start_inbox_delivery",
+        "guard_inbox_automation_window",
+        "guard_agent_dispatch_window",
+        "inbox_automation_window_open",
+        "expire_inbox_automation",
+        "expire_inbox_automation_windows"
+      ]
+    },
+    {
+      "path": "supabase/inbox-quick-replies.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: inbox_quick_replies. Defines/replaces RPCs: save_inbox_quick_reply.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_inbox_quick_reply"
+      ]
+    },
+    {
+      "path": "supabase/inbox-realtime-setup.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Documentation: Inbox / Live Chat Realtime. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/inbox-realtime.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/manual-follow-ups.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: follow_up_jobs. Defines/replaces RPCs: add_manual_follow_up.",
+      "exports": [],
+      "sqlFunctions": [
+        "add_manual_follow_up"
+      ]
+    },
+    {
+      "path": "supabase/payment-receiving-codes.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: payment_receiving_codes, payment_receiving_audit. Defines/replaces RPCs: save_payment_receiving_code, set_payment_receiving_code_active.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_payment_receiving_code",
+        "set_payment_receiving_code_active"
+      ]
+    },
+    {
+      "path": "supabase/platform-migration.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Documentation: Safe platform migration. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/qr-payment-designer.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: bank_qr_designs. Defines/replaces RPCs: save_bank_qr_design.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_bank_qr_design"
+      ]
+    },
+    {
+      "path": "supabase/realtime-cpu-diagnostics.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/reset-facebook-tenants.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/safe_full_setup.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Schema/ledger changes: tenants, customers, slips, comments, comment_rules. SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/safe-migration.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Documentation: Safe local platform migration. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/schema_patch.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Schema/ledger changes: comments, comment_rules. SQL policies, permissions, seeds or operational diagnostics supporting the engine.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/shipping-integrations-beemove.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: shipping_integrations, shipping_provider_jobs. Defines/replaces RPCs: save_shipping_integration, begin_shipping_provider_job.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_shipping_integration",
+        "begin_shipping_provider_job"
+      ]
+    },
+    {
+      "path": "supabase/shipping-integrations.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: shipping_integrations, shipping_shipments, orders, shipping_provider_jobs. Defines/replaces RPCs: save_shipping_integration, begin_shipping_provider_job, complete_shipping_provider_job, finish_shipping_provider_job, mark_shipping_tracking_notification.",
+      "exports": [],
+      "sqlFunctions": [
+        "save_shipping_integration",
+        "begin_shipping_provider_job",
+        "complete_shipping_provider_job",
+        "finish_shipping_provider_job",
+        "mark_shipping_tracking_notification"
+      ]
+    },
+    {
+      "path": "supabase/slip-bank-controls.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: bank_accounts, bank_account_audit. Defines/replaces RPCs: sync_primary_bank_account, manage_slip_bank_account, seed_tenant_bank_account.",
+      "exports": [],
+      "sqlFunctions": [
+        "sync_primary_bank_account",
+        "manage_slip_bank_account",
+        "seed_tenant_bank_account"
+      ]
+    },
+    {
+      "path": "supabase/smart-follow-ups.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: customers, orders, follow_up_policies, follow_up_workflows, order_delivery_events. Defines/replaces RPCs: log_follow_up_state, enqueue_follow_up, schedule_follow_ups, confirm_cf_order, cancel_paid_follow_ups.",
+      "exports": [],
+      "sqlFunctions": [
+        "log_follow_up_state",
+        "enqueue_follow_up",
+        "schedule_follow_ups",
+        "confirm_cf_order",
+        "cancel_paid_follow_ups",
+        "on_follow_up_customer",
+        "on_follow_up_message",
+        "on_follow_up_delivery",
+        "claim_follow_up_jobs",
+        "render_smart_follow_up",
+        "prepare_follow_up",
+        "complete_follow_up",
+        "follow_up_overview",
+        "save_smart_follow_up",
+        "act_follow_up_job",
+        "confirm_follow_up_order"
+      ]
+    },
+    {
+      "path": "supabase/smart-inbox-pro.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: customers, conversation_events, inbox_action_receipts. Defines/replaces RPCs: sync_inbox_pro_stage, manage_inbox_pro, inbox_pro_message_progress, inbox_pro_overview.",
+      "exports": [],
+      "sqlFunctions": [
+        "sync_inbox_pro_stage",
+        "manage_inbox_pro",
+        "inbox_pro_message_progress",
+        "inbox_pro_overview"
+      ]
+    },
+    {
+      "path": "supabase/smart-inbox-setup.md",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "comments",
+      "summary": "Documentation: Smart Inbox. Treat historical winner-flow descriptions as version-specific.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "supabase/smart-inbox-v2.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: inbox_internal_notes, inbox_stars, inbox_workspace_requests. Defines/replaces RPCs: manage_inbox_workspace.",
+      "exports": [],
+      "sqlFunctions": [
+        "manage_inbox_workspace"
+      ]
+    },
+    {
+      "path": "supabase/smart-inbox.sql",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Schema/ledger changes: customers, messages, conversation_reads, conversation_events, inbox_media. Defines/replaces RPCs: inbox_incoming_message, manage_inbox_conversation, mark_inbox_read, start_inbox_delivery, end_inbox_delivery.",
+      "exports": [],
+      "sqlFunctions": [
+        "inbox_incoming_message",
+        "manage_inbox_conversation",
+        "mark_inbox_read",
+        "start_inbox_delivery",
+        "end_inbox_delivery",
+        "start_inbox_handover"
+      ]
+    },
+    {
+      "path": "tests/broadcast-policy.test.ts",
+      "category": "Incidental keyword hit",
+      "relevant": false,
+      "keywords": "bid",
+      "summary": "Coverage: standardWindowReason marks signed inbound activity within 24 hours as eligible; recipientReason denies broadcasts when policy, page verification or consent are not met.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/auth.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Verified dashboard actors and tenant membership/role checks used by auction APIs.",
+      "exports": [
+        "Actor",
+        "requireDashboardUser",
+        "getActor",
+        "isPlatformAdmin",
+        "tenantHasFeatureBypass",
+        "tenantRole",
+        "roleAtLeast",
+        "canAccessTenant",
+        "staffUserId"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/feature-flags.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Controls live_cf availability; the current implementation enables it by default unless explicitly disabled.",
+      "exports": [
+        "FeatureName",
+        "isFeatureEnabled",
+        "LIVE_CF_ENABLED"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/comments/comment-rules.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Rule types, keyword matching and live-product rule helpers.",
+      "exports": [
+        "MatchType",
+        "CommentRule",
+        "RULE_COLUMNS",
+        "LIVE_CF_RULE_COLUMNS",
+        "LiveProductOption",
+        "liveRuleCode",
+        "ruleMatches"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/comments/live-comment-routing.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Canonical post/video aliases and precedence for auction versus product-CF rule routing.",
+      "exports": [
+        "liveRuleCandidates",
+        "commentPostIds",
+        "liveRulePostId"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/comments/live-products.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Associates configured live products with comment rules.",
+      "exports": [
+        "liveProducts"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/auction-api.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Owner/tenant authorization, feature gating, same-origin writes and API error mapping.",
+      "exports": [
+        "auctionReply",
+        "authorizeAuction",
+        "auctionFailure"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/auction-hosts.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Resolves trusted personal Facebook host IDs from verified user/Page credentials.",
+      "exports": [
+        "auctionHostIds"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/auction-server.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments;auction;winner;bid",
+      "summary": "Routes comments to rounds and orchestrates durable public/private winner-notification deliveries.",
+      "exports": [
+        "deliverAuctionNotifications",
+        "handleAuctionComment"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/auction-templates.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction;winner;bid",
+      "summary": "Winner/bid/close message defaults, variable validation and financial-footer composition.",
+      "exports": [
+        "AUCTION_PRIVATE_TEMPLATE",
+        "SESSION_WINNER_TEMPLATE",
+        "SESSION_PUBLIC_WINNER_TEMPLATE",
+        "AUCTION_BID_TEMPLATE",
+        "AUCTION_CLOSE_TEMPLATE",
+        "auctionVariables",
+        "auctionPublicVariables",
+        "storeAuctionTemplate",
+        "displayAuctionTemplate",
+        "validAuctionTemplate",
+        "renderAuctionTemplate",
+        "auctionPrivateMessage"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/auction-types.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "TypeScript round, bid and processing-result contracts.",
+      "exports": [
+        "Auction",
+        "AuctionBid",
+        "AuctionResult"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/cf-code.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Normalizes product codes and extracts Thai/English CF purchase-intent prefixes.",
+      "exports": [
+        "normalizeCfText",
+        "normalizeCfCode",
+        "matchOrderCode",
+        "matchesCfCode",
+        "cfCode"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/comment-config.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments;auction;bid",
+      "summary": "Shared normalization, defaults and session-over-round tag/template precedence.",
+      "exports": [
+        "COMMENT_DEFAULTS",
+        "normalizeCommentText",
+        "configuredTags",
+        "CommentSettings",
+        "resolveCommentSettings",
+        "composeBillingMessage",
+        "renderCommentTemplate"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/commerce-core.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Shared product, money, storefront-design and commerce input validation/contracts.",
+      "exports": [
+        "SHOP_TABS",
+        "ShopTab",
+        "ORDER_STATES",
+        "BLOCK_NAMES",
+        "SalesBlock",
+        "SalesDesign",
+        "CommerceError",
+        "PRESET_CATEGORIES",
+        "presetCategory",
+        "categoryOptions",
+        "isUuid",
+        "text",
+        "safeImage",
+        "money",
+        "stock",
+        "slug",
+        "parseProduct",
+        "parseDesign",
+        "parseCheckout",
+        "shopV2",
+        "commerceFlag"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/commerce-server.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Tenant-scoped server reads and mutations shared by commerce setup.",
+      "exports": [
+        "commerceResponse",
+        "sameOrigin",
+        "commerceScope",
+        "CommerceScope",
+        "CommerceFilters",
+        "commerceFilters",
+        "commerceProductCategories",
+        "commerceSnapshot",
+        "CommerceData",
+        "commerceMutation",
+        "publicStore",
+        "PublicStoreData",
+        "checkout"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/customer-tab-reminders.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Claims reminder jobs, rechecks balances/policy and dispatches durable message parts.",
+      "exports": [
+        "runCustomerTabReminders"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/customer-tab-types.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Customer-tab item/payment types and deterministic financial text formatting.",
+      "exports": [
+        "CustomerTabItem",
+        "CustomerTabPayment",
+        "CustomerTab",
+        "TabBalance",
+        "tabMoney",
+        "customerTabItemLabel",
+        "customerTabText",
+        "splitTabMessage"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/customer-tabs-server.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction;winner",
+      "summary": "Loads order/tab ledgers, banking details, cumulative invoice text and signed payment links.",
+      "exports": [
+        "TAB_COLUMNS",
+        "loadCustomerTab",
+        "tabForOrder",
+        "customerTabAccount",
+        "customerTabSummary"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/live-cf-codes.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Validates and allocates live-product codes.",
+      "exports": [
+        "MAX_LIVE_CF_CODES",
+        "LiveCfCodesError",
+        "parseLiveCfCodes",
+        "addLiveCfCode",
+        "previewLiveCfCodes",
+        "matchLiveCfCode",
+        "liveCfCodeExamples"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/live-cf-comment.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Handles product-code purchase comments and composes comment-scoped payment replies.",
+      "exports": [
+        "LiveCfOrder",
+        "LiveCfPayment",
+        "handleLiveCfComment"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/live-cf-payment-link.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Signs and verifies expiring order payment links using an HMAC secret.",
+      "exports": [
+        "liveCfPaymentLinksReady",
+        "createLiveCfPaymentLink",
+        "verifyLiveCfPaymentToken"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/live-cf-setup.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Validates setup input, reply templates, variant choices and Facebook live URLs/IDs.",
+      "exports": [
+        "displayLiveReplyTemplate",
+        "storedLiveReplyTemplate",
+        "extractFacebookLiveId",
+        "QuickLiveProductDraft",
+        "quickLiveProduct"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/live-session-types.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction;winner;bid;comments",
+      "summary": "Session dashboard, finance, invoice and follow-up view/input contracts.",
+      "exports": [
+        "LiveSession",
+        "SessionRound",
+        "SessionTab",
+        "SessionSnapshot",
+        "SessionProofItem",
+        "SessionProof",
+        "SessionBid",
+        "sessionMoney",
+        "inputMoney",
+        "inputExpense",
+        "sumMoney",
+        "sessionCustomerStatus",
+        "sessionProfit",
+        "tabFormula",
+        "SESSION_FOLLOWUP_TEMPLATE",
+        "SESSION_VARIABLES",
+        "validSessionTemplate",
+        "renderSessionFollowup"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/live-source.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Resolves live-source selections and URL/ID metadata.",
+      "exports": [
+        "parseLiveVideoList"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/messenger-product-server.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Routes inbound Messenger product-code requests into product/payment replies.",
+      "exports": [
+        "replyToMessengerProduct"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/messenger-product.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Extracts product codes from Messenger text and builds deterministic catalog responses.",
+      "exports": [
+        "MessengerProduct",
+        "MessengerProductReply",
+        "extractProductCode",
+        "buildProductReply",
+        "handleInboundProductMessage"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/orders.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments;bid",
+      "summary": "Creates catalog/comment orders and reads unpaid orders for billing.",
+      "exports": [
+        "CfResult",
+        "placeCfOrder",
+        "placeCfCommentOrder",
+        "PayTo",
+        "orderSummaryText",
+        "soldOutText",
+        "pendingOrders"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/product-options.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Builds valid option combinations and variant overrides for live products.",
+      "exports": [
+        "ProductOptionGroup",
+        "ProductCombination",
+        "ProductVariantOverride",
+        "productCombinations",
+        "resolveProductVariants"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/quick-product.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Validates quick-product creation/editing and related option/variant inputs.",
+      "exports": [
+        "QuickProductDetails",
+        "restoreProductOptions"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/session-automation.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments;winner;auction;bid",
+      "summary": "Session keyword/reply settings, legacy winner-flow compatibility and cumulative invoice message plans.",
+      "exports": [
+        "SessionAutomation",
+        "QUICK_AUCTION_CLOSE_EMOJIS",
+        "normalizeCloseKeyword",
+        "defaultSessionAutomation",
+        "normalizeBidKeyword",
+        "isOnDemandWinnerFlow",
+        "auctionPrivateMessagePlan",
+        "sessionAuctionTemplate",
+        "validSessionAutomation",
+        "displaySessionTemplate"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/session-customer-rows.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "bid;comments",
+      "summary": "Builds customer/session row models for auction workspace tables.",
+      "exports": [
+        "SessionCustomerRow",
+        "sessionCustomerRows"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/commerce/stock-subscription.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Supabase Realtime product/variant stock subscription and visibility cleanup.",
+      "exports": [
+        "StockUpdate",
+        "subscribeCommerceStock"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/inbox/inbox-automation-window.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Automation dispatch gate preventing unverified/out-of-window bot sends.",
+      "exports": [
+        "InboxAutomationWindowError",
+        "assertAutomationWindow"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/inbox/inbox-policy-server.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Server Messenger-window/token checks reused by live customer-tab reminders.",
+      "exports": [
+        "inboxInboundEvidence",
+        "humanAgentApproved",
+        "assertInboxPolicy"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/inbox/standard-message-window.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Standard-window timestamp eligibility helpers shared by messaging flows.",
+      "exports": [
+        "STANDARD_MESSAGE_WINDOW_MS",
+        "withinStandardMessageWindow"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/slips/customer-tab-slip.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "bid;auction",
+      "summary": "Claims customer-tab slip processing and applies verified payments through ledger RPCs.",
+      "exports": [
+        "processCustomerTabSlip"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/slips/image.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Downloads and validates candidate receipt images before verification.",
+      "exports": [
+        "slipCandidates",
+        "downloadSlipImage"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/slips/notify.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Durable bot transcript/message claims, policy checks and external delivery used by billing automation.",
+      "exports": [
+        "slipConfirmationText",
+        "slipReplyText",
+        "Recipient",
+        "BotDeliveryBlockedError",
+        "deliverOnce",
+        "deliverRichOnce",
+        "notifySlipResult",
+        "SlipConfirmationStatus",
+        "notifyVerifiedSlipForCustomer",
+        "sendSlipConfirmation"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/features/slips/process.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "bid;winner;auction",
+      "summary": "Slip verification orchestration shared with live invoice payments.",
+      "exports": [
+        "SLIP_MAX_BYTES",
+        "SLIP_IMAGE_TYPES",
+        "Tenant",
+        "SlipInput",
+        "ProcessedSlip",
+        "processSlip",
+        "markOrdersPaid"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/auction-comment-parser.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments;auction;bid;winner",
+      "summary": "Normalizes comment text and classifies host controls, opening bids, confirmation keywords and numeric bids.",
+      "exports": [
+        "AuctionComment",
+        "normalizeAuctionTag",
+        "auctionTags",
+        "parseAuctionComment"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/auction-parser.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Compatibility re-export of the auction comment parser.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/client.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "auction;comments",
+      "summary": "Shared Graph transport, Page token selection and transactional/direct/private Messenger delivery with safe diagnostics.",
+      "exports": [
+        "graph",
+        "PageTokenSource",
+        "pageTokenFor",
+        "MissingPageTokenError",
+        "MessagingType",
+        "SendApiError",
+        "isWindowOrTagError",
+        "WINDOW_OR_TAG_ERROR",
+        "MESSENGER_FIRST_MESSAGE_REQUIRED",
+        "needsMessengerSession",
+        "isUnsupportedPurchaseTag",
+        "sendMessageWithReceipt",
+        "sendMessage",
+        "sendAuctionInvoiceWithReceipt",
+        "sendText",
+        "quickReplies",
+        "PaymentCard",
+        "sendPaymentCard",
+        "replyToComment",
+        "OutgoingMessage",
+        "privateReply",
+        "sendAuctionPrivateReply",
+        "sendPrivateReply",
+        "isLiveVideoComment",
+        "resolveLiveCommentVideo",
+        "getName",
+        "getCustomerProfile",
+        "PageTokenStatus",
+        "getPageTokenUserId",
+        "getPageTokenStatus",
+        "PageTokenCheck",
+        "inspectPageToken",
+        "PageProfile",
+        "getPagePicture",
+        "getPageProfile"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/diagnostics.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Redacts credentials and sensitive payload fields in Facebook diagnostic output.",
+      "exports": [
+        "redactFacebookDiagnostic"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/live-cf-adapter.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Injectable public/private comment text sender with an isolated mock implementation.",
+      "exports": [
+        "LiveCfMetaAdapter",
+        "createLiveCfMetaAdapter",
+        "createMockLiveCfMetaAdapter"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/live-videos.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Server-side Meta live-video discovery, Page filtering and provider error diagnostics.",
+      "exports": [
+        "FacebookLiveVideo",
+        "LiveVideosError",
+        "verifyLiveVideoPageToken",
+        "fetchPageLiveVideos"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/message-window.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Separately validates genuine inbound messages and outgoing echoes; protects service-window evidence.",
+      "exports": [
+        "FacebookInboundMessage",
+        "facebookMessageEcho",
+        "facebookInboundMessage"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/oauth.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Page discovery, token verification and Page webhook field subscriptions.",
+      "exports": [
+        "SCOPES",
+        "isFacebookConnectConfigured",
+        "STATE_COOKIE",
+        "STATE_COOKIE_PATH",
+        "callbackUrl",
+        "dialogUrl",
+        "exchangeCode",
+        "ConnectedPage",
+        "verifiedAdminPages",
+        "listPages",
+        "PAGE_SUBSCRIBED_FIELDS",
+        "subscribePage"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/sync-pagination.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Validates Graph continuation URLs/cursors, partial-history sync and scoped bearer-token transport.",
+      "exports": [
+        "GraphPaging",
+        "GraphPage",
+        "nextGraphPage",
+        "createFacebookSyncPager"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/webhook-envelope.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Validates/normalizes payloads and derives canonical event and ordering keys.",
+      "exports": [
+        "WEBHOOK_MAX_BYTES",
+        "WEBHOOK_MAX_EVENTS",
+        "WebhookObject",
+        "FacebookWebhookEvent",
+        "WebhookInputError",
+        "verifyWebhookSignature",
+        "readWebhookBody",
+        "normalizeCommentChange",
+        "parseWebhook"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/webhook-handler.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "comments;auction;bid;winner",
+      "summary": "Resolves Page tenants, routes messages/comments, auction/CF orders, slips and receipts.",
+      "exports": [
+        "handleFacebookWebhookEvent",
+        "recordReceipt"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/webhook-http.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "bid",
+      "summary": "Verifies Meta GET challenges/HMAC POST bodies, durably enqueues and schedules a deferred worker.",
+      "exports": [
+        "getFacebookWebhook",
+        "postFacebookWebhook"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/integrations/facebook/webhook-worker.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Claims fenced DB leases, heartbeats, checkpoints external steps and handles retry/review outcomes.",
+      "exports": [
+        "QueuedFacebookEvent",
+        "WebhookLeaseLost",
+        "WebhookNeedsReview",
+        "WebhookExecution",
+        "runFacebookWebhookWorker"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/message-quota.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Message-credit accounting used by shared bot billing/notification delivery.",
+      "exports": [
+        "MessageQuotaError",
+        "sendWithMessageCredit"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/supabase/server.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Server-side service-role database client and authenticated cookie session client.",
+      "exports": [
+        "supabaseAdmin",
+        "supabaseServer"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "lib/tenant.ts",
+      "category": "Libraries",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Authenticated active-tenant selection and server-only Page-profile/token-backed connection reads.",
+      "exports": [
+        "ACTIVE_TENANT_COOKIE",
+        "getTenantsForActor",
+        "getTenants",
+        "getActiveTenant",
+        "getViewer",
+        "tenantPages",
+        "tenantPageConnections",
+        "checkPageToken",
+        "ConnectedPageInfo",
+        "unlinkedFacebookPages",
+        "connectedFacebookPage",
+        "fillTokenFromFacebook",
+        "tenantFilter"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": ".github/workflows/customer-tab-cron.yml",
+      "category": "Supporting configuration",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Supporting source/tool referenced by live commerce or its database/tests.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "middleware.ts",
+      "category": "Supporting configuration",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Browser-session middleware and public webhook exclusions.",
+      "exports": [
+        "middleware",
+        "config"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "package.json",
+      "category": "Supporting configuration",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Lists auction/live/session test and browser-check entrypoints and application dependencies.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "vercel.json",
+      "category": "Supporting configuration",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Vercel deployment configuration; currently declares no cron schedules.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/build-full-database-setup.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;winner",
+      "summary": "Defines canonical migration order/dependencies and generates schema bundles; use this order to resolve SQL overrides.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/check-auction-browser.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Coverage: window.auctionQA && document.querySelector(; document.querySelector(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/check-live-cf-browser.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Coverage: !!document.querySelector(; !!document.querySelector(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/check-live-cf-setup-browser.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Coverage: !!document.querySelector(; document.querySelector(${JSON.stringify(liveSelector)})?.dataset.selectedVideoId === .",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/check-live-session-browser.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Coverage: !!document.querySelector(; document.querySelector(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/check-ui-browser.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Coverage: document.querySelector(; document.querySelector(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/diagnose-auction-ingest.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;winner;comments",
+      "summary": "Coverage: _.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/diagnose-facebook-webhook.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;winner;bid",
+      "summary": "Coverage: ?; ?.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/live-cf/auction-entry.tsx",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Isolated browser fixture/mocks for live-cf; no production engine ownership.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/live-cf/entry.tsx",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Isolated browser fixture/mocks for live-cf; no production engine ownership.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/live-cf/mocks.tsx",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Isolated browser fixture/mocks for live-cf; no production engine ownership.",
+      "exports": [
+        "liveCfTest",
+        "supabaseBrowser",
+        "useRouter",
+        "Link"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/live-cf/session-entry.tsx",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "bid;comments;winner;auction",
+      "summary": "Isolated browser fixture/mocks for live-cf; no production engine ownership.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/live-cf/setup-entry.tsx",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Coverage: /.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/live-cf/setup-mocks.tsx",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Isolated browser fixture/mocks for live-cf; no production engine ownership.",
+      "exports": [
+        "liveCfTest",
+        "useRouter",
+        "Link"
+      ],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/fixtures/live-cf/shipping-entry.tsx",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Isolated browser fixture/mocks for live-cf; no production engine ownership.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/helpers/check-unified-auction.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Coverage: !!document.querySelector(; document.querySelector(.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-cron.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Coverage: external cron GET requests require authentication and drain webhook and auction outbox work.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-customer-tab-slip.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Coverage: auction amount mismatches are recorded as invalid and never use the paid auction settlement RPC; valid exact auction slips settle through the winner-scoped database function.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-host-actions.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;comments",
+      "summary": "Coverage: host shortcuts post Page-owned comments to the stored live video and enqueue canonical events; invalid, unauthorized, foreign, closed and disconnected host actions never contact Meta.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-hosts.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Coverage: hosts contain the Page and authenticated Facebook identity, never the Supabase UUID; separate Facebook connection uses only the signed-in owner and selected Page.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-invoice-messaging.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Coverage: invoice uses MESSAGE_TAG and POST_PURCHASE_UPDATE; normal chat remains RESPONSE; definite window or missing-recipient rejection falls back to the winning comment exactly once.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-on-demand.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "bid;winner;auction",
+      "summary": "Coverage: only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-server.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;comments;bid;winner;poller",
+      "summary": "Coverage: highest-bid confirmation dispatches the active winner bill immediately and honors public reply off; legacy split-summary deliveries retain their ordered recovery plan.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-workspace-api.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Coverage: workspace API restores scoped saved values and commits a single normalized request after owner authorization.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-auction-workspace.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "bid;auction;bidding",
+      "summary": "Coverage: unified workspace saves all zones atomically, preserves merchant values and fences retries/bids.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-complete-schema.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;winner",
+      "summary": "Coverage: complete schema runs in one SQL Editor request and re-runs without altering application data; complete schema adopts the installed latest schema without a registry and preserves transfers and quotas.",
+      "exports": [],
+      "sqlFunctions": [
+        "messenger_product_lookup",
+        "f"
+      ]
+    },
+    {
+      "path": "scripts/test-customer-tab-services.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "bid;auction",
+      "summary": "Coverage: mixed auction/CF bills label provenance and retain the shared ledger total; tab SlipOK path omits a full-amount constraint, accepts partials, and replays an image without another provider charge.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-customer-tabs.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Coverage: cumulative tabs atomically reopen, accept partials, charge shipping once and fence duplicate/foreign payments.",
+      "exports": [],
+      "sqlFunctions": [
+        "public"
+      ]
+    },
+    {
+      "path": "scripts/test-facebook-page-token.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Coverage: auction host lookup accepts only a valid Page token from this app and Page; messaging Page is verified without profile-reading permissions.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-facebook-webhook-queue.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments;auction;bid",
+      "summary": "Coverage: image candidates ignore malformed attachments and sticker images; echoes persist outgoing history, deduplicate metadata races and never renew the inbound window.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-live-auction-dashboard-api.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Coverage: all-in-one API authorizes before reads, validates settings and normalizes templates without accepting client balances.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-live-auctions.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;winner",
+      "summary": "Coverage: live auctions execute against the complete schema: ordering, steps, close, replay, proof and isolation.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-live-cf-mode.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments;auction",
+      "summary": "Coverage: Live aliases use the current Contains matcher, scope posts, and retain Exact matching; live_comments are normalized before persistence and deduplicate against feed without processing edits.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-live-session-dashboard.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "bid;comments;auction;winner",
+      "summary": "Coverage: the customer grid merges identities once, retains billed-only customers, and never merges namesakes; customer status counts unique bills and separates unpaid, partial, exact and overpaid balances.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-route-security.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Coverage: unauthenticated slip GET never creates a service client; forbidden, missing and failed scope lookups never load detail/sign URLs.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-shipping.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid",
+      "summary": "Coverage: Thai address parsing copies complete evidence and refuses missing/ambiguous recipients and phones; shipping routes reject anonymous/foreign/cross-origin requests before reading or writing recipient details.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "scripts/test-slip-automatic-gate.cjs",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;winner;comments",
+      "summary": "Coverage: Messenger slips route on-demand bills even when the claimant is not the global leader; auction slips settle only the exact pending tab bill belonging to the closed-round winner.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/auction-comment.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction;bid;comments",
+      "summary": "Coverage: opening chatter uses opening intent, including incidental numbers; host identity determines commands; a customer cannot close or count.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/auction-confirmation.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "auction",
+      "summary": "Supporting source/tool referenced by live commerce or its database/tests.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/comment-config.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments;auction;bid;winner",
+      "summary": "Coverage: dashboard tags win and empty normalized arrays fall through every source before defaults; canonical session tags override aliases, normalize Unicode and use centralized empty defaults.",
+      "exports": [],
+      "sqlFunctions": [
+        "process_live_auction_comment"
+      ]
+    },
+    {
+      "path": "tests/features/commerce/live-cf-codes-api.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Coverage: Live CF setup saves every tag to keywords for create/update and accepts legacy single-code requests; switching Exact to Contains persists the selected mode and reloaded rules use the preview matcher.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/live-cf-comment.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Coverage: live comment CF orders match codes, protect stock, and send one secure payment link; private reply template replaces all variables: product_name, variant_name, price, total, payment_link.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/live-cf-input.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments",
+      "summary": "Coverage: Contains matches partial keywords, punctuation and mixed letter/number spacing identically in preview and webhook; draft codes preview only configured prefixes without adding a saved tag.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/live-cf-payment-variant.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Coverage: /; signed customer variant selection needs no login and sends only verified order and variant IDs to the atomic RPC.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/live-cf-product-options.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "",
+      "summary": "Coverage: product options require owner scope before accessing categories and return private uncached data; category picker pages through tenant-scoped rows and fails rather than returning partial options.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/live-cf-setup.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments;bid",
+      "summary": "Coverage: quick-created products are active on the sales page with the submitted code, price and stock; full quick products persist category, image metadata, flags and exact variant IDs atomically.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/live-webhook.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments;auction",
+      "summary": "Coverage: supported comment fields canonicalize IDs, authors and video IDs before deduplication; every entry routes by its normalized Page ID; unsafe numeric IDs cannot silently lose precision.",
+      "exports": [],
+      "sqlFunctions": []
+    },
+    {
+      "path": "tests/features/commerce/messenger-product.test.ts",
+      "category": "Tests, fixtures and tooling",
+      "relevant": true,
+      "keywords": "comments;auction",
+      "summary": "Coverage: extracts exact Messenger codes with prefixes, punctuation, case, and leading zeroes; builds a product card with price, image, description, and direct sales-page button.",
+      "exports": [],
+      "sqlFunctions": []
+    }
+  ]
+}

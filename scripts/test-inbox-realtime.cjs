@@ -46,6 +46,7 @@ function fixture(errors = {}, options = {}) {
   let stateIndex = 0,
     subscribe,
     channelName,
+    snapshotFailures = options.snapshotFailures ?? 0,
     cleaned = false
   const channelNames = []
   const db = {
@@ -185,6 +186,10 @@ function fixture(errors = {}, options = {}) {
       const query = parsed.searchParams
       const tenant = query.get('tenantId')
       const id = query.get('customerId')
+      if (snapshotFailures > 0) {
+        snapshotFailures--
+        return { ok: false, json: async () => ({ error: 'temporary snapshot failure' }) }
+      }
       queries.push({
         table: 'api:conversations',
         filters: [['tenant_id', tenant]],
@@ -323,6 +328,18 @@ test('polling recovers chat messages when comments and slips fail without Realti
   await flush()
   assert.ok(f.states[5].some((row) => row.id === 'missed'))
   assert.equal(f.states[2][0].preview.body, 'missed')
+  f.cleanup()
+})
+
+test('a failed initial snapshot does not stop five-second polling or keep the offline banner after recovery', async () => {
+  const f = fixture({}, { snapshotFailures: 1 })
+  await flush()
+  assert.equal(f.states[13], 'offline')
+  f.messages.push(message('recovered-after-error'))
+  await f.intervals[0]()
+  await flush()
+  assert.equal(f.states[13], 'polling')
+  assert.ok(f.states[5].some((row) => row.id === 'recovered-after-error'))
   f.cleanup()
 })
 

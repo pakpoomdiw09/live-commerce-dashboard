@@ -1112,9 +1112,8 @@ test('receiver omits raw payload and logs precise drop reasons including queue d
   fail = true
   assert.equal((await send(payload())).status, 503)
   const failure = logs.find((args) => args[1]?.reason === 'QUEUE_INSERT_FAILED')[1]
-  assert.equal(failure.error.code, '57014')
-  assert.equal(failure.error.message, 'statement timeout')
-  assert.equal(failure.error.hint, 'retry')
+  assert.equal(failure.errorCode, '57014')
+  assert.equal('error' in failure, false, 'database details are not copied into diagnostics')
   fail = false
   accepted = 0
   assert.equal((await send({ object: 'page', entry: [{ id: '123' }] })).status, 200)

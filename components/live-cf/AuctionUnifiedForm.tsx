@@ -31,6 +31,7 @@ import { LiveSwitch, LiveTemplateEditor } from './LiveReplyControls'
 import { AuctionKeywordEditor } from './AuctionKeywordEditor'
 import type { AuctionDashboardOptions } from './AuctionSessionStart'
 import { field, orange, read } from './session-ui'
+import { LiveAuctionTimer } from './LiveAuctionTimer'
 
 type Config = {
   session: LiveSession | null
@@ -45,6 +46,7 @@ type Draft = {
   startPrice: string
   minStep: string
   shippingFee: string
+  durationMinutes: string
   settings: SessionAutomation
   finance: { cost: string; ads: string; shipping: string; fees: string }
 }
@@ -108,6 +110,7 @@ export function AuctionUnifiedForm({
         startPrice: config.round ? String(config.round.start_price) : '',
         minStep: config.round ? String(config.round.min_step) : '',
         shippingFee: config.round ? String(config.round.shipping_fee) : '',
+        durationMinutes: String((config.round?.duration_seconds ?? 300) / 60),
         settings: {
           ...settings,
           auto_accumulate_summary: settings.auto_accumulate_summary ?? true,
@@ -211,6 +214,7 @@ export function AuctionUnifiedForm({
       startPrice: draft.startPrice,
       minStep: draft.minStep,
       shippingFee: draft.shippingFee,
+      durationSeconds: Number(draft.durationMinutes) * 60,
       settings: { ...draft.settings, closeText: draft.settings.bidText },
       finance: draft.finance,
     }
@@ -310,6 +314,17 @@ export function AuctionUnifiedForm({
           กำลังทำงาน
         </span>
       </header>
+      {base?.round && !base.preferencesOnly && <LiveAuctionTimer
+        key={base.round.id} tenantId={tenantId} auctionId={base.round.id}
+        onResolved={() => { setReload((n) => n + 1); onSaved(base.session?.id ?? sessionId) }}
+      />}
+      {draft && <label className="block text-sm font-medium text-slate-700">
+        ระยะเวลาประมูล (นาที)
+        <input type="number" min="0.5" max="1440" step="0.5"
+          className={field} value={draft.durationMinutes} disabled={disabled}
+          onChange={(event) => { dirty.current = true; setDraft({ ...draft, durationMinutes: event.target.value }) }} />
+        <span className="mt-1 block text-xs text-slate-500">นับจากเวลาเริ่มรอบ การบันทึกซ้ำไม่เริ่มเวลาใหม่</span>
+      </label>}
       {loading && (
         <p
           role="status"

@@ -203,7 +203,7 @@ export function InboxClient({
         return
       if (s.error) console.error('[inbox] slips load failed', { code: s.error.code })
       if (m.error) {
-        console.error('[inbox] thread load failed', m.error)
+        console.error('[inbox] thread load failed', { code: m.error.code })
         if (!background) setThreadState('error')
         return
       }
@@ -322,10 +322,6 @@ export function InboxClient({
     const activeThreadGate = threadGate.current,
       activeOlderGate = olderGate.current
     selectedRef.current = selectedId
-    console.log('[DEBUG-REALTIME] Selected thread:', {
-      tenantId: tenantId ?? null,
-      customerId: selectedId,
-    })
     changes.current.clear()
     threadLoadedFor.current = null
     threadRequest.current++
@@ -347,12 +343,8 @@ export function InboxClient({
 
   // one Realtime channel for everything on this screen
   useEffect(() => {
-    console.log('[DEBUG-REALTIME] Inbox effect mounted:', {
-      tenantId: tenantId ?? null,
-      selectedId: selectedRef.current,
-    })
     if (!tenantId) {
-      console.warn('[DEBUG-REALTIME] Inbox subscription skipped: no tenant')
+      console.warn('[inbox/realtime] subscription skipped: tenant unavailable')
       return
     }
     return subscribeWhileVisible(() => {
@@ -389,19 +381,29 @@ export function InboxClient({
           : chat
       }
       const chatSnapshot = async (params = '') => {
-        const response = await fetch(
-          `/api/inbox/conversations?tenantId=${encodeURIComponent(tenantId)}${params}`,
-          { cache: 'no-store', signal: snapshotController.signal },
-        )
-        const data = (await response.json().catch(() => null)) as {
-          chats?: ChatSummary[]
-          comments?: CommentItem[]
-          hasMore?: boolean
-          error?: string
-        } | null
-        if (!response.ok || !data || !Array.isArray(data.chats))
-          throw new Error(data?.error || 'โหลดรายชื่อแชทไม่สำเร็จ')
-        return data
+        const requestController = new AbortController()
+        const abortRequest = () => requestController.abort()
+        snapshotController.signal.addEventListener('abort', abortRequest, { once: true })
+        if (snapshotController.signal.aborted) abortRequest()
+        const timeout = setTimeout(abortRequest, 10000)
+        try {
+          const response = await fetch(
+            `/api/inbox/conversations?tenantId=${encodeURIComponent(tenantId)}${params}`,
+            { cache: 'no-store', signal: requestController.signal },
+          )
+          const data = (await response.json().catch(() => null)) as {
+            chats?: ChatSummary[]
+            comments?: CommentItem[]
+            hasMore?: boolean
+            error?: string
+          } | null
+          if (!response.ok || !data || !Array.isArray(data.chats))
+            throw new Error(data?.error || 'โหลดรายชื่อแชทไม่สำเร็จ')
+          return data
+        } finally {
+          clearTimeout(timeout)
+          snapshotController.signal.removeEventListener('abort', abortRequest)
+        }
       }
       const fetchCustomer = async (id: string) => {
         const since = revision.current
@@ -409,7 +411,7 @@ export function InboxClient({
         try {
           data = await chatSnapshot(`&customerId=${encodeURIComponent(id)}`)
         } catch {
-          if (!disposed) console.error('[inbox] customer refresh failed', { customerId: id })
+          if (!disposed) console.error('[inbox] customer refresh failed')
           return
         }
         if (disposed) return
@@ -468,12 +470,19 @@ export function InboxClient({
           const selected = selectedRef.current
           if (selected) {
             if (!next.some((chat) => chat.customer.id === selected)) await refreshCustomer(selected)
-            if (!disposed && selectedRef.current === selected) await loadThread(selected, true)
+            if (!disposed && selectedRef.current === selected) void loadThread(selected, true)
           }
-        } catch {
+        } catch (error) {
           if (!disposed) {
             if (!live) setConnection('offline')
-            console.error('[inbox] snapshot recovery failed')
+            const code = error && typeof error === 'object' && 'code' in error &&
+              typeof error.code === 'string' && /^[A-Z0-9_-]{1,40}$/.test(error.code)
+              ? error.code
+              : undefined
+            console.warn('[inbox] snapshot recovery failed', {
+              errorType: error instanceof Error ? error.name : 'unknown',
+              code,
+            })
           }
         } finally {
           recovering = false
@@ -530,11 +539,6 @@ export function InboxClient({
         )
       }
       const channelName = inboxChannelName('inbox', tenantId)
-      console.log('[DEBUG-REALTIME] Creating channel:', {
-        channelName,
-        tables: ['messages', 'customers', 'comments', 'slips'],
-        messageFilter: 'RLS only; no tenant_id filter on messages',
-      })
       const channel = db
         // Removal is asynchronous: never reuse a channel being cleaned up by
         // Strict Mode, navigation or another mounted Inbox for this tenant.
@@ -544,21 +548,6 @@ export function InboxClient({
           { event: 'INSERT', schema: 'public', table: 'messages' },
           ({ new: row }) => {
             const m = row as MessageRow
-            // Production logs identify delivery without copying customer message bodies.
-            console.log('[DEBUG-REALTIME] Message INSERT:', {
-              eventType: 'INSERT',
-              table: 'messages',
-              id: m?.id,
-              customerId: m?.customer_id,
-              selected: m?.customer_id === selectedRef.current,
-            })
-            if (process.env.NODE_ENV !== 'production')
-              console.log('[DEBUG-REALTIME] INSERT payload:', {
-                eventType: 'INSERT',
-                schema: 'public',
-                table: 'messages',
-                new: row,
-              })
             apply(m)
           },
         )
@@ -568,11 +557,6 @@ export function InboxClient({
           { event: 'UPDATE', schema: 'public', table: 'messages' },
           ({ new: row }) => {
             const m = row as MessageRow
-            if (process.env.NODE_ENV !== 'production')
-              console.log('[inbox/realtime] UPDATE message', {
-                id: m?.id,
-                customerId: m?.customer_id,
-              })
             apply(m)
           },
         )
@@ -615,12 +599,6 @@ export function InboxClient({
               return
             }
             const c = p.new as CustomerRow
-            if (process.env.NODE_ENV !== 'production')
-              console.log('[inbox/realtime] customer event', {
-                id: c?.id,
-                tenantId: c?.tenant_id,
-                isMine: mine(c?.tenant_id),
-              })
             if (mine(c.tenant_id)) {
               if (!knownCustomers.current.has(c.id)) void refreshCustomer(c.id)
               knownCustomers.current.add(c.id)
@@ -664,12 +642,18 @@ export function InboxClient({
           },
         )
         .subscribe((status, err) => {
-          console.log('[DEBUG-REALTIME] Channel Status:', status, err, {
-            channelName,
-            ignored: disposed,
-          })
           if (disposed) return
-          console.info('[inbox/realtime] status', { status, tenantId: tenantId })
+          const errorCode = err && typeof err === 'object' && 'code' in err &&
+            typeof err.code === 'string' && /^[A-Z0-9_-]{1,40}$/.test(err.code)
+            ? err.code
+            : undefined
+          if (status === 'SUBSCRIBED') console.info('[inbox/realtime] channel subscribed')
+          else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status))
+            console.warn('[inbox/realtime] channel disconnected', {
+              status,
+              errorCode,
+              errorType: err instanceof Error ? err.name : undefined,
+            })
           if (status === 'SUBSCRIBED') {
             live = true
             setConnection('realtime')
@@ -677,19 +661,11 @@ export function InboxClient({
           } else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
             setConnection('offline')
             live = false
-            console.warn('[inbox/realtime] disconnected; database recovery continues every 5 seconds', {
-              status,
-              tenantId: tenantId,
-            })
           }
         })
-      console.log('[DEBUG-REALTIME] Subscribe invoked:', { channelName })
       const connectionWatchdog = setTimeout(() => {
         if (!disposed && !live)
-          console.warn('[DEBUG-REALTIME] Channel not subscribed after 15 seconds:', {
-            channelName,
-            hint: 'Check WebSocket connection, browser auth session and Realtime service; inspect Channel Status errors',
-          })
+          console.warn('[inbox/realtime] channel has not subscribed after 15 seconds')
       }, 15000)
       void recover()
       // Keep a safety snapshot for silent replication failures, but prefer events.
@@ -706,7 +682,6 @@ export function InboxClient({
       return () => {
         disposed = true
         snapshotController.abort()
-        console.log('[DEBUG-REALTIME] Cleaning up channel:', { channelName })
         clearTimeout(connectionWatchdog)
         clearInterval(timer)
         window.removeEventListener('online', recover)

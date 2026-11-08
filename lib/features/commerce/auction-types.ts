@@ -19,6 +19,8 @@ export type Auction = {
   closed_at: string | null
   order_id: string | null
   created_at: string
+  ends_at?: string | null
+  duration_seconds?: number | null
   private_reply_enabled?: boolean
   public_reply_enabled?: boolean
   private_reply_template?: string

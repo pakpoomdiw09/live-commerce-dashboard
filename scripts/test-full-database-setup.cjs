@@ -5,7 +5,7 @@ const path = require('node:path')
 const { PGlite } = require('@electric-sql/pglite')
 const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
 const { splitSql } = require('./lib/safe-db-migration.cjs')
-const { build, manifest } = require('./build-full-database-setup.cjs')
+const { build, manifest, excluded } = require('./build-full-database-setup.cjs')
 const root = path.resolve(__dirname, '..')
 
 // Supabase owns these schemas/roles. This fixture emulates only that platform
@@ -228,5 +228,5 @@ test('setup only keeps reviewed config seeds and excludes historical locks/backf
     assert.ok(!result.sources.includes(name))
   }
   assert.equal(new Set(result.files).size, result.files.length)
-  assert.equal(result.files.length, result.sources.length + 17)
+  assert.equal(result.files.length, result.sources.length + Object.keys(excluded).length)
 })

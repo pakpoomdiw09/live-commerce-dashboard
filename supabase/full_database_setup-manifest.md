@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 134 ไฟล์: รวมตาม dependencies 117 ไฟล์ และแยกไว้ 17 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 136 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 138 ไฟล์: รวมตาม dependencies 120 ไฟล์ และแยกไว้ 18 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 140 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1118538 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1146261 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (977232 bytes, 15640 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1000429 bytes, 16072 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -154,11 +154,15 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 115. [live-auction-dynamic-tags.sql](live-auction-dynamic-tags.sql) — 9 statements retained
 116. [facebook-comment-configuration.sql](facebook-comment-configuration.sql) — 25 statements retained
 117. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
+118. [inbox-realtime-access.sql](inbox-realtime-access.sql) — 13 statements retained
+119. [live-auction-deadlines.sql](live-auction-deadlines.sql) — 24 statements retained
+120. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 10 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
 | File | Reason |
 | --- | --- |
+| [live-auction-cron-setup.sql](live-auction-cron-setup.sql) | Optional hosted Supabase Cron extension setup; run after live-auction-deadlines.sql. |
 | [backfill_patch.sql](backfill_patch.sql) | Historical customer/comment ownership backfill; not needed on an empty database. |
 | [migrate-followup-variables.sql](migrate-followup-variables.sql) | Historical message/template rewrite and explicit exclusive lock; current defaults are included separately. |
 | [safe_full_setup.sql](safe_full_setup.sql) | Alternative upgrade/backfill runner output; duplicates platform/schema patches. Not a fresh install. |
@@ -282,6 +286,9 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | premium-overview.sql | dashboard-read-models.sql |
 | inbox-realtime.sql | schema.sql, security.sql |
 | facebook-message-echoes.sql | facebook-message-window.sql, smart-inbox.sql |
+| inbox-realtime-access.sql | facebook-message-echoes.sql, feature-access.sql |
+| live-auction-deadlines.sql | facebook-comment-configuration.sql, live-auction-production-readiness.sql |
+| live-auction-audit-hardening.sql | facebook-comment-configuration.sql, live-auction-on-demand.sql, live-auction-deadlines.sql |
 | inbox-load-indexes.sql | inbox-realtime.sql |
 | facebook-inbox-recovery.sql | facebook-webhook-queue.sql, smart-inbox.sql |
 | live-cf-variants.sql | commerce-v2.sql, facebook-webhook-queue.sql |
@@ -505,3 +512,6 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-dynamic-tags.sql: `519739b3173ff89175f57388066e5b73bf2317b8486cfa1e45ff7d3524a935bd`
 - facebook-comment-configuration.sql: `5bdf7e2cc6cc0f43375e2a9753fd7b02f1a122bf35aaea95871324b9e45ace80`
 - facebook-message-echoes.sql: `b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2`
+- inbox-realtime-access.sql: `f2c1e283a073b6967c64b37378a09ec179baedca837587b19efc0163a780ab65`
+- live-auction-deadlines.sql: `ff20250c88520e5d08cf02ae057320554e181632961dc97dcb954829cd2894db`
+- live-auction-audit-hardening.sql: `960f8300baa2e0e101066a9bf4ec743e48c189d502058f49dd406ab179f1a7f9`

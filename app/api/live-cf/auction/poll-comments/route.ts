@@ -8,7 +8,6 @@ import { graph, pageTokenFor } from '@/lib/integrations/facebook/client'
 import { parseWebhook } from '@/lib/integrations/facebook/webhook-envelope'
 import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
 import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
-import { fetchPageLiveVideos } from '@/lib/integrations/facebook/live-videos'
 import { UUID } from '@/lib/utils'
 import { deliverAuctionNotifications } from '@/lib/features/commerce/auction-server'
 
@@ -83,9 +82,9 @@ export async function POST(req: NextRequest) {
         return json({ polled: false, reason: 'SESSION_NOT_FOUND' })
       sessionPost = String(session.data.live_post_id)
     }
-    const COLUMNS = 'id,live_post_id,live_post_aliases,created_at'
+    const COLUMNS = 'id,live_post_id,created_at'
     const sessionFilter = sessionPost
-      ? `live_post_id.eq.${sessionPost},live_post_aliases.cs.{${sessionPost}}`
+      ? `live_post_id.eq.${sessionPost}`
       : 'id.not.is.null'
     const round = await db
       .from('auctions')
@@ -125,7 +124,7 @@ export async function POST(req: NextRequest) {
       const url = new URL(graph(`${videoId}/comments`))
       url.searchParams.set('order', 'reverse_chronological')
       url.searchParams.set('filter', 'stream')
-      url.searchParams.set('limit', '50')
+      url.searchParams.set('limit', '100')
       url.searchParams.set('fields', 'id,message,created_time,from{id,name}')
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -134,41 +133,10 @@ export async function POST(req: NextRequest) {
       })
       return { res: response, graphBody: await response.json().catch(() => null) }
     }
-    let pollId = String(target.live_post_id)
+    // Poll only the round's immutable active video ID. Graph error 100 requires the host
+    // to select a new session; another active Page video is never adopted as an alias.
+    const pollId = String(target.live_post_id)
     let { res, graphBody } = await fetchComments(pollId)
-    let liveNow: string[] | null = null
-    if (!res.ok && graphBody?.error?.code === 100) {
-      // The stored video is unreadable (ended, wrong ID or not this Page's). Re-verify which
-      // live is actually running on the Page instead of failing permanently.
-      const live = await fetchPageLiveVideos(pageId, token, req.signal).catch(() => null)
-      liveNow = live ? live.videos.filter((v) => v.isLive).map((v) => v.id) : null
-      const alt = liveNow?.length === 1 && /^\d{1,64}$/.test(liveNow[0]) ? liveNow[0] : null
-      if (alt && alt !== pollId) {
-        // Never steal a video that already belongs to another round of this tenant.
-        const owner = await db
-          .from('auctions')
-          .select('id')
-          .eq('tenant_id', tenant.data.id)
-          .eq('live_post_id', alt)
-          .limit(1)
-        if (owner.error) throw owner.error
-        if (!owner.data?.length) {
-          const aliases = [...new Set([...(target.live_post_aliases ?? []), alt])]
-          const saved = await db
-            .from('auctions')
-            .update({ live_post_aliases: aliases })
-            .eq('id', target.id)
-          if (saved.error) throw saved.error
-          console.info('[auction/poll] retargeted round to the Page live video', {
-            auctionId: target.id,
-            from: pollId,
-            to: alt,
-          })
-          pollId = alt
-          ;({ res, graphBody } = await fetchComments(pollId))
-        }
-      }
-    }
     if (!res.ok) {
       // Graph error text is safe to log (the token is sent in a header, never in the URL); strip
       // it anyway if it were ever echoed back.
@@ -181,7 +149,6 @@ export async function POST(req: NextRequest) {
         subcode: g?.error_subcode ?? null,
         type: g?.type ?? null,
         message: typeof g?.message === 'string' ? g.message.split(token).join('[REDACTED]') : null,
-        liveNow,
       })
       return json(
         {
@@ -189,26 +156,87 @@ export async function POST(req: NextRequest) {
           reason: g?.code === 100 ? 'VIDEO_NOT_ACCESSIBLE' : 'GRAPH_ERROR',
           code: g?.code ?? null,
           videoId: pollId,
-          liveVideos: liveNow,
         },
         502,
       )
     }
 
+    const cursorId = sessionId ?? target.id
+    const cursor = await db.from('auction_poll_cursors').select('high_water_at,live_video_id,continuation_url')
+      .eq('cursor_id', cursorId).maybeSingle()
+    if (cursor.error) throw cursor.error
+    const continuation = cursor.data?.live_video_id === pollId ? cursor.data.continuation_url : null
+    // A small overlap protects against equal timestamps and delayed Graph indexing. The
+    // webhook queue's unique event key is authoritative for deduplication.
+    const highWater = cursor.data?.live_video_id === pollId ? Date.parse(cursor.data.high_water_at) : 0
+    let pages = (graphBody?.data ?? []) as GraphComment[]
+    let next = continuation ?? graphBody?.paging?.next
+    let reachedBoundary = false
+    const boundary = highWater ? highWater - 120_000 : Date.parse(target.created_at)
+    for (let page = 1; next && page < 10; page++) {
+      const nextUrl = new URL(next)
+      if (nextUrl.hostname !== 'graph.facebook.com' && !nextUrl.hostname.endsWith('.facebook.com')) {
+        next = undefined
+        break
+      }
+      nextUrl.searchParams.delete('access_token')
+      const response = await fetch(nextUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
+        cache: 'no-store',
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) break
+      const batch = (body?.data ?? []) as GraphComment[]
+      pages = pages.concat(batch)
+      next = body?.paging?.next
+      const oldest = Math.min(...batch.map((c) => Date.parse(c.created_time ?? '')).filter(Number.isFinite))
+      if (Number.isFinite(oldest) && oldest <= boundary) {
+        reachedBoundary = true
+        next = undefined
+        break
+      }
+    }
     const startedAt = Date.parse(target.created_at)
-    const comments = ((graphBody?.data ?? []) as GraphComment[])
-      .filter(
-        (c) =>
-          typeof c.id === 'string' &&
-          typeof c.message === 'string' &&
-          c.message.trim() &&
-          typeof c.from?.id === 'string' &&
-          // Comments from before the round opened must never become bids.
-          Date.parse(c.created_time ?? '') >= startedAt &&
-          !seen.has(c.id),
-      )
+    const inspected = pages.map((comment, index) => {
+      const hasFrom = Boolean(comment.from && typeof comment.from === 'object')
+      const hasFromId = typeof comment.from?.id === 'string' && comment.from.id.length > 0
+      const authorIdHasStringType = typeof comment.from?.id === 'string'
+      const createdAt = Date.parse(comment.created_time ?? '')
+      let reason: string | null = null
+      if (typeof comment.id !== 'string' || !comment.id) reason = 'MISSING_COMMENT_ID'
+      else if (typeof comment.message !== 'string' || !comment.message.trim()) reason = 'MISSING_MESSAGE'
+      else if (!authorIdHasStringType) reason = 'MISSING_FROM_ID'
+      else if (!Number.isFinite(createdAt)) reason = 'INVALID_CREATED_TIME'
+      else if (createdAt < startedAt) reason = 'BEFORE_ROUND_START'
+      else if (highWater && !continuation && createdAt < highWater - 120_000) reason = 'BEFORE_HIGH_WATER_OVERLAP'
+      else if (seen.has(comment.id)) reason = 'ALREADY_SEEN_IN_PROCESS'
+      console.info('[auction/poll] comment diagnostic', {
+        index,
+        has_from: hasFrom,
+        has_from_id: hasFromId,
+        decision: reason ? 'skipped' : 'candidate_for_queue',
+        reason,
+      })
+      return { comment, reason }
+    })
+    const comments = inspected
+      .filter(({ reason }) => reason === null)
+      .map(({ comment }) => comment)
       .reverse() // oldest first: the queue orders by insertion sequence
-    if (!comments.length) return json({ polled: true, fetched: 0, queued: 0 })
+    if (!comments.length) {
+      const cursorSaved = await db.from('auction_poll_cursors').upsert({
+        cursor_id: cursorId,
+        auction_id: target.id,
+        tenant_id: tenant.data.id,
+        session_id: sessionId,
+        live_video_id: pollId,
+        high_water_at: new Date(highWater || startedAt).toISOString(),
+        continuation_url: reachedBoundary ? null : next ?? continuation,
+      }, { onConflict: 'cursor_id' })
+      if (cursorSaved.error) throw cursorSaved.error
+      return json({ polled: true, fetched: 0, queued: 0 })
+    }
 
     const payload = {
       object: 'page',
@@ -241,6 +269,25 @@ export async function POST(req: NextRequest) {
       p_events: envelope.events,
     })
     if (saved.error) throw saved.error
+    const newest = Math.max(...comments.map((c) => Date.parse(c.created_time!)))
+    if (Number.isFinite(newest)) {
+      let continuationUrl: string | null = reachedBoundary ? null : next ?? continuation
+      if (continuationUrl) {
+        const safeUrl = new URL(continuationUrl)
+        safeUrl.searchParams.delete('access_token')
+        continuationUrl = safeUrl.toString()
+      }
+      const cursorSaved = await db.from('auction_poll_cursors').upsert({
+        cursor_id: cursorId,
+        auction_id: target.id,
+        tenant_id: tenant.data.id,
+        session_id: sessionId,
+        live_video_id: pollId,
+        high_water_at: new Date(Math.max(highWater || 0, newest)).toISOString(),
+        continuation_url: continuationUrl,
+      }, { onConflict: 'cursor_id' })
+      if (cursorSaved.error) throw cursorSaved.error
+    }
     for (const c of comments) seen.set(c.id!, Date.now())
     if (seen.size > SEEN_MAX)
       for (const key of [...seen.keys()].slice(0, seen.size - SEEN_MAX)) seen.delete(key)

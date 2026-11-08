@@ -1,0 +1,70 @@
+{
+  "hostCloseKeywordMismatch": {
+    "configuredTag": "ปิด",
+    "apiPublishedTag": "ปิด",
+    "parsedApiComment": {
+      "type": "HOST_CONTROL",
+      "action": "close",
+      "count": null
+    },
+    "parsedConfiguredComment": {
+      "type": "HOST_CONTROL",
+      "action": "close",
+      "count": null
+    }
+  },
+  "staleConfirmation": {
+    "bidStatus": "accepted",
+    "sourceTimeBeforeRound": true,
+    "confirmationStatus": "stale",
+    "ordersCreated": 0
+  },
+  "directCloseOnDemand": {
+    "closeResult": {
+      "amount": 250,
+      "status": "awaiting_confirmation",
+      "orderId": null,
+      "winnerId": "900"
+    },
+    "confirmationStatus": "confirmed",
+    "finalState": {
+      "status": "closed",
+      "winner_locked_at": "2026-11-08T18:36:44.538Z",
+      "order_id": "8cf42849-06ab-4ecf-838f-bdce02d2c71d"
+    }
+  },
+  "effectiveFunctions": {
+    "process_live_auction_comment": [
+      {
+        "usesRowLocks": true,
+        "validatesSourceCreatedTime": true,
+        "hasWinnerConfirmation": true,
+        "hasOnDemandBranch": false
+      }
+    ],
+    "process_live_auction_highest_bid": [
+      {
+        "usesRowLocks": true,
+        "validatesSourceCreatedTime": true,
+        "hasWinnerConfirmation": false,
+        "hasOnDemandBranch": false
+      }
+    ],
+    "finalize_live_auction_highest_bid": [
+      {
+        "usesRowLocks": true,
+        "validatesSourceCreatedTime": false,
+        "hasWinnerConfirmation": true,
+        "hasOnDemandBranch": false
+      }
+    ],
+    "finalize_live_auction": [
+      {
+        "usesRowLocks": true,
+        "validatesSourceCreatedTime": false,
+        "hasWinnerConfirmation": false,
+        "hasOnDemandBranch": true
+      }
+    ]
+  }
+}
