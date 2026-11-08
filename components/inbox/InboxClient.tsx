@@ -86,6 +86,9 @@ export function InboxClient({
   }, [inspectorOpen])
   const selectedRef = useRef(selectedId)
   const knownCustomers = useRef(new Set(initialChats.map((chat) => chat.customer.id)))
+  const customerMessageAt = useRef(
+    new Map(initialChats.map((chat) => [chat.customer.id, chat.customer.last_message_at])),
+  )
   const changes = useRef(new Map<string, ThreadChange>())
   const revision = useRef(0)
   const threadRequest = useRef(0)
@@ -418,6 +421,7 @@ export function InboxClient({
         const refreshed = data.chats?.[0]
         if (!refreshed) {
           knownCustomers.current.delete(id)
+          customerMessageAt.current.delete(id)
           recentMessages.delete(id)
           setChats((prev) => prev.filter((chat) => chat.customer.id !== id))
           setSelectedId((previous) => (previous === id ? null : previous))
@@ -425,6 +429,7 @@ export function InboxClient({
         }
         const chat = replayPreview(refreshed, since)
         knownCustomers.current.add(id)
+        customerMessageAt.current.set(id, chat.customer.last_message_at)
         setChats((prev) => [chat, ...prev.filter((item) => item.customer.id !== id)].sort(byRecent))
         setSelectedId((prev) => prev ?? id)
       }
@@ -451,6 +456,9 @@ export function InboxClient({
           const arrived = new Set([...knownCustomers.current].filter((id) => !startingIds.has(id)))
           const oldest = next.at(-1)?.customer
           knownCustomers.current = new Set([...next.map((chat) => chat.customer.id), ...arrived])
+          customerMessageAt.current = new Map(
+            next.map((chat) => [chat.customer.id, chat.customer.last_message_at]),
+          )
           setChats((previous) =>
             [
               ...next,
@@ -539,18 +547,25 @@ export function InboxClient({
         )
       }
       const channelName = inboxChannelName('inbox', tenantId)
-      const channel = db
-        // Removal is asynchronous: never reuse a channel being cleaned up by
-        // Strict Mode, navigation or another mounted Inbox for this tenant.
-        .channel(channelName)
-        .on(
+      // Remove/recreate this channel when the active customer changes so the
+      // thread's INSERT stream is scoped at the Realtime subscription itself.
+      const channel = db.channel(channelName)
+      if (selectedId) {
+        channel.on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'messages' },
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `customer_id=eq.${selectedId}`,
+          },
           ({ new: row }) => {
             const m = row as MessageRow
             apply(m)
           },
         )
+      }
+      channel
         // bot notices are rewritten when the Send API fails ("[ส่งไม่สำเร็จ] ...")
         .on(
           'postgres_changes',
@@ -594,14 +609,22 @@ export function InboxClient({
             if (p.eventType === 'DELETE') {
               const id = String(p.old.id ?? '')
               knownCustomers.current.delete(id)
+              customerMessageAt.current.delete(id)
               setChats((previous) => previous.filter((chat) => chat.customer.id !== id))
               setSelectedId((previous) => (previous === id ? null : previous))
               return
             }
             const c = p.new as CustomerRow
             if (mine(c.tenant_id)) {
-              if (!knownCustomers.current.has(c.id)) void refreshCustomer(c.id)
+              // Customer rows are the conversation list. Refresh their preview
+              // after last_message_at changes; metadata refresh updates unread counts.
+              if (
+                !knownCustomers.current.has(c.id) ||
+                customerMessageAt.current.get(c.id) !== c.last_message_at
+              )
+                void refreshCustomer(c.id)
               knownCustomers.current.add(c.id)
+              customerMessageAt.current.set(c.id, c.last_message_at)
             } else knownCustomers.current.delete(c.id)
             setChats((prev) => {
               const existing = prev.find((x) => x.customer.id === c.id)
@@ -689,7 +712,7 @@ export function InboxClient({
         void db.removeChannel(channel)
       }
     })
-  }, [tenantId])
+  }, [tenantId, selectedId])
 
   const selectedCustomer = chats.find((c) => c.customer.id === selectedId)?.customer ?? null
   const currentState =

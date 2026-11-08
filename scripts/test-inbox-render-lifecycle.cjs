@@ -4,7 +4,7 @@ const { test } = require('node:test'),
   vm = require('node:vm'),
   ts = require('typescript'),
   load = require('./helpers/load-typescript.cjs')
-test('Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room changes', async () => {
+test('Inbox filters message inserts to the active customer and replaces its channel on room changes', async () => {
   const values = [],
     memos = [],
     effects = [],
@@ -196,6 +196,8 @@ test('Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room 
     .props.onOpen('b')
   render()
   await flush()
+  assert.equal(channels.length, 2)
+  assert.equal(removed.length, 1)
   const message = {
     id: 'message',
     customer_id: 'b',
@@ -204,23 +206,25 @@ test('Inbox keeps its channel through SUBSCRIBED state, prop rerenders and room 
     created_at: '2026-10-20T00:00:00Z',
     attachments: [],
   }
-  channels[0].listeners
+  const activeChannel = channels.at(-1)
+  const activeInsert = activeChannel.listeners
     .find((l) => l.filter.table === 'messages' && l.filter.event === 'INSERT')
-    .callback({ new: message })
+  assert.equal(activeInsert.filter.filter, 'customer_id=eq.b')
+  activeInsert.callback({ new: message })
   render()
   assert.ok(
     all(tree)
       .find((n) => n.type === 'Conversation')
       .props.messages.some((m) => m.id === 'message'),
   )
-  assert.equal(channels.length, 1)
-  assert.equal(removed.length, 0)
+  assert.equal(channels.length, 2)
+  assert.equal(removed.length, 1)
   props.tenant = { ...props.tenant, id: 'other-tenant' }
   render()
   await flush()
-  assert.equal(channels.length, 2)
-  assert.equal(removed.length, 1)
-  for (const effect of effects) effect?.cleanup?.()
+  assert.equal(channels.length, 3)
   assert.equal(removed.length, 2)
+  for (const effect of effects) effect?.cleanup?.()
+  assert.equal(removed.length, 3)
   assert.equal(timers.size, 0)
 })
