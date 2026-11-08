@@ -1,0 +1,31 @@
+{
+  "baseline": {
+    "tests": 957,
+    "pass": 896,
+    "fail": 61,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "current": {
+    "tests": 984,
+    "pass": 926,
+    "fail": 58,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "added": [
+    "bootstrap financial functions and timestamp volatility equal migration source (bundle regeneration required)"
+  ],
+  "intentional": [
+    "bootstrap financial functions and timestamp volatility equal migration source (bundle regeneration required)"
+  ],
+  "unexpected": [],
+  "resolved": [
+    "all installed assets are local, licensed, hash-matched, rasterizable SVG with correct canonical manifest association",
+    "cumulative tabs atomically reopen, accept partials, charge shipping once and fence duplicate/foreign payments",
+    "session financial transactions preserve proofs/payments, fence revisions and limit reminder dispatch per Page",
+    "paid bills become parcel allocations; confirmation, stale print fencing, shipment and later wins preserve ledger and labels"
+  ]
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "signature": "public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)",
+    "body_md5": "091b062e3b8d978ae94311e5b6a1ac67"
+  },
+  {
+    "signature": "public.finalize_live_auction(uuid,uuid,uuid,boolean)",
+    "body_md5": "6560e4c09610a3ed2c9d52623b9f48e5"
+  },
+  {
+    "signature": "public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)",
+    "body_md5": "928d06341b80641be8511f9e67d583c1"
+  },
+  {
+    "signature": "public.close_due_live_auction(uuid,uuid,boolean,boolean)",
+    "body_md5": "155def5bb234558e7eeea0df0602fe26"
+  }
+]

@@ -1,0 +1,1121 @@
+diff --git a/app/api/cron/facebook-webhooks/route.ts b/app/api/cron/facebook-webhooks/route.ts
+index 63c76fd..c83cb5c 100644
+--- a/app/api/cron/facebook-webhooks/route.ts
++++ b/app/api/cron/facebook-webhooks/route.ts
+@@ -23,7 +23,7 @@ async function run(req: NextRequest) {
+     return NextResponse.json(
+       await singleFlight('cron:facebook-webhooks', async () => {
+         const summary = await runFacebookWebhookWorker(supabaseAdmin(), handleFacebookWebhookEvent)
+-        const expired = await supabaseAdmin().rpc('expire_live_auctions')
++        const expired = await supabaseAdmin().rpc('expire_live_auctions_report')
+         if (expired.error) console.error('[auction/expiry] recovery failed', { code: expired.error.code })
+         try {
+           await deliverAuctionNotifications()
+@@ -42,7 +42,7 @@ async function run(req: NextRequest) {
+         } catch {
+           console.warn('[customer-tabs/reminder] worker unavailable or not installed')
+         }
+-        return summary
++        return { ...summary, auctionExpiry: expired.error ? { closed: 0, failed: 1, unavailable: true } : expired.data }
+       }),
+       { headers: { 'Cache-Control': 'no-store' } },
+     )
+diff --git a/app/api/live-auction/workspace/route.ts b/app/api/live-auction/workspace/route.ts
+index 8d74d05..879d14f 100644
+--- a/app/api/live-auction/workspace/route.ts
++++ b/app/api/live-auction/workspace/route.ts
+@@ -30,21 +30,11 @@ function failure(error: unknown) {
+   return auctionReply({ error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, 503)
+ }
+ 
+-// Workspace reads are optional hydration. Writes still report database failures.
+-async function workspaceRead<T>(
+-  query: PromiseLike<{ data: T; error: unknown }>,
+-): Promise<T | null> {
+-  try {
++// A failed read must never masquerade as a new, empty workspace.
++async function workspaceRead<T>(query: PromiseLike<{ data: T; error: unknown }>): Promise<T> {
+   const result = await query
+   if (result.error) throw result.error
+   return result.data
+-  } catch (error) {
+-    const code = (error as { code?: string } | null)?.code
+-    console.error('[live-auction/workspace] optional read failed', {
+-      code: /^[A-Z0-9_]{1,80}$/i.test(code ?? '') ? code : 'UNAVAILABLE',
+-    })
+-    return null
+-  }
+ }
+ 
+ export async function GET(req: NextRequest) {
+@@ -74,6 +64,7 @@ export async function GET(req: NextRequest) {
+     const session = await workspaceRead(
+       query.order('created_at', { ascending: false }).limit(1).maybeSingle(),
+     )
++    if (sessionId && !session) return auctionReply({ ready: false, error: 'Session not found' }, 404)
+     // A new live can inherit the merchant's previous preferences without creating data on GET.
+     let previous = session
+     if (!previous && pageId) {
+@@ -100,8 +91,20 @@ export async function GET(req: NextRequest) {
+         : await workspaceRead(
+             rounds.order('created_at', { ascending: false }).limit(1).maybeSingle(),
+           )
++    let reviews = db.from('auction_deliveries')
++      .select('channel,status,auctions!inner(tenant_id,page_id,live_post_id)')
++      .eq('auctions.tenant_id', tenantId!)
++      .in('status', ['requires_review', 'failed'])
++    if (selectedPage) reviews = reviews.eq('auctions.page_id', selectedPage)
++    if (selectedPost) reviews = reviews.eq('auctions.live_post_id', selectedPost)
++    const reviewRows = await workspaceRead(reviews.limit(50))
++    const deliveryReviews = (reviewRows ?? []).map(row => ({
++      channel: row.channel === 'private' ? 'private' : 'public',
++      status: row.status === 'failed' ? 'failed' : 'requires_review',
++    }))
+     return auctionReply({
+       ready: true,
++      deliveryReviews,
+       auction: round,
+       bids: [],
+       session,
+@@ -114,16 +117,8 @@ export async function GET(req: NextRequest) {
+       preferencesOnly: !session,
+     })
+   } catch {
+-    console.error('[live-auction/workspace] using empty workspace')
+-    return auctionReply({
+-      ready: true,
+-      auction: null,
+-      bids: [],
+-      session: null,
+-      round: null,
+-      settings: null,
+-      preferencesOnly: true,
+-    })
++    console.error('[live-auction/workspace]', { category: 'READ_UNAVAILABLE' })
++    return auctionReply({ ready: false, degraded: true, error: 'Workspace temporarily unavailable. Please retry.' }, 503)
+   }
+ }
+ 
+diff --git a/app/api/live-cf/auction/poll-comments/route.ts b/app/api/live-cf/auction/poll-comments/route.ts
+index a461bc6..d646f4e 100644
+--- a/app/api/live-cf/auction/poll-comments/route.ts
++++ b/app/api/live-cf/auction/poll-comments/route.ts
+@@ -32,13 +32,13 @@ type GraphComment = {
+   from?: { id?: string; name?: string }
+ }
+ 
+-function graphPagingUrl(value: string): URL {
++function graphPagingUrl(value: string, expectedPath: string): URL {
+   const url = new URL(value)
+   if (
+     url.protocol !== 'https:' ||
+     url.hostname !== 'graph.facebook.com' ||
+     url.username ||
+-    url.password
++    url.password || url.pathname !== expectedPath
+   )
+     throw Object.assign(new Error('INVALID_GRAPH_PAGING_URL'), { code: 'INVALID_GRAPH_PAGING_URL' })
+   url.searchParams.delete('access_token')
+@@ -131,10 +131,12 @@ export async function POST(req: NextRequest) {
+     const token = pageTokenFor(tenant.data)
+     if (!token) return json({ error: 'ยังไม่ได้เชื่อมต่อ Facebook' }, 409)
+ 
++    const pollPath = new URL(graph(`${target.live_post_id}/comments`)).pathname
+     const fetchComments = async (videoId: string) => {
+-      const url = graphPagingUrl(graph(`${videoId}/comments`))
++      const url = graphPagingUrl(graph(`${videoId}/comments`), pollPath)
+       url.searchParams.set('order', 'reverse_chronological')
+       url.searchParams.set('filter', 'stream')
++      url.searchParams.set('live_filter', 'no_filter')
+       url.searchParams.set('limit', '100')
+       url.searchParams.set('fields', 'id,message,created_time,from{id,name}')
+       const response = await fetch(url, {
+@@ -179,7 +181,7 @@ export async function POST(req: NextRequest) {
+       cursor.data?.live_video_id === pollId ? Date.parse(cursor.data.high_water_at) : 0
+     let pages = (graphBody?.data ?? []) as GraphComment[]
+     const pageOneNext = graphBody?.paging?.next as string | undefined
+-    const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext).toString() : null
++    const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext, pollPath).toString() : null
+     const overlapMs = 20_000
+     // SQL uses auctions.created_at as the round's started_at boundary.
+     const startedAt = Date.parse(target.created_at)
+@@ -201,9 +203,9 @@ export async function POST(req: NextRequest) {
+         if (
+           pageOneLink &&
+           cursorState.continuation_anchor_url &&
+-          graphPagingUrl(cursorState.continuation_anchor_url).toString() === pageOneLink
++          graphPagingUrl(cursorState.continuation_anchor_url, pollPath).toString() === pageOneLink
+         ) {
+-          next = graphPagingUrl(cursorState.continuation_url).toString()
++          graphPagingUrl(cursorState.continuation_url, pollPath)
+           boundary = Math.max(startedAt, savedBoundary)
+         }
+       } catch {
+@@ -220,7 +222,7 @@ export async function POST(req: NextRequest) {
+       next = undefined
+     }
+     for (let page = 2; next && page <= 10; page++) {
+-      const nextUrl = graphPagingUrl(next)
++      const nextUrl = graphPagingUrl(next, pollPath)
+       const response = await fetch(nextUrl, {
+         headers: { Authorization: `Bearer ${token}` },
+         signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
+@@ -238,7 +240,9 @@ export async function POST(req: NextRequest) {
+       }
+       const batch = (body?.data ?? []) as GraphComment[]
+       pages = pages.concat(batch)
+-      next = body?.paging?.next
++      // Follow the freshly observed chain. A matching old anchor alone cannot
++      // prove that intermediate pages have not shifted since the previous poll.
++      next = body?.paging?.next ? graphPagingUrl(body.paging.next, pollPath).toString() : undefined
+       if (oldestTimestamp(batch) <= boundary) {
+         next = undefined
+         break
+@@ -290,7 +294,7 @@ export async function POST(req: NextRequest) {
+       // This is the single persistence choke-point: validate and strip any legacy
+       // access_token before the continuation URL can reach the database.
+       const safeContinuation = continuationForSave
+-        ? graphPagingUrl(continuationForSave).toString()
++        ? graphPagingUrl(continuationForSave, pollPath).toString()
+         : null
+       const highWaterToSave = Math.max(highWater || 0, newestSeen || 0, startedAt)
+       const cursorSaved = await db.from('auction_poll_cursors').upsert(
+diff --git a/components/live-cf/AuctionUnifiedForm.tsx b/components/live-cf/AuctionUnifiedForm.tsx
+index 7e7b2aa..a036066 100644
+--- a/components/live-cf/AuctionUnifiedForm.tsx
++++ b/components/live-cf/AuctionUnifiedForm.tsx
+@@ -34,6 +34,7 @@ import { field, orange, read } from './session-ui'
+ import { LiveAuctionTimer } from './LiveAuctionTimer'
+ 
+ type Config = {
++  ready: boolean
+   session: LiveSession | null
+   round: Auction | null
+   settings: SessionAutomation | null
+@@ -100,6 +101,7 @@ export function AuctionUnifiedForm({
+   const [source, setSource] = useState<{ pageId: string; livePostId: string } | null>(null)
+   const [reload, setReload] = useState(0)
+   const [busy, setBusy] = useState(false)
++  const [degraded, setDegraded] = useState(true)
+   const [error, setError] = useState(''),
+     [notice, setNotice] = useState('')
+   const dirty = useRef(false)
+@@ -146,6 +148,7 @@ export function AuctionUnifiedForm({
+   useEffect(() => {
+     const controller = new AbortController()
+     setError('')
++    setDegraded(true)
+     const params = new URLSearchParams({ tenantId })
+     if (source?.pageId) {
+       params.set('pageId', source.pageId)
+@@ -153,7 +156,9 @@ export function AuctionUnifiedForm({
+     } else if (sessionId) params.set('sessionId', sessionId)
+     void read(`/api/live-auction/workspace?${params}`, controller.signal)
+       .then((config: Config) => {
++        if (!config.ready) throw new Error('Workspace unavailable')
+         if (!controller.signal.aborted) {
++          setDegraded(false)
+           // A slow settings read must never replace edits made while it was loading.
+           if (!dirty.current) hydrate(config, source)
+           else setBase(config)
+@@ -162,7 +167,10 @@ export function AuctionUnifiedForm({
+         }
+       })
+       .catch(() => {
+-        // Saved settings are optional; keep the usable draft on read failures.
++        if (!controller.signal.aborted) {
++          setDegraded(true)
++          setError('โหลดข้อมูลไม่สำเร็จ กรุณาโหลดใหม่ก่อนบันทึก')
++        }
+       })
+     return () => controller.abort()
+     // Hydrate only on explicit selection/reload, never on the dashboard polling interval.
+@@ -204,7 +212,7 @@ export function AuctionUnifiedForm({
+   }
+   async function handleSubmitAll(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault()
+-    if (busy) return
++    if (busy || degraded) return
+     setBusy(true)
+     setError('')
+     setNotice('')
+@@ -235,9 +243,12 @@ export function AuctionUnifiedForm({
+       })
+       const result = await response.json()
+       if (!response.ok) throw new Error(result.error || 'บันทึกไม่สำเร็จ')
++      setDegraded(true)
+       const config: Config = await read(
+         `/api/live-auction/workspace?${new URLSearchParams({ tenantId, sessionId: result.sessionId })}`,
+       )
++      if (!config.ready) throw new Error('Workspace unavailable')
++      setDegraded(false)
+       hydrate(config)
+       setSource(null)
+       request.current = { key: '', id: '' }
+@@ -249,7 +260,7 @@ export function AuctionUnifiedForm({
+       setBusy(false)
+     }
+   }
+-  const disabled = busy || !!base?.session?.ended_at
++  const disabled = busy || degraded || !!base?.session?.ended_at
+   const locked =
+     disabled ||
+     (!base?.preferencesOnly && base?.round?.status === 'active' && !!base.round.leading_bidder_id)
+@@ -352,6 +363,7 @@ export function AuctionUnifiedForm({
+           </span>
+         </label>
+       )}
++      {degraded && <button type="button" className={orange} disabled={busy} onClick={() => setReload(n => n + 1)}>โหลดข้อมูลใหม่</button>}
+       {error && (
+         <p
+           role="alert"
+diff --git a/components/live-cf/LiveCommentPoller.tsx b/components/live-cf/LiveCommentPoller.tsx
+index 6843d9b..42545a6 100644
+--- a/components/live-cf/LiveCommentPoller.tsx
++++ b/components/live-cf/LiveCommentPoller.tsx
+@@ -7,13 +7,21 @@ export function LiveCommentPoller({
+   pageId,
+   sessionId,
+   onVideoUnavailable,
++  onSkippedAuthors,
++  onSkipped,
+ }: {
+   pageId: string
+   sessionId: string
+   onVideoUnavailable?: () => void
++  onSkippedAuthors?: (count: number) => void
++  onSkipped?: (counts: Record<string, number>) => void
+ }) {
+   const unavailable = useRef(onVideoUnavailable)
+   unavailable.current = onVideoUnavailable
++  const skippedAuthors = useRef(onSkippedAuthors)
++  skippedAuthors.current = onSkippedAuthors
++  const skipped = useRef(onSkipped)
++  skipped.current = onSkipped
+   useEffect(() => {
+     let stopped = false
+     let timer: ReturnType<typeof setTimeout> | undefined
+@@ -38,6 +46,16 @@ export function LiveCommentPoller({
+           delay = 10_000
+         } else {
+           const data = await response.json().catch(() => null)
++          if (response.ok && data?.skipped && !controller.signal.aborted) {
++            const counts: Record<string, number> = {}
++            for (const reason of ['MISSING_FROM_ID', 'MISSING_COMMENT_ID', 'MISSING_MESSAGE', 'INVALID_CREATED_TIME', 'BEFORE_ROUND_START', 'BEFORE_HIGH_WATER_OVERLAP', 'ALREADY_SEEN_IN_PROCESS']) {
++              const value = data.skipped[reason]
++              if (Number.isSafeInteger(value) && value > 0) counts[reason] = value
++            }
++            skipped.current?.(counts)
++            const count = data.skipped.MISSING_FROM_ID ?? 0
++            if (Number.isSafeInteger(count) && count >= 0) skippedAuthors.current?.(count)
++          }
+           if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
+             stopped = true
+             if (!controller.signal.aborted) unavailable.current?.()
+diff --git a/components/live-cf/LiveSessionDashboard.tsx b/components/live-cf/LiveSessionDashboard.tsx
+index 199c0d4..c12630c 100644
+--- a/components/live-cf/LiveSessionDashboard.tsx
++++ b/components/live-cf/LiveSessionDashboard.tsx
+@@ -66,6 +66,10 @@ export function LiveSessionDashboard({
+   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
+   const [error, setError] = useState('')
+   const [notice, setNotice] = useState('')
++  const [skippedAuthors, setSkippedAuthors] = useState(0)
++  const [skips, setSkips] = useState<Record<string, number>>({})
++  const [reviews, setReviews] = useState<{ channel: string; status: string }[]>([])
++  const [reviewsUnavailable, setReviewsUnavailable] = useState(false)
+   const [loading, setLoading] = useState(true)
+   const [version, setVersion] = useState(0)
+   const [updated, setUpdated] = useState('')
+@@ -114,6 +118,17 @@ export function LiveSessionDashboard({
+               setUpdated(new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }))
+             }
+           }
++          if (allInOne && chosen) {
++            try {
++              const workspace = await read('/api/live-auction/workspace?' + new URLSearchParams({ tenantId, sessionId: chosen }), controller.signal)
++              if (!controller.signal.aborted && request === sequence.current) {
++                setReviews(workspace.deliveryReviews ?? [])
++                setReviewsUnavailable(false)
++              }
++            } catch {
++              if (!controller.signal.aborted) setReviewsUnavailable(true)
++            }
++          }
+           if (!controller.signal.aborted) setError('')
+         }
+       } catch (cause) {
+@@ -159,6 +174,10 @@ export function LiveSessionDashboard({
+     [tenantId, sessionId],
+   )
+   function choose(id: string) {
++    setSkippedAuthors(0)
++    setSkips({})
++    setReviews([])
++    setReviewsUnavailable(false)
+     setSessionId(id)
+     setSnapshot(null)
+     setSelected([])
+@@ -425,12 +444,14 @@ export function LiveSessionDashboard({
+         (data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id) && (
+           // Keyed by session: switching the selected live resets state and retargets at once.
+           <LiveCommentPoller
++            onSkipped={setSkips}
+             key={sessionId}
+             sessionId={sessionId}
+             pageId={(data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id)!}
+             onVideoUnavailable={() =>
+               setNotice('ไม่สามารถเข้าถึงวิดีโอไลฟ์นี้ได้ กรุณาเลือกไลฟ์หรือเซสชันใหม่')
+             }
++            onSkippedAuthors={setSkippedAuthors}
+           />
+         )}
+       {!auction && (
+@@ -464,6 +485,25 @@ export function LiveSessionDashboard({
+           {notice}
+         </p>
+       )}
++      {auction && (reviews.length > 0 || reviewsUnavailable) && (
++        <section role="alert" className="rounded-xl border border-red-200 p-3 text-sm text-red-900">
++          <strong>การส่งข้อความที่ต้องตรวจสอบ ({reviews.length}{reviews.length === 50 ? '+' : ''})</strong>
++          {reviewsUnavailable && <p>ยังตรวจสอบสถานะการส่งไม่ได้ กรุณาโหลดใหม่</p>}
++          <ul>{reviews.map((review, index) => <li key={index}>
++            {review.channel === 'private' ? 'ข้อความส่วนตัว' : 'ตอบกลับสาธารณะ'}: {review.status === 'failed' ? 'ส่งไม่สำเร็จ' : 'รอตรวจสอบ'}
++          </li>)}</ul>
++        </section>
++      )}
++      {auction && Object.entries(skips).some(([reason]) => reason !== 'MISSING_FROM_ID') && (
++        <div role="status" className="text-sm text-slate-600">
++          {Object.entries({ MISSING_COMMENT_ID: 'ไม่มีรหัสคอมเมนต์', MISSING_MESSAGE: 'ไม่มีข้อความ', INVALID_CREATED_TIME: 'เวลาไม่ถูกต้อง', BEFORE_ROUND_START: 'ก่อนเริ่มรอบ', BEFORE_HIGH_WATER_OVERLAP: 'ก่อนช่วงตรวจสอบ', ALREADY_SEEN_IN_PROCESS: 'ตรวจสอบแล้ว' }).map(([reason, label]) => skips[reason] ? <p key={reason}>{label}: {skips[reason]}</p> : null)}
++        </div>
++      )}
++      {auction && skippedAuthors > 0 && (
++        <p role="status" className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
++          มี {skippedAuthors.toLocaleString('th-TH')} คอมเมนต์ที่ไม่มีข้อมูลผู้เขียน
++        </p>
++      )}
+ 
+       {!auction && loading && !data && <p role="status">กำลังโหลดข้อมูลไลฟ์สด…</p>}
+       {auction ? (
+diff --git a/lib/integrations/facebook/webhook-handler.ts b/lib/integrations/facebook/webhook-handler.ts
+index 311abdf..74d6e40 100644
+--- a/lib/integrations/facebook/webhook-handler.ts
++++ b/lib/integrations/facebook/webhook-handler.ts
+@@ -405,7 +405,6 @@ async function onMessage(
+       if (fallback.error) {
+         console.warn('[fb webhook] customer fallback name save failed', {
+           tenantId: tenant?.id ?? null,
+-          senderId: psid,
+           code: fallback.error.code,
+         })
+       } else if (fallback.data?.display_name) {
+@@ -416,7 +415,6 @@ async function onMessage(
+       // must never turn a successful inbound delivery into a failed webhook.
+       console.warn('[fb webhook] customer fallback name refresh failed', {
+         tenantId: tenant?.id ?? null,
+-        senderId: psid,
+       })
+     }
+   }
+@@ -504,30 +502,23 @@ async function onMessage(
+         if (profileError) {
+           console.error('[fb webhook] customer profile save failed', {
+             tenantId: tenant.id,
+-            senderId: psid,
+             code: profileError.code,
+-            message: profileError.message,
+           })
+         } else if (savedProfile) {
+           console.log('[fb webhook] customer profile saved', {
+-            customerId: savedProfile.id,
+             tenantId: savedProfile.tenant_id,
+-            senderId: savedProfile.platform_user_id,
+             namePresent: Boolean(savedProfile.display_name),
+             avatarPresent: Boolean(savedProfile.avatar_url),
+             updatedFields: Object.keys(profile),
+           })
+         } else {
+           console.warn('[fb webhook] customer profile not saved: no matching tenant/PSID', {
+-            customerId: customer.id,
+             tenantId: tenant.id,
+-            senderId: psid,
+           })
+         }
+       } else {
+         console.warn('[fb webhook] customer profile unchanged: Graph returned no usable profile', {
+           tenantId: tenant.id,
+-          senderId: psid,
+         })
+       }
+     } catch {
+@@ -1224,7 +1215,6 @@ async function loadCommentRules(
+       tenantId,
+       pageId,
+       code: error.code,
+-      message: error.message,
+     })
+     throw new Error(
+       `comment rules: ${error.message} (did you run supabase/comment-rules.sql and platform.sql?)`,
+diff --git a/lib/integrations/facebook/webhook-http.ts b/lib/integrations/facebook/webhook-http.ts
+index cea676c..4d2bb1d 100644
+--- a/lib/integrations/facebook/webhook-http.ts
++++ b/lib/integrations/facebook/webhook-http.ts
+@@ -190,7 +190,7 @@ export async function postFacebookWebhook(req: NextRequest) {
+         try {
+           await drain
+         } catch (workerErr) {
+-          console.error('[facebook-webhook/worker] deferred drain error', workerErr)
++          console.error('[facebook-webhook/worker] deferred drain error', { category: 'WORKER_FAILURE' })
+         } finally {
+           if (activeDrain === drain) activeDrain = null
+         }
+@@ -215,8 +215,8 @@ export async function postFacebookWebhook(req: NextRequest) {
+       })
+       return new NextResponse(error.message, { status: error.status })
+     }
+-    console.log('[WEBHOOK DROP] เหตุผล:', { reason: 'RECEIVER_EXCEPTION', status: 503, error })
+-    console.error('[facebook-webhook/ingress] request unexpected error', error)
++    console.log('[WEBHOOK DROP] เหตุผล:', { reason: 'RECEIVER_EXCEPTION', status: 503 })
++    console.error('[facebook-webhook/ingress] request unexpected error', { category: 'RECEIVER_EXCEPTION' })
+     return new NextResponse('Webhook unavailable', {
+       status: 503,
+       headers: { 'Retry-After': '30' },
+diff --git a/scripts/build-full-database-setup.cjs b/scripts/build-full-database-setup.cjs
+index ee44127..a676e09 100644
+--- a/scripts/build-full-database-setup.cjs
++++ b/scripts/build-full-database-setup.cjs
+@@ -144,6 +144,7 @@ const groups = [
+       'inbox-realtime-access.sql',
+       'live-auction-deadlines.sql',
+       'live-auction-audit-hardening.sql',
++      'live-auction-audit-hardening-2.sql',
+     ],
+   ],
+ ]
+@@ -319,6 +320,7 @@ const prerequisites = {
+   'inbox-realtime-access.sql': ['facebook-message-echoes.sql', 'feature-access.sql'],
+   'live-auction-deadlines.sql': ['facebook-comment-configuration.sql', 'live-auction-production-readiness.sql'],
+   'live-auction-audit-hardening.sql': ['facebook-comment-configuration.sql', 'live-auction-on-demand.sql', 'live-auction-deadlines.sql'],
++  'live-auction-audit-hardening-2.sql': ['live-auction-audit-hardening.sql', 'live-auction-deadlines.sql'],
+   'inbox-load-indexes.sql': ['inbox-realtime.sql'],
+   'facebook-inbox-recovery.sql': ['facebook-webhook-queue.sql', 'smart-inbox.sql'],
+   'live-cf-variants.sql': ['commerce-v2.sql', 'facebook-webhook-queue.sql'],
+diff --git a/scripts/test-auction-background.cjs b/scripts/test-auction-background.cjs
+index 196bee4..699b6e2 100644
+--- a/scripts/test-auction-background.cjs
++++ b/scripts/test-auction-background.cjs
+@@ -151,3 +151,55 @@ test('inaccessible videos notify once and stop headless polling', async () => {
+   assert.equal(scheduled, 0)
+   cleanup()
+ })
++
++test('headless polling forwards only aggregate missing-author counts to the dashboard', async () => {
++  let effect,
++    count = null
++  const { LiveCommentPoller } = load(
++    'components/live-cf/LiveCommentPoller.tsx',
++    {
++      react: {
++        useRef: (current) => ({ current }),
++        useEffect: (callback) => {
++          effect = callback
++        },
++      },
++    },
++    {
++      AbortController,
++      setTimeout: () => 1,
++      clearTimeout() {},
++      fetch: async () => ({
++        status: 200,
++        ok: true,
++        json: async () => ({ skipped: { MISSING_FROM_ID: 4 } }),
++      }),
++    },
++  )
++  assert.equal(
++    LiveCommentPoller({
++      pageId: '100',
++      sessionId: 'session',
++      onSkippedAuthors: (value) => {
++        count = value
++      },
++    }),
++    null,
++  )
++  const cleanup = effect()
++  await new Promise(setImmediate)
++  assert.equal(count, 4)
++  cleanup()
++})
++
++test('headless polling exposes only recognized aggregate skip reasons', async () => {
++ let effect, result
++ const { LiveCommentPoller } = load('components/live-cf/LiveCommentPoller.tsx', {
++ react: { useRef: current => ({ current }), useEffect: callback => { effect = callback } }
++ }, { AbortController, setTimeout: () => 1, clearTimeout() {}, fetch: async () => ({ status: 200, ok: true,
++ json: async () => ({ skipped: { MISSING_MESSAGE: 3, INVALID_CREATED_TIME: 2, MISSING_FROM_ID: 1, unexpected_private_data: 7 } }) }) })
++ assert.equal(LiveCommentPoller({ pageId: '100', sessionId: 'fixture', onSkipped: value => { result = value } }), null)
++ const cleanup = effect(); await new Promise(setImmediate)
++ assert.deepEqual(JSON.parse(JSON.stringify(result ?? null)), { MISSING_FROM_ID: 1, MISSING_MESSAGE: 3, INVALID_CREATED_TIME: 2 })
++ cleanup()
++})
+diff --git a/scripts/test-auction-cron.cjs b/scripts/test-auction-cron.cjs
+index 88f0c47..cd26e67 100644
+--- a/scripts/test-auction-cron.cjs
++++ b/scripts/test-auction-cron.cjs
+@@ -12,9 +12,9 @@ test('external cron GET requests require authentication and drain webhook and au
+       'node:crypto': require('node:crypto'),
+       'next/server': { NextResponse },
+       '@/lib/supabase/server': { supabaseAdmin: () => ({ rpc: async (name) => {
+-        assert.equal(name, 'expire_live_auctions')
++        assert.equal(name, 'expire_live_auctions_report')
+         calls.push('expiry')
+-        return { data: 1, error: null }
++        return { data: { closed: 1, failed: 2 }, error: null }
+       } }) },
+       '@/lib/integrations/facebook/webhook-worker': {
+         runFacebookWebhookWorker: async () => {
+@@ -50,6 +50,6 @@ test('external cron GET requests require authentication and drain webhook and au
+   assert.deepEqual(calls, [])
+   const result = await route.GET(request('test-cron-secret'))
+   assert.equal(result.status, 200)
+-  assert.deepEqual(await result.json(), { completed: 1 })
++  assert.deepEqual(await result.json(), { completed: 1, auctionExpiry: { closed: 1, failed: 2 } })
+   assert.deepEqual(calls, ['webhooks', 'expiry', 'outbox', 'tracking', 'reminders'])
+ })
+diff --git a/scripts/test-auction-poller-hardening.cjs b/scripts/test-auction-poller-hardening.cjs
+index bdbb75a..9afa6b7 100644
+--- a/scripts/test-auction-poller-hardening.cjs
++++ b/scripts/test-auction-poller-hardening.cjs
+@@ -224,6 +224,7 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+ }
+ 
+ const pageUrl = (page) => `https://graph.facebook.com/v25.0/${videoId}/comments?page=${page}`
++module.exports = { fixture, comment, pageUrl }
+ 
+ test('queues all 250 comments across Graph pages and advances the cursor', async () => {
+   const createdAt = (index) =>
+@@ -408,11 +409,14 @@ test('linked continuation resumes backlog without applying the advanced high-wat
+     pages: (page) =>
+       page === 1
+         ? { data: [comment('fresh', '2026-02-01T00:10:01Z')], paging: { next: pageUrl(2) } }
++        : page === 2
++          ? { data: [comment('bridge', '2026-02-01T00:09:59Z')], paging: { next: pageUrl(3) } }
+           : { data: [comment('backlog', '2026-02-01T00:01:00Z')] },
+   })
+   const result = await f.poll()
+-  assert.equal(result.body.queued, 2)
+-  assert.equal(new URL(f.graphCalls[1].url).searchParams.get('page'), '11')
++  assert.equal(result.body.queued, 3)
++  assert.equal(new URL(f.graphCalls[1].url).searchParams.get('page'), '2')
++  assert.equal(new URL(f.graphCalls[2].url).searchParams.get('page'), '3')
+   assert.equal(f.tables.auction_poll_cursors[0].continuation_url, null)
+   assert.equal(f.tables.auction_poll_cursors[0].high_water_at, '2026-02-01T00:10:01.000Z')
+ })
+diff --git a/scripts/test-auction-workspace-api.cjs b/scripts/test-auction-workspace-api.cjs
+index 498149c..cad2ed7 100644
+--- a/scripts/test-auction-workspace-api.cjs
++++ b/scripts/test-auction-workspace-api.cjs
+@@ -32,6 +32,7 @@ test('workspace API restores scoped saved values and commits a single normalized
+         auction_settings: settings,
+       },
+     ],
++    auction_deliveries: [{ channel: 'private', status: 'requires_review', comment_id: 'PRIVATE_COMMENT', bidder_id: 'PRIVATE_AUTHOR', body: 'PRIVATE_BODY' }],
+     auctions: [
+       {
+         id: randomUUID(),
+@@ -50,6 +51,8 @@ test('workspace API restores scoped saved values and commits a single normalized
+       const filters = []
+       const query = {
+         select: () => query,
++        in: () => query,
++        then(resolve) { return Promise.resolve({ data: rows[table] ?? [], error: table === failedTable ? { code: '42501' } : null }).then(resolve) },
+         order: () => query,
+         limit: () => query,
+         eq(key, value) {
+@@ -135,6 +138,8 @@ test('workspace API restores scoped saved values and commits a single normalized
+       ),
+     )
+   ).json()
++  assert.deepEqual(restored.deliveryReviews, [{ channel: 'private', status: 'requires_review' }])
++  assert.ok(!JSON.stringify(restored).includes('PRIVATE_'))
+   assert.equal(restored.round.shipping_fee, 47)
+   assert.deepEqual(restored.settings.keywords, ['raise'])
+   assert.equal(restored.settings.privateText, settings.privateText)
+@@ -146,22 +151,20 @@ test('workspace API restores scoped saved values and commits a single normalized
+         ),
+       )
+     ).status,
+-    200,
++    404,
+   )
+-  for (const table of ['live_sessions', 'auctions']) {
++  for (const table of ['live_sessions', 'auctions', 'auction_deliveries']) {
+     failedTable = table
+     const response = await api.GET(
+       new NextRequest(
+         `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
+       ),
+     )
+-    assert.equal(response.status, 200)
++    assert.equal(response.status, 503)
+     const body = await response.json()
+-    assert.equal(body.ready, true)
+-    assert.deepEqual(body.bids, [])
+-    if (table === 'auctions') assert.equal(body.auction, null)
+-    else
+-      assert.equal(body.auction.shipping_fee, 47, 'session failures must not block auction reads')
++    assert.equal(body.ready, false)
++    assert.equal(body.degraded, true)
++    assert.equal(body.auction, undefined)
+   }
+   failedTable = null
+   const foreign = await (
+diff --git a/supabase/live-auction-audit-hardening-2.sql b/supabase/live-auction-audit-hardening-2.sql
+new file mode 100644
+index 0000000..17d89b6
+--- /dev/null
++++ b/supabase/live-auction-audit-hardening-2.sql
+@@ -0,0 +1,126 @@
++-- Forward-only successor to live-auction-audit-hardening.sql. Never replay modified history.
++begin;
++create table if not exists public.auction_expiry_failures (
++ sqlstate text not null check(sqlstate ~ '^[A-Z0-9]{5}$'),
++ auction_id uuid not null references public.auctions(id) on delete cascade,
++ occurred_at timestamptz not null default clock_timestamp()
++);
++create index if not exists auction_expiry_failures_recent on public.auction_expiry_failures(occurred_at desc);
++alter table public.auction_expiry_failures enable row level security;
++revoke all on public.auction_expiry_failures from public,anon,authenticated;
++grant select,insert on public.auction_expiry_failures to service_role;
++
++-- Add a reporting RPC without changing the existing integer-returning RPC signature.
++create or replace function public.expire_live_auctions_report(p_tenant uuid default null)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a record;result jsonb;closed integer:=0;failed integer:=0;
++begin
++ for a in select id,tenant_id from public.auctions where status='active' and ends_at<=clock_timestamp()
++  and (p_tenant is null or tenant_id=p_tenant) order by ends_at limit 100 for update skip locked
++ loop
++  begin
++   result:=public.close_due_live_auction(a.id,a.tenant_id);
++   if result->>'status' in ('closed','awaiting_confirmation') then closed:=closed+1;end if;
++  exception when others then
++   insert into public.auction_expiry_failures(sqlstate,auction_id,occurred_at) values(sqlstate,a.id,clock_timestamp());
++   failed:=failed+1;
++  end;
++ end loop;
++ return jsonb_build_object('closed',closed,'failed',failed);
++end $$;
++create or replace function public.expire_live_auctions(p_tenant uuid default null)
++returns integer language sql set search_path=pg_catalog,public as $$
++ select (public.expire_live_auctions_report(p_tenant)->>'closed')::integer
++$$;
++revoke all on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) from public,anon,authenticated;
++grant execute on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) to service_role;
++
++create or replace function public.process_live_auction_comment(
++ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
++ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
++ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
++ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
++ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
++ if found then return prior;end if;
++ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
++ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
++ host:=sender=a.page_id or sender=any(a.host_ids);
++ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
++ message:=public.normalize_auction_tag(v->>'message');
++ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
++ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ confirming:=not host and message=any(keywords);
++ if host then
++  if coalesce((settings->>'closeEnabled')::boolean,true) and message=any(close_keywords) then p_kind:='HOST_CONTROL';p_control:='close';
++  elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
++  end if;
++ end if;
++ if confirming then
++  confirmation_floor:=a.winner_locked_at;
++  if a.close_event_id is not null then
++   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
++   if found and close_event.payload->'value'->>'verb'='add'
++    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
++    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
++   end if;
++  end if;
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (confirmation_floor is not null and source_at<confirmation_floor) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
++ if a.session_automation is distinct from settings then
++  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
++  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
++  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
++  return r;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
++  update public.auctions set host_count=p_control where id=a.id;
++  r:=jsonb_build_object('status','count');
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
++  return r;
++ end if;
++ if host then return jsonb_build_object('status','ignored');end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
++ if not confirming then
++  numeric_price:=public.auction_numeric_price(v->>'message');
++  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
++ end if;
++ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
++ else
++  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
++  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
++  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
++ end if;
++ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
++ return r;
++end $$;
++notify pgrst,'reload schema';
++commit;
+diff --git a/scripts/test-auction-hardening-2.cjs b/scripts/test-auction-hardening-2.cjs
+new file mode 100644
+index 0000000..6d26ec4
+--- /dev/null
++++ b/scripts/test-auction-hardening-2.cjs
+@@ -0,0 +1,50 @@
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const { fixture } = require('./helpers/auction-hardening-db.cjs')
++
++test('host-source seconds resolve the confirmation race while older confirmations remain stale', async () => {
++  const f = await fixture()
++  try {
++    const a = await f.open()
++    const second = Math.floor(Date.now() / 1000)
++    await f.db.query('update auctions set created_at=to_timestamp($2) where id=$1', [a.id, second - 10])
++    await f.receive(a, '900', '100')
++    await f.receive(a, '901', '200')
++    assert.equal((await f.receive(a, '999', 'close', second)).result.status, 'awaiting_confirmation')
++    assert.equal((await f.receive(a, '901', 'confirm', second - 1)).result.status, 'stale')
++    const confirmation = await f.receive(a, '901', 'confirm', second)
++    assert.equal(confirmation.result.status, 'confirmed')
++    assert.deepEqual(await f.processEvent(a, confirmation.event, confirmation.parsed), confirmation.result)
++    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [a.id])).n, 1)
++  } finally { await f.db.close() }
++})
++
++test('expiry reports no-op, draining, locked winners and audited failures without issuing an order', async () => {
++  const f = await fixture()
++  try {
++    const a = await f.open()
++    assert.equal((await f.one('select close_due_live_auction($1,$2) r', [a.id, f.tenant])).r.status, 'not_due')
++    await f.receive(a, '900', '100')
++    const pending = await f.event(a, '901', '200')
++    await f.db.query("update facebook_webhook_events set status='pending',created_at=clock_timestamp()-interval '2 seconds' where id=$1", [pending.id])
++    await f.db.query("update auctions set created_at=clock_timestamp()-interval '10 seconds',ends_at=clock_timestamp()-interval '1 second' where id=$1", [a.id])
++    assert.equal((await f.one('select close_due_live_auction($1,$2) r', [a.id, f.tenant])).r.status, 'draining')
++    await f.db.query("update facebook_webhook_events set status='completed' where id=$1", [pending.id])
++    const report = (await f.one('select expire_live_auctions_report($1) r', [f.tenant])).r
++    assert.deepEqual(report, { closed: 1, failed: 0 })
++    const row = await f.one('select status,winner_locked_at,order_id from auctions where id=$1', [a.id])
++    assert.equal(row.status, 'closed')
++    assert.ok(row.winner_locked_at)
++    assert.equal(row.order_id, null)
++    assert.equal((await f.receive(a, '900', 'confirm', new Date(Date.parse(row.winner_locked_at)-1).toISOString())).result.status, 'stale')
++    const broken = await f.open()
++    await f.db.exec("create function reject_audit_close() returns trigger language plpgsql as $$begin if new.status='closed' then raise exception 'fixture failure' using errcode='23514';end if;return new;end $$;create trigger reject_audit_close before update on auctions for each row execute function reject_audit_close();")
++    await f.db.query("update auctions set ends_at=clock_timestamp()-interval '1 second' where id=$1", [broken.id])
++    assert.deepEqual((await f.one('select expire_live_auctions_report($1) r', [f.tenant])).r, { closed: 0, failed: 1 })
++    const failure = await f.one('select sqlstate,auction_id,occurred_at from auction_expiry_failures')
++    assert.equal(failure.sqlstate, '23514')
++    assert.equal(failure.auction_id, broken.id)
++    assert.ok(failure.occurred_at)
++    assert.deepEqual((await f.db.query("select column_name from information_schema.columns where table_name='auction_expiry_failures' order by ordinal_position")).rows.map(r=>r.column_name), ['sqlstate','auction_id','occurred_at'])
++  } finally { await f.db.close() }
++})
+diff --git a/scripts/helpers/auction-hardening-db.cjs b/scripts/helpers/auction-hardening-db.cjs
+new file mode 100644
+index 0000000..e549169
+--- /dev/null
++++ b/scripts/helpers/auction-hardening-db.cjs
+@@ -0,0 +1,110 @@
++// Runs against cwd, so the identical tests can exercise an isolated HEAD worktree.
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const path = require('node:path')
++const { randomUUID } = require('node:crypto')
++const { PGlite } = require('@electric-sql/pglite')
++const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
++const root = process.env.AUCTION_AUDIT_ROOT ?? process.cwd()
++const { build } = require(path.join(root, 'scripts/build-full-database-setup.cjs'))
++const load = require(path.join(root, 'scripts/helpers/load-typescript.cjs'))
++const config = load('lib/features/commerce/comment-config.ts')
++const { parseAuctionComment } = load('lib/integrations/facebook/auction-comment-parser.ts', {
++  '@/lib/features/commerce/comment-config': config,
++})
++
++async function fixture(installSql) {
++  const db = new PGlite({ extensions: { pgcrypto } })
++  const one = async (sql, args = []) => (await db.query(sql, args)).rows[0]
++  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
++    create schema auth;create schema storage;create schema extensions;
++    create table auth.users(id uuid primary key default gen_random_uuid(),email text);
++    create function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.user',true),'')::uuid$$;
++    create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
++    create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
++    alter table storage.objects enable row level security;create publication supabase_realtime;
++    grant usage on schema public,auth,storage to anon,authenticated,service_role;
++    alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
++    alter default privileges in schema public grant all on sequences to anon,authenticated,service_role;`)
++  await db.exec(installSql ?? build(root).completeSql)
++  const tenant = (
++    await one("insert into tenants(name,page_id) values('Audit fixture','100') returning id")
++  ).id
++  const bank = (
++    await one(
++      "insert into bank_accounts(tenant_id,bank_code,account_name,account_number) values($1,'KBANK','Fixture','0000000000') returning id",
++      [tenant],
++    )
++  ).id
++  const payload = (
++    await one(
++      "insert into facebook_webhook_payloads(payload_sha256,raw_payload) values($1,'{}') returning id",
++      ['c'.repeat(64)],
++    )
++  ).id
++  const settings = {
++    winnerFlow: 'highest_bid',
++    keywords: ['confirm'],
++    closeKeywords: ['close'],
++    countEnabled: true,
++    counting_tags: { 'last call': '3' },
++    closeEnabled: true,
++    privateReply: false,
++    publicReply: false,
++    bankAccountId: bank,
++  }
++  const open = async () =>
++    await one(
++      `insert into auctions(tenant_id,page_id,live_post_id,item_name,start_price,min_step,shipping_fee,
++    bank_account_id,host_ids,session_automation,public_reply_enabled,private_reply_enabled)
++    values($1,'100',$2,'Fixture item',100,10,20,$3,array['999'],$4,false,false) returning *`,
++      [tenant, String(Math.floor(Math.random() * 1e12)), bank, settings],
++    )
++  const event = async (a, sender, message, sourceAt = new Date().toISOString()) =>
++    one(
++      `insert into facebook_webhook_events(
++    payload_id,page_id,event_key,ordering_key,kind,payload,status) values($1,'100',$2,'comments:100','change',$3,'completed') returning *`,
++      [
++        payload,
++        randomUUID(),
++        {
++          field: 'feed',
++          value: {
++            item: 'comment',
++            verb: 'add',
++            post_id: a.live_post_id,
++            comment_id: a.live_post_id + '_' + randomUUID(),
++            from: sender == null ? null : { id: sender },
++            message,
++            created_time: sourceAt,
++          },
++        },
++      ],
++    )
++  const processEvent = async (a, e, parsed) =>
++    (
++      await one('select process_live_auction_comment($1,$2,$3,$4,$5,$6) result', [
++        a.id,
++        tenant,
++        e.id,
++        parsed.type,
++        parsed.amount ?? null,
++        parsed.type === 'HOST_CONTROL'
++          ? parsed.action === 'close'
++            ? 'close'
++            : parsed.count
++          : null,
++      ])
++    ).result
++  const receive = async (a, sender, text, sourceAt) => {
++    const e = await event(a, sender, text, sourceAt)
++    return {
++      event: e,
++      parsed: parseAuctionComment(text, sender === '999', settings),
++      result: await processEvent(a, e, parseAuctionComment(text, sender === '999', settings)),
++    }
++  }
++  return { db, one, tenant, settings, open, event, receive, processEvent }
++}
++
++module.exports = { fixture }
+diff --git a/scripts/test-auction-ingestion-privacy.cjs b/scripts/test-auction-ingestion-privacy.cjs
+new file mode 100644
+index 0000000..718c9fd
+--- /dev/null
++++ b/scripts/test-auction-ingestion-privacy.cjs
+@@ -0,0 +1,58 @@
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const ts = require('typescript')
++const load = require('./helpers/load-typescript.cjs')
++const { NextResponse } = require('next/server')
++const privateValues = ['PRIVATE_AUTHOR_SENTINEL', 'PRIVATE_BODY_SENTINEL', 'PRIVATE_TOKEN_SENTINEL']
++function logger() {
++  const lines = []
++  return { lines, console: Object.fromEntries(['log','info','warn','error'].map(key => [key, (...args) => lines.push(args.map(v => v instanceof Error ? v.stack : JSON.stringify(v)).join(' '))])) }
++}
++function assertPrivate(log) {
++  for (const value of privateValues) assert.equal(log.lines.join('\n').includes(value), false, 'private fixture data reached a console sink')
++}
++test('shared message profile and fallback paths log no sender identities, bodies or credentials', async () => {
++  const log = logger()
++  const tenant = { id: 'tenant', page_id: '100', auto_reply_enabled: false }
++  const customer = { id: 'customer', tenant_id: 'tenant', platform_user_id: privateValues[0], display_name: null, bot_enabled: false }
++  const db = { from(table) {
++    const result = { data: table === 'tenants' ? tenant : customer, error: null }
++    const query = new Proxy({}, { get(_target, name) {
++      if (name === 'maybeSingle' || name === 'single') return async () => result
++      if (name === 'then') return (resolve, reject) => Promise.resolve(result).then(resolve, reject)
++      return () => query
++    } })
++    return query
++  } }
++  const dependencies = Object.fromEntries(ts.preProcessFile(fs.readFileSync('lib/integrations/facebook/webhook-handler.ts','utf8')).importedFiles.map(({fileName}) => [fileName, new Proxy({}, { get: () => () => null })]))
++  Object.assign(dependencies, {
++    '@/lib/supabase/server': { supabaseAdmin: () => db },
++    '@/lib/integrations/facebook/client': { pageTokenFor: () => privateValues[2], getCustomerProfile: async () => ({ display_name: 'safe' }) },
++    '@/lib/integrations/facebook/message-window': { facebookMessageEcho: () => null, facebookInboundMessage: () => ({ senderId: privateValues[0], messageId: 'message' }) },
++    '@/lib/features/broadcast/broadcast-policy': { inboundBroadcastEvidence: () => null },
++  })
++  const handler = load('lib/integrations/facebook/webhook-handler.ts', dependencies, { console: log.console, process: { env: {} }, Date })
++  await handler.handleFacebookWebhookEvent({ event: { id: 'event', page_id: '100', kind: 'message', created_at: new Date().toISOString(), payload: { sender: { id: privateValues[0] }, message: { mid: 'message', text: privateValues[1] } } },
++    assertLease: async () => {}, persistRecord: async () => ({ id: 'message', customer, duplicate: false }), once: async (_key, fn) => fn() })
++  assertPrivate(log)
++})
++
++test('ingress and deferred-worker exceptions never dump provider errors or payload data', async () => {
++  for (const failAtIngress of [true,false]) {
++    const log = logger()
++    let deferred
++    const poison = new Error(privateValues.join(' '))
++    const api = load('lib/integrations/facebook/webhook-http.ts', {
++      'server-only': {}, 'next/server': { NextResponse, after: (fn) => { deferred = fn } },
++      '@/lib/supabase/server': { supabaseAdmin: () => { if (failAtIngress) throw poison; return { rpc: async () => ({ data: { id: 'receipt', accepted: 1 }, error: null }) } } },
++      '@/lib/integrations/facebook/webhook-envelope': { readWebhookBody: async () => new Uint8Array([1]), verifyWebhookSignature: () => true, parseWebhook: () => ({ raw: '{}', hash: 'hash', events: [{ pageId: '100', kind: 'message', payload: {} }] }), WebhookInputError: class extends Error {} },
++      '@/lib/integrations/facebook/webhook-worker': { runFacebookWebhookWorker: async () => { throw poison } },
++      '@/lib/integrations/facebook/webhook-handler': { handleFacebookWebhookEvent: async () => {} },
++    }, { console: log.console, process: { env: { FB_APP_SECRET: privateValues[2] } }, URL, Date })
++    const response = await api.postFacebookWebhook(new Request('https://example.test/webhook', { method: 'POST', headers: { 'x-hub-signature-256': 'sha256=fixture' }, body: '{}' }))
++    assert.equal(response.status, failAtIngress ? 503 : 200)
++    if (deferred) await deferred()
++    assertPrivate(log)
++  }
++})
+diff --git a/scripts/test-auction-poller-remediation.cjs b/scripts/test-auction-poller-remediation.cjs
+new file mode 100644
+index 0000000..8557257
+--- /dev/null
++++ b/scripts/test-auction-poller-remediation.cjs
+@@ -0,0 +1,30 @@
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const { fixture, comment, pageUrl } = require('./test-auction-poller-hardening.cjs')
++
++test('live query retains ordering/stream and explicitly requests no quality filter', async () => {
++  const f = fixture({ pages: () => ({ data: [] }) })
++  await f.poll()
++  const url = new URL(f.graphCalls[0].url)
++  assert.equal(url.searchParams.get('order'), 'reverse_chronological')
++  assert.equal(url.searchParams.get('filter'), 'stream')
++  assert.equal(url.searchParams.get('live_filter'), 'no_filter')
++})
++
++test('paging refuses another video, another edge and another version before any bearer request', async () => {
++  for (const path of ['/v25.0/999/comments', '/v25.0/456/feed', '/v24.0/456/comments', '/v25.0/456/comments/extra']) {
++    const f = fixture({ pages: () => ({ data: [comment(path)], paging: { next: 'https://graph.facebook.com' + path } }) })
++    assert.equal((await f.poll()).status, 503)
++    assert.equal(f.graphCalls.length, 1)
++  }
++})
++
++test('cursor shifts cannot skip a newly inserted intermediate page', async () => {
++  const f = fixture({ cursor: {
++    high_water_at: '2026-02-01T00:10:00Z', continuation_url: pageUrl(11),
++    continuation_anchor_url: pageUrl(2), continuation_boundary_at: '2026-02-01T00:00:00Z', updated_at: new Date().toISOString(),
++  }, pages: (page) => ({ data: [comment('shift-' + page, '2026-02-01T00:10:01Z')],
++    ...(page === 1 || page === 2 ? { paging: { next: pageUrl(page + 1) } } : {}) }) })
++  assert.equal((await f.poll()).status, 200)
++  assert.deepEqual(f.graphCalls.map(c => new URL(c.url).searchParams.get('page') ?? '1'), ['1','2','3'])
++})
+diff --git a/scripts/test-auction-degraded-form.cjs b/scripts/test-auction-degraded-form.cjs
+new file mode 100644
+index 0000000..bbe31df
+--- /dev/null
++++ b/scripts/test-auction-degraded-form.cjs
+@@ -0,0 +1,37 @@
++const { test } = require('node:test'), assert = require('node:assert/strict')
++const fs = require('node:fs'), ts = require('typescript'), path = require('node:path'), os = require('node:os')
++const load = require('./helpers/load-typescript.cjs')
++test('a degraded workspace keeps inputs visible and prevents submitting rounds until an explicit reload', async () => {
++  const file = 'components/live-cf/AuctionUnifiedForm.tsx'
++  const source = process.env.AUCTION_ENTRY_TEST ? JSON.parse(fs.readFileSync('reports/auction-audit/remediation/entry.json', 'utf8')).files[file] : fs.readFileSync(file, 'utf8')
++  const deps = {}, values = [], effects = []
++  let cursor = 0, mounting = true, writes = 0
++  for (const imp of ts.preProcessFile(source).importedFiles) deps[imp.fileName] = new Proxy({}, { get: () => () => null })
++  deps.react = {
++    useState(init) { const i = cursor++; if (!(i in values)) values[i] = typeof init === 'function' ? init() : init; return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v }] },
++    useRef(init) { const i = cursor++; return values[i] ?? (values[i] = { current: init }) },
++    useCallback: fn => fn,
++    useEffect: fn => { if (mounting) effects.push(fn) },
++  }
++  deps['react/jsx-runtime'] = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
++  deps['./session-ui'] = { read: async () => { throw Error('Unavailable') }, field: '', orange: '' }
++  const temporary = path.join(os.tmpdir(), 'auction-form-test-' + process.pid + '.js')
++  fs.writeFileSync(temporary, ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText)
++  try {
++    const { AuctionUnifiedForm } = load(temporary, deps, { AbortController, URLSearchParams, crypto: require('node:crypto').webcrypto, fetch: async () => { writes++; throw Error('Unexpected mutation') } })
++    const props = { tenantId: 'fixture', sessionId: '', data: null, options: { pages: [{ id: '100' }], bankAccounts: [] }, onSaved() {} }
++    AuctionUnifiedForm(props)
++    effects.forEach(fn => fn())
++    await new Promise(setImmediate)
++    mounting = false; cursor = 0
++    const tree = AuctionUnifiedForm(props), nodes = []
++    function walk(n) { if (!n || typeof n !== 'object') return; if (Array.isArray(n)) return n.forEach(walk); nodes.push(n); walk(n.props?.children) }
++    walk(tree)
++    assert.ok(nodes.some(n => n.type === 'input'), 'draft inputs remain mounted')
++    const submit = nodes.find(n => n.type === 'button' && n.props.type === 'submit')
++    assert.equal(submit.props.disabled, true)
++    await nodes.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
++    assert.equal(writes, 0)
++    assert.ok(nodes.some(n => n.type === 'button' && n.props.type === 'button' && n.props.children === 'โหลดข้อมูลใหม่'))
++  } finally { fs.unlinkSync(temporary) }
++})

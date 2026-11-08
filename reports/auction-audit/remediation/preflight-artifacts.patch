@@ -1,0 +1,435 @@
+diff --git a/reports/auction-audit/preflight.sql b/reports/auction-audit/preflight.sql
+new file mode 100644
+index 0000000..0d7f226
+--- /dev/null
++++ b/reports/auction-audit/preflight.sql
+@@ -0,0 +1,130 @@
++-- READ ONLY. Run as an authorized operator; never apply migrations from this script.
++-- Rows are capability gates, not migration instructions or proof of business behavior.
++-- 00: before deadlines; 10: before audit 1; 20: before audit 2; 30: application readiness.
++-- A missing relation/function/role produces BLOCKED rather than a regclass exception.
++begin transaction read only;
++
++with
++tables(stage,name) as (values
++ ('00_base','tenants'),('00_base','auctions'),('00_base','auction_bids'),
++ ('00_base','auction_deliveries'),('00_base','facebook_webhook_events'),
++ ('00_base','live_sessions'),('00_base','auction_workspace_requests'),
++ ('00_base','customers'),('00_base','orders'),('00_base','bank_accounts'),
++ ('00_base','snapbot_schema_migrations'),
++ ('20_before_audit_2','auction_poll_cursors'),('30_application','auction_expiry_failures')
++),
++column_groups(stage,table_name,names) as (values
++ ('00_base','auctions',array['id','tenant_id','page_id','live_post_id','live_post_aliases',
++  'item_name','start_price','min_step','shipping_fee','bank_account_id',
++  'status','created_at','closed_at','close_event_id','order_id','leading_bidder_id',
++  'leading_bidder_name','leading_comment_id','current_price','host_ids','host_count',
++  'winner_locked_at','winner_confirmed_at','winner_confirmation_comment_id',
++  'winner_confirmation_event_id','session_automation','private_reply_template',
++  'bid_reply_template','private_reply_enabled','public_reply_enabled']),
++ ('00_base','tenants',array['id','page_id','is_active']),
++ ('00_base','live_sessions',array['id','tenant_id','page_id','live_post_id','auction_settings']),
++ ('00_base','customers',array['id','tenant_id','platform','platform_user_id','display_name']),
++ ('00_base','orders',array['id','tenant_id','customer_id','product_name','amount','status',
++  'source','source_id','live_bank_account_id']),
++ ('00_base','bank_accounts',array['id','tenant_id']),
++ ('00_base','auction_bids',array['auction_id','event_id','comment_id','bidder_id',
++  'bidder_name','comment_text','bid_amount','is_opening','status','result']),
++ ('00_base','auction_deliveries',array['auction_id','channel','comment_id','claim_id','status']),
++ ('00_base','facebook_webhook_events',array['id','page_id','kind','payload','created_at',
++  'ordering_key','sequence','status']),
++ ('00_base','auction_workspace_requests',array['tenant_id','request_id']),
++ ('00_base','snapbot_schema_migrations',array['name','checksum','source_sha256']),
++ ('10_before_audit_1','auctions',array['ends_at','timer_started_at','duration_seconds']),
++ ('20_before_audit_2','auction_poll_cursors',array['cursor_id','auction_id','tenant_id',
++  'session_id','live_video_id','high_water_at','continuation_url',
++  'continuation_anchor_url','continuation_boundary_at','updated_at']),
++ ('30_application','auction_expiry_failures',array['sqlstate','auction_id','occurred_at'])
++),
++-- Reviewed source-body digests from local PGlite, not from the active database.
++-- CRLF is normalized. A formatting-only body change also BLOCKS: investigate, do not bypass.
++function_bodies(signature,body_md5) as (values
++ ('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','091b062e3b8d978ae94311e5b6a1ac67'),
++ ('public.finalize_live_auction(uuid,uuid,uuid,boolean)','6560e4c09610a3ed2c9d52623b9f48e5'),
++ ('public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)','928d06341b80641be8511f9e67d583c1'),
++ ('public.close_due_live_auction(uuid,uuid,boolean,boolean)','155def5bb234558e7eeea0df0602fe26')
++),
++functions(stage,signature,return_type) as (values
++ ('00_base','public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','jsonb'),
++ ('00_base','public.finalize_live_auction(uuid,uuid,uuid,boolean)','jsonb'),
++ ('00_base','public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)','jsonb'),
++ ('00_base','public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text)','jsonb'),
++ ('00_base','public.save_auction_workspace(uuid,uuid,uuid,jsonb)','jsonb'),
++ ('00_base','public.normalize_auction_tag(text)','text'),
++ ('00_base','public.auction_numeric_price(text)','numeric'),
++ ('00_base','public.auction_comment_tags(jsonb,text,text)','text[]'),
++ ('00_base','public.facebook_comment_context(uuid,text,text[])','jsonb'),
++ ('00_base','public.resolve_facebook_comment_settings(jsonb,jsonb)','jsonb'),
++ ('10_before_audit_1','public.close_due_live_auction(uuid,uuid,boolean,boolean)','jsonb'),
++ ('10_before_audit_1','public.expire_live_auctions(uuid)','integer'),
++ ('10_before_audit_1','public.start_legacy_auction_timer(uuid,uuid)','void'),
++ ('20_before_audit_2','public.auction_comment_timestamp(text)','timestamp with time zone'),
++ ('30_application','public.expire_live_auctions_report(uuid)','jsonb')
++),
++checks(stage,kind,requirement,passed,detail) as (
++ select stage,'table','public.'||name,to_regclass('public.'||name) is not null,
++  'Required relation' from tables
++ union all
++ select g.stage,'column','public.'||g.table_name||'.'||n.name,
++  exists(select 1 from pg_catalog.pg_attribute a
++   where a.attrelid=to_regclass('public.'||g.table_name) and a.attname=n.name
++    and a.attnum>0 and not a.attisdropped), 'Required column'
++ from column_groups g cross join lateral unnest(g.names) n(name)
++ union all
++ select f.stage,'function',f.signature,
++  p.oid is not null and pg_catalog.format_type(p.prorettype,null)=f.return_type,
++  'Expected return type: '||f.return_type
++ from functions f left join pg_catalog.pg_proc p on p.oid=to_regprocedure(f.signature)
++ union all
++ select '30_application','function_body',f.signature,
++  coalesce(md5(replace(p.prosrc,chr(13)||chr(10),chr(10)))=f.body_md5,false),
++  'Must equal reviewed source body; investigate any drift in staging'
++ from function_bodies f left join pg_catalog.pg_proc p on p.oid=to_regprocedure(f.signature)
++ union all
++ select '20_before_audit_2','volatility','public.auction_comment_timestamp(text)',
++  coalesce(p.provolatile='s',false),'Expected STABLE, not IMMUTABLE'
++ from (values(1)) anchor(n) left join pg_catalog.pg_proc p
++  on p.oid=to_regprocedure('public.auction_comment_timestamp(text)')
++ union all
++ select '30_application','column_type','public.auctions.'||v.name,
++  exists(select 1 from pg_catalog.pg_attribute a where a.attrelid=to_regclass('public.auctions')
++   and a.attname=v.name and not a.attisdropped and pg_catalog.format_type(a.atttypid,a.atttypmod)=v.type),
++  'Expected type: '||v.type
++ from (values('ends_at','timestamp with time zone'),('timer_started_at','timestamp with time zone'),
++  ('duration_seconds','integer')) v(name,type)
++ union all
++ select '30_application','rls','public.'||v.name,coalesce(c.relrowsecurity,false),
++  'RLS must be enabled; browser roles must have no direct table access'
++ from (values('auction_poll_cursors'),('auction_expiry_failures')) v(name)
++ left join pg_catalog.pg_class c on c.oid=to_regclass('public.'||v.name)
++ union all
++ select '30_application','browser_access','public.'||t.name||' / '||r.name,
++  c.oid is not null and role.oid is not null
++   and not coalesce(has_table_privilege(role.oid,c.oid,'SELECT,INSERT,UPDATE,DELETE'),true)
++   and not coalesce(has_any_column_privilege(role.oid,c.oid,'SELECT,INSERT,UPDATE'),true),
++  'Expected no browser table/column privileges'
++ from (values('auction_poll_cursors'),('auction_expiry_failures')) t(name)
++ cross join (values('anon'),('authenticated')) r(name)
++ left join pg_catalog.pg_class c on c.oid=to_regclass('public.'||t.name)
++ left join pg_catalog.pg_roles role on role.rolname=r.name
++ union all
++ select '30_application','rpc_access','expire_live_auctions_report / service_role',
++  p.oid is not null and r.oid is not null and coalesce(has_function_privilege(r.oid,p.oid,'EXECUTE'),false),
++  'Server role must execute the reporting RPC'
++ from (values(1)) anchor(n)
++ left join pg_catalog.pg_proc p on p.oid=to_regprocedure('public.expire_live_auctions_report(uuid)')
++ left join pg_catalog.pg_roles r on r.rolname='service_role'
++ union all
++ select '00_base','read_only','transaction_read_only',
++  current_setting('transaction_read_only')='on','This script must not mutate database state'
++)
++select stage,kind,requirement,case when passed then 'PASS' else 'BLOCKED' end status,detail
++from checks order by stage,kind,requirement;
++
++-- Optional operational diagnostics such as job history require a separate authorized read.
++-- No tenant, bidder, comment, order, token, message body, or function body is returned here.
++commit;
+diff --git a/reports/auction-audit/COMPATIBILITY.md b/reports/auction-audit/COMPATIBILITY.md
+new file mode 100644
+index 0000000..da216c2
+--- /dev/null
++++ b/reports/auction-audit/COMPATIBILITY.md
+@@ -0,0 +1,54 @@
++# Application / database compatibility and staging release gates
++
++The active database observations below are supplied by the user's final directive on 2026-11-09. They were not independently queried in this task. No deployed application build identifier was supplied: “application” below means the current workspace source, not a verified deployed binary. The read-only [preflight](preflight.sql) provides executable checks for an authorized operator.
++
++## Compatibility matrix
++
++| Application feature | Required capability / source evidence | Supplied active DB evidence | Decision before release |
++| --- | --- | --- | --- |
++| Queued auction comment processing | `lib/features/commerce/auction-server.ts:697` calls `process_live_auction_comment`; final source requires numeric author guard, source-time confirmation floor, winner-only finalization | Active public RPC is legacy: null-only author check, immediate order on host close, no confirmation floor | **BLOCKED.** Installing frontend/poller changes does not replace this SQL. Apply the complete required suffix after prerequisites pass. |
++| Manual close | `app/api/live-cf/auction/close/route.ts:15` calls `finalize_live_auction` | Public comment flow is reported to use a legacy immediate-order finalizer | **BLOCKED** until audit 1 installs confirmation-only close and audit 2/source fingerprint checks pass. Do not validate only `finalize_live_auction_highest_bid`: the public routing/finalizer path matters. |
++| Browser timer GET / expiry POST | `app/api/live-cf/auction/timer/route.ts:9`–15 calls `close_due_live_auction` and selects `ends_at`, `duration_seconds` | Required timer RPC and all three timer columns absent | **BLOCKED.** Deadlines migration provides schema/RPCs; audit 1 is also required for safe no-order expiry. |
++| Explicit start of a legacy round's timer | Timer route `:47` calls `start_legacy_auction_timer(uuid,uuid)` | Availability not supplied; timer schema absent | **BLOCKED** until deadlines and safe finalizers are installed. Existing rounds keep NULL deadlines unless explicitly started; no invented historical deadline. |
++| Workspace save with duration | `save_auction_workspace(uuid,uuid,uuid,jsonb)` deadline wrapper persists `durationSeconds`; `supabase/live-auction-deadlines.sql:124` | Current save RPC signature/body not supplied | **UNVERIFIED / BLOCKED** until preflight and staging save/replay checks pass. Legacy saves may ignore duration despite accepting JSON. |
++| Authenticated worker cron | Current `app/api/cron/facebook-webhooks/route.ts:26` calls **`expire_live_auctions_report`**, exposing `auctionExpiry` | `expire_live_auctions` absent; report RPC not confirmed | **BLOCKED.** Report RPC is installed by audit 2. An RPC failure is surfaced as `failed:1,unavailable:true`; HTTP 200 from the cron is not proof expiry worked. |
++| Existing integer expiry caller / optional SQL cron | `expire_live_auctions(uuid)` remains integer-compatible; audit 2 delegates to the reporting RPC | Integer RPC absent | **BLOCKED** until full suffix is installed. Failed counts are returned through report RPC; legacy callers retain integer result and queryable error ledger. |
++| Poll cursor reads / continuation writes | Poll route `:174`, `:300` uses `auction_poll_cursors`, including continuation-anchor/boundary metadata; audit 1 defines these and browser revocations | Table/columns/grants not included in supplied audit | **UNVERIFIED / BLOCKED** until catalogue/grant checks pass. Audit 1 not previously run does not by itself prove every individual object is absent. |
++| Graph query parameters / pagination validation | Poll route requests reverse chronological stream with `live_filter=no_filter`, exact HTTPS Graph version/video/comments paths, sanitized saved URLs | Not a SQL capability; real Meta diagnostic evidence still absent | Local request-validation tests pass. No claim that these parameters repair missing identities; live validation remains external. Whole auction flow is still blocked by legacy SQL. |
++| Workspace hydration and degraded form | Workspace GET returns 404 for missing explicit session, 503/degraded on failed reads; form blocks mutations while degraded | Live session/auction query health and delivery-review grants not supplied | **UNVERIFIED.** `ready:true` means hydration succeeded, not that installed SQL has safe winner semantics. This endpoint is not a migration readiness certificate. |
++| Delivery-review list | Workspace tenant-scoped `auction_deliveries` join returns channel/status only; dashboard `LiveSessionDashboard.tsx:488` renders review alert/list | Delivery table schema/grants not supplied | Verify preflight plus owner-session staging API/UI checks. No browser grants to protected tables should be added to bypass server failures. |
++| Expiry audit diagnostics | Audit 2 creates RLS-protected `auction_expiry_failures(sqlstate,auction_id,occurred_at)` and service-only report RPC | Not confirmed in active audit | **BLOCKED** until audit 2. Do not infer success from an empty error log when the reporting infrastructure is absent. |
++
++All source line references are for this workspace revision; use the logical patch/report to identify the reviewed code. Confirm the actual deployed commit/build before comparing runtime behavior.
++
++## Known migration suffix and preflight interpretation
++
++1. Run `preflight.sql` as an authorized operator. It is a `READ ONLY` transaction using catalogue metadata only; it does not call application RPCs or inspect customer/order/message rows. Missing objects return `BLOCKED`, including on an empty database.
++2. Every `00_base` row must pass **before** deadlines. If any is blocked, resolve missing prerequisite migrations from the complete registry first; the supplied audit does not establish which entire prefix is installed. Do not infer a migration was applied merely because a similarly named function exists.
++3. Required known suffix: **`live-auction-deadlines.sql` → `live-auction-audit-hardening.sql` → `live-auction-audit-hardening-2.sql`**. Registry order: `scripts/build-full-database-setup.cjs:145`–147; explicit dependencies: `:321`–323. Audit 1 has never run in the supplied active audit and must not be skipped. Audit 2 alone does not create timer columns or replace the legacy public finalizer.
++4. After deadlines, `10_before_audit_1` must pass. After audit 1, `20_before_audit_2` must pass. Release only after all `30_application` rows and the behavior rehearsal pass. Later-stage BLOCKED results are expected on the reported baseline and must not be treated as permission to skip earlier gates.
++5. Financial body checks compare MD5 of CRLF-normalized `pg_proc.prosrc` against reviewed source compiled in local PGlite; no function body is printed by the preflight. The reproducible staging test compares actual `pg_get_functiondef` before/after and final-vs-fresh definitions. Any body difference, including extra formatting, blocks release pending review. Digests are drift checks, not credentials or proof of behavior. Presence checks alone cannot prove all transitive financial dependencies or data invariants.
++6. Preflight does not read migration ledger rows, assert job/scheduler execution, verify package entitlement, or establish a live UI/Meta session. Review the ledger and checksums privately after its table/columns pass. Follow the unchanged checksum guard; do not replace recorded checksums to force migration replay.
++
++## Staging rehearsal and rollout order
++
++1. Build a disposable staging environment from an approved baseline/registry prefix. For a production-like clone, an authorized operator must establish its provenance and protect/redact customer data; this agent's PGlite simulation is not such a clone. Replay the **whole required registry prefix and suffix**, not audit 2 alone. Keep credentials and real Meta transport out of automated fixtures.
++2. Capture preflight output and installed public function definitions privately. Confirm the supplied legacy properties and missing timer capabilities. Seed synthetic numeric bidder IDs and a host in isolated staging. Demonstrate legacy immediate order creation before the upgrade; preserve that legacy order for a non-destructive comparison.
++3. Quiesce auction writes and worker execution for the staged upgrade. Preserve durable webhook ingress/queueing if supported; do not process queued bids against intermediate financial definitions. Inventory and suspend relevant external/database schedulers through the approved operator process. **The deadlines migration can schedule a pg_cron job if that extension exists** (`live-auction-deadlines.sql:164`–165); account for this side effect before applying it. PGlite has no pg_cron extension and does not exercise hosted job scheduling.
++4. Apply missing migrations in registry order with the established ledger/checksum mechanism. The automated rehearsal uses progressively generated **in-memory** complete-schema transactions; stored bundles are untouched. Standalone SQL files contain their own BEGIN/COMMIT: wrapping concatenated files in another transaction is not a substitute for a migration runner's verified atomicity. Do not expose an intermediate deadlines-only installation to writers/workers.
++5. Verify old rounds retain NULL deadlines and existing legacy orders are neither deleted nor re-invoiced. Inventory previously created orders separately; no retrospective financial repair is authorized here. Confirm new rounds receive deadlines, explicit timer start is idempotent, not-due is a no-op, pending queue yields draining, and due/no-queue locks a winner without an order.
++6. Run the real parser flow: two bidders → trusted host close → no order → genuinely pre-round/older confirmation stale → same-second winner confirmation → one order → replay → still one order. Audit 1 alone should demonstrate the source-seconds race; audit 2 must resolve it. Capture definitions at each stage, compare final definition with a fresh current-source installation, and investigate every unexplained difference.
++7. Run privacy/pagination/workspace/financial tests, test the expiry failure ledger/counts, and verify tenant/RLS/grant boundaries. Check application compatibility gates before releasing the app. Run an authenticated cron in staging and inspect `auctionExpiry.failed`/`unavailable`, then confirm the real external scheduler separately. Resume workers/writes only after successful verification.
++8. Production execution remains an operator-only follow-up. This task prepares artifacts and local evidence; it neither applies the sequence nor verifies current production state. Keep the identity-unverified phase gate until sanitized real Meta diagnostics arrive.
++
++## Local executable rehearsal evidence
++
++```powershell
++$env:AUCTION_PREFLIGHT_EVIDENCE='reports/auction-audit/remediation/preflight'
++node --test scripts/test-auction-preflight.cjs
++Remove-Item Env:AUCTION_PREFLIGHT_EVIDENCE
++```
++
++The test compiles the registry prefix before deadlines, overlays the two actual original `live-auctions.sql` functions to reproduce the supplied legacy behavior, then applies each missing suffix stage using the ledger-aware builder in memory. This explicitly simulated drift is not a claim that the complete active database equals the test fixture. An empty-schema test and an intentional bad-grants test verify that preflight reports blockers without changing state. Logs, stage definitions, source digests, and baseline/final preflight JSON are under `remediation/preflight*`.
++
++Bootstrap parity is still intentionally red. Regeneration and production deployment are not part of this task; see [DEPLOY-PLAN.md](DEPLOY-PLAN.md).
+diff --git a/reports/auction-audit/DEPLOY-PLAN.md b/reports/auction-audit/DEPLOY-PLAN.md
+new file mode 100644
+index 0000000..07c3668
+--- /dev/null
++++ b/reports/auction-audit/DEPLOY-PLAN.md
+@@ -0,0 +1,74 @@
++# Auction deployment and operator plan
++
++This task performs no production migration, deployment, real Graph call, or credential inspection. Validation uses local mocks and in-memory PGlite. The committed bootstrap bundles are deliberately unchanged and are **not ready for use as the current auction installer**.
++
++The user's latest active-database audit reports legacy immediate-order comment SQL, absent timer columns/expiry RPCs, an existing migration ledger, and audit 1 never applied. These are user-supplied observations, not database queries performed here. **The current application must not be enabled against that reported schema yet.** Use the read-only [preflight.sql](preflight.sql) and [Compatibility Matrix / staging sequence](COMPATIBILITY.md) before an operator applies migrations. The known required suffix is `live-auction-deadlines.sql` → `live-auction-audit-hardening.sql` → `live-auction-audit-hardening-2.sql`, after any missing prerequisites. Audit 2 alone is insufficient.
++
++## Supported deployment paths
++
++1. **Existing installation:** an authorized operator inventories `snapbot_schema_migrations`, installed RPC definitions/signatures, table grants, and timer columns. Apply only missing forward migrations in registry order using the established migration process. `live-auction-audit-hardening-2.sql` requires the first audit migration and deadlines migration. Do not replay historical financial migrations over newer functions. Deploy the reporting-RPC caller only after its migration is installed; otherwise cron explicitly reports expiry as unavailable.
++2. **Fresh installation / generated upgrade:** first complete the separate bundle-regeneration task below. Use the reviewed, synchronized `complete_schema.sql` with Supabase platform prerequisites installed. The alternative `full_database_setup.sql` is a generated ordered script, not a substitute for migration inventory or checksum enforcement.
++3. **Local validation:** the builder's `build().completeSql` assembles current source entirely in memory for PGlite. That does not update the stored bundles and is not a production deployment.
++
++The new report RPC returns `{closed, failed}`. Cron exposes this as `auctionExpiry`; an RPC-level failure returns `{closed:0,failed:1,unavailable:true}`. The integer-returning `expire_live_auctions(uuid)` remains a compatibility wrapper. Its callers can query the three-column failure ledger; callers needing counts should use `expire_live_auctions_report(uuid)`. The ledger contains only SQLSTATE, auction UUID, and occurrence time, has RLS enabled, and is inaccessible to browser roles. Operational access is through authorized server tooling, not the auction browser.
++
++## Isolated bundle regeneration procedure — not executed here
++
++Create a separate clean branch/worktree containing the approved migration changes. Preserve any unrelated working tree changes. Run:
++
++```powershell
++node scripts/build-full-database-setup.cjs
++node scripts/build-full-database-setup.cjs --check
++node --test scripts/test-auction-bundle-parity.cjs scripts/test-complete-schema.cjs scripts/test-full-database-setup.cjs
++npx.cmd tsc --noEmit
++npm.cmd run build
++```
++
++Review both generated SQL files and `full_database_setup-manifest.md` together. Run fresh-install and representative upgrade PGlite suites, inspect final financial function definitions and `auction_comment_timestamp(text)` volatility, and commit generated outputs separately. The explicit parity test currently fails for both financial functions and timestamp volatility; do not suppress that failure to claim readiness.
++
++The checksum guard in `scripts/lib/complete-schema.cjs:118` rejects a source migration whose effective checksum differs from the previously applied checksum. An unchanged recorded migration is skipped. Do not bypass the guard, rewrite ledger checksums, or edit an applied migration to force a rerun. The first audit migration is unchanged versus HEAD `39cf4dd`; all SQL introduced in this task is in the new final migration. An operator must establish actual production history before choosing an upgrade path.
++
++## Pre-deployment validation
++
++- Confirm timer columns (`ends_at`, `timer_started_at`, `duration_seconds`) and RPC signatures on the target. Registry lines 145–147 place deadlines before audit 1 and audit 2; `supabase/live-auction-deadlines.sql:3`–5 creates those columns.
++- Compare actual installed financial definitions against approved source. Preserve a backup and inventory unresolved auctions, pending webhook work, delivery review states, and expiry errors. Never log author IDs, bodies, or tokens during this inventory.
++- Verify server-only access and tenant isolation for auctions, cursors, delivery reviews, and expiry failures. Browser RLS failures must not be “fixed” by granting direct access to these tables.
++- Resolve the intentional bootstrap parity failure in its isolated task. Review full-suite baseline failures separately; this change does not establish system-wide test health.
++- Confirm an authenticated external scheduler actually invokes the webhook cron and records `auctionExpiry.failed`/`unavailable`. A headless browser component runs only while mounted and is not a durable scheduler.
++- Quiesce writers/workers during the ordered upgrade and account for the deadlines migration's optional automatic pg_cron scheduling. Do not expose intermediate financial definitions. See the staging sequence for ledger handling and transaction boundaries.
++
++## Post-deployment validation — operator only
++
++Check HTTP authorization failures separately from degraded workspace reads. A missing explicit session returns 404; failed reads return 503 with `ready:false,degraded:true`. A successful empty workspace is allowed only after successful scoped reads. The form remains mounted but prevents mutation while hydration is unavailable and offers an explicit reload. The earlier fake 200 fallback was introduced to keep setup visible during schema/read failures; it incorrectly represented failed reads as an empty, ready workspace.
++
++Check a real two-bidder round: trusted host closure locks the winner without an order, an older confirmation is stale, a same-second confirmation creates one order, and replay creates no second order. For timer closures, the confirmation floor remains the database winner-lock time. Check due/not-due/draining behavior, error-ledger writes, shipping totals, and public/private delivery review entries. Review entries are bounded to 50 and contain only channel/status in the browser; “50+” indicates the display cap, not an exact total.
++
++## Poller and identity limitations
++
++Initial calls explicitly include `order=reverse_chronological`, `filter=stream`, and requested `live_filter=no_filter`. Parameter tests establish request construction, not Meta's live response behavior. Pagination accepts only HTTPS, exact `graph.facebook.com`, and the exact version/video/comments path. Tokens travel in Authorization headers; continuation URLs have every `access_token` parameter removed.
++
++A matching saved page-one anchor does not prove intermediate pages stayed unchanged. The poller therefore follows the freshly returned page chain rather than jumping to a saved opaque continuation. Scans remain bounded; sustained volumes exceeding the per-cycle page budget require an operator load test and potentially a separately designed durable catch-up mechanism. This task does not claim unbounded backlog throughput.
++
++Advancing high water across `MISSING_FROM_ID` comments means they eventually leave the 20-second overlap and are no longer eligible for recovery by this poller. A future identity-unverified workflow must persist comments and their recoverable state **before** skipping/advancing. No synthetic identities or identity-unverified workflow were implemented. Real Meta diagnostics are still required before that work begins.
++
++## Inbox diagnostics — isolated telemetry only
++
++`components/inbox/InboxClient.tsx` logs recognized subscription states, safe error codes, and snapshot HTTP status/duration. The isolated patch is `remediation/inbox-telemetry.patch`. No subscription filters, recovery intervals, authentication gates, or connection-state behavior changed. Remove temporary telemetry after diagnosis.
++
++Conditions that can keep the orange Inbox banner visible:
++
++- `lib/realtime-visibility.ts:7` disposes subscriptions while hidden; recovery also returns early for hidden tabs.
++- `InboxClient.tsx:447` recovery's `recovering` guard prevents a second overlapping snapshot. A pending request must settle before another attempt.
++- Snapshot requests abort after 10 seconds. Abort, transport, malformed payload, and non-success HTTP responses cannot establish successful recovery.
++- `lib/features/inbox/inbox-server.ts:35`–47 maps failures to 503 and gates reads on session (401), tenant access (404), and feature entitlement (403). Repeated polling cannot bypass those gates.
++- Snapshot success establishes polling mode; a subscription failure still requires state diagnostics to distinguish transient reconnects from persistent channel failure.
++
++Collect browser state transitions and status/duration only, plus worker invocation evidence. Do not include network Authorization headers, identifiers, or comment/message bodies. No runtime fix for the live Inbox banner is claimed without diagnostics.
++
++## Repository security and remaining coverage
++
++Metadata-only history inspection found npm content-addressed cache paths in older commits; `git ls-files -- .npm-audit-cache` is empty today and `.gitignore:23` excludes the directory. Assessment: **Likely benign npm cache**, based on path/history evidence only. Contents were not opened, so credential exposure cannot be ruled out. Existing logs and cache history should be inspected privately by an authorized operator; rotate credentials if exposure is confirmed. Rotation itself is not authorized or performed here. Common local cache/coverage directories are now ignored.
++
++The existing webhook/slip suites have missing `facebookMessageEcho` exports and `comment-config` mocks; those fixture repairs remain separate. There is no passing end-to-end coverage from those failing slip-routing tests. It would be inaccurate to claim all slip-to-payment logic lacks passing coverage: the existing `test-auction-customer-tab-slip.cjs` contains two passing mocked settlement checks. Live slip/provider/payment behavior remains unverified.
++
++Required external follow-up: private credential assessment/rotation decision; live database migration inventory and grants; synchronized bundle release; Meta live diagnostics and numeric-bid/identity testing; real scheduler confirmation; and browser delivery/Inbox diagnostics. None was performed by this offline task.
+diff --git a/reports/auction-audit/PREFLIGHT-REPORT.md b/reports/auction-audit/PREFLIGHT-REPORT.md
+new file mode 100644
+index 0000000..d79a700
+--- /dev/null
++++ b/reports/auction-audit/PREFLIGHT-REPORT.md
+@@ -0,0 +1,43 @@
++# Final directive: preflight and migration sequencing
++
++The current workspace application is **not compatible with the active database described in the supplied audit**. That audit reports missing timers/expiry RPCs and legacy immediate-order comment SQL. No live database inspection, migration, deployment, Meta call, or credential inspection was performed in this task. The deployed application commit is unknown.
++
++The required known suffix is **deadlines → audit 1 → audit 2**, after missing prerequisite migrations are resolved. Audit 2 alone cannot repair that baseline. Both stored bootstrap bundles remain unchanged and their parity check remains intentionally failing.
++
++| Requirement | Status | Evidence |
++| --- | --- | --- |
++| Read-only prerequisite/capability preflight | PASS locally; live execution not performed | [preflight.sql](preflight.sql), [3-test log](remediation/preflight.log): empty database reports blockers without a catalogue exception or schema writes |
++| Full-prefix staging simulation and ordered suffix | PASS locally | `scripts/test-auction-preflight.cjs:24`; same log; registry prefixes are replayed with the checksum-aware ledger |
++| Legacy immediate-order behavior reproduced | PASS in a controlled simulation | Rehearsal overlays the two actual original functions from `supabase/live-auctions.sql`; host closure creates one legacy order before upgrade |
++| Safe close and same-second confirmation after upgrade | PASS locally | Audit 1 closes without an order and reproduces the seconds race; audit 2 accepts the same confirmation once; genuinely pre-round confirmations stay stale; historical order is preserved |
++| No unexplained final function drift | PASS locally | Actual `pg_get_functiondef` captured at legacy/deadlines/audit1/audit2 stages in [evidence folder](remediation/preflight); final definition equals fresh current-source installation |
++| Readiness gates | PASS locally | [Baseline output](remediation/preflight/preflight-baseline.json): 37 blockers. [Final output](remediation/preflight/preflight-final.json): 142 checks, zero blockers. These counts describe only the simulated fixture, not the active Supabase instance |
++| Bad browser grants / missing server RPC permission | PASS locally | Negative-permission test reports BLOCKED and leaves permissions unchanged |
++| Application/database compatibility matrix | Prepared | [COMPATIBILITY.md](COMPATIBILITY.md) cites the real workspace call sites, distinguishes supplied active facts from unknown capabilities, and blocks release before schema/behavior validation |
++| Existing auction/privacy/poller/workspace/financial/Inbox checks | PASS | [Verification log](remediation/preflight-verification.log): 87 tests, 87 passes, exit 0. Final expanded preflight was additionally rerun: 3/3, exit 0 |
++| Bootstrap financial parity | FAIL, intentional | [Parity log](remediation/preflight-parity.log): exit 1; source-vs-bundle financial function/volatility differences remain. No bundle was regenerated |
++| Broader repository baseline | Existing failures remain | Prior complete comparison: [hardening-head.json](hardening-head.json) vs [hardening-verified.json](hardening-verified.json), zero unexpected new failures, 57 retained failures plus one intentional parity failure. That full run predates the three new preflight tests; it is not represented as a new full run |
++| Live migration readiness / hosted scheduler / Meta behavior | CANNOT VERIFY here | Requires authorized operator/staging/live evidence. PGlite does not exercise hosted pg_cron or real provider behavior |
++
++Build/type-check results for this directive are recorded in `remediation/preflight-typecheck.log` and `remediation/preflight-build.log`; see `remediation/preflight-verification.json` for their verified exit statuses after completion.
++
++The staged [legacy-to-final function diff](remediation/preflight/legacy-to-final.patch) includes the intended numeric-author/tenant guards, session-configured command parsing, confirmation-only close and winner order flow, source-time/deadline checks, and confirmation delivery targeting. The [audit-1-to-audit-2 diff](remediation/preflight/audit1-to-audit2.patch) isolates the source-time floor correction. No unexplained final definition drift is observed: the rehearsal asserts exact equality against a fresh source installation, and preflight checks all four reviewed financial/close function bodies.
++
++## Changes added by this directive
++
++- `reports/auction-audit/preflight.sql`: read-only catalogue checks grouped by prerequisite stage, types/signatures/volatility, protected table access, server report-RPC execution, and source-body drift checks. Missing schema returns BLOCKED instead of throwing. No application RPC, customer rows, identifiers, tokens, function bodies, or message bodies are returned.
++- `scripts/test-auction-preflight.cjs`: empty-schema checks, real-parser/PGlite staged migration rehearsal, public winner confirmation/replay, pre-round stale boundary, preserved historical orders, final-vs-fresh definition comparison, and bad-grant detection.
++- `reports/auction-audit/COMPATIBILITY.md` and updates to `DEPLOY-PLAN.md`: supplied active state, exact known migration suffix, missing-prefix resolution, release gates, writer/worker quiescence, hosted cron scheduling side effect, checksum handling, and staging/production distinction.
++- Evidence under `reports/auction-audit/remediation/preflight*`. Existing application behavior, applied migration sources, and bootstrap bundles were preserved. No formatter ran and identity-unverified remains gated.
++
++The preflight red evidence (`remediation/preflight-entry-red.log`) executes the new suite against the clean HEAD's missing preflight artifact and fails with ENOENT. It demonstrates the previously absent artifact, not a previously failing SQL behavior. The staging test independently reproduces the actual legacy order flow and the audit-1 timestamp race before proving the fixed flow.
++
++## Operator sequence
++
++1. Run the read-only preflight privately; establish the actual deployed application build and migration ledger/checksum inventory.
++2. Resolve every `00_base` blocker from the registry. Rehearse the full prefix and **deadlines → audit 1 → audit 2** in disposable staging. Do not skip audit 1 because audit 2 exists.
++3. Keep writers/workers quiesced through intermediate states. Account for the deadlines migration's optional automatic pg_cron scheduling. Verify transaction handling rather than concatenating files containing BEGIN/COMMIT inside another transaction.
++4. Review stage definitions, preserved old orders/deadlines, winner-only order creation, replay, queue draining, expiry failure counts, grants, and scheduler execution before enabling the matching app.
++5. Regenerate/review the bootstrap bundles in the separate isolated task. Live execution, production release, and Meta diagnostics remain external follow-up; none was performed here.
++
++[Deployment plan](DEPLOY-PLAN.md) · [Compatibility / staging details](COMPATIBILITY.md) · [Existing logical diff](remediation/parts-1-3-4-5.patch) · [Preflight additions diff](remediation/preflight-artifacts.patch) · [Scoped git status](remediation/preflight-status.txt)
+diff --git a/scripts/test-auction-preflight.cjs b/scripts/test-auction-preflight.cjs
+new file mode 100644
+index 0000000..4a40fe8
+--- /dev/null
++++ b/scripts/test-auction-preflight.cjs
+@@ -0,0 +1,104 @@
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const { PGlite } = require('@electric-sql/pglite')
++const { build } = require('./build-full-database-setup.cjs')
++const { completeSchema } = require('./lib/complete-schema.cjs')
++const { fixture } = require('./helpers/auction-hardening-db.cjs')
++const preflight = () => fs.readFileSync(process.env.AUCTION_PREFLIGHT_FILE ?? 'reports/auction-audit/preflight.sql', 'utf8')
++const inspect = async db => (await db.exec(preflight())).flatMap(result => result.rows ?? [])
++const assertStage = (rows, stage) => assert.deepEqual(rows.filter(row => row.stage === stage && row.status !== 'PASS'), [], stage)
++
++test('read-only preflight reports absent prerequisites without crashing on a missing schema', async () => {
++  const db = new PGlite()
++  try {
++    const before = (await db.query("select count(*)::int n from pg_class where relnamespace='public'::regnamespace")).rows[0]
++    const rows = await inspect(db)
++    assert.ok(rows.some(row => row.status === 'BLOCKED' && row.requirement === 'public.auctions'))
++    assert.equal(rows.find(row => row.requirement === 'transaction_read_only').status, 'PASS')
++    assert.deepEqual((await db.query("select count(*)::int n from pg_class where relnamespace='public'::regnamespace")).rows[0], before)
++  } finally { await db.close() }
++})
++
++test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 1, then audit 2 without premature orders', async () => {
++  const result = build()
++  const index = result.sources.indexOf('live-auction-deadlines.sql')
++  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql'])
++  const prefix = n => completeSchema({ ...result, sections: result.sections.slice(0, n) })
++  const f = await fixture(prefix(index))
++  const captures = {}
++  const signature = 'public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)'
++  const definition = async () => (await f.one('select pg_get_functiondef($1::regprocedure) definition', [signature])).definition
++  const orderCount = async a => (await f.one('select count(*)::int n from orders where source_id=$1', [a.id])).n
++  try {
++    // Controlled drift overlay reproduces the user-reported active legacy functions.
++    // This is a local simulation, not a clone or inspection of production.
++    const original = fs.readFileSync('supabase/live-auctions.sql', 'utf8')
++    for (const name of ['finalize_live_auction', 'process_live_auction_comment']) {
++      const source = original.match(new RegExp('create or replace function public\\.' + name + '\\([\\s\\S]*?end \\$\\$;'))?.[0]
++      assert.ok(source, name)
++      await f.db.exec(source)
++    }
++    captures.legacy = await definition()
++    assert.ok(captures.legacy.includes('if sender is null or cid is null'))
++    assert.ok(!captures.legacy.includes('confirmation_floor'))
++    const initial = await inspect(f.db)
++    assertStage(initial, '00_base')
++    assert.equal(initial.find(row => row.requirement === 'public.auctions.ends_at').status, 'BLOCKED')
++    assert.equal(initial.find(row => row.kind === 'function_body' && row.requirement === signature).status, 'BLOCKED')
++    const legacy = await f.open()
++    await f.receive(legacy, '900', '100')
++    await f.receive(legacy, '999', 'close')
++    assert.equal(await orderCount(legacy), 1, 'reproduce immediate-order legacy behavior')
++
++    // Replay the complete registry prefix each time: the migration ledger skips unchanged history.
++    await f.db.exec(prefix(index + 1))
++    captures.deadlines = await definition()
++    assertStage(await inspect(f.db), '10_before_audit_1')
++    assert.equal((await f.one('select ends_at from auctions where id=$1', [legacy.id])).ends_at, null)
++    await f.db.exec(prefix(index + 2))
++    captures.audit1 = await definition()
++    assertStage(await inspect(f.db), '20_before_audit_2')
++    const a = await f.open(), second = Math.floor(Date.now() / 1000)
++    await f.db.query('update auctions set created_at=to_timestamp($2) where id=$1', [a.id, second - 10])
++    await f.receive(a, '900', '100')
++    await f.receive(a, '901', '200')
++    assert.equal((await f.receive(a, '999', 'close', second)).result.status, 'awaiting_confirmation')
++    assert.equal(await orderCount(a), 0)
++    const confirmation = await f.receive(a, '901', 'confirm', second)
++    assert.equal(confirmation.result.status, 'stale', 'audit 1 still has the source-seconds race')
++    await f.db.exec(prefix(index + 3))
++    captures.audit2 = await definition()
++    const final = await inspect(f.db)
++    assert.deepEqual(final.filter(row => row.status !== 'PASS'), [])
++    assert.equal((await f.processEvent(a, confirmation.event, confirmation.parsed)).status, 'confirmed')
++    await f.processEvent(a, confirmation.event, confirmation.parsed)
++    assert.equal(await orderCount(a), 1)
++    assert.equal((await f.receive(a, '901', 'confirm', second - 20)).result.status, 'stale')
++    assert.equal(await orderCount(legacy), 1, 'historical legacy order remains intact')
++    const current = await fixture()
++    try {
++      const expected = await current.one('select pg_get_functiondef($1::regprocedure) definition', [signature])
++      assert.equal(captures.audit2, expected.definition, 'no function drift versus fresh current installation')
++    } finally { await current.db.close() }
++    if (process.env.AUCTION_PREFLIGHT_EVIDENCE) {
++      const folder = path.resolve(process.env.AUCTION_PREFLIGHT_EVIDENCE)
++      fs.mkdirSync(folder, { recursive: true })
++      for (const [stage, sql] of Object.entries(captures)) fs.writeFileSync(path.join(folder, stage + '.sql'), sql)
++      fs.writeFileSync(path.join(folder, 'preflight-final.json'), JSON.stringify(final, null, 2))
++      fs.writeFileSync(path.join(folder, 'preflight-baseline.json'), JSON.stringify(initial, null, 2))
++    }
++  } finally { await f.db.close() }
++})
++
++test('preflight blocks browser grants and missing reporting-RPC execution privileges without changing them', async () => {
++  const f = await fixture()
++  try {
++    await f.db.exec('grant select on auction_poll_cursors to authenticated; revoke execute on function expire_live_auctions_report(uuid) from service_role;')
++    const rows = await inspect(f.db)
++    assert.equal(rows.find(row => row.requirement === 'public.auction_poll_cursors / authenticated').status, 'BLOCKED')
++    assert.equal(rows.find(row => row.requirement === 'expire_live_auctions_report / service_role').status, 'BLOCKED')
++    assert.equal((await f.one("select has_table_privilege('authenticated','auction_poll_cursors','SELECT') allowed")).allowed, true)
++  } finally { await f.db.close() }
++})

@@ -33,3 +33,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .codex-baseline-worktree/
+
+# Local tooling caches
+/.cache/
+/.turbo/
+/.eslintcache
+/coverage/

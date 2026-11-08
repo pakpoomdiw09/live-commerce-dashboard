@@ -1,0 +1,36 @@
+ M .gitignore
+ M app/api/cron/facebook-webhooks/route.ts
+ M app/api/live-auction/workspace/route.ts
+ M app/api/live-cf/auction/poll-comments/route.ts
+ M components/inbox/InboxClient.tsx
+ M components/live-cf/AuctionUnifiedForm.tsx
+ M components/live-cf/LiveCommentPoller.tsx
+ M components/live-cf/LiveSessionDashboard.tsx
+ M lib/integrations/facebook/webhook-handler.ts
+ M lib/integrations/facebook/webhook-http.ts
+ M scripts/build-full-database-setup.cjs
+ M scripts/test-auction-background.cjs
+ M scripts/test-auction-cron.cjs
+ M scripts/test-auction-poller-hardening.cjs
+ M scripts/test-auction-workspace-api.cjs
+ M scripts/test-customer-tabs.cjs
+ M scripts/test-facebook-webhook-queue.cjs
+ M scripts/test-live-session-dashboard.cjs
+ M scripts/test-shipping.cjs
+?? reports/auction-audit/DEPLOY-PLAN.md
+?? reports/auction-audit/REMEDIATION.md
+?? reports/auction-audit/hardening-final.json
+?? reports/auction-audit/hardening-final.log
+?? reports/auction-audit/hardening-head.json
+?? reports/auction-audit/hardening-head.log
+?? reports/auction-audit/hardening-verified.json
+?? reports/auction-audit/hardening-verified.log
+?? reports/auction-audit/remediation/
+?? scripts/helpers/auction-hardening-db.cjs
+?? scripts/helpers/confirm-auction-winner.cjs
+?? scripts/test-auction-bundle-parity.cjs
+?? scripts/test-auction-degraded-form.cjs
+?? scripts/test-auction-hardening-2.cjs
+?? scripts/test-auction-ingestion-privacy.cjs
+?? scripts/test-auction-poller-remediation.cjs
+?? supabase/live-auction-audit-hardening-2.sql

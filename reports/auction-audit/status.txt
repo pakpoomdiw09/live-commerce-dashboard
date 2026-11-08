@@ -1,0 +1,15 @@
+ M app/api/live-cf/auction/host-action/route.ts
+ M app/api/live-cf/auction/poll-comments/route.ts
+ M components/live-cf/LiveAuctionPanel.tsx
+ M components/live-cf/LiveCommentPoller.tsx
+ M components/live-cf/LiveSessionDashboard.tsx
+ M lib/features/commerce/auction-server.ts
+ M reports/auction-audit/run-suite.cjs
+ M scripts/test-auction-background.cjs
+ M scripts/test-auction-host-actions.cjs
+ M scripts/test-auction-poller-hardening.cjs
+?? reports/auction-audit/a3-stalled-rounds.sql
+?? reports/auction-audit/capture-function-defs.cjs
+?? reports/auction-audit/run-regressions.cjs
+?? reports/auction-audit/write-report.cjs
+?? scripts/test-auction-audit-lifecycle.cjs

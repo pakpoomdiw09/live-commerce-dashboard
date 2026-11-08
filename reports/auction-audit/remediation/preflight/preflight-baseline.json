@@ -1,0 +1,996 @@
+[
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.auction_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.bid_amount",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.bidder_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.bidder_name",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.comment_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.comment_text",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.event_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.is_opening",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.result",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_bids.status",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_deliveries.auction_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_deliveries.channel",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_deliveries.claim_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_deliveries.comment_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_deliveries.status",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_workspace_requests.request_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auction_workspace_requests.tenant_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.bank_account_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.bid_reply_template",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.close_event_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.closed_at",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.created_at",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.current_price",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.host_count",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.host_ids",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.item_name",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.leading_bidder_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.leading_bidder_name",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.leading_comment_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.live_post_aliases",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.live_post_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.min_step",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.order_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.page_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.private_reply_enabled",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.private_reply_template",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.public_reply_enabled",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.session_automation",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.shipping_fee",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.start_price",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.status",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.tenant_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.winner_confirmation_comment_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.winner_confirmation_event_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.winner_confirmed_at",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.auctions.winner_locked_at",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.bank_accounts.id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.bank_accounts.tenant_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.customers.display_name",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.customers.id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.customers.platform",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.customers.platform_user_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.customers.tenant_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.created_at",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.kind",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.ordering_key",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.page_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.payload",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.sequence",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.facebook_webhook_events.status",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.live_sessions.auction_settings",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.live_sessions.id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.live_sessions.live_post_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.live_sessions.page_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.live_sessions.tenant_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.amount",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.customer_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.live_bank_account_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.product_name",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.source",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.source_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.status",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.orders.tenant_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.snapbot_schema_migrations.checksum",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.snapbot_schema_migrations.name",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.snapbot_schema_migrations.source_sha256",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.tenants.id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.tenants.is_active",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "column",
+    "requirement": "public.tenants.page_id",
+    "status": "PASS",
+    "detail": "Required column"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.auction_comment_tags(jsonb,text,text)",
+    "status": "PASS",
+    "detail": "Expected return type: text[]"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.auction_numeric_price(text)",
+    "status": "PASS",
+    "detail": "Expected return type: numeric"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.facebook_comment_context(uuid,text,text[])",
+    "status": "PASS",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.finalize_live_auction(uuid,uuid,uuid,boolean)",
+    "status": "PASS",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)",
+    "status": "PASS",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.normalize_auction_tag(text)",
+    "status": "PASS",
+    "detail": "Expected return type: text"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)",
+    "status": "PASS",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text)",
+    "status": "PASS",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.resolve_facebook_comment_settings(jsonb,jsonb)",
+    "status": "PASS",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "00_base",
+    "kind": "function",
+    "requirement": "public.save_auction_workspace(uuid,uuid,uuid,jsonb)",
+    "status": "PASS",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "00_base",
+    "kind": "read_only",
+    "requirement": "transaction_read_only",
+    "status": "PASS",
+    "detail": "This script must not mutate database state"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.auction_bids",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.auction_deliveries",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.auction_workspace_requests",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.auctions",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.bank_accounts",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.customers",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.facebook_webhook_events",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.live_sessions",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.orders",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.snapbot_schema_migrations",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "00_base",
+    "kind": "table",
+    "requirement": "public.tenants",
+    "status": "PASS",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "10_before_audit_1",
+    "kind": "column",
+    "requirement": "public.auctions.duration_seconds",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "10_before_audit_1",
+    "kind": "column",
+    "requirement": "public.auctions.ends_at",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "10_before_audit_1",
+    "kind": "column",
+    "requirement": "public.auctions.timer_started_at",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "10_before_audit_1",
+    "kind": "function",
+    "requirement": "public.close_due_live_auction(uuid,uuid,boolean,boolean)",
+    "status": "BLOCKED",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "10_before_audit_1",
+    "kind": "function",
+    "requirement": "public.expire_live_auctions(uuid)",
+    "status": "BLOCKED",
+    "detail": "Expected return type: integer"
+  },
+  {
+    "stage": "10_before_audit_1",
+    "kind": "function",
+    "requirement": "public.start_legacy_auction_timer(uuid,uuid)",
+    "status": "BLOCKED",
+    "detail": "Expected return type: void"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.auction_id",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.continuation_anchor_url",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.continuation_boundary_at",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.continuation_url",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.cursor_id",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.high_water_at",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.live_video_id",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.session_id",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.tenant_id",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "column",
+    "requirement": "public.auction_poll_cursors.updated_at",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "function",
+    "requirement": "public.auction_comment_timestamp(text)",
+    "status": "BLOCKED",
+    "detail": "Expected return type: timestamp with time zone"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "table",
+    "requirement": "public.auction_poll_cursors",
+    "status": "BLOCKED",
+    "detail": "Required relation"
+  },
+  {
+    "stage": "20_before_audit_2",
+    "kind": "volatility",
+    "requirement": "public.auction_comment_timestamp(text)",
+    "status": "BLOCKED",
+    "detail": "Expected STABLE, not IMMUTABLE"
+  },
+  {
+    "stage": "30_application",
+    "kind": "browser_access",
+    "requirement": "public.auction_expiry_failures / anon",
+    "status": "BLOCKED",
+    "detail": "Expected no browser table/column privileges"
+  },
+  {
+    "stage": "30_application",
+    "kind": "browser_access",
+    "requirement": "public.auction_expiry_failures / authenticated",
+    "status": "BLOCKED",
+    "detail": "Expected no browser table/column privileges"
+  },
+  {
+    "stage": "30_application",
+    "kind": "browser_access",
+    "requirement": "public.auction_poll_cursors / anon",
+    "status": "BLOCKED",
+    "detail": "Expected no browser table/column privileges"
+  },
+  {
+    "stage": "30_application",
+    "kind": "browser_access",
+    "requirement": "public.auction_poll_cursors / authenticated",
+    "status": "BLOCKED",
+    "detail": "Expected no browser table/column privileges"
+  },
+  {
+    "stage": "30_application",
+    "kind": "column",
+    "requirement": "public.auction_expiry_failures.auction_id",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "30_application",
+    "kind": "column",
+    "requirement": "public.auction_expiry_failures.occurred_at",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "30_application",
+    "kind": "column",
+    "requirement": "public.auction_expiry_failures.sqlstate",
+    "status": "BLOCKED",
+    "detail": "Required column"
+  },
+  {
+    "stage": "30_application",
+    "kind": "column_type",
+    "requirement": "public.auctions.duration_seconds",
+    "status": "BLOCKED",
+    "detail": "Expected type: integer"
+  },
+  {
+    "stage": "30_application",
+    "kind": "column_type",
+    "requirement": "public.auctions.ends_at",
+    "status": "BLOCKED",
+    "detail": "Expected type: timestamp with time zone"
+  },
+  {
+    "stage": "30_application",
+    "kind": "column_type",
+    "requirement": "public.auctions.timer_started_at",
+    "status": "BLOCKED",
+    "detail": "Expected type: timestamp with time zone"
+  },
+  {
+    "stage": "30_application",
+    "kind": "function",
+    "requirement": "public.expire_live_auctions_report(uuid)",
+    "status": "BLOCKED",
+    "detail": "Expected return type: jsonb"
+  },
+  {
+    "stage": "30_application",
+    "kind": "function_body",
+    "requirement": "public.close_due_live_auction(uuid,uuid,boolean,boolean)",
+    "status": "BLOCKED",
+    "detail": "Must equal reviewed source body; investigate any drift in staging"
+  },
+  {
+    "stage": "30_application",
+    "kind": "function_body",
+    "requirement": "public.finalize_live_auction(uuid,uuid,uuid,boolean)",
+    "status": "BLOCKED",
+    "detail": "Must equal reviewed source body; investigate any drift in staging"
+  },
+  {
+    "stage": "30_application",
+    "kind": "function_body",
+    "requirement": "public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)",
+    "status": "PASS",
+    "detail": "Must equal reviewed source body; investigate any drift in staging"
+  },
+  {
+    "stage": "30_application",
+    "kind": "function_body",
+    "requirement": "public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)",
+    "status": "BLOCKED",
+    "detail": "Must equal reviewed source body; investigate any drift in staging"
+  },
+  {
+    "stage": "30_application",
+    "kind": "rls",
+    "requirement": "public.auction_expiry_failures",
+    "status": "BLOCKED",
+    "detail": "RLS must be enabled; browser roles must have no direct table access"
+  },
+  {
+    "stage": "30_application",
+    "kind": "rls",
+    "requirement": "public.auction_poll_cursors",
+    "status": "BLOCKED",
+    "detail": "RLS must be enabled; browser roles must have no direct table access"
+  },
+  {
+    "stage": "30_application",
+    "kind": "rpc_access",
+    "requirement": "expire_live_auctions_report / service_role",
+    "status": "BLOCKED",
+    "detail": "Server role must execute the reporting RPC"
+  },
+  {
+    "stage": "30_application",
+    "kind": "table",
+    "requirement": "public.auction_expiry_failures",
+    "status": "BLOCKED",
+    "detail": "Required relation"
+  }
+]

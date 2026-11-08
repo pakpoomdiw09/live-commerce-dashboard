@@ -1,0 +1,47 @@
+diff --git a/reports/auction-audit/process-comment.before.sql b/reports/auction-audit/process-comment.after.sql
+index d27ae2f..83ce926 100644
+--- a/reports/auction-audit/process-comment.before.sql
++++ b/reports/auction-audit/process-comment.after.sql
+@@ -12,7 +12,7 @@ begin
+  select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+  if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+  v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+- if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+  if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+  select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+  if found then return prior;end if;
+@@ -32,17 +32,21 @@ begin
+  end if;
+  if confirming then
+   source_at:=public.auction_comment_timestamp(v->>'created_time');
+-  if source_at is null or source_at<a.created_at-interval '1 second'
++  if source_at is null or source_at<a.created_at
+    or (a.winner_locked_at is not null and source_at<a.winner_locked_at) then
+    return jsonb_build_object('status','stale');
+   end if;
+  elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+   source_at:=public.auction_comment_timestamp(v->>'created_time');
+-  if source_at is null or source_at<a.created_at-interval '1 second'
+-   or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
+    return jsonb_build_object('status','stale');
+   end if;
+  end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
+  if a.session_automation is distinct from settings then
+   update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
+  end if;
+@@ -68,7 +72,7 @@ begin
+  if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
+  else
+   update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
+-  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
+   update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
+   r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+  end if;

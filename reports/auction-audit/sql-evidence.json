@@ -1,0 +1,54 @@
+{
+  "preservesFunctionOid": true,
+  "beforeTimestampVolatility": "s",
+  "security": {
+    "enabled": true,
+    "anon_select": false,
+    "authenticated_select": false
+  },
+  "signatures": [
+    {
+      "proname": "auction_comment_timestamp",
+      "signature": "auction_comment_timestamp(text)",
+      "pronargs": 1,
+      "pronargdefaults": 0,
+      "provolatile": "s"
+    },
+    {
+      "proname": "close_due_live_auction",
+      "signature": "close_due_live_auction(uuid,uuid,boolean,boolean)",
+      "pronargs": 4,
+      "pronargdefaults": 2,
+      "provolatile": "v"
+    },
+    {
+      "proname": "expire_live_auctions",
+      "signature": "expire_live_auctions(uuid)",
+      "pronargs": 1,
+      "pronargdefaults": 1,
+      "provolatile": "v"
+    },
+    {
+      "proname": "finalize_live_auction",
+      "signature": "finalize_live_auction(uuid,uuid,uuid,boolean)",
+      "pronargs": 4,
+      "pronargdefaults": 2,
+      "provolatile": "v"
+    },
+    {
+      "proname": "finalize_live_auction_highest_bid",
+      "signature": "finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)",
+      "pronargs": 4,
+      "pronargdefaults": 2,
+      "provolatile": "v"
+    },
+    {
+      "proname": "process_live_auction_comment",
+      "signature": "process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)",
+      "pronargs": 6,
+      "pronargdefaults": 2,
+      "provolatile": "v"
+    }
+  ],
+  "diagnosticValid": true
+}

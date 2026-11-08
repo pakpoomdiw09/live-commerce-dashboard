@@ -1,0 +1,28 @@
+{
+  "baseline": "64b063be6f6b1686d83dfbb03edaac28ff47d737",
+  "head": {
+    "tests": 947,
+    "pass": 884,
+    "fail": 63,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "entry": {
+    "tests": 957,
+    "pass": 897,
+    "fail": 60,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "final": {
+    "tests": 961,
+    "pass": 901,
+    "fail": 60,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "newFailures": []
+}

@@ -1,0 +1,3065 @@
+diff --git a/app/api/live-auction/workspace/route.ts b/app/api/live-auction/workspace/route.ts
+index 9149c5b..8d74d05 100644
+--- a/app/api/live-auction/workspace/route.ts
++++ b/app/api/live-auction/workspace/route.ts
+@@ -27,17 +27,36 @@ function failure(error: unknown) {
+   if (issue.code === '42501') return auctionReply({ error: 'ไม่มีสิทธิ์ใช้เพจหรือบัญชีนี้' }, 403)
+   if (['P0001', '22P02', '23514'].includes(issue.code ?? ''))
+     return auctionReply({ error: 'ตรวจข้อมูลราคาและเงื่อนไข รอบที่รับบิดแล้วแก้ราคาไม่ได้' }, 400)
+-  return auctionReply(
+-    { error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' },
+-    503,
+-  )
++  return auctionReply({ error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, 503)
++}
++
++// Workspace reads are optional hydration. Writes still report database failures.
++async function workspaceRead<T>(
++  query: PromiseLike<{ data: T; error: unknown }>,
++): Promise<T | null> {
++  try {
++    const result = await query
++    if (result.error) throw result.error
++    return result.data
++  } catch (error) {
++    const code = (error as { code?: string } | null)?.code
++    console.error('[live-auction/workspace] optional read failed', {
++      code: /^[A-Z0-9_]{1,80}$/i.test(code ?? '') ? code : 'UNAVAILABLE',
++    })
++    return null
++  }
+ }
+ 
+ export async function GET(req: NextRequest) {
++  // Keep authorization failures outside the optional database fallback.
++  const tenantId = req.nextUrl.searchParams.get('tenantId')
+   try {
+-    const tenantId = req.nextUrl.searchParams.get('tenantId')
+     const denied = await authorizeAuction(req, tenantId)
+     if (denied) return denied
++  } catch (error) {
++    return failure(error)
++  }
++  try {
+     const sessionId = req.nextUrl.searchParams.get('sessionId')
+     const pageId = req.nextUrl.searchParams.get('pageId')
+     const livePostId = req.nextUrl.searchParams.get('livePostId')
+@@ -52,42 +71,59 @@ export async function GET(req: NextRequest) {
+     if (sessionId) query = query.eq('id', sessionId)
+     if (pageId) query = query.eq('page_id', pageId)
+     if (livePostId) query = query.eq('live_post_id', livePostId)
+-    const session = await query.order('created_at', { ascending: false }).limit(1).maybeSingle()
+-    if (session.error) throw session.error
+-    if (sessionId && !session.data) return auctionReply({ error: 'ไม่พบเซสชันของร้านนี้' }, 404)
++    const session = await workspaceRead(
++      query.order('created_at', { ascending: false }).limit(1).maybeSingle(),
++    )
+     // A new live can inherit the merchant's previous preferences without creating data on GET.
+-    let previous = session.data
++    let previous = session
+     if (!previous && pageId) {
+-      const result = await db
+-        .from('live_sessions')
+-        .select('*')
+-        .eq('tenant_id', tenantId!)
+-        .eq('page_id', pageId)
+-        .order('created_at', { ascending: false })
+-        .limit(1)
+-        .maybeSingle()
+-      if (result.error) throw result.error
+-      previous = result.data
++      previous = await workspaceRead(
++        db
++          .from('live_sessions')
++          .select('*')
++          .eq('tenant_id', tenantId!)
++          .eq('page_id', pageId)
++          .order('created_at', { ascending: false })
++          .limit(1)
++          .maybeSingle(),
++      )
+     }
+     let rounds = db.from('auctions').select('*').eq('tenant_id', tenantId!)
+-    const selectedPage = pageId ?? session.data?.page_id
+-    const selectedPost = livePostId ?? session.data?.live_post_id
++    const selectedPage = pageId ?? session?.page_id
++    const selectedPost = livePostId ?? session?.live_post_id
+     if (selectedPage) rounds = rounds.eq('page_id', selectedPage)
+-    if (session.data && selectedPost) rounds = rounds.eq('live_post_id', selectedPost)
+-    const round = await rounds.order('created_at', { ascending: false }).limit(1).maybeSingle()
+-    if (round.error) throw round.error
++    if (selectedPost) rounds = rounds.eq('live_post_id', selectedPost)
++    // A missing session must not restore an unrelated live's round.
++    const round =
++      sessionId && !session
++        ? null
++        : await workspaceRead(
++            rounds.order('created_at', { ascending: false }).limit(1).maybeSingle(),
++          )
+     return auctionReply({
+-      session: session.data,
+-      round: round.data,
++      ready: true,
++      auction: round,
++      bids: [],
++      session,
++      round,
+       settings:
+-        session.data?.auction_settings ??
++        session?.auction_settings ??
+         previous?.auction_settings ??
+-        round.data?.session_automation ??
++        round?.session_automation ??
+         null,
+-      preferencesOnly: !session.data,
++      preferencesOnly: !session,
++    })
++  } catch {
++    console.error('[live-auction/workspace] using empty workspace')
++    return auctionReply({
++      ready: true,
++      auction: null,
++      bids: [],
++      session: null,
++      round: null,
++      settings: null,
++      preferencesOnly: true,
+     })
+-  } catch (error) {
+-    return failure(error)
+   }
+ }
+ 
+@@ -103,7 +139,9 @@ export async function POST(req: NextRequest) {
+     if (
+       !UUID.test(input.requestId ?? '') ||
+       (input.durationSeconds !== undefined &&
+-        (!Number.isSafeInteger(input.durationSeconds) || input.durationSeconds < 30 || input.durationSeconds > 86400)) ||
++        (!Number.isSafeInteger(input.durationSeconds) ||
++          input.durationSeconds < 30 ||
++          input.durationSeconds > 86400)) ||
+       typeof input.pageId !== 'string' ||
+       !/^\d{1,64}$/.test(input.pageId) ||
+       typeof input.livePostId !== 'string' ||
+diff --git a/app/api/live-cf/auction/host-action/route.ts b/app/api/live-cf/auction/host-action/route.ts
+index e2cbc38..78e449e 100644
+--- a/app/api/live-cf/auction/host-action/route.ts
++++ b/app/api/live-cf/auction/host-action/route.ts
+@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
+     if (!auction.data) return auctionReply({ error: 'ไม่พบรายการประมูลของร้านนี้' }, 404)
+     if (auction.data.status !== 'active')
+       return auctionReply({ error: 'รายการนี้ปิดหรือยกเลิกแล้ว' }, 409)
+-    const activeSession = await db.from('live_sessions')
++    const activeSession = await db
++      .from('live_sessions')
+       .select('mode,auction_settings,comment_settings,confirmation_keywords,closing_keywords')
+       .eq('tenant_id', input.tenantId)
+       .eq('page_id', auction.data.page_id)
+@@ -47,12 +48,15 @@ export async function POST(req: NextRequest) {
+       .limit(1)
+       .maybeSingle()
+     if (activeSession.error) throw activeSession.error
+-    const automation = resolveCommentSettings(activeSession.data ?? {}, auction.data.session_automation ?? {})
++    const automation = resolveCommentSettings(
++      activeSession.data ?? {},
++      auction.data.session_automation ?? {},
++    )
+     if (
+       automation &&
+       (input.action === 'close'
+         ? automation.closeEnabled === false
+-        : automation.countEnabled === false)
++        : automation.countEnabled !== true)
+     )
+       return auctionReply({ error: 'คำสั่งนี้ปิดไว้ในค่าตั้งค่า Session' }, 409)
+     const tenant = await db
+@@ -69,13 +73,23 @@ export async function POST(req: NextRequest) {
+     if (!token)
+       return auctionReply({ error: 'กรุณาเชื่อมต่อ Facebook Page ใหม่ก่อนส่งคอมเมนต์' }, 409)
+     const tags = automation
+-    const command = input.action === 'close'
+-      ? tags.closeKeywords[0] ?? null
+-      : (Object.entries(tags.counting_tags ?? {}).find(([, count]) => String(count) === input.action)?.[0] ?? input.action)
+-    const parsed = typeof command === 'string'
+-      ? parseAuctionComment(command, true, tags as Parameters<typeof parseAuctionComment>[2])
+-      : { type: 'IGNORE' as const }
+-    if (typeof command !== 'string' || parsed.type !== 'HOST_CONTROL' || (input.action === 'close' ? parsed.action !== 'close' : parsed.action !== 'count' || parsed.count !== input.action))
++    const command =
++      input.action === 'close'
++        ? (tags.closeKeywords[0] ?? null)
++        : (Object.entries(tags.counting_tags ?? {}).find(
++            ([, count]) => String(count) === input.action,
++          )?.[0] ?? input.action)
++    const parsed =
++      typeof command === 'string'
++        ? parseAuctionComment(command, true, tags as Parameters<typeof parseAuctionComment>[2])
++        : { type: 'IGNORE' as const }
++    if (
++      typeof command !== 'string' ||
++      parsed.type !== 'HOST_CONTROL' ||
++      (input.action === 'close'
++        ? parsed.action !== 'close'
++        : parsed.action !== 'count' || parsed.count !== input.action)
++    )
+       return auctionReply({ error: 'แท็กคำสั่งไม่ตรงกับการตั้งค่า Session' }, 409)
+     let receipt: { id?: unknown }
+     try {
+@@ -107,7 +121,7 @@ export async function POST(req: NextRequest) {
+                 post_id: auction.data.live_post_id,
+                 from: { id: auction.data.page_id },
+                 message: command,
+-                created_time: Math.floor(Date.now() / 1000),
++                created_time: new Date().toISOString(),
+               },
+             },
+           ],
+diff --git a/app/api/live-cf/auction/poll-comments/route.ts b/app/api/live-cf/auction/poll-comments/route.ts
+index 29591e9..28635f0 100644
+--- a/app/api/live-cf/auction/poll-comments/route.ts
++++ b/app/api/live-cf/auction/poll-comments/route.ts
+@@ -34,7 +34,12 @@ type GraphComment = {
+ 
+ function graphPagingUrl(value: string): URL {
+   const url = new URL(value)
+-  if (url.protocol !== 'https:' || url.hostname !== 'graph.facebook.com' || url.username || url.password)
++  if (
++    url.protocol !== 'https:' ||
++    url.hostname !== 'graph.facebook.com' ||
++    url.username ||
++    url.password
++  )
+     throw Object.assign(new Error('INVALID_GRAPH_PAGING_URL'), { code: 'INVALID_GRAPH_PAGING_URL' })
+   url.searchParams.delete('access_token')
+   return url
+@@ -92,9 +97,7 @@ export async function POST(req: NextRequest) {
+       sessionPost = String(session.data.live_post_id)
+     }
+     const COLUMNS = 'id,live_post_id,created_at'
+-    const sessionFilter = sessionPost
+-      ? `live_post_id.eq.${sessionPost}`
+-      : 'id.not.is.null'
++    const sessionFilter = sessionPost ? `live_post_id.eq.${sessionPost}` : 'id.not.is.null'
+     const round = await db
+       .from('auctions')
+       .select(COLUMNS)
+@@ -123,8 +126,7 @@ export async function POST(req: NextRequest) {
+           .maybeSingle()
+     if (waiting?.error) throw waiting.error
+     const target = round.data ?? waiting?.data
+-    if (!target)
+-      return json({ polled: false, reason: 'NO_ACTIVE_ROUND', videoId: sessionPost })
++    if (!target) return json({ polled: false, reason: 'NO_ACTIVE_ROUND', videoId: sessionPost })
+ 
+     const token = pageTokenFor(tenant.data)
+     if (!token) return json({ error: 'ยังไม่ได้เชื่อมต่อ Facebook' }, 409)
+@@ -139,6 +141,7 @@ export async function POST(req: NextRequest) {
+         headers: { Authorization: `Bearer ${token}` },
+         signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
+         cache: 'no-store',
++        redirect: 'error',
+       })
+       return { res: response, graphBody: await response.json().catch(() => null) }
+     }
+@@ -147,23 +150,17 @@ export async function POST(req: NextRequest) {
+     const pollId = String(target.live_post_id)
+     let { res, graphBody } = await fetchComments(pollId)
+     if (!res.ok) {
+-      // Graph error text is safe to log (the token is sent in a header, never in the URL); strip
+-      // it anyway if it were ever echoed back.
+       const g = graphBody?.error
+       console.warn('[auction/poll] graph error', {
+-        pageId,
+-        videoId: pollId,
+         status: res.status,
+-        code: g?.code ?? null,
+-        subcode: g?.error_subcode ?? null,
+-        type: g?.type ?? null,
+-        message: typeof g?.message === 'string' ? g.message.split(token).join('[REDACTED]') : null,
++        code: typeof g?.code === 'number' ? g.code : null,
++        subcode: typeof g?.error_subcode === 'number' ? g.error_subcode : null,
+       })
+       return json(
+         {
+           polled: false,
+           reason: g?.code === 100 ? 'VIDEO_NOT_ACCESSIBLE' : 'GRAPH_ERROR',
+-          code: g?.code ?? null,
++          code: typeof g?.code === 'number' ? g.code : null,
+           videoId: pollId,
+         },
+         502,
+@@ -173,31 +170,54 @@ export async function POST(req: NextRequest) {
+     const cursorId = sessionId ?? target.id
+     const cursor = await db
+       .from('auction_poll_cursors')
+-      .select('high_water_at,live_video_id,continuation_url')
++      .select('*')
+       .eq('cursor_id', cursorId)
++      .eq('tenant_id', tenantId)
+       .maybeSingle()
+     if (cursor.error) throw cursor.error
+-    const continuation = cursor.data?.live_video_id === pollId ? cursor.data.continuation_url : null
+-    const highWater = cursor.data?.live_video_id === pollId ? Date.parse(cursor.data.high_water_at) : 0
++    const highWater =
++      cursor.data?.live_video_id === pollId ? Date.parse(cursor.data.high_water_at) : 0
+     let pages = (graphBody?.data ?? []) as GraphComment[]
+-    // Always walk forward from the fresh first page. A stored cursor is reusable only
+-    // when it is still exactly the link reached from page 1; otherwise it is stale.
+     const pageOneNext = graphBody?.paging?.next as string | undefined
+-    const storedContinuation = continuation ? graphPagingUrl(continuation).toString() : null
+     const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext).toString() : null
+-    const continuationLinked = !storedContinuation || storedContinuation === pageOneLink
+-    let next = pageOneNext
+-    let reachedBoundary = false
+     const overlapMs = 20_000
+     // SQL uses auctions.created_at as the round's started_at boundary.
+     const startedAt = Date.parse(target.created_at)
+-    const boundary = highWater ? highWater - overlapMs : startedAt
++    let boundary = Math.max(startedAt, highWater ? highWater - overlapMs : startedAt)
++    let next = pageOneLink ?? undefined
++    let resumeAfterBridge: string | undefined
++    // Resume only a recent cursor anchored to this exact fresh page-one chain.
++    // Retain its original boundary: advancing high-water must not drop an unfinished backlog.
++    const cursorState = cursor.data
++    const savedBoundary = Date.parse(cursorState?.continuation_boundary_at ?? '')
++    const savedAge = Date.now() - Date.parse(cursorState?.updated_at ?? '')
++    if (
++      cursorState?.live_video_id === pollId &&
++      cursorState.continuation_url &&
++      Number.isFinite(savedBoundary) &&
++      savedAge >= 0 &&
++      savedAge <= 300_000
++    ) {
++      try {
++        if (
++          pageOneLink &&
++          cursorState.continuation_anchor_url &&
++          graphPagingUrl(cursorState.continuation_anchor_url).toString() === pageOneLink
++        ) {
++          resumeAfterBridge = graphPagingUrl(cursorState.continuation_url).toString()
++          boundary = Math.max(startedAt, savedBoundary)
++        }
++      } catch {
++        // Invalid/expired stored cursors are discarded; fresh provider links remain strict.
++      }
++    }
+     const oldestTimestamp = (batch: GraphComment[]) => {
+-      const times = batch.map((comment) => Date.parse(comment.created_time ?? '')).filter(Number.isFinite)
++      const times = batch
++        .map((comment) => Date.parse(comment.created_time ?? ''))
++        .filter(Number.isFinite)
+       return times.length ? Math.min(...times) : Number.POSITIVE_INFINITY
+     }
+     if (oldestTimestamp(pages) <= boundary) {
+-      reachedBoundary = true
+       next = undefined
+     }
+     for (let page = 2; next && page <= 10; page++) {
+@@ -206,36 +226,41 @@ export async function POST(req: NextRequest) {
+         headers: { Authorization: `Bearer ${token}` },
+         signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
+         cache: 'no-store',
++        redirect: 'error',
+       })
+       const body = await response.json().catch(() => null)
+       if (!response.ok) {
+         if (body?.error?.code === 100)
+-          return json({ polled: false, reason: 'VIDEO_NOT_ACCESSIBLE', code: 100, videoId: pollId }, 502)
++          return json(
++            { polled: false, reason: 'VIDEO_NOT_ACCESSIBLE', code: 100, videoId: pollId },
++            502,
++          )
+         throw Object.assign(new Error('GRAPH_PAGINATION_FAILED'), { code: body?.error?.code })
+       }
+       const batch = (body?.data ?? []) as GraphComment[]
+       pages = pages.concat(batch)
+-      next = body?.paging?.next
++      next = body?.paging?.next ? graphPagingUrl(body.paging.next).toString() : undefined
++      // Fetch the fresh page-one successor before resuming an anchored backlog.
++      // An exhausted fresh chain cannot justify resurrecting an older cursor.
++      if (page === 2 && next && resumeAfterBridge && resumeAfterBridge !== pageOneLink)
++        next = resumeAfterBridge
+       if (oldestTimestamp(batch) <= boundary) {
+-        reachedBoundary = true
+         next = undefined
+         break
+       }
+     }
+-    // If the fresh chain cannot link to the saved cursor, discard the stale cursor;
+-    // the next poll will continue from the fresh page chain saved below.
+-    const continuationForSave = reachedBoundary ? null : next ?? (continuationLinked ? continuation : null)
++    const continuationForSave = next ?? null
+     const inspected = pages.map((comment) => {
+-      const hasFrom = Boolean(comment.from && typeof comment.from === 'object')
+-      const hasFromId = typeof comment.from?.id === 'string' && comment.from.id.length > 0
++      const hasFromId = typeof comment.from?.id === 'string' && /^\d{1,64}$/.test(comment.from.id)
+       const createdAt = Date.parse(comment.created_time ?? '')
+       let reason: string | null = null
+       if (typeof comment.id !== 'string' || !comment.id) reason = 'MISSING_COMMENT_ID'
+-      else if (typeof comment.message !== 'string' || !comment.message.trim()) reason = 'MISSING_MESSAGE'
++      else if (typeof comment.message !== 'string' || !comment.message.trim())
++        reason = 'MISSING_MESSAGE'
+       else if (!hasFromId) reason = 'MISSING_FROM_ID'
+       else if (!Number.isFinite(createdAt)) reason = 'INVALID_CREATED_TIME'
+       else if (createdAt < startedAt) reason = 'BEFORE_ROUND_START'
+-      else if (highWater && createdAt < highWater - overlapMs) reason = 'BEFORE_HIGH_WATER_OVERLAP'
++      else if (createdAt < boundary) reason = 'BEFORE_HIGH_WATER_OVERLAP'
+       else if (seen.has(comment.id)) reason = 'ALREADY_SEEN_IN_PROCESS'
+       return { comment, reason }
+     })
+@@ -247,7 +272,7 @@ export async function POST(req: NextRequest) {
+       if (diagnosticSample.length < 3)
+         diagnosticSample.push({
+           has_from: Boolean(comment.from && typeof comment.from === 'object'),
+-          has_from_id: typeof comment.from?.id === 'string' && comment.from.id.length > 0,
++          has_from_id: typeof comment.from?.id === 'string' && /^\d{1,64}$/.test(comment.from.id),
+           reason,
+         })
+     }
+@@ -257,7 +282,8 @@ export async function POST(req: NextRequest) {
+     )
+     console.info('[auction/poll] cycle', {
+       fetched: pages.length,
+-      queued_candidates: inspected.length - Object.values(skipped).reduce((sum, count) => sum + count, 0),
++      queued_candidates:
++        inspected.length - Object.values(skipped).reduce((sum, count) => sum + count, 0),
+       skipped,
+       diagnostics: diagnosticSample,
+     })
+@@ -268,17 +294,25 @@ export async function POST(req: NextRequest) {
+     const saveCursor = async () => {
+       // This is the single persistence choke-point: validate and strip any legacy
+       // access_token before the continuation URL can reach the database.
+-      const safeContinuation = continuationForSave ? graphPagingUrl(continuationForSave).toString() : null
++      const safeContinuation = continuationForSave
++        ? graphPagingUrl(continuationForSave).toString()
++        : null
+       const highWaterToSave = Math.max(highWater || 0, newestSeen || 0, startedAt)
+-      const cursorSaved = await db.from('auction_poll_cursors').upsert({
+-        cursor_id: cursorId,
+-        auction_id: target.id,
+-        tenant_id: tenantId,
+-        session_id: sessionId,
+-        live_video_id: pollId,
+-        high_water_at: new Date(highWaterToSave).toISOString(),
+-        continuation_url: safeContinuation,
+-      }, { onConflict: 'cursor_id' })
++      const cursorSaved = await db.from('auction_poll_cursors').upsert(
++        {
++          cursor_id: cursorId,
++          auction_id: target.id,
++          tenant_id: tenantId,
++          session_id: sessionId,
++          live_video_id: pollId,
++          high_water_at: new Date(highWaterToSave).toISOString(),
++          continuation_url: safeContinuation,
++          continuation_anchor_url: safeContinuation ? pageOneLink : null,
++          continuation_boundary_at: safeContinuation ? new Date(boundary).toISOString() : null,
++          updated_at: new Date().toISOString(),
++        },
++        { onConflict: 'cursor_id' },
++      )
+       if (cursorSaved.error) throw cursorSaved.error
+     }
+     if (!comments.length) {
+diff --git a/components/live-cf/AuctionUnifiedForm.tsx b/components/live-cf/AuctionUnifiedForm.tsx
+index e302033..7e7b2aa 100644
+--- a/components/live-cf/AuctionUnifiedForm.tsx
++++ b/components/live-cf/AuctionUnifiedForm.tsx
+@@ -85,12 +85,21 @@ export function AuctionUnifiedForm({
+   options: AuctionDashboardOptions
+   onSaved: (sessionId: string) => void
+ }) {
+-  const [draft, setDraft] = useState<Draft | null>(null)
++  const [draft, setDraft] = useState<Draft>(() => ({
++    pageId: options.pages[0]?.id ?? '',
++    livePostId: '',
++    itemName: '',
++    startPrice: '',
++    minStep: '',
++    shippingFee: '0',
++    durationMinutes: '5',
++    settings: blankSessionAutomation(),
++    finance: { cost: '0', ads: '0', shipping: '0', fees: '0' },
++  }))
+   const [base, setBase] = useState<Config | null>(null)
+   const [source, setSource] = useState<{ pageId: string; livePostId: string } | null>(null)
+   const [reload, setReload] = useState(0)
+-  const [loading, setLoading] = useState(true),
+-    [busy, setBusy] = useState(false)
++  const [busy, setBusy] = useState(false)
+   const [error, setError] = useState(''),
+     [notice, setNotice] = useState('')
+   const dirty = useRef(false)
+@@ -100,7 +109,7 @@ export function AuctionUnifiedForm({
+ 
+   const hydrate = useCallback(
+     (config: Config, selected?: { pageId: string; livePostId: string } | null) => {
+-      const settings = config.settings ?? blankSessionAutomation()
++      const settings = { ...blankSessionAutomation(), ...config.settings }
+       const session = config.session
+       setBase(config)
+       setDraft({
+@@ -109,7 +118,7 @@ export function AuctionUnifiedForm({
+         itemName: config.round?.item_name ?? '',
+         startPrice: config.round ? String(config.round.start_price) : '',
+         minStep: config.round ? String(config.round.min_step) : '',
+-        shippingFee: config.round ? String(config.round.shipping_fee) : '',
++        shippingFee: String(config.round?.shipping_fee ?? 0),
+         durationMinutes: String((config.round?.duration_seconds ?? 300) / 60),
+         settings: {
+           ...settings,
+@@ -123,9 +132,9 @@ export function AuctionUnifiedForm({
+           privateText: displaySessionTemplate(settings.privateText),
+         },
+         finance: {
+-          cost: session ? String(session.cost_amount) : '0',
+-          ads: session ? String(session.ad_spent) : '0',
+-          shipping: session ? String(session.shipping_cost) : '0',
++          cost: String(session?.cost_amount ?? 0),
++          ads: String(session?.ad_spent ?? 0),
++          shipping: String(session?.shipping_cost ?? 0),
+           fees: session?.other_fees == null ? '0' : String(session.other_fees),
+         },
+       })
+@@ -136,7 +145,6 @@ export function AuctionUnifiedForm({
+ 
+   useEffect(() => {
+     const controller = new AbortController()
+-    setLoading(true)
+     setError('')
+     const params = new URLSearchParams({ tenantId })
+     if (source?.pageId) {
+@@ -146,17 +154,15 @@ export function AuctionUnifiedForm({
+     void read(`/api/live-auction/workspace?${params}`, controller.signal)
+       .then((config: Config) => {
+         if (!controller.signal.aborted) {
+-          hydrate(config, source)
++          // A slow settings read must never replace edits made while it was loading.
++          if (!dirty.current) hydrate(config, source)
++          else setBase(config)
+           if (config.session && config.session.id !== sessionId)
+             savedCallback.current(config.session.id)
+         }
+       })
+-      .catch((cause) => {
+-        if (!controller.signal.aborted)
+-          setError(cause instanceof Error ? cause.message : 'โหลดค่าที่บันทึกไว้ไม่สำเร็จ')
+-      })
+-      .finally(() => {
+-        if (!controller.signal.aborted) setLoading(false)
++      .catch(() => {
++        // Saved settings are optional; keep the usable draft on read failures.
+       })
+     return () => controller.abort()
+     // Hydrate only on explicit selection/reload, never on the dashboard polling interval.
+@@ -198,7 +204,7 @@ export function AuctionUnifiedForm({
+   }
+   async function handleSubmitAll(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault()
+-    if (!draft || loading || busy) return
++    if (busy) return
+     setBusy(true)
+     setError('')
+     setNotice('')
+@@ -243,7 +249,7 @@ export function AuctionUnifiedForm({
+       setBusy(false)
+     }
+   }
+-  const disabled = loading || busy || !!base?.session?.ended_at
++  const disabled = busy || !!base?.session?.ended_at
+   const locked =
+     disabled ||
+     (!base?.preferencesOnly && base?.round?.status === 'active' && !!base.round.leading_bidder_id)
+@@ -314,24 +320,37 @@ export function AuctionUnifiedForm({
+           กำลังทำงาน
+         </span>
+       </header>
+-      {base?.round && !base.preferencesOnly && <LiveAuctionTimer
+-        key={base.round.id} tenantId={tenantId} auctionId={base.round.id}
+-        onResolved={() => { setReload((n) => n + 1); onSaved(base.session?.id ?? sessionId) }}
+-      />}
+-      {draft && <label className="block text-sm font-medium text-slate-700">
+-        ระยะเวลาประมูล (นาที)
+-        <input type="number" min="0.5" max="1440" step="0.5"
+-          className={field} value={draft.durationMinutes} disabled={disabled}
+-          onChange={(event) => { dirty.current = true; setDraft({ ...draft, durationMinutes: event.target.value }) }} />
+-        <span className="mt-1 block text-xs text-slate-500">นับจากเวลาเริ่มรอบ การบันทึกซ้ำไม่เริ่มเวลาใหม่</span>
+-      </label>}
+-      {loading && (
+-        <p
+-          role="status"
+-          className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500"
+-        >
+-          กำลังโหลดค่าที่บันทึกไว้…
+-        </p>
++      {base?.round && !base.preferencesOnly && (
++        <LiveAuctionTimer
++          key={base.round.id}
++          tenantId={tenantId}
++          auctionId={base.round.id}
++          onResolved={() => {
++            setReload((n) => n + 1)
++            onSaved(base.session?.id ?? sessionId)
++          }}
++        />
++      )}
++      {draft && (
++        <label className="block text-sm font-medium text-slate-700">
++          ระยะเวลาประมูล (นาที)
++          <input
++            type="number"
++            min="0.5"
++            max="1440"
++            step="0.5"
++            className={field}
++            value={draft.durationMinutes}
++            disabled={disabled}
++            onChange={(event) => {
++              dirty.current = true
++              setDraft({ ...draft, durationMinutes: event.target.value })
++            }}
++          />
++          <span className="mt-1 block text-xs text-slate-500">
++            นับจากเวลาเริ่มรอบ การบันทึกซ้ำไม่เริ่มเวลาใหม่
++          </span>
++        </label>
+       )}
+       {error && (
+         <p
+@@ -442,7 +461,7 @@ export function AuctionUnifiedForm({
+                   pages={options.pages}
+                   pageId={draft.pageId}
+                   livePostId={draft.livePostId}
+-                  disabled={busy || loading}
++                  disabled={busy}
+                   onPageChange={(pageId) => {
+                     setSource({ pageId, livePostId: '' })
+                     edit({ pageId, livePostId: '' })
+diff --git a/components/live-cf/LiveAuctionPanel.tsx b/components/live-cf/LiveAuctionPanel.tsx
+index 32fcde2..653975d 100644
+--- a/components/live-cf/LiveAuctionPanel.tsx
++++ b/components/live-cf/LiveAuctionPanel.tsx
+@@ -217,7 +217,16 @@ export function LiveAuctionPanel({
+           {showForm ? 'ซ่อนแบบฟอร์ม' : 'เปิดรายการใหม่'}
+         </button>
+       </header>
+-      {auction && <LiveAuctionTimer key={auction.id} tenantId={tenantId} auctionId={auction.id} onResolved={() => { void refresh() }} />}
++      {auction && (
++        <LiveAuctionTimer
++          key={auction.id}
++          tenantId={tenantId}
++          auctionId={auction.id}
++          onResolved={() => {
++            void refresh()
++          }}
++        />
++      )}
+       <div className="space-y-5 p-5">
+         <p className="text-xs text-slate-500" aria-live="polite">
+           อัปเดตอัตโนมัติทุก 3 วินาที{lastUpdated ? ` • ล่าสุด ${lastUpdated}` : ''}
+@@ -507,7 +516,7 @@ export function LiveAuctionPanel({
+                       key={action}
+                       data-auction-action={action}
+                       type="button"
+-                      disabled={busy || auction.session_automation?.countEnabled === false}
++                      disabled={busy || auction.session_automation?.countEnabled !== true}
+                       onClick={() =>
+                         void mutate('/api/live-cf/auction/host-action', {
+                           auctionId: auction.id,
+diff --git a/components/live-cf/LiveAuctionTimer.tsx b/components/live-cf/LiveAuctionTimer.tsx
+index 6fa84a1..52bef96 100644
+--- a/components/live-cf/LiveAuctionTimer.tsx
++++ b/components/live-cf/LiveAuctionTimer.tsx
+@@ -1,6 +1,6 @@
+ 'use client'
+ 
+-import { useEffect, useRef, useState } from 'react'
++import { useEffect, useRef } from 'react'
+ 
+ type TimerSnapshot = {
+   id: string
+@@ -11,82 +11,87 @@ type TimerSnapshot = {
+ }
+ 
+ /** Absolute deadlines survive suspended tabs and a browser clock in any timezone. */
+-export function LiveAuctionTimer({ tenantId, auctionId, onResolved }: {
++export function LiveAuctionTimer({
++  tenantId,
++  auctionId,
++  onResolved,
++}: {
+   tenantId: string
+   auctionId: string
+   onResolved: () => void
+ }) {
+-  const [snapshot, setSnapshot] = useState<TimerSnapshot | null>(null)
+-  const [remaining, setRemaining] = useState<number | null>(null)
+-  const [error, setError] = useState('')
+-  const [startRequest, setStartRequest] = useState(0)
+   const resolved = useRef(onResolved)
+   resolved.current = onResolved
+ 
+   useEffect(() => {
+     const controller = new AbortController()
+-    let busy = false, done = false, notified = false, lastAttempt = -Infinity
++    let busy = false,
++      done = false,
++      notified = false,
++      lastAttempt = -Infinity
+     let deadline: number | null = null
+-    let serverTime = 0, observedAt = 0
+-    setSnapshot(null)
+-    setRemaining(null)
+-    setError('')
+-    async function refresh(action?: 'expire' | 'start') {
++    let serverTime = 0,
++      observedAt = 0
++    async function refresh(action?: 'expire') {
+       if (busy || done || controller.signal.aborted) return
+       busy = true
+       lastAttempt = performance.now()
+       try {
+         const params = new URLSearchParams({ tenantId, auctionId })
+         const response = await fetch(`/api/live-cf/auction/timer?${params}`, {
+-          ...(action ? { method: 'POST', headers: { 'Content-Type': 'application/json' },
+-            body: JSON.stringify({ tenantId, auctionId, action }) } : {}),
+-          cache: 'no-store', signal: controller.signal,
++          ...(action
++            ? {
++                method: 'POST',
++                headers: { 'Content-Type': 'application/json' },
++                body: JSON.stringify({ tenantId, auctionId, action }),
++              }
++            : {}),
++          cache: 'no-store',
++          signal: controller.signal,
+         })
+         const data: TimerSnapshot & { error?: string } = await response.json()
+-        if (!response.ok) throw new Error(data.error || 'ตรวจสอบเวลาประมูลไม่สำเร็จ')
++        if ([401, 403, 404].includes(response.status)) {
++          done = true
++          return
++        }
++        if (!response.ok) return
+         if (controller.signal.aborted) return
+         serverTime = Date.parse(data.serverNow)
+         observedAt = performance.now()
+         deadline = data.ends_at ? Date.parse(data.ends_at) : null
+-        setSnapshot(data)
+-        setError('')
+         done = data.status !== 'active'
+-        setRemaining(deadline === null ? null : Math.max(0, Math.ceil((deadline - serverTime) / 1000)))
+-        if (done && !notified) { notified = true; resolved.current() }
+-      } catch (cause) {
+-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'ตรวจสอบเวลาประมูลไม่สำเร็จ')
+-      } finally { busy = false }
++        if (done && !notified) {
++          notified = true
++          resolved.current()
++        }
++      } catch {
++        // Transient failures retry silently; only the server can confirm a close.
++      } finally {
++        busy = false
++      }
+     }
+-    void refresh(startRequest ? 'start' : undefined)
++    void refresh()
+     const tick = setInterval(() => {
+       if (done) return
+       const now = performance.now()
+-      const seconds = deadline === null ? null : Math.max(0, Math.ceil((deadline - serverTime - (now - observedAt)) / 1000))
+-      setRemaining(seconds)
++      const seconds =
++        deadline === null
++          ? null
++          : Math.max(0, Math.ceil((deadline - serverTime - (now - observedAt)) / 1000))
+       // Zero fires immediately; failed resolutions retry, never report a false close.
+       if ((seconds === 0 && now - lastAttempt >= 1000) || now - lastAttempt >= 5000)
+         void refresh(seconds === 0 ? 'expire' : undefined)
+-    }, 250)
+-    const visible = () => { if (document.visibilityState === 'visible') void refresh() }
++    }, 1000)
++    const visible = () => {
++      if (document.visibilityState === 'visible') void refresh()
++    }
+     document.addEventListener('visibilitychange', visible)
+     return () => {
+       controller.abort()
+       clearInterval(tick)
+       document.removeEventListener('visibilitychange', visible)
+     }
+-  }, [tenantId, auctionId, startRequest])
++  }, [tenantId, auctionId])
+ 
+-  return <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm">
+-    <div role="status" className="font-semibold tabular-nums">
+-      {!snapshot ? 'กำลังตรวจสอบเวลาประมูล…' : snapshot.status !== 'active' ? 'ปิดรอบประมูลแล้ว'
+-        : remaining === null ? 'รอบเดิมยังไม่ได้กำหนดเวลาสิ้นสุด'
+-        : remaining === 0 ? 'หมดเวลา กำลังปิดรอบและสร้างออเดอร์…'
+-        : `เหลือเวลา ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`}
+-    </div>
+-    {snapshot?.status === 'active' && !snapshot.ends_at && <button type="button"
+-      className="mt-2 rounded-lg bg-orange-600 px-3 py-2 text-white"
+-      onClick={() => setStartRequest((n) => n + 1)}>เริ่มนับถอยหลัง 5 นาที</button>}
+-    {snapshot?.resolution === 'draining' && <p>กำลังประมวลผลบิดที่รับไว้ก่อนหมดเวลา</p>}
+-    {error && <p role="alert" className="mt-1 text-red-700">{error} — ระบบจะลองใหม่อัตโนมัติ</p>}
+-  </div>
++  return null
+ }
+diff --git a/components/live-cf/LiveCommentPoller.tsx b/components/live-cf/LiveCommentPoller.tsx
+index 11749ef..5d72c75 100644
+--- a/components/live-cf/LiveCommentPoller.tsx
++++ b/components/live-cf/LiveCommentPoller.tsx
+@@ -3,11 +3,23 @@
+ import { useEffect, useRef } from 'react'
+ 
+ /** Polls the selected session in the background while its dashboard is mounted. */
+-export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessionId: string }) {
+-  const stopped = useRef(false)
+-
++export function LiveCommentPoller({
++  pageId,
++  sessionId,
++  onVideoUnavailable,
++  onSkippedAuthors,
++}: {
++  pageId: string
++  sessionId: string
++  onVideoUnavailable?: () => void
++  onSkippedAuthors?: (count: number) => void
++}) {
++  const unavailable = useRef(onVideoUnavailable)
++  unavailable.current = onVideoUnavailable
++  const skippedAuthors = useRef(onSkippedAuthors)
++  skippedAuthors.current = onSkippedAuthors
+   useEffect(() => {
+-    stopped.current = false
++    let stopped = false
+     let timer: ReturnType<typeof setTimeout> | undefined
+     const controller = new AbortController()
+ 
+@@ -23,15 +35,20 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
+         })
+ 
+         if ([401, 403, 404].includes(response.status)) {
+-          stopped.current = true
++          stopped = true
+           return
+         }
+         if (response.status === 429) {
+           delay = 10_000
+         } else {
+           const data = await response.json().catch(() => null)
++          if (response.ok && data?.skipped && !controller.signal.aborted) {
++            const count = data.skipped.MISSING_FROM_ID ?? 0
++            if (Number.isSafeInteger(count) && count >= 0) skippedAuthors.current?.(count)
++          }
+           if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
+-            stopped.current = true
++            stopped = true
++            if (!controller.signal.aborted) unavailable.current?.()
+             return
+           }
+           if (data?.reason === 'SESSION_NOT_FOUND' || data?.reason === 'NO_ACTIVE_ROUND') {
+@@ -45,12 +62,12 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
+         delay = 5000
+       }
+ 
+-      if (!stopped.current) timer = setTimeout(tick, delay)
++      if (!stopped && !controller.signal.aborted) timer = setTimeout(tick, delay)
+     }
+ 
+     void tick()
+     return () => {
+-      stopped.current = true
++      stopped = true
+       controller.abort()
+       if (timer) clearTimeout(timer)
+     }
+diff --git a/components/live-cf/LiveSessionDashboard.tsx b/components/live-cf/LiveSessionDashboard.tsx
+index 8e191b1..efaeab2 100644
+--- a/components/live-cf/LiveSessionDashboard.tsx
++++ b/components/live-cf/LiveSessionDashboard.tsx
+@@ -66,6 +66,7 @@ export function LiveSessionDashboard({
+   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
+   const [error, setError] = useState('')
+   const [notice, setNotice] = useState('')
++  const [skippedAuthors, setSkippedAuthors] = useState(0)
+   const [loading, setLoading] = useState(true)
+   const [version, setVersion] = useState(0)
+   const [updated, setUpdated] = useState('')
+@@ -117,7 +118,8 @@ export function LiveSessionDashboard({
+           if (!controller.signal.aborted) setError('')
+         }
+       } catch (cause) {
+-        if (!controller.signal.aborted)
++        // Optional dashboard reads must not cover the auction setup with schema alerts.
++        if (!controller.signal.aborted && !allInOne)
+           setError(cause instanceof Error ? cause.message : 'โหลดข้อมูลไม่สำเร็จ')
+       } finally {
+         pending = false
+@@ -158,6 +160,7 @@ export function LiveSessionDashboard({
+     [tenantId, sessionId],
+   )
+   function choose(id: string) {
++    setSkippedAuthors(0)
+     setSessionId(id)
+     setSnapshot(null)
+     setSelected([])
+@@ -419,14 +422,20 @@ export function LiveSessionDashboard({
+       aria-label={auction ? 'จัดการประมูลและขายสินค้าผ่านไลฟ์สด' : 'สรุป เซสชัน ประมูล'}
+       data-auction-dashboard={auction ? true : undefined}
+     >
+-      {auction && sessionId && (data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id) && (
+-        // Keyed by session: switching the selected live resets state and retargets at once.
+-        <LiveCommentPoller
+-          key={sessionId}
+-          sessionId={sessionId}
+-          pageId={(data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id)!}
+-        />
+-      )}
++      {auction &&
++        sessionId &&
++        (data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id) && (
++          // Keyed by session: switching the selected live resets state and retargets at once.
++          <LiveCommentPoller
++            key={sessionId}
++            sessionId={sessionId}
++            pageId={(data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id)!}
++            onVideoUnavailable={() =>
++              setNotice('ไม่สามารถเข้าถึงวิดีโอไลฟ์นี้ได้ กรุณาเลือกไลฟ์หรือเซสชันใหม่')
++            }
++            onSkippedAuthors={setSkippedAuthors}
++          />
++        )}
+       {!auction && (
+         <header className="flex flex-wrap items-start justify-between gap-3">
+           <div>
+@@ -458,6 +467,11 @@ export function LiveSessionDashboard({
+           {notice}
+         </p>
+       )}
++      {auction && skippedAuthors > 0 && (
++        <p role="status" className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
++          มี {skippedAuthors.toLocaleString('th-TH')} คอมเมนต์ที่ไม่มีข้อมูลผู้เขียน
++        </p>
++      )}
+ 
+       {!auction && loading && !data && <p role="status">กำลังโหลดข้อมูลไลฟ์สด…</p>}
+       {auction ? (
+diff --git a/lib/features/commerce/auction-server.ts b/lib/features/commerce/auction-server.ts
+index 2958a75..3e3d52f 100644
+--- a/lib/features/commerce/auction-server.ts
++++ b/lib/features/commerce/auction-server.ts
+@@ -530,7 +530,7 @@ export async function handleAuctionComment(input: {
+   const { value, tenantId, pageId, token, execution } = input
+   const hasFrom = Boolean(value.from && typeof value.from === 'object')
+   const senderId = (value.from as { id?: unknown } | undefined)?.id
+-  const hasFromId = typeof senderId === 'string' && senderId.length > 0
++  const hasFromId = typeof senderId === 'string' && /^\d{1,64}$/.test(senderId)
+   const skipped = (reason: string, details: Record<string, unknown> = {}) =>
+     console.info('[auction/comment] skipped', {
+       eventId: execution.event.id,
+@@ -591,7 +591,9 @@ export async function handleAuctionComment(input: {
+     if (active.error && ['42P01', 'PGRST205'].includes(active.error.code)) return undefined
+     if (active.error) throw active.error
+     const candidate = active.data?.[0] as Auction | undefined
+-    return candidate && candidate.created_at > execution.event.created_at ? undefined : candidate
++    return candidate && Date.parse(candidate.created_at) > Date.parse(execution.event.created_at)
++      ? undefined
++      : candidate
+   }
+   let auction: Auction | undefined
+   if (typeof senderId === 'string' && senderId !== pageId) {
+@@ -636,7 +638,8 @@ export async function handleAuctionComment(input: {
+       return false
+     }
+     auction = (historical.data?.[0] as Auction | undefined) ?? undefined
+-    if (auction && auction.created_at > execution.event.created_at) auction = undefined
++    if (auction && Date.parse(auction.created_at) > Date.parse(execution.event.created_at))
++      auction = undefined
+   }
+   if (!auction) {
+     // Never drop silently: show which active rounds exist so a post-id mismatch is diagnosable.
+@@ -657,7 +660,7 @@ export async function handleAuctionComment(input: {
+     return false
+   }
+   const author = value.from as { id?: unknown } | undefined
+-  if (typeof author?.id !== 'string') {
++  if (typeof author?.id !== 'string' || !hasFromId) {
+     console.warn('[auction/comment] missing author', {
+       has_from: hasFrom,
+       has_from_id: hasFromId,
+diff --git a/reports/auction-audit/run-suite.cjs b/reports/auction-audit/run-suite.cjs
+new file mode 100644
+index 0000000..4d9c2d8
+--- /dev/null
++++ b/reports/auction-audit/run-suite.cjs
+@@ -0,0 +1,55 @@
++// Offline unit/integration suites only. SQL tests use isolated PGlite databases.
++const fs = require('node:fs')
++const path = require('node:path')
++const { spawn } = require('node:child_process')
++const root = path.resolve(process.argv[2])
++const label = process.argv[3]
++if (!/^[a-z-]+$/.test(label ?? '')) throw new Error('Invalid run label')
++const files = [
++  ...fs
++    .readdirSync(path.join(root, 'scripts'))
++    .filter((f) => /^test-.*\.cjs$/.test(f))
++    .map((f) => `scripts/${f}`),
++  ...fs
++    .readdirSync(path.join(root, 'tests'))
++    .filter((f) => /\.test\.ts$/.test(f))
++    .map((f) => `tests/${f}`),
++  ...fs
++    .readdirSync(path.join(root, 'tests/features/commerce'))
++    .filter((f) => /\.test\.ts$/.test(f))
++    .map((f) => `tests/features/commerce/${f}`),
++].sort()
++const args = ['--import', 'tsx', '--test', '--test-concurrency=1', '--test-reporter=tap', ...files]
++const log = fs.openSync(path.join(__dirname, `${label}.log`), 'w')
++const started = new Date().toISOString()
++fs.writeSync(log, `Command: node ${args.join(' ')}\n`)
++const child = spawn(process.execPath, args, {
++  cwd: root,
++  stdio: ['ignore', log, log],
++  windowsHide: true,
++})
++child.on('exit', (code, signal) => {
++  fs.closeSync(log)
++  const output = fs.readFileSync(path.join(__dirname, `${label}.log`), 'utf8')
++  const counts = Object.fromEntries(
++    [...output.matchAll(/^# (tests|pass|fail|cancelled|skipped|todo) (\d+)$/gm)].map((m) => [
++      m[1],
++      Number(m[2]),
++    ]),
++  )
++  const failures = [...output.matchAll(/^\s*not ok \d+ - (.+)$/gm)].map((m) => m[1])
++  const result = {
++    label,
++    root,
++    started,
++    completed: new Date().toISOString(),
++    code,
++    signal,
++    files,
++    counts,
++    failures,
++  }
++  fs.writeFileSync(path.join(__dirname, `${label}.json`), JSON.stringify(result, null, 2) + '\n')
++  console.log(JSON.stringify({ label, code, counts, failures }))
++  process.exitCode = code ?? 1
++})
+diff --git a/scripts/test-auction-background.cjs b/scripts/test-auction-background.cjs
+new file mode 100644
+index 0000000..38b7459
+--- /dev/null
++++ b/scripts/test-auction-background.cjs
+@@ -0,0 +1,193 @@
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const load = require('./helpers/load-typescript.cjs')
++
++test('headless timer resolves an expired round once and cancels its background work on unmount', async () => {
++  let effect,
++    tick,
++    cleanup,
++    clock = 0,
++    notifications = 0,
++    cleared = false
++  const calls = []
++  const listeners = new Map()
++  const { LiveAuctionTimer } = load(
++    'components/live-cf/LiveAuctionTimer.tsx',
++    {
++      react: {
++        useRef: (current) => ({ current }),
++        useEffect: (callback) => {
++          effect = callback
++        },
++      },
++    },
++    {
++      AbortController,
++      URLSearchParams,
++      performance: { now: () => clock },
++      document: {
++        visibilityState: 'visible',
++        addEventListener: (name, fn) => listeners.set(name, fn),
++        removeEventListener: (name) => listeners.delete(name),
++      },
++      setInterval: (callback) => {
++        tick = callback
++        return 1
++      },
++      clearInterval: () => {
++        cleared = true
++      },
++      fetch: async (_url, init) => {
++        calls.push(init)
++        return {
++          ok: true,
++          status: 200,
++          json: async () => ({
++            status: init.method === 'POST' ? 'closed' : 'active',
++            serverNow: '2026-01-01T00:00:00Z',
++            ends_at: '2026-01-01T00:00:01Z',
++          }),
++        }
++      },
++    },
++  )
++  assert.equal(
++    LiveAuctionTimer({
++      tenantId: 'tenant',
++      auctionId: 'auction',
++      onResolved: () => notifications++,
++    }),
++    null,
++  )
++  cleanup = effect()
++  await new Promise(setImmediate)
++  clock = 1000
++  tick()
++  await new Promise(setImmediate)
++  assert.equal(JSON.parse(calls[1].body).action, 'expire')
++  assert.equal(notifications, 1)
++  tick()
++  assert.equal(calls.length, 2)
++  cleanup()
++  assert.equal(cleared, true)
++  assert.equal(calls[0].signal.aborted, true)
++  assert.equal(listeners.size, 0)
++})
++
++test('headless comment poller aborts in-flight reads without scheduling another request on unmount', async () => {
++  let effect,
++    finish,
++    scheduled = 0,
++    signal
++  const { LiveCommentPoller } = load(
++    'components/live-cf/LiveCommentPoller.tsx',
++    {
++      react: {
++        useRef: (current) => ({ current }),
++        useEffect: (callback) => {
++          effect = callback
++        },
++      },
++    },
++    {
++      AbortController,
++      setTimeout: () => {
++        scheduled++
++        return 1
++      },
++      clearTimeout() {},
++      fetch: (_url, init) => {
++        signal = init.signal
++        return new Promise((resolve) => {
++          finish = resolve
++        })
++      },
++    },
++  )
++  assert.equal(LiveCommentPoller({ pageId: '100', sessionId: 'session' }), null)
++  const cleanup = effect()
++  cleanup()
++  assert.equal(signal.aborted, true)
++  finish({ status: 200, ok: true, json: async () => ({ queued: 1 }) })
++  await new Promise(setImmediate)
++  assert.equal(scheduled, 0)
++})
++
++test('inaccessible videos notify once and stop headless polling', async () => {
++  let effect,
++    notices = 0,
++    scheduled = 0
++  const { LiveCommentPoller } = load(
++    'components/live-cf/LiveCommentPoller.tsx',
++    {
++      react: {
++        useRef: (current) => ({ current }),
++        useEffect: (callback) => {
++          effect = callback
++        },
++      },
++    },
++    {
++      AbortController,
++      setTimeout: () => {
++        scheduled++
++        return 1
++      },
++      clearTimeout() {},
++      fetch: async () => ({
++        status: 502,
++        ok: false,
++        json: async () => ({ reason: 'VIDEO_NOT_ACCESSIBLE' }),
++      }),
++    },
++  )
++  assert.equal(
++    LiveCommentPoller({ pageId: '100', sessionId: 'session', onVideoUnavailable: () => notices++ }),
++    null,
++  )
++  const cleanup = effect()
++  await new Promise(setImmediate)
++  assert.equal(notices, 1)
++  assert.equal(scheduled, 0)
++  cleanup()
++})
++
++test('headless polling forwards only aggregate missing-author counts to the dashboard', async () => {
++  let effect,
++    count = null
++  const { LiveCommentPoller } = load(
++    'components/live-cf/LiveCommentPoller.tsx',
++    {
++      react: {
++        useRef: (current) => ({ current }),
++        useEffect: (callback) => {
++          effect = callback
++        },
++      },
++    },
++    {
++      AbortController,
++      setTimeout: () => 1,
++      clearTimeout() {},
++      fetch: async () => ({
++        status: 200,
++        ok: true,
++        json: async () => ({ skipped: { MISSING_FROM_ID: 4 } }),
++      }),
++    },
++  )
++  assert.equal(
++    LiveCommentPoller({
++      pageId: '100',
++      sessionId: 'session',
++      onSkippedAuthors: (value) => {
++        count = value
++      },
++    }),
++    null,
++  )
++  const cleanup = effect()
++  await new Promise(setImmediate)
++  assert.equal(count, 4)
++  cleanup()
++})
+diff --git a/scripts/test-auction-deadlines.cjs b/scripts/test-auction-deadlines.cjs
+index b409a50..23e0530 100644
+--- a/scripts/test-auction-deadlines.cjs
++++ b/scripts/test-auction-deadlines.cjs
+@@ -21,123 +21,303 @@ test('deadline resolution, queue ordering, retry fencing and inbox tenant RLS',
+       alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
+       alter default privileges in schema public grant all on sequences to anon,authenticated,service_role;`)
+     await db.exec(build().completeSql)
+-    const tenant = (await one("insert into tenants(name,page_id) values('Deadline fixture','122099866472012045') returning id")).id
+-    const bank = (await one("insert into bank_accounts(tenant_id,bank_code,account_name,account_number) values($1,'KBANK','Fixture','0000000000') returning id", [tenant])).id
++    const tenant = (
++      await one(
++        "insert into tenants(name,page_id) values('Deadline fixture','122099866472012045') returning id",
++      )
++    ).id
++    const bank = (
++      await one(
++        "insert into bank_accounts(tenant_id,bank_code,account_name,account_number) values($1,'KBANK','Fixture','0000000000') returning id",
++        [tenant],
++      )
++    ).id
+     const actor = (await one('insert into auth.users default values returning id')).id
+-    const automation = { keywords: ['1'], closeKeywords: ['close'], winnerFlow: 'on_demand', publicReply: true,
+-      privateReply: true, bankAccountId: bank, closeEnabled: true, countEnabled: false, heartCloses: false,
+-      bidText: '{bidder_name} {price}', closeText: '{bidder_name} {price}', privateText: '{total}' }
+-    const create = async (post = randomUUID().replace(/\D/g, '').padEnd(10, '1')) => one(`
++    const automation = {
++      keywords: ['1'],
++      closeKeywords: ['close'],
++      winnerFlow: 'on_demand',
++      publicReply: true,
++      privateReply: true,
++      bankAccountId: bank,
++      closeEnabled: true,
++      countEnabled: false,
++      heartCloses: false,
++      bidText: '{bidder_name} {price}',
++      closeText: '{bidder_name} {price}',
++      privateText: '{total}',
++    }
++    const create = async (post = randomUUID().replace(/\D/g, '').padEnd(10, '1')) =>
++      one(
++        `
+       insert into auctions(tenant_id,page_id,live_post_id,item_name,start_price,min_step,shipping_fee,
+         bank_account_id,host_ids,session_automation,public_reply_enabled,private_reply_enabled)
+       values($1,'122099866472012045',$2,'Timed item',200,20,35,$3,array['999'],$4,true,true) returning *`,
+-      [tenant, post, bank, automation])
+-    const close = async (a) => (await one('select close_due_live_auction($1,$2) result', [a.id, tenant])).result
+-    const due = async (a) => db.query("update auctions set ends_at=clock_timestamp()-interval '1 second' where id=$1", [a.id])
+-    const receipt = (await one("insert into facebook_webhook_payloads(payload_sha256,raw_payload) values($1,'{}') returning id", ['b'.repeat(64)])).id
+-    const event = async (a, text, status = 'completed', received) => one(`
++        [tenant, post, bank, automation],
++      )
++    const close = async (a) =>
++      (await one('select close_due_live_auction($1,$2) result', [a.id, tenant])).result
++    const due = async (a) =>
++      db.query("update auctions set ends_at=clock_timestamp()-interval '1 second' where id=$1", [
++        a.id,
++      ])
++    const receipt = (
++      await one(
++        "insert into facebook_webhook_payloads(payload_sha256,raw_payload) values($1,'{}') returning id",
++        ['b'.repeat(64)],
++      )
++    ).id
++    const event = async (a, text, status = 'completed', received) =>
++      one(
++        `
+       insert into facebook_webhook_events(payload_id,page_id,event_key,ordering_key,kind,payload,status,created_at)
+       values($1,'122099866472012045',$2,$3,'change',$4,$5,coalesce($6::timestamptz,clock_timestamp())) returning *`,
+-      [receipt, randomUUID(), 'comments:' + a.id, { field: 'feed', value: { item: 'comment', verb: 'add',
+-        post_id: a.live_post_id, comment_id: a.live_post_id + '_' + randomUUID(), from: { id: '900', name: 'Winner' }, message: text } }, status, received ?? null])
++        [
++          receipt,
++          randomUUID(),
++          'comments:' + a.id,
++          {
++            field: 'feed',
++            value: {
++              item: 'comment',
++              verb: 'add',
++              post_id: a.live_post_id,
++              comment_id: a.live_post_id + '_' + randomUUID(),
++              from: { id: '900', name: 'Winner' },
++              message: text,
++              created_time: new Date().toISOString(),
++            },
++          },
++          status,
++          received ?? null,
++        ],
++      )
+ 
+-    await t.test('new rounds use a five minute UTC deadline; future and wrong-tenant closes cannot resolve', async () => {
+-      const a = await create()
+-      assert.equal(a.duration_seconds, 300)
+-      assert.equal(Date.parse(a.ends_at) - Date.parse(a.timer_started_at), 300000)
+-      assert.equal((await close(a)).status, 'not_due')
+-      await assert.rejects(db.query('select close_due_live_auction($1,$2)', [a.id, randomUUID()]), /AUCTION_NOT_FOUND/)
+-      await db.query("update auctions set status='cancelled' where id=$1", [a.id])
+-    })
++    await t.test(
++      'new rounds use a five minute UTC deadline; future and wrong-tenant closes cannot resolve',
++      async () => {
++        const a = await create()
++        assert.equal(a.duration_seconds, 300)
++        assert.equal(Date.parse(a.ends_at) - Date.parse(a.timer_started_at), 300000)
++        assert.equal((await close(a)).status, 'not_due')
++        await assert.rejects(
++          db.query('select close_due_live_auction($1,$2)', [a.id, randomUUID()]),
++          /AUCTION_NOT_FOUND/,
++        )
++        await db.query("update auctions set status='cancelled' where id=$1", [a.id])
++      },
++    )
+ 
+     let winningAuction, orderId
+-    await t.test('expiry locks the highest bidder and atomically creates exactly one order, tab and outbox', async () => {
+-      const a = await create()
+-      winningAuction = a
+-      await db.query("update auctions set current_price=420,leading_bidder_id='900',leading_bidder_name='Winner',leading_comment_id='456_900' where id=$1", [a.id])
+-      await due(a)
+-      const result = await close(a)
+-      assert.equal(result.status, 'closed')
+-      assert.ok(result.orderId)
+-      orderId = result.orderId
+-      const order = await one('select * from orders where id=$1', [orderId])
+-      assert.equal(Number(order.amount), 455)
+-      assert.ok(order.customer_tab_id)
+-      assert.equal((await one('select winner_locked_at from auctions where id=$1', [a.id])).winner_locked_at !== null, true)
+-      assert.equal((await close(a)).orderId, orderId)
+-      assert.equal((await one('select count(*)::int n from orders where source_id=$1', [a.id])).n, 1)
+-      assert.equal((await one('select count(*)::int n from auction_deliveries where auction_id=$1', [a.id])).n, 2)
+-    })
++    await t.test(
++      'expiry locks the leader without an order; only winner confirmation creates one invoice',
++      async () => {
++        const a = await create()
++        winningAuction = a
++        await db.query(
++          "update auctions set current_price=420,leading_bidder_id='900',leading_bidder_name='Winner',leading_comment_id='456_900' where id=$1",
++          [a.id],
++        )
++        await due(a)
++        const result = await close(a)
++        assert.equal(result.status, 'awaiting_confirmation')
++        assert.equal(result.orderId, null)
++        assert.equal(
++          (await one('select order_id from auctions where id=$1', [a.id])).order_id,
++          null,
++        )
++        const confirmation = await event(a, '1')
++        const confirmed = (
++          await one("select process_live_auction_comment($1,$2,$3,'CONFIRM_BID') result", [
++            a.id,
++            tenant,
++            confirmation.id,
++          ])
++        ).result
++        assert.equal(confirmed.status, 'confirmed')
++        assert.ok(confirmed.orderId)
++        orderId = confirmed.orderId
++        const order = await one('select * from orders where id=$1', [orderId])
++        assert.equal(Number(order.amount), 455)
++        assert.ok(order.customer_tab_id)
++        assert.equal(
++          (await one('select winner_locked_at from auctions where id=$1', [a.id]))
++            .winner_locked_at !== null,
++          true,
++        )
++        assert.equal((await close(a)).orderId, orderId)
++        assert.equal(
++          (await one('select count(*)::int n from orders where source_id=$1', [a.id])).n,
++          1,
++        )
++        assert.equal(
++          (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [a.id]))
++            .n,
++          2,
++        )
++      },
++    )
+ 
+-    await t.test('empty rounds close without inventing a buyer or order; cron recovers missed browser timers', async () => {
+-      const a = await create()
+-      await due(a)
+-      assert.equal((await one('select expire_live_auctions($1) n', [tenant])).n, 1)
+-      const row = await one('select status,order_id from auctions where id=$1', [a.id])
+-      assert.equal(row.status, 'closed')
+-      assert.equal(row.order_id, null)
+-    })
++    await t.test(
++      'empty rounds close without inventing a buyer or order; cron recovers missed browser timers',
++      async () => {
++        const a = await create()
++        await due(a)
++        assert.equal((await one('select expire_live_auctions($1) n', [tenant])).n, 1)
++        const row = await one('select status,order_id from auctions where id=$1', [a.id])
++        assert.equal(row.status, 'closed')
++        assert.equal(row.order_id, null)
++      },
++    )
+ 
+-    await t.test('pre-deadline queued comments drain first; late comments cannot change the winner', async () => {
+-      const a = await create()
+-      const e = await event(a, '500', 'pending')
+-      await db.query("update auctions set ends_at=$2::timestamptz+interval '0.001 seconds' where id=$1", [a.id, e.created_at])
+-      assert.equal((await close(a)).status, 'draining')
+-      const bid = (await one("select process_live_auction_comment($1,$2,$3,'NUMERIC_BID',500) result", [a.id, tenant, e.id])).result
+-      assert.equal(bid.status, 'accepted')
+-      await db.query("update facebook_webhook_events set status='completed' where id=$1", [e.id])
+-      const late = await event(a, '999')
+-      const ignored = (await one("select process_live_auction_comment($1,$2,$3,'NUMERIC_BID',999) result", [a.id, tenant, late.id])).result
+-      assert.equal(ignored.reason, 'AUCTION_DEADLINE_PASSED')
+-      assert.equal(Number((await one('select current_price from auctions where id=$1', [a.id])).current_price), 500)
+-      assert.equal((await close(a)).status, 'closed')
+-    })
++    await t.test(
++      'pre-deadline queued comments drain first; late comments cannot change the winner',
++      async () => {
++        const a = await create()
++        const e = await event(a, '500', 'pending')
++        await db.query(
++          "update auctions set ends_at=$2::timestamptz+interval '0.001 seconds' where id=$1",
++          [a.id, e.created_at],
++        )
++        assert.equal((await close(a)).status, 'draining')
++        const bid = (
++          await one("select process_live_auction_comment($1,$2,$3,'NUMERIC_BID',500) result", [
++            a.id,
++            tenant,
++            e.id,
++          ])
++        ).result
++        assert.equal(bid.status, 'accepted')
++        await db.query("update facebook_webhook_events set status='completed' where id=$1", [e.id])
++        const late = await event(a, '999')
++        const ignored = (
++          await one("select process_live_auction_comment($1,$2,$3,'NUMERIC_BID',999) result", [
++            a.id,
++            tenant,
++            late.id,
++          ])
++        ).result
++        assert.equal(ignored.reason, 'AUCTION_DEADLINE_PASSED')
++        assert.equal(
++          Number(
++            (await one('select current_price from auctions where id=$1', [a.id])).current_price,
++          ),
++          500,
++        )
++        assert.equal((await close(a)).status, 'awaiting_confirmation')
++      },
++    )
+ 
+-    await t.test('legacy rounds only start a timer explicitly; duplicate starts cannot extend it', async () => {
+-      const a = await create()
+-      await db.query('update auctions set ends_at=null,timer_started_at=null,duration_seconds=null where id=$1', [a.id])
+-      assert.equal((await close(a)).status, 'not_due')
+-      await db.query('select start_legacy_auction_timer($1,$2)', [a.id, tenant])
+-      const before = (await one('select ends_at from auctions where id=$1', [a.id])).ends_at
+-      await db.query('select start_legacy_auction_timer($1,$2)', [a.id, tenant])
+-      assert.equal(Date.parse((await one('select ends_at from auctions where id=$1', [a.id])).ends_at), Date.parse(before))
+-      await db.query("update auctions set status='cancelled' where id=$1", [a.id])
+-    })
++    await t.test(
++      'legacy rounds only start a timer explicitly; duplicate starts cannot extend it',
++      async () => {
++        const a = await create()
++        await db.query(
++          'update auctions set ends_at=null,timer_started_at=null,duration_seconds=null where id=$1',
++          [a.id],
++        )
++        assert.equal((await close(a)).status, 'not_due')
++        await db.query('select start_legacy_auction_timer($1,$2)', [a.id, tenant])
++        const before = (await one('select ends_at from auctions where id=$1', [a.id])).ends_at
++        await db.query('select start_legacy_auction_timer($1,$2)', [a.id, tenant])
++        assert.equal(
++          Date.parse((await one('select ends_at from auctions where id=$1', [a.id])).ends_at),
++          Date.parse(before),
++        )
++        await db.query("update auctions set status='cancelled' where id=$1", [a.id])
++      },
++    )
+ 
+-    await t.test('workspace duration saves and old idempotency keys never restart/revert the deadline', async () => {
+-      const input = { pageId: '122099866472012045', livePostId: '987654321', itemName: 'Workspace timer',
+-        startPrice: 200, minStep: 20, shippingFee: 35, settings: automation, hostIds: ['999'],
+-        finance: { cost: 0, ads: 0, shipping: 0, fees: 0 }, durationSeconds: 180 }
+-      const request = randomUUID()
+-      const save = async (data, key) => (await one('select save_auction_workspace($1,$2,$3,$4) result', [tenant, actor, key, data])).result
+-      const first = await save(input, request)
+-      const a = await one('select * from auctions where id=$1', [first.auctionId])
+-      assert.equal(Date.parse(a.ends_at) - Date.parse(a.timer_started_at), 180000)
+-      const edit = { ...input, sessionId: first.sessionId, roundId: first.auctionId,
+-        revision: first.revision, financialRevision: first.financialRevision, durationSeconds: 600 }
+-      await save(edit, randomUUID())
+-      const changed = (await one('select ends_at from auctions where id=$1', [a.id])).ends_at
+-      await save(input, request)
+-      assert.equal(Date.parse((await one('select ends_at from auctions where id=$1', [a.id])).ends_at), Date.parse(changed))
+-    })
++    await t.test(
++      'workspace duration saves and old idempotency keys never restart/revert the deadline',
++      async () => {
++        const input = {
++          pageId: '122099866472012045',
++          livePostId: '987654321',
++          itemName: 'Workspace timer',
++          startPrice: 200,
++          minStep: 20,
++          shippingFee: 35,
++          settings: automation,
++          hostIds: ['999'],
++          finance: { cost: 0, ads: 0, shipping: 0, fees: 0 },
++          durationSeconds: 180,
++        }
++        const request = randomUUID()
++        const save = async (data, key) =>
++          (
++            await one('select save_auction_workspace($1,$2,$3,$4) result', [
++              tenant,
++              actor,
++              key,
++              data,
++            ])
++          ).result
++        const first = await save(input, request)
++        const a = await one('select * from auctions where id=$1', [first.auctionId])
++        assert.equal(Date.parse(a.ends_at) - Date.parse(a.timer_started_at), 180000)
++        const edit = {
++          ...input,
++          sessionId: first.sessionId,
++          roundId: first.auctionId,
++          revision: first.revision,
++          financialRevision: first.financialRevision,
++          durationSeconds: 600,
++        }
++        await save(edit, randomUUID())
++        const changed = (await one('select ends_at from auctions where id=$1', [a.id])).ends_at
++        await save(input, request)
++        assert.equal(
++          Date.parse((await one('select ends_at from auctions where id=$1', [a.id])).ends_at),
++          Date.parse(changed),
++        )
++      },
++    )
+ 
+-    await t.test('authenticated inbox reads remain tenant scoped even with no customer_management entitlement', async () => {
+-      await db.query("insert into tenant_members(tenant_id,user_id,role) values($1,$2,'owner')", [tenant, actor])
+-      await db.query('select set_config($1,$2,false)', ['test.user', actor])
+-      const other = (await one("insert into tenants(name,page_id) values('Other','200') returning id")).id
+-      const foreign = (await one("insert into customers(platform,platform_user_id,tenant_id) values('facebook','888',$1) returning id", [other])).id
+-      await db.query("insert into messages(customer_id,external_id,sender,body) values($1,'foreign-event','customer','Secret')", [foreign])
+-      // Explicitly deny the package in the DB to reproduce the former restrictive policy.
+-      await db.exec("create or replace function public.has_tenant_feature(p_tenant uuid,p_feature text) returns boolean language sql stable as $$select false$$;")
+-      await db.exec('set role authenticated')
+-      assert.equal((await one('select count(*)::int n from orders where id=$1', [orderId])).n, 0)
+-      const rows = (await db.query('select * from messages')).rows
+-      assert.ok(rows.some((r) => r.external_id === 'auction-event:' + winningAuction.id))
+-      assert.equal(rows.some((r) => r.customer_id === foreign), false)
+-      await assert.rejects(db.query('select expire_live_auctions()'), /permission denied/)
+-      await db.exec('reset role')
+-      const published = (await db.query("select tablename from pg_publication_tables where pubname='supabase_realtime'")).rows.map((r) => r.tablename)
+-      assert.ok(published.includes('messages') && published.includes('customers'))
+-    })
+-  } finally { await db.close() }
++    await t.test(
++      'authenticated inbox reads remain tenant scoped even with no customer_management entitlement',
++      async () => {
++        await db.query("insert into tenant_members(tenant_id,user_id,role) values($1,$2,'owner')", [
++          tenant,
++          actor,
++        ])
++        await db.query('select set_config($1,$2,false)', ['test.user', actor])
++        const other = (
++          await one("insert into tenants(name,page_id) values('Other','200') returning id")
++        ).id
++        const foreign = (
++          await one(
++            "insert into customers(platform,platform_user_id,tenant_id) values('facebook','888',$1) returning id",
++            [other],
++          )
++        ).id
++        await db.query(
++          "insert into messages(customer_id,external_id,sender,body) values($1,'foreign-event','customer','Secret')",
++          [foreign],
++        )
++        // Explicitly deny the package in the DB to reproduce the former restrictive policy.
++        await db.exec(
++          'create or replace function public.has_tenant_feature(p_tenant uuid,p_feature text) returns boolean language sql stable as $$select false$$;',
++        )
++        await db.exec('set role authenticated')
++        assert.equal((await one('select count(*)::int n from orders where id=$1', [orderId])).n, 0)
++        const rows = (await db.query('select * from messages')).rows
++        assert.ok(rows.some((r) => r.external_id === 'auction-event:' + winningAuction.id))
++        assert.equal(
++          rows.some((r) => r.customer_id === foreign),
++          false,
++        )
++        await assert.rejects(db.query('select expire_live_auctions()'), /permission denied/)
++        await db.exec('reset role')
++        const published = (
++          await db.query(
++            "select tablename from pg_publication_tables where pubname='supabase_realtime'",
++          )
++        ).rows.map((r) => r.tablename)
++        assert.ok(published.includes('messages') && published.includes('customers'))
++      },
++    )
++  } finally {
++    await db.close()
++  }
+ })
+diff --git a/scripts/test-auction-host-actions.cjs b/scripts/test-auction-host-actions.cjs
+index ca82c33..f73cfc9 100644
+--- a/scripts/test-auction-host-actions.cjs
++++ b/scripts/test-auction-host-actions.cjs
+@@ -2,6 +2,10 @@ const { test } = require('node:test')
+ const assert = require('node:assert/strict')
+ const { NextRequest, NextResponse } = require('next/server')
+ const load = require('./helpers/load-typescript.cjs')
++const config = load('lib/features/commerce/comment-config.ts')
++const parser = load('lib/integrations/facebook/auction-comment-parser.ts', {
++  '@/lib/features/commerce/comment-config': config,
++})
+ const envelope = load(
+   'lib/integrations/facebook/webhook-envelope.ts',
+   { 'node:crypto': require('node:crypto') },
+@@ -34,16 +38,26 @@ function fixture(options = {}) {
+                   page_id: '100',
+                   live_post_id: '456',
+                   status: options.closed ? 'closed' : 'active',
+-                  session_automation: options.automation ?? { closeKeywords: ['ปิด'], closeEnabled: true, countEnabled: true, counting_tags: { '3': '3', '2': '2', '1': '1' } },
++                  session_automation: options.automation ?? {
++                    closeKeywords: ['ปิด'],
++                    closeEnabled: true,
++                    countEnabled: true,
++                    counting_tags: { 3: '3', 2: '2', 1: '1' },
++                  },
+                 }
+               : table === 'live_sessions'
+-                ? { tenant_id: tenantId, page_id: '100', live_post_id: '456', ...(options.sessionSettings ?? {}) }
+-              : {
+-                  id: tenantId,
+-                  page_id: '100',
+-                  page_access_token: options.missingToken ? null : 'TEST_PAGE_SECRET',
+-                  is_active: true,
+-                }
++                ? {
++                    tenant_id: tenantId,
++                    page_id: '100',
++                    live_post_id: '456',
++                    ...(options.sessionSettings ?? {}),
++                  }
++                : {
++                    id: tenantId,
++                    page_id: '100',
++                    page_access_token: options.missingToken ? null : 'TEST_PAGE_SECRET',
++                    is_active: true,
++                  }
+           return {
+             data:
+               options.foreign || !filters.every(([key, value]) => row[key] === value) ? null : row,
+@@ -88,17 +102,8 @@ function fixture(options = {}) {
+       },
+       '@/lib/integrations/facebook/webhook-handler': { handleFacebookWebhookEvent: async () => {} },
+       '@/lib/utils': { UUID: /^[a-f0-9-]{36}$/ },
+-      '@/lib/integrations/facebook/auction-comment-parser': {
+-        parseAuctionComment: (text, isHost, automation) => {
+-          if (options.invalidHostControl) return { type: 'IGNORE' }
+-          if (isHost && automation.closeKeywords.includes(text)) return { type: 'HOST_CONTROL', action: 'close', count: null }
+-          const count = automation.counting_tags[text]
+-          return count && automation.countEnabled !== false
+-            ? { type: 'HOST_CONTROL', action: 'count', count }
+-            : { type: 'IGNORE' }
+-        },
+-      },
+-      '@/lib/features/commerce/comment-config': load('lib/features/commerce/comment-config.ts'),
++      '@/lib/integrations/facebook/auction-comment-parser': parser,
++      '@/lib/features/commerce/comment-config': config,
+     },
+     { console: silent, TextEncoder, Date },
+   )
+@@ -174,11 +179,52 @@ test('close action uses active session settings and refuses a tag that does not
+   const configured = fixture({ sessionSettings: { comment_settings: { closing_tags: ['終了'] } } })
+   assert.equal((await configured.send('close')).status, 202)
+   assert.equal(configured.calls.sends[0][2], '終了')
+-  const invalid = fixture({ invalidHostControl: true })
++  const invalid = fixture({ sessionSettings: { comment_settings: { closeEnabled: false } } })
+   assert.equal((await invalid.send('close')).status, 409)
+   assert.equal(invalid.calls.sends.length, 0)
+ })
+ 
++test('custom count tokens use real comment_settings and session overrides; disabled defaults never post', async () => {
++  const enabled = fixture({
++    automation: { countEnabled: false, counting_tags: { stale: '3' } },
++    sessionSettings: {
++      comment_settings: { countEnabled: true, counting_tags: { ' LAST CALL ': '3' } },
++    },
++  })
++  assert.equal((await enabled.send('3')).status, 202)
++  assert.equal(enabled.calls.sends[0][2], 'last call')
++  assert.equal(
++    parser.parseAuctionComment(
++      'last call extra',
++      true,
++      config.resolveCommentSettings({
++        comment_settings: { countEnabled: true, counting_tags: { 'last call': '3' } },
++      }),
++    ).type,
++    'IGNORE',
++    'count tokens match the whole normalized comment',
++  )
++  for (const options of [
++    { automation: {} },
++    { automation: { counting_tags: { 3: '3' } } },
++    { sessionSettings: { comment_settings: { countEnabled: false } } },
++    {
++      automation: { countEnabled: true, counting_tags: { 3: '3' } },
++      sessionSettings: { comment_settings: { countEnabled: false } },
++    },
++  ]) {
++    const disabled = fixture(options)
++    assert.equal((await disabled.send('3')).status, 409)
++    assert.equal(disabled.calls.sends.length, 0)
++    assert.equal(disabled.calls.queued.length, 0)
++    assert.equal(
++      disabled.calls.scopes.some(([table]) => table === 'tenants'),
++      false,
++      'disabled actions stop before reading Page credentials',
++    )
++  }
++})
++
+ test('provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment', async () => {
+   const failed = fixture({ providerError: true })
+   assert.equal((await failed.send('close')).status, 502)
+diff --git a/scripts/test-auction-on-demand.cjs b/scripts/test-auction-on-demand.cjs
+index 8a9566a..27ebb42 100644
+--- a/scripts/test-auction-on-demand.cjs
++++ b/scripts/test-auction-on-demand.cjs
+@@ -293,6 +293,93 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
+       7,
+       'migration reruns never generate invoices',
+     )
++
++    // Reapply the audited entrypoint after testing legacy migration replays.
++    await db.exec(fs.readFileSync('supabase/live-auction-audit-hardening.sql', 'utf8'))
++    await db.query(
++      "update live_sessions set mode='auction',auction_settings=$1,comment_settings='{}',confirmation_keywords=null,closing_keywords=null where tenant_id=$2",
++      [settings, tenant],
++    )
++    const audited = await round()
++    await db.query("update auctions set created_at='2026-01-01T00:00:00Z' where id=$1", [audited])
++    for (const sender of [null, '', ' ', 'anon_123']) {
++      assert.equal((await process(audited, await event(sender, '900'))).status, 'ignored')
++    }
++    assert.equal(
++      (await one('select leading_bidder_id from auctions where id=$1', [audited]))
++        .leading_bidder_id,
++      null,
++    )
++    await process(audited, await event('900', '500'))
++    assert.equal(
++      (
++        await process(
++          audited,
++          await event('999', '❌', { created_time: '2025-12-31T23:59:59.999Z' }),
++        )
++      ).status,
++      'stale',
++    )
++    const close = await process(audited, await event('999', '❌'))
++    assert.equal(close.status, 'awaiting_confirmation')
++    assert.equal((await one('select order_id from auctions where id=$1', [audited])).order_id, null)
++    await db.query(
++      "update auctions set winner_locked_at='2026-01-01T00:00:10Z',closed_at='2026-01-01T00:00:10Z' where id=$1",
++      [audited],
++    )
++    assert.equal(
++      (
++        await process(
++          audited,
++          await event('900', '1', { created_time: '2026-01-01T00:00:09.999Z' }),
++        )
++      ).status,
++      'stale',
++    )
++    assert.equal(
++      (
++        await process(
++          audited,
++          await event('999', '❌', { created_time: '2026-01-01T00:00:10.001Z' }),
++        )
++      ).status,
++      'stale',
++    )
++    const afterClose = await event('900', '1', { created_time: '2026-01-01T00:00:11Z' })
++    assert.equal(
++      (await process(audited, afterClose)).status,
++      'confirmed',
++      'confirmation has no closed_at upper bound',
++    )
++    assert.equal(
++      (await process(audited, afterClose)).status,
++      'confirmed',
++      'confirmation replay is idempotent',
++    )
++    assert.equal(
++      (await one('select count(*)::int n from orders where source_id=$1', [audited])).n,
++      1,
++    )
++    assert.equal(
++      (
++        await one(
++          "select relrowsecurity enabled from pg_class where oid='public.auction_poll_cursors'::regclass",
++        )
++      ).enabled,
++      true,
++    )
++    for (const role of ['anon', 'authenticated']) {
++      await db.exec(`set role ${role}`)
++      await assert.rejects(
++        db.query('select * from auction_poll_cursors'),
++        (error) => error.code === '42501',
++      )
++      await assert.rejects(
++        db.query('select expire_live_auctions()'),
++        (error) => error.code === '42501',
++      )
++      await db.exec('reset role')
++    }
+   } finally {
+     await db.close()
+   }
+diff --git a/scripts/test-auction-poller-hardening.cjs b/scripts/test-auction-poller-hardening.cjs
+index 887a5ff..1b206e0 100644
+--- a/scripts/test-auction-poller-hardening.cjs
++++ b/scripts/test-auction-poller-hardening.cjs
+@@ -8,19 +8,48 @@ const auctionId = '22222222-2222-4222-8222-222222222222'
+ const sessionId = '33333333-3333-4333-8333-333333333333'
+ const videoId = '456'
+ const accessToken = 'TEST_ACCESS_TOKEN_DO_NOT_LOG'
+-const fromId = 'COMMENT_AUTHOR_ID_DO_NOT_LOG'
++const fromId = '918273645546372819'
+ const bodyText = 'COMMENT_BODY_DO_NOT_LOG'
+ 
+-function comment(index, createdAt = '2026-02-01T00:00:00.000Z', from = { id: fromId, name: 'Buyer' }) {
+-  return { id: `comment-${index}`, message: bodyText, created_time: createdAt, ...(from === null ? {} : { from }) }
++function comment(
++  index,
++  createdAt = '2026-02-01T00:00:00.000Z',
++  from = { id: fromId, name: 'Buyer' },
++) {
++  return {
++    id: `comment-${index}`,
++    message: bodyText,
++    created_time: createdAt,
++    ...(from === null ? {} : { from }),
++  }
+ }
+ 
+ function fixture({ pages, cursor = null, graphError = null } = {}) {
+   const tables = {
+     tenants: [{ id: tenantId, page_id: '100', page_access_token: accessToken, is_active: true }],
+     live_sessions: [{ id: sessionId, tenant_id: tenantId, page_id: '100', live_post_id: videoId }],
+-    auctions: [{ id: auctionId, tenant_id: tenantId, page_id: '100', live_post_id: videoId, created_at: '2026-01-01T00:00:00.000Z', status: 'active' }],
+-    auction_poll_cursors: cursor ? [{ cursor_id: cursor.cursor_id ?? auctionId, auction_id: auctionId, tenant_id: tenantId, session_id: null, live_video_id: videoId, ...cursor }] : [],
++    auctions: [
++      {
++        id: auctionId,
++        tenant_id: tenantId,
++        page_id: '100',
++        live_post_id: videoId,
++        created_at: '2026-01-01T00:00:00.000Z',
++        status: 'active',
++      },
++    ],
++    auction_poll_cursors: cursor
++      ? [
++          {
++            cursor_id: cursor.cursor_id ?? auctionId,
++            auction_id: auctionId,
++            tenant_id: tenantId,
++            session_id: null,
++            live_video_id: videoId,
++            ...cursor,
++          },
++        ]
++      : [],
+   }
+   const graphCalls = []
+   const rpcCalls = []
+@@ -39,9 +68,17 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+       let limit = Infinity
+       let patch = null
+       const query = {
+-        select() { return query },
+-        eq(key, value) { predicates.push((row) => row[key] === value); return query },
+-        is(key, value) { predicates.push((row) => value === null ? row[key] == null : row[key] === value); return query },
++        select() {
++          return query
++        },
++        eq(key, value) {
++          predicates.push((row) => row[key] === value)
++          return query
++        },
++        is(key, value) {
++          predicates.push((row) => (value === null ? row[key] == null : row[key] === value))
++          return query
++        },
+         not(key, operator, value) {
+           assert.equal(operator, 'is')
+           assert.equal(value, null)
+@@ -55,27 +92,47 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+           else throw new Error(`Unsupported .or() expression in poller test: ${filter}`)
+           return query
+         },
+-        order(key, options = {}) { ordering = { key, ascending: options.ascending !== false }; return query },
+-        limit(value) { limit = value; return query },
+-        update(value) { patch = value; return query },
++        order(key, options = {}) {
++          ordering = { key, ascending: options.ascending !== false }
++          return query
++        },
++        limit(value) {
++          limit = value
++          return query
++        },
++        update(value) {
++          patch = value
++          return query
++        },
+         upsert(value, options) {
+-          const index = tables[table].findIndex((row) => row[options?.onConflict ?? 'id'] === value[options?.onConflict ?? 'id'])
++          const index = tables[table].findIndex(
++            (row) => row[options?.onConflict ?? 'id'] === value[options?.onConflict ?? 'id'],
++          )
+           if (index < 0) tables[table].push({ ...value })
+           else tables[table][index] = { ...tables[table][index], ...value }
+           return Promise.resolve({ data: null, error: null })
+         },
+         finish() {
+-          let rows = (tables[table] ?? []).filter((row) => predicates.every((predicate) => predicate(row)))
++          let rows = (tables[table] ?? []).filter((row) =>
++            predicates.every((predicate) => predicate(row)),
++          )
+           if (ordering) {
+             const { key, ascending } = ordering
+-            rows = [...rows].sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * (ascending ? 1 : -1))
++            rows = [...rows].sort(
++              (a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * (ascending ? 1 : -1),
++            )
+           }
+           rows = rows.slice(0, limit)
+           if (patch) rows.forEach((row) => Object.assign(row, patch))
+           return { data: rows.map((row) => ({ ...row })), error: null }
+         },
+-        async maybeSingle() { const result = query.finish(); return { ...result, data: result.data[0] ?? null } },
+-        then(resolve, reject) { return Promise.resolve(query.finish()).then(resolve, reject) },
++        async maybeSingle() {
++          const result = query.finish()
++          return { ...result, data: result.data[0] ?? null }
++        },
++        then(resolve, reject) {
++          return Promise.resolve(query.finish()).then(resolve, reject)
++        },
+       }
+       return query
+     },
+@@ -90,7 +147,9 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+     },
+   }
+   class NextResponse extends Response {
+-    static json(value, init) { return new NextResponse(JSON.stringify(value), init) }
++    static json(value, init) {
++      return new NextResponse(JSON.stringify(value), init)
++    }
+   }
+   const route = load(
+     'app/api/live-cf/auction/poll-comments/route.ts',
+@@ -98,7 +157,10 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+       'node:crypto': require('node:crypto'),
+       'server-only': {},
+       'next/server': { NextRequest: Request, NextResponse },
+-      '@/lib/auth': { getActor: async () => ({ kind: 'user', id: 'actor' }), canAccessTenant: async () => true },
++      '@/lib/auth': {
++        getActor: async () => ({ kind: 'user', id: 'actor' }),
++        canAccessTenant: async () => true,
++      },
+       '@/lib/supabase/server': { supabaseAdmin: () => db },
+       '@/lib/feature-flags': { isFeatureEnabled: () => true },
+       '@/lib/integrations/facebook/client': {
+@@ -108,11 +170,15 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+       '@/lib/integrations/facebook/webhook-envelope': {
+         parseWebhook(bytes) {
+           const payload = JSON.parse(new TextDecoder().decode(bytes))
+-          const events = payload.entry.flatMap((entry) => entry.changes.map((change) => ({ payload: change.value })))
++          const events = payload.entry.flatMap((entry) =>
++            entry.changes.map((change) => ({ payload: change.value })),
++          )
+           return { raw: payload, hash: 'safe-hash', events }
+         },
+       },
+-      '@/lib/integrations/facebook/webhook-worker': { runFacebookWebhookWorker: async () => ({ claimed: 0 }) },
++      '@/lib/integrations/facebook/webhook-worker': {
++        runFacebookWebhookWorker: async () => ({ claimed: 0 }),
++      },
+       '@/lib/integrations/facebook/webhook-handler': { handleFacebookWebhookEvent: async () => {} },
+       '@/lib/utils': { UUID: /^[0-9a-f-]{36}$/i },
+       '@/lib/features/commerce/auction-server': { deliverAuctionNotifications: async () => {} },
+@@ -122,12 +188,20 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+       TextDecoder,
+       TextEncoder,
+       URL,
+-      console: Object.fromEntries(['info', 'warn', 'error'].map((method) => [method, (...args) => logs.push(JSON.stringify(args))])),
++      console: Object.fromEntries(
++        ['info', 'warn', 'error'].map((method) => [
++          method,
++          (...args) => logs.push(JSON.stringify(args)),
++        ]),
++      ),
+       fetch: async (input, init = {}) => {
+         const url = String(input)
+         graphCalls.push({ url, authorization: init.headers?.Authorization })
+         const response = responsePage(url)
+-        return new Response(JSON.stringify(response.body), { status: response.status, headers: { 'Content-Type': 'application/json' } })
++        return new Response(JSON.stringify(response.body), {
++          status: response.status,
++          headers: { 'Content-Type': 'application/json' },
++        })
+       },
+     },
+   )
+@@ -152,13 +226,19 @@ function fixture({ pages, cursor = null, graphError = null } = {}) {
+ const pageUrl = (page) => `https://graph.facebook.com/v25.0/${videoId}/comments?page=${page}`
+ 
+ test('queues all 250 comments across Graph pages and advances the cursor', async () => {
+-  const createdAt = (index) => new Date(Date.parse('2026-02-01T00:10:00.000Z') - index * 1000).toISOString()
++  const createdAt = (index) =>
++    new Date(Date.parse('2026-02-01T00:10:00.000Z') - index * 1000).toISOString()
+   const batches = [
+     Array.from({ length: 100 }, (_, i) => comment(i, createdAt(i))),
+     Array.from({ length: 100 }, (_, i) => comment(i + 100, createdAt(i + 100))),
+     Array.from({ length: 50 }, (_, i) => comment(i + 200, createdAt(i + 200))),
+   ]
+-  const f = fixture({ pages: (page) => ({ data: batches[page - 1], ...(page < 3 ? { paging: { next: pageUrl(page + 1) } } : {}) }) })
++  const f = fixture({
++    pages: (page) => ({
++      data: batches[page - 1],
++      ...(page < 3 ? { paging: { next: pageUrl(page + 1) } } : {}),
++    }),
++  })
+   const result = await f.poll()
+   assert.equal(result.status, 200)
+   assert.equal(result.body.fetched, 250)
+@@ -173,7 +253,13 @@ test('a page-one comment reaching the overlap boundary prevents fetching page tw
+   const highWater = '2026-02-01T00:00:30.000Z'
+   const f = fixture({
+     cursor: { high_water_at: highWater },
+-    pages: () => ({ data: [comment('new', '2026-02-01T00:00:29.000Z'), comment('boundary', '2026-02-01T00:00:09.000Z')], paging: { next: pageUrl(2) } }),
++    pages: () => ({
++      data: [
++        comment('new', '2026-02-01T00:00:29.000Z'),
++        comment('boundary', '2026-02-01T00:00:09.000Z'),
++      ],
++      paging: { next: pageUrl(2) },
++    }),
+   })
+   const result = await f.poll()
+   assert.equal(result.body.queued, 1)
+@@ -182,7 +268,10 @@ test('a page-one comment reaching the overlap boundary prevents fetching page tw
+ })
+ 
+ test('Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary video ID', async () => {
+-  const f = fixture({ pages: () => ({ data: [] }), graphError: { code: 100, message: 'video unavailable' } })
++  const f = fixture({
++    pages: () => ({ data: [] }),
++    graphError: { code: 100, message: 'video unavailable' },
++  })
+   const result = await f.poll()
+   assert.equal(result.status, 502)
+   assert.equal(result.body.reason, 'VIDEO_NOT_ACCESSIBLE')
+@@ -191,11 +280,15 @@ test('Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary v
+ })
+ 
+ test('comments missing from or from.id are skipped, valid author comments queue, and all-skipped cycles advance high water', async () => {
+-  const f = fixture({ pages: () => ({ data: [
+-    comment('missing-from', '2026-02-01T00:00:03.000Z', null),
+-    comment('empty-from', '2026-02-01T00:00:02.000Z', {}),
+-    comment('valid', '2026-02-01T00:00:01.000Z'),
+-  ] }) })
++  const f = fixture({
++    pages: () => ({
++      data: [
++        comment('missing-from', '2026-02-01T00:00:03.000Z', null),
++        comment('empty-from', '2026-02-01T00:00:02.000Z', {}),
++        comment('valid', '2026-02-01T00:00:01.000Z'),
++      ],
++    }),
++  })
+   const result = await f.poll()
+   assert.equal(result.body.skipped.MISSING_FROM_ID, 2)
+   assert.equal(result.body.queued, 1)
+@@ -204,16 +297,26 @@ test('comments missing from or from.id are skipped, valid author comments queue,
+   assert.equal(events[0].payload.from.id, fromId)
+   assert.equal(JSON.stringify(events).includes('anon_'), false)
+ 
+-  const allSkipped = fixture({ pages: () => ({ data: [comment('only-missing', '2026-02-01T00:00:04.000Z', null)] }) })
++  const allSkipped = fixture({
++    pages: () => ({ data: [comment('only-missing', '2026-02-01T00:00:04.000Z', null)] }),
++  })
+   const skippedResult = await allSkipped.poll()
+   assert.equal(skippedResult.body.queued, 0)
+   assert.equal(skippedResult.body.skipped.MISSING_FROM_ID, 1)
+   assert.equal(allSkipped.tables.auction_poll_cursors[0].high_water_at, '2026-02-01T00:00:04.000Z')
+-  assert.equal(allSkipped.rpcCalls.some((call) => call.name === 'enqueue_facebook_webhook'), false)
++  assert.equal(
++    allSkipped.rpcCalls.some((call) => call.name === 'enqueue_facebook_webhook'),
++    false,
++  )
+ })
+ 
+ test('pagination rejects non Graph hosts and non HTTPS URLs before making a second request', async () => {
+-  const f = fixture({ pages: () => ({ data: [comment(1)], paging: { next: `http://evil.test/${videoId}/comments?page=2` } }) })
++  const f = fixture({
++    pages: () => ({
++      data: [comment(1)],
++      paging: { next: `http://evil.test/${videoId}/comments?page=2` },
++    }),
++  })
+   const result = await f.poll()
+   assert.equal(result.status, 503)
+   assert.equal(f.graphCalls.length, 1)
+@@ -223,7 +326,9 @@ test('pagination rejects non Graph hosts and non HTTPS URLs before making a seco
+ test('continuation URLs are sanitized before persistence and logs omit tokens, author IDs, and comment bodies', async () => {
+   const f = fixture({
+     pages: (page) => ({
+-      data: Array.from({ length: 100 }, (_, i) => comment(`${page}-${i}`, '2026-02-01T00:00:04.000Z', null)),
++      data: Array.from({ length: 100 }, (_, i) =>
++        comment(`${page}-${i}`, '2026-02-01T00:00:04.000Z', null),
++      ),
+       paging: { next: `${pageUrl(page + 1)}&access_token=${accessToken}` },
+     }),
+   })
+@@ -244,3 +349,99 @@ test('polling always sends the Page token in the Authorization header, never in
+   assert.equal(f.graphCalls[0].authorization, `Bearer ${accessToken}`)
+   assert.equal(f.graphCalls[0].url.includes(accessToken), false)
+ })
++
++test('session filters exclude other lives and poll a closed, unconfirmed winner', async () => {
++  const f = fixture({ pages: () => ({ data: [comment('selected-session')] }) })
++  f.tables.auctions.unshift({ ...f.tables.auctions[0], id: 'other-round', live_post_id: '999' })
++  Object.assign(f.tables.auctions[1], {
++    status: 'closed',
++    winner_locked_at: '2026-02-01',
++    winner_confirmed_at: null,
++  })
++  assert.equal((await f.poll(true)).status, 200)
++  assert.match(f.graphCalls[0].url, /\/456\/comments/)
++})
++
++test('Graph error text containing tokens, author IDs or messages is never logged', async () => {
++  const f = fixture({
++    graphError: { code: 100, message: `${accessToken} ${fromId} ${bodyText}`, type: fromId },
++  })
++  const result = await f.poll()
++  assert.equal(result.body.reason, 'VIDEO_NOT_ACCESSIBLE')
++  for (const secret of [accessToken, fromId, bodyText]) {
++    assert.equal(f.logs.join('\n').includes(secret), false)
++    assert.equal(JSON.stringify(result.body).includes(secret), false)
++  }
++})
++
++test('blank and synthetic identities are skipped without enqueueing bids', async () => {
++  const f = fixture({
++    pages: () => ({ data: ['', ' ', 'anon_123'].map((id, i) => comment(i, undefined, { id })) }),
++  })
++  const result = await f.poll()
++  assert.equal(result.body.queued, 0)
++  assert.equal(result.body.skipped.MISSING_FROM_ID, 3)
++})
++
++test('only exact HTTPS Graph hosts receive a second request', async () => {
++  for (const link of [
++    'https://graph.facebook.com.evil.test/x',
++    'https://evil.test/x',
++    'http://graph.facebook.com/x',
++    'https://user:pass@graph.facebook.com/x',
++  ]) {
++    const f = fixture({ pages: () => ({ data: [comment(link)], paging: { next: link } }) })
++    assert.equal((await f.poll()).status, 503)
++    assert.equal(f.graphCalls.length, 1)
++  }
++})
++
++test('linked continuation resumes backlog without applying the advanced high-water boundary', async () => {
++  const f = fixture({
++    cursor: {
++      high_water_at: '2026-02-01T00:10:00Z',
++      continuation_url: pageUrl(11),
++      continuation_anchor_url: pageUrl(2),
++      continuation_boundary_at: '2026-02-01T00:00:00Z',
++      updated_at: new Date().toISOString(),
++    },
++    pages: (page) =>
++      page === 1
++        ? { data: [comment('fresh', '2026-02-01T00:10:01Z')], paging: { next: pageUrl(2) } }
++        : page === 2
++          ? { data: [comment('bridge', '2026-02-01T00:09:59Z')], paging: { next: pageUrl(3) } }
++          : { data: [comment('backlog', '2026-02-01T00:01:00Z')] },
++  })
++  const result = await f.poll()
++  assert.equal(result.body.queued, 3)
++  assert.equal(new URL(f.graphCalls[1].url).searchParams.get('page'), '2')
++  assert.equal(new URL(f.graphCalls[2].url).searchParams.get('page'), '11')
++  assert.equal(f.tables.auction_poll_cursors[0].continuation_url, null)
++  assert.equal(f.tables.auction_poll_cursors[0].high_water_at, '2026-02-01T00:10:01.000Z')
++})
++
++test('expired or unlinked stored cursors are discarded for the fresh page chain', async () => {
++  for (const patch of [
++    { updated_at: '2020-01-01T00:00:00Z' },
++    { continuation_anchor_url: pageUrl(99) },
++    { continuation_url: 'https://evil.test/x' },
++  ]) {
++    const f = fixture({
++      cursor: {
++        high_water_at: '2026-02-01T00:00:30Z',
++        continuation_url: pageUrl(11),
++        continuation_anchor_url: pageUrl(2),
++        continuation_boundary_at: '2026-01-01T00:00:00Z',
++        updated_at: new Date().toISOString(),
++        ...patch,
++      },
++      pages: (page) => ({
++        data: [comment(`discard-${page}`, '2026-02-01T00:00:31Z')],
++        ...(page === 1 ? { paging: { next: pageUrl(2) } } : {}),
++      }),
++    })
++    assert.equal((await f.poll()).status, 200)
++    assert.equal(new URL(f.graphCalls[1].url).searchParams.get('page'), '2')
++    assert.equal(f.tables.auction_poll_cursors[0].continuation_url, null)
++  }
++})
+diff --git a/scripts/test-auction-server.cjs b/scripts/test-auction-server.cjs
+index e2b3df3..8e317db 100644
+--- a/scripts/test-auction-server.cjs
++++ b/scripts/test-auction-server.cjs
+@@ -117,7 +117,10 @@ function fixture({
+             match = clause.match(/^([a-z_]+)\.ov\.\{(.*)\}$/)
+             if (match) {
+               const values = new Set(match[2].split(','))
+-              return Array.isArray(row[match[1]]) && row[match[1]].some((value) => values.has(String(value)))
++              return (
++                Array.isArray(row[match[1]]) &&
++                row[match[1]].some((value) => values.has(String(value)))
++              )
+             }
+             match = clause.match(/^([a-z_]+)\.not\.is\.null$/)
+             if (match) return row[match[1]] != null
+@@ -282,6 +285,15 @@ function fixture({
+   return { api, receive, tables, calls }
+ }
+ 
++test('missing, blank and synthetic authors never reach an auction mutation RPC', async () => {
++  for (const sender of [null, '', ' ', 'anon_123']) {
++    const f = fixture()
++    assert.equal(await f.receive('500', sender), true)
++    assert.equal(f.calls.rpc.length, 0)
++    assert.equal(f.calls.private.length, 0)
++  }
++})
++
+ test('highest-bid confirmation dispatches the active winner bill immediately and honors public reply off', async () => {
+   for (const keyword of ['1', '11', '+1', '+', 'เปิด']) {
+     assert.equal(
+diff --git a/scripts/test-auction-workspace-api.cjs b/scripts/test-auction-workspace-api.cjs
+index 1bc3fb2..498149c 100644
+--- a/scripts/test-auction-workspace-api.cjs
++++ b/scripts/test-auction-workspace-api.cjs
+@@ -16,6 +16,7 @@ test('workspace API restores scoped saved values and commits a single normalized
+     bankId = randomUUID()
+   const calls = []
+   let denied = false
++  let failedTable = null
+   const settings = {
+     ...automation.defaultSessionAutomation(bankId),
+     keywords: ['raise'],
+@@ -56,6 +57,7 @@ test('workspace API restores scoped saved values and commits a single normalized
+           return query
+         },
+         async maybeSingle() {
++          if (table === failedTable) return { data: null, error: { code: '42501' } }
+           return {
+             data: rows[table].find((row) => filters.every((predicate) => predicate(row))) ?? null,
+             error: null,
+@@ -144,8 +146,40 @@ test('workspace API restores scoped saved values and commits a single normalized
+         ),
+       )
+     ).status,
+-    404,
++    200,
+   )
++  for (const table of ['live_sessions', 'auctions']) {
++    failedTable = table
++    const response = await api.GET(
++      new NextRequest(
++        `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
++      ),
++    )
++    assert.equal(response.status, 200)
++    const body = await response.json()
++    assert.equal(body.ready, true)
++    assert.deepEqual(body.bids, [])
++    if (table === 'auctions') assert.equal(body.auction, null)
++    else
++      assert.equal(body.auction.shipping_fee, 47, 'session failures must not block auction reads')
++  }
++  failedTable = null
++  const foreign = await (
++    await api.GET(
++      new NextRequest(
++        `https://shop.example/api/live-auction/workspace?tenantId=${randomUUID()}&pageId=100&livePostId=456`,
++      ),
++    )
++  ).json()
++  assert.equal(foreign.auction, null, 'never restore another tenant’s auction')
++  const anotherLive = await (
++    await api.GET(
++      new NextRequest(
++        `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=789`,
++      ),
++    )
++  ).json()
++  assert.equal(anotherLive.auction, null, 'never restore a different live’s auction')
+   calls.length = 0
+   for (const patch of [
+     { shippingFee: '-1' },
+diff --git a/supabase/live-auction-audit-hardening.sql b/supabase/live-auction-audit-hardening.sql
+index 390ac52..2052fbc 100644
+--- a/supabase/live-auction-audit-hardening.sql
++++ b/supabase/live-auction-audit-hardening.sql
+@@ -23,8 +23,12 @@ create table if not exists public.auction_poll_cursors (
+  live_video_id text not null,
+  high_water_at timestamptz not null,
+  continuation_url text,
++ continuation_anchor_url text,
++ continuation_boundary_at timestamptz,
+  updated_at timestamptz not null default clock_timestamp()
+ );
++alter table public.auction_poll_cursors add column if not exists continuation_anchor_url text;
++alter table public.auction_poll_cursors add column if not exists continuation_boundary_at timestamptz;
+ alter table public.auction_poll_cursors enable row level security;
+ revoke all on public.auction_poll_cursors from public,anon,authenticated;
+ grant all on public.auction_poll_cursors to service_role;
+@@ -46,7 +50,7 @@ begin
+  end if;
+  -- The locked auctions row is the authoritative leader for both winner flows.
+  -- Closing creates no order; the winner's later confirmation creates it atomically.
+- if a.leading_bidder_id is not null and coalesce(a.current_price,0)>0 then
++ if a.leading_bidder_id ~ '^[0-9]{1,64}$' and coalesce(a.current_price,0)>0 then
+   locked_at:=coalesce(a.winner_locked_at,clock_timestamp());
+   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
+    winner_locked_at=locked_at where id=a.id;
+@@ -74,6 +78,50 @@ begin
+  return jsonb_build_object('status','closed','orderId',null);
+ end $$;
+ 
++-- Expiry uses the same confirmation-only close as a host command. Never invoice
++-- a winner merely because a browser timer or cron reaches the deadline.
++create or replace function public.close_due_live_auction(
++ p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if a.status<>'active' then return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);end if;
++ if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then
++  return jsonb_build_object('status','not_due');
++ end if;
++ if not p_cancel and exists(select 1 from public.facebook_webhook_events e
++  where e.page_id=a.page_id and e.kind='change' and e.status in ('pending','processing')
++   and e.created_at>=a.created_at and (a.ends_at is null or e.created_at<a.ends_at)
++   and (a.live_post_id=regexp_replace(e.payload->'value'->>'post_id','^.*_','')
++    or a.live_post_id=e.payload->'value'->>'video_id'
++    or a.live_post_id=e.payload->'value'->>'live_video_id'
++    or e.payload->'value'->>'post_id'=any(a.live_post_aliases))
++ ) then return jsonb_build_object('status','draining');end if;
++ return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);
++end $$;
++
++create or replace function public.expire_live_auctions(p_tenant uuid default null)
++returns integer language plpgsql set search_path=pg_catalog,public as $$
++declare a record; result jsonb; count_closed integer:=0;
++begin
++ for a in select id,tenant_id from public.auctions
++  where status='active' and ends_at<=clock_timestamp()
++   and (p_tenant is null or tenant_id=p_tenant)
++  order by ends_at limit 100 for update skip locked
++ loop
++  begin
++   result:=public.close_due_live_auction(a.id,a.tenant_id);
++   if result->>'status' in ('closed','awaiting_confirmation') then count_closed:=count_closed+1;end if;
++  exception when others then
++   -- Codes only: exception text can contain customer data.
++   raise warning 'Auction expiry failed [%]',sqlstate;
++  end;
++ end loop;
++ return count_closed;
++end $$;
++
+ -- Keep historical bidding/confirmation behavior, but enforce the source comment's round window
+ -- before any confirmation, host close, or host count changes state.
+ create or replace function public.process_live_auction_comment(
+@@ -88,7 +136,7 @@ begin
+  select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+  if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+  v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+- if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+  if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+  select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+  if found then return prior;end if;
+@@ -108,17 +156,21 @@ begin
+  end if;
+  if confirming then
+   source_at:=public.auction_comment_timestamp(v->>'created_time');
+-  if source_at is null or source_at<a.created_at-interval '1 second'
++  if source_at is null or source_at<a.created_at
+    or (a.winner_locked_at is not null and source_at<a.winner_locked_at) then
+    return jsonb_build_object('status','stale');
+   end if;
+  elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+   source_at:=public.auction_comment_timestamp(v->>'created_time');
+-  if source_at is null or source_at<a.created_at-interval '1 second'
+-   or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
+    return jsonb_build_object('status','stale');
+   end if;
+  end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
+  if a.session_automation is distinct from settings then
+   update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
+  end if;
+@@ -144,7 +196,7 @@ begin
+  if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
+  else
+   update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
+-  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
+   update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
+   r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+  end if;
+diff --git a/scripts/test-auction-audit-lifecycle.cjs b/scripts/test-auction-audit-lifecycle.cjs
+new file mode 100644
+index 0000000..3619e56
+--- /dev/null
++++ b/scripts/test-auction-audit-lifecycle.cjs
+@@ -0,0 +1,186 @@
++// Runs against cwd, so the identical tests can exercise an isolated HEAD worktree.
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const path = require('node:path')
++const { randomUUID } = require('node:crypto')
++const { PGlite } = require('@electric-sql/pglite')
++const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
++const root = process.env.AUCTION_AUDIT_ROOT ?? process.cwd()
++const { build } = require(path.join(root, 'scripts/build-full-database-setup.cjs'))
++const load = require(path.join(root, 'scripts/helpers/load-typescript.cjs'))
++const config = load('lib/features/commerce/comment-config.ts')
++const { parseAuctionComment } = load('lib/integrations/facebook/auction-comment-parser.ts', {
++  '@/lib/features/commerce/comment-config': config,
++})
++
++async function fixture() {
++  const db = new PGlite({ extensions: { pgcrypto } })
++  const one = async (sql, args = []) => (await db.query(sql, args)).rows[0]
++  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
++    create schema auth;create schema storage;create schema extensions;
++    create table auth.users(id uuid primary key default gen_random_uuid(),email text);
++    create function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.user',true),'')::uuid$$;
++    create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
++    create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
++    alter table storage.objects enable row level security;create publication supabase_realtime;
++    grant usage on schema public,auth,storage to anon,authenticated,service_role;
++    alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
++    alter default privileges in schema public grant all on sequences to anon,authenticated,service_role;`)
++  await db.exec(build(root).completeSql)
++  const tenant = (
++    await one("insert into tenants(name,page_id) values('Audit fixture','100') returning id")
++  ).id
++  const bank = (
++    await one(
++      "insert into bank_accounts(tenant_id,bank_code,account_name,account_number) values($1,'KBANK','Fixture','0000000000') returning id",
++      [tenant],
++    )
++  ).id
++  const payload = (
++    await one(
++      "insert into facebook_webhook_payloads(payload_sha256,raw_payload) values($1,'{}') returning id",
++      ['c'.repeat(64)],
++    )
++  ).id
++  const settings = {
++    winnerFlow: 'highest_bid',
++    keywords: ['confirm'],
++    closeKeywords: ['close'],
++    countEnabled: true,
++    counting_tags: { 'last call': '3' },
++    closeEnabled: true,
++    privateReply: false,
++    publicReply: false,
++    bankAccountId: bank,
++  }
++  const open = async () =>
++    await one(
++      `insert into auctions(tenant_id,page_id,live_post_id,item_name,start_price,min_step,shipping_fee,
++    bank_account_id,host_ids,session_automation,public_reply_enabled,private_reply_enabled)
++    values($1,'100',$2,'Fixture item',100,10,20,$3,array['999'],$4,false,false) returning *`,
++      [tenant, String(Math.floor(Math.random() * 1e12)), bank, settings],
++    )
++  const event = async (a, sender, message, sourceAt = new Date().toISOString()) =>
++    one(
++      `insert into facebook_webhook_events(
++    payload_id,page_id,event_key,ordering_key,kind,payload,status) values($1,'100',$2,'comments:100','change',$3,'completed') returning *`,
++      [
++        payload,
++        randomUUID(),
++        {
++          field: 'feed',
++          value: {
++            item: 'comment',
++            verb: 'add',
++            post_id: a.live_post_id,
++            comment_id: a.live_post_id + '_' + randomUUID(),
++            from: sender == null ? null : { id: sender },
++            message,
++            created_time: sourceAt,
++          },
++        },
++      ],
++    )
++  const processEvent = async (a, e, parsed) =>
++    (
++      await one('select process_live_auction_comment($1,$2,$3,$4,$5,$6) result', [
++        a.id,
++        tenant,
++        e.id,
++        parsed.type,
++        parsed.amount ?? null,
++        parsed.type === 'HOST_CONTROL'
++          ? parsed.action === 'close'
++            ? 'close'
++            : parsed.count
++          : null,
++      ])
++    ).result
++  const receive = async (a, sender, text, sourceAt) => {
++    const e = await event(a, sender, text, sourceAt)
++    return {
++      event: e,
++      parsed: parseAuctionComment(text, sender === '999', settings),
++      result: await processEvent(a, e, parseAuctionComment(text, sender === '999', settings)),
++    }
++  }
++  return { db, one, tenant, settings, open, event, receive, processEvent }
++}
++
++test('normal round lifecycle: real parser, two bidders, close without order, confirmed once, cancellation and stale boundaries', async () => {
++  const f = await fixture()
++  try {
++    const a = await f.open()
++    assert.equal((await f.receive(a, '900', '100')).result.status, 'accepted')
++    assert.equal((await f.receive(a, '901', '200')).result.status, 'accepted')
++    assert.equal((await f.receive(a, '999', 'last call')).result.status, 'count')
++    const { created_at: start } = await f.one('select created_at from auctions where id=$1', [a.id])
++    assert.equal(
++      (await f.receive(a, '901', 'confirm', new Date(Date.parse(start) - 1).toISOString())).result
++        .status,
++      'stale',
++    )
++    assert.equal((await f.receive(a, '900', 'confirm')).result.status, 'not_winner')
++    assert.equal((await f.receive(a, '999', 'close')).result.status, 'awaiting_confirmation')
++    let row = await f.one('select * from auctions where id=$1', [a.id])
++    assert.equal(row.status, 'closed')
++    assert.ok(row.winner_locked_at)
++    assert.equal(row.order_id, null)
++    assert.equal((await f.one('select count(*)::int n from orders')).n, 0)
++    assert.equal((await f.receive(a, '999', 'close')).result.status, 'stale')
++    const confirmed = await f.receive(a, '901', 'confirm')
++    assert.equal(confirmed.result.status, 'confirmed')
++    assert.deepEqual(await f.processEvent(a, confirmed.event, confirmed.parsed), confirmed.result)
++    row = await f.one('select * from auctions where id=$1', [a.id])
++    assert.ok(row.order_id)
++    assert.equal(
++      (await f.one('select count(*)::int n from orders where source_id=$1', [a.id])).n,
++      1,
++    )
++    const cancelled = await f.open()
++    await f.receive(cancelled, '900', '100')
++    await f.one('select finalize_live_auction($1,$2,null,true)', [cancelled.id, f.tenant])
++    assert.equal((await f.receive(cancelled, '900', 'confirm')).result.status, 'closed')
++    assert.equal(
++      (await f.one('select order_id from auctions where id=$1', [cancelled.id])).order_id,
++      null,
++    )
++  } finally {
++    await f.db.close()
++  }
++})
++
++test('empty count configuration has identical disabled behavior in SQL and the real TypeScript parser', async () => {
++  const f = await fixture()
++  try {
++    for (const settings of [
++      {},
++      { counting_tags: { count: '3' } },
++      { counting_tags: { count: '3' }, countEnabled: false },
++    ]) {
++      const ts = config.resolveCommentSettings({}, settings)
++      const sql = (
++        await f.one('select resolve_facebook_comment_settings($1,$2) result', [{}, settings])
++      ).result
++      assert.equal(ts.countEnabled === true, sql.countEnabled === true)
++      assert.equal(parseAuctionComment('count', true, ts).type, 'IGNORE')
++    }
++    const signature = 'public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)'
++    const fn = await f.one(
++      'select pronargs,nargdefaults from (select pronargs,pronargdefaults nargdefaults from pg_proc where oid=$1::regprocedure) f',
++      [signature],
++    )
++    assert.equal(fn.pronargs, 4)
++    assert.equal(fn.nargdefaults, 2)
++    assert.equal(
++      (
++        await f.one(
++          "select provolatile from pg_proc where oid='public.auction_comment_timestamp(text)'::regprocedure",
++        )
++      ).provolatile,
++      's',
++    )
++  } finally {
++    await f.db.close()
++  }
++})
+diff --git a/reports/auction-audit/a3-stalled-rounds.sql b/reports/auction-audit/a3-stalled-rounds.sql
+new file mode 100644
+index 0000000..0b4afba
+--- /dev/null
++++ b/reports/auction-audit/a3-stalled-rounds.sql
+@@ -0,0 +1,13 @@
++-- Read-only A3 diagnostic. Kept outside the migration catalog intentionally.
++-- No identities, messages, tokens or automatic repairs.
++-- created_at is the canonical round start used by the TS poller and SQL guards.
++select a.id as auction_id,a.tenant_id,a.page_id,a.live_post_id,
++ a.created_at as started_at,a.closed_at,
++ count(b.id) as bid_records,
++ count(b.id) filter(where b.status='accepted') as accepted_bids,
++ max(b.bid_amount) filter(where b.status='accepted') as highest_recorded_bid
++from public.auctions a
++join public.auction_bids b on b.auction_id=a.id
++where a.status='closed' and a.winner_locked_at is null and a.order_id is null
++group by a.id,a.tenant_id,a.page_id,a.live_post_id,a.created_at,a.closed_at
++order by a.closed_at desc nulls last,a.id;
+diff --git a/reports/auction-audit/run-regressions.cjs b/reports/auction-audit/run-regressions.cjs
+new file mode 100644
+index 0000000..52c05ca
+--- /dev/null
++++ b/reports/auction-audit/run-regressions.cjs
+@@ -0,0 +1,26 @@
++// Run identical final tests against either source root, without editing that worktree.
++const fs = require('node:fs')
++const path = require('node:path')
++const Module = require('node:module')
++const root = path.resolve(process.argv[2])
++process.env.AUCTION_AUDIT_ROOT = root
++const current = path.resolve(__dirname, '../..')
++process.chdir(root)
++for (const file of [
++  'test-auction-audit-lifecycle.cjs',
++  'test-auction-host-actions.cjs',
++  'test-auction-background.cjs',
++  'test-auction-poller-hardening.cjs',
++  'test-auction-server.cjs',
++]) {
++  const filename = path.join(current, 'scripts', file)
++  const instance = new Module(filename, module)
++  instance.filename = filename
++  instance.paths = Module._nodeModulePaths(path.dirname(filename))
++  const originalRequire = instance.require.bind(instance)
++  instance.require = (name) =>
++    name === './helpers/load-typescript.cjs'
++      ? require(path.join(root, 'scripts/helpers/load-typescript.cjs'))
++      : originalRequire(name)
++  instance._compile(fs.readFileSync(filename, 'utf8'), filename)
++}
+diff --git a/reports/auction-audit/capture-function-defs.cjs b/reports/auction-audit/capture-function-defs.cjs
+new file mode 100644
+index 0000000..b51dedc
+--- /dev/null
++++ b/reports/auction-audit/capture-function-defs.cjs
+@@ -0,0 +1,93 @@
++// Isolated in-memory PGlite only; this script never reads connection credentials.
++const fs = require('node:fs')
++const path = require('node:path')
++const assert = require('node:assert/strict')
++const { PGlite } = require('@electric-sql/pglite')
++const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
++const baseline = path.resolve(process.argv[2])
++const current = path.resolve(__dirname, '../..')
++const { build } = require(path.join(baseline, 'scripts/build-full-database-setup.cjs'))
++async function run() {
++  const db = new PGlite({ extensions: { pgcrypto } })
++  const one = async (sql, args = []) => (await db.query(sql, args)).rows[0]
++  try {
++    await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
++      create schema auth;create schema storage;create schema extensions;
++      create table auth.users(id uuid primary key default gen_random_uuid(),email text);
++      create function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.user',true),'')::uuid$$;
++      create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
++      create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
++      alter table storage.objects enable row level security;create publication supabase_realtime;
++      grant usage on schema public,auth,storage to anon,authenticated,service_role;
++      alter default privileges in schema public grant all on tables to anon,authenticated,service_role;
++      alter default privileges in schema public grant all on sequences to anon,authenticated,service_role;`)
++    await db.exec(build(baseline).completeSql)
++    const beforeTimestampVolatility = (
++      await one(
++        "select provolatile from pg_proc where oid='public.auction_comment_timestamp(text)'::regprocedure",
++      )
++    ).provolatile
++    const signature = 'public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)'
++    const before = await one(
++      'select $1::regprocedure::oid oid,pg_get_functiondef($1::regprocedure) definition',
++      [signature],
++    )
++    fs.writeFileSync(path.join(__dirname, 'process-comment.before.sql'), before.definition)
++    await db.exec(
++      fs.readFileSync(path.join(current, 'supabase/live-auction-audit-hardening.sql'), 'utf8'),
++    )
++    const after = await one(
++      'select $1::regprocedure::oid oid,pg_get_functiondef($1::regprocedure) definition',
++      [signature],
++    )
++    assert.equal(
++      after.oid,
++      before.oid,
++      'CREATE OR REPLACE preserves function identity and dependencies',
++    )
++    fs.writeFileSync(path.join(__dirname, 'process-comment.after.sql'), after.definition)
++    const security = await one(`select relrowsecurity enabled,
++      has_table_privilege('anon','public.auction_poll_cursors','SELECT') anon_select,
++      has_table_privilege('authenticated','public.auction_poll_cursors','SELECT') authenticated_select
++      from pg_class where oid='public.auction_poll_cursors'::regclass`)
++    assert.deepEqual(security, { enabled: true, anon_select: false, authenticated_select: false })
++    const signatures = (
++      await db.query(`select proname,oid::regprocedure::text signature,pronargs,pronargdefaults,provolatile
++      from pg_proc where pronamespace='public'::regnamespace and proname in
++      ('auction_comment_timestamp','process_live_auction_comment','finalize_live_auction_highest_bid','finalize_live_auction','close_due_live_auction','expire_live_auctions') order by proname`)
++    ).rows
++    const diagnostic = await db.query(
++      fs.readFileSync(path.join(__dirname, 'a3-stalled-rounds.sql'), 'utf8'),
++    )
++    assert.equal(diagnostic.rows.length, 0)
++    fs.writeFileSync(
++      path.join(__dirname, 'sql-evidence.json'),
++      JSON.stringify(
++        {
++          preservesFunctionOid: true,
++          beforeTimestampVolatility,
++          security,
++          signatures,
++          diagnosticValid: true,
++        },
++        null,
++        2,
++      ) + '\n',
++    )
++    console.log(
++      'PASS: real pg_get_functiondef captured before/after; function OID retained; cursor RLS and browser revocations verified.',
++    )
++    console.log(
++      'PASS: signature/volatility metadata recorded from isolated PGlite; no external database used.',
++    )
++    console.log(
++      'PASS: standalone read-only A3 diagnostic executed against the empty isolated fixture.',
++    )
++  } finally {
++    await db.close()
++  }
++}
++run().catch(() => {
++  console.error('Isolated function-definition capture failed')
++  process.exitCode = 1
++})
+diff --git a/reports/auction-audit/write-report.cjs b/reports/auction-audit/write-report.cjs
+new file mode 100644
+index 0000000..2cdba71
+--- /dev/null
++++ b/reports/auction-audit/write-report.cjs
+@@ -0,0 +1,205 @@
++const fs = require('node:fs')
++const path = require('node:path')
++const { execFileSync } = require('node:child_process')
++const dir = __dirname
++const root = path.resolve(dir, '../..')
++const baseline = '64b063be6f6b1686d83dfbb03edaac28ff47d737'
++const sourcePaths = [
++  'app/api/live-auction/workspace/route.ts',
++  'app/api/live-cf/auction/host-action/route.ts',
++  'app/api/live-cf/auction/poll-comments/route.ts',
++  'components/live-cf/AuctionUnifiedForm.tsx',
++  'components/live-cf/LiveAuctionPanel.tsx',
++  'components/live-cf/LiveAuctionTimer.tsx',
++  'components/live-cf/LiveCommentPoller.tsx',
++  'components/live-cf/LiveSessionDashboard.tsx',
++  'lib/features/commerce/auction-server.ts',
++  'scripts/test-auction-audit-lifecycle.cjs',
++  'scripts/test-auction-background.cjs',
++  'scripts/test-auction-deadlines.cjs',
++  'scripts/test-auction-host-actions.cjs',
++  'scripts/test-auction-on-demand.cjs',
++  'scripts/test-auction-poller-hardening.cjs',
++  'scripts/test-auction-server.cjs',
++  'scripts/test-auction-workspace-api.cjs',
++  'supabase/live-auction-audit-hardening.sql',
++  'reports/auction-audit/a3-stalled-rounds.sql',
++  'reports/auction-audit/run-suite.cjs',
++  'reports/auction-audit/run-regressions.cjs',
++  'reports/auction-audit/capture-function-defs.cjs',
++  'reports/auction-audit/write-report.cjs',
++]
++function git(args) {
++  try {
++    return execFileSync('git', args, {
++      cwd: root,
++      encoding: 'utf8',
++      stdio: ['ignore', 'pipe', 'pipe'],
++      maxBuffer: 30 * 1024 * 1024,
++    })
++  } catch (error) {
++    if (error.status === 1 && args.includes('--no-index')) return error.stdout
++    throw error
++  }
++}
++function textLog(file) {
++  const bytes = fs.readFileSync(path.join(dir, file))
++  return bytes.toString(bytes[0] === 255 ? 'utf16le' : 'utf8')
++}
++const head = JSON.parse(fs.readFileSync(path.join(dir, 'head.json')))
++const entry = JSON.parse(fs.readFileSync(path.join(dir, 'current-entry.json')))
++const final = JSON.parse(fs.readFileSync(path.join(dir, 'final.json')))
++const regressions = final.failures.filter((name) => !head.failures.includes(name))
++let diff = git(['diff', baseline, '--', ...sourcePaths])
++for (const file of sourcePaths) {
++  if (fs.existsSync(path.join(root, file)) && !git(['ls-files', '--', file]).trim())
++    diff += git(['diff', '--no-index', '--', 'NUL', file])
++}
++fs.writeFileSync(path.join(dir, 'changes.patch'), diff)
++fs.writeFileSync(path.join(dir, 'status.txt'), git(['status', '--short', '--', ...sourcePaths]))
++fs.writeFileSync(
++  path.join(dir, 'function-definition.patch'),
++  git([
++    'diff',
++    '--no-index',
++    '--',
++    'reports/auction-audit/process-comment.before.sql',
++    'reports/auction-audit/process-comment.after.sql',
++  ]),
++)
++const link = (file) => `[${file}](<${path.join(dir, file).replaceAll('\\', '/')}>)`
++const row = (name, run) =>
++  `| ${name} | ${run.files.length} | ${run.counts.tests} | ${run.counts.pass} | ${run.counts.fail} | ${run.code} |`
++const failures = final.failures
++  .map((name) => {
++    let reason =
++      'Pre-existing failure; original assertion/stack retained in the raw full-suite log.'
++    if (/customer_tab_id|cumulative tabs|session financial|paid bills become/.test(name))
++      reason =
++        'Ledger fixture assumes closing immediately creates an order; it does not send the required winner confirmation.'
++    if (
++      /facebookMessageEcho|Messenger slips|auction slips|shipping address text|standalone|pending verified|unclear\/ordinary|album rechecks|order lookup errors/.test(
++        name,
++      )
++    )
++      reason =
++        'Webhook fixture lacks the current facebookMessageEcho export; this is outside the auction engine changes.'
++    if (
++      /send receipt|explicit Send API|quick replies|Meta error messages|customer profiles|plain-text receipts|slip confirmations|tenant templates|missing migration|verified receipts|unverified verdicts|Meta refusal|network uncertainty|takeover exception|verified Pro|manual verification|notification failure|unlinked|manual confirmation|receipt uses|unavailable or invalid amount|admin confirmation API/.test(
++        name,
++      )
++    )
++      reason =
++        'Client/slip test dependency mocks lack the current comment-config dependency; see exact stack in log.'
++    if (/complete schema|fresh-install bundle/.test(name))
++      reason =
++        'Generated bootstrap SQL was stale before this task. Rebuilding it would incorporate unrelated baseline changes.'
++    if (/navigation hides/.test(name))
++      reason =
++        'Navigation fixture does not mock InboxRealtimeNotifications; Inbox changes intentionally left isolated.'
++    if (/keyword and AI routing/.test(name))
++      reason = 'Agent fixture does not mock tenant-ai-quota; outside auction scope.'
++    if (/test-admin-feature/.test(name))
++      reason =
++        'SQL fixture tenants record lacks is_active, required by the installed broadcast-credit function.'
++    if (
++      /logs the complete|full response text|original complete message|Axios-style|rejected response details|diagnostics identify|Facebook.*diagnostics|lookups retain/.test(
++        name,
++      )
++    )
++      reason =
++        'Existing diagnostics/logging expectations or missing client fixture dependencies; no production provider behavior changed here.'
++    return `| ${name.replaceAll('|', '/')} | fail | fail | ${reason} |`
++  })
++  .join('\n')
++const evidenceFiles = [
++  'head.log',
++  'current-entry.log',
++  'final.log',
++  'regressions-head.log',
++  'regressions-final.log',
++  'head-facebook-tenants.log',
++  'current-facebook-tenants.log',
++  'typecheck.log',
++  'verification.json',
++  'status.txt',
++  'build.log',
++  'sql-evidence.log',
++  'sql-evidence.json',
++]
++const report = `Audit completed through Phases 0–5; Meta identity-unverified and Inbox Realtime work remain deferred.
++
++Baseline is pinned to ${baseline}. A clean detached worktree was created in the Windows temporary directory, with only an ignored node_modules junction to the existing dependencies. No environment file or database credentials were copied. The shared branch advanced externally to 39cf4dd during the audit; that commit was preserved. The source diff below compares the final working tree to the original pinned HEAD, including the auction fixes already present when this request arrived. No other existing migration was edited, and no production database was accessed or migrated. All SQL execution used fresh in-memory PGlite databases.
++
++| Run | Test files | Tests | Pass | Fail | Exit |
++| --- | ---: | ---: | ---: | ---: | ---: |
++${row('Pinned HEAD', head)}
++${row('Working tree on entry', entry)}
++${row('Final working tree', final)}
++
++New failures against pinned HEAD: **${regressions.length}**. This is baseline regression parity, not a claim that the repository-wide suite is green. Counts differ because the final tree includes additional tests. The deadline leaf/container failures were resolved by the auction deadline fixes. A third passing asset check differs because ignored local assets exist only in the current workspace; that is an environment difference, not an auction fix. The standalone Facebook tenant SQL utility also exited 0 against HEAD and current source, using the already installed PGlite package explicitly. Browser QA utilities requiring a running authenticated app were not run.
++
++The full suite covers every scripts/test-*.cjs and tests/**/*.test.ts file in this repository's test directories, using node --import tsx --test --test-concurrency=1 --test-reporter=tap. The exact expanded command, raw output, file manifest and exit status are preserved in the corresponding .log/.json files. The first sandbox attempt failed before test execution (Windows uv_os_get_passwd/tsx); both comparable full runs were then executed with approved matching permissions.
++
++The identical focused regression set reports **41 pass / 10 fail on HEAD** and **51 pass / 0 fail on final source**. The 10 red-to-green checks detect strict round boundaries, disabled host defaults before credential reads, headless timer behavior, inaccessible-video notification, aggregate diagnostics, safe Graph logging, invalid identities, continuation bridging and stale cursor discard. Other protective checks already passed HEAD; it would be inaccurate to claim every newly added assertion fails on already-correct behavior.
++
++TypeScript: npx tsc --noEmit exited 0. Production build: npm run build exited 0, with pre-existing lint warnings only. The Windows .cmd launchers were used. Build/typecheck logs are included below.
++
++The historical report of 16/26 auction-server failures and the cron 503 was not reproduced. HEAD already had the required PostgREST .or() evaluator and expire_live_auctions mock. Both were verified by execution; the cron route was not edited. Its expiry recovery call is intentional, and the RPC exists in the assembled schema. Auction checks now use the real parser for host actions, custom count tokens, explicit disabling, and session comment_settings overrides.
++
++The canonical start is auctions.created_at: the poller uses Date.parse(target.created_at); webhook selection now compares parsed instants instead of lexicographic timestamp strings; SQL uses a.created_at. Confirmation checks only start/lock lower boundaries. Host close/count checks both start and closed_at boundaries. Timer expiry now locks the leader through the confirmation-only finalizer and leaves order_id null. Both highest_bid and on_demand use the locked auction's leader fields; no bid-history re-query chooses the winner.
++
++Counting defaults are off in SQL, the real parser, host-action API and dashboard buttons; an omitted flag cannot authorize a send. No unrelated changes to shared Inbox configuration were made. auction_comment_timestamp was already STABLE in the pinned source and remains STABLE, verified from pg_proc. finalize_live_auction_highest_bid has one four-argument signature with two trailing defaults, so historical three-argument callers are valid; the audited confirmation call now explicitly supplies false as the fourth argument. No historical migration was rewritten to change compatible defaulted callers.
++
++The poller renders null. The parent dashboard displays only aggregate missing-author counts and a reselect-live notification. No latency/countdown UI, raw user identity, raw comment body or token was added. API pagination uses a 20-second overlap, first-page boundary stop, high-water advancement for skipped comments, strict HTTPS Graph validation, no redirect following, sanitized cursors, and a fresh page-two bridge before an anchored cursor resumes. No Meta identity-unverified handling was attempted.
++
++Full unified source/test/SQL/reproduction diff: ${link('changes.patch')}. Generated execution evidence is delivered separately rather than duplicated inside the patch. Read-only Bug A3 diagnostic: ${link('a3-stalled-rounds.sql')}. It detects closed rounds with no lock/order and at least one bid; it performs no updates and returns no bidder identities.
++
++Actual pg_get_functiondef comparison: ${link('function-definition.patch')}, with ${link('process-comment.before.sql')} and ${link('process-comment.after.sql')}. These were captured from an isolated baseline installation before and after applying only the allowed audit script. Function OID/dependencies were preserved. Every difference in that function is:
++
++1. Reject blank/synthetic author identifiers and blank comment identifiers before mutations.
++2. Remove the one-second grace before the confirmation start boundary; preserve the winner-lock lower boundary and absence of a closed_at upper boundary.
++3. Remove one-second grace on both host action boundaries.
++4. Restore deadline handling for non-confirmation events without rejecting valid later confirmations.
++5. Call the four-argument finalizer explicitly with p_cancel=false.
++
++The audit script also defines cursor continuation metadata and confirmation-only expiry behavior, preserves cursor RLS/browser revocations, and restricts locked leaders to valid numeric identifiers. ${link('sql-evidence.json')} records the actual function signatures/volatility and verifies RLS enabled with anon/authenticated SELECT denied.
++
++Raw execution evidence:
++
++${evidenceFiles.map((file) => '- ' + link(file)).join('\n')}
++
++Remaining discrepancies and limits:
++
++- ${final.counts.fail} full-suite failures remain; none is newly introduced against HEAD. Their comparison/root-cause table follows. Unrelated Inbox/Sync, billing, agent and shipping code was left untouched.
++- Generated complete_schema.sql, full_database_setup.sql and their manifest were stale before this audit. They were intentionally not regenerated because that would fold unrelated baseline differences into this scope. Isolated SQL tests assemble source migrations in memory.
++- The attachment's Phase 2/Phase 6 ambiguity was clarified by the user: pagination may proceed; only Meta identity-unverified work waits for verified live logs.
++- No live Meta diagnostics were supplied, and no live-provider/browser end-to-end success is claimed. The end-to-end auction lifecycle was executed in PGlite with the real parser and mocked network/database boundaries where appropriate.
++- All-new-tests-must-fail-before is recorded as a discrepancy: 10 actual regression checks fail on HEAD, while already-correct protective checks pass both versions. No artificial failures were introduced to satisfy that wording.
++
++| Remaining test failure | HEAD | Final | Root cause / isolation decision |
++| --- | --- | --- | --- |
++${failures}
++`
++fs.writeFileSync(path.join(dir, 'REPORT.md'), report)
++fs.writeFileSync(
++  path.join(dir, 'comparison.json'),
++  JSON.stringify(
++    {
++      baseline,
++      head: head.counts,
++      entry: entry.counts,
++      final: final.counts,
++      newFailures: regressions,
++    },
++    null,
++    2,
++  ) + '\n',
++)
++console.log(
++  JSON.stringify({
++    report: 'reports/auction-audit/REPORT.md',
++    sourceDiffBytes: Buffer.byteLength(diff),
++    newFailures: regressions,
++  }),
++)

@@ -1,0 +1,42 @@
+{
+  "sourceOfActiveDatabaseFacts": "User-supplied final directive; no live inspection",
+  "targetedSuites": {
+    "tests": 87,
+    "pass": 87,
+    "fail": 0,
+    "exit": 0,
+    "log": "preflight-verification.log"
+  },
+  "finalPreflightSuite": {
+    "tests": 3,
+    "pass": 3,
+    "fail": 0,
+    "exit": 0,
+    "log": "preflight.log"
+  },
+  "localCatalogChecks": {
+    "total": 142,
+    "blocked": 0
+  },
+  "typecheck": {
+    "exit": 0,
+    "log": "preflight-typecheck.log"
+  },
+  "build": {
+    "exit": 0,
+    "log": "preflight-build.log"
+  },
+  "parity": {
+    "exit": 1,
+    "intentional": true,
+    "log": "preflight-parity.log"
+  },
+  "protectedFilesUnchangedAgainstHead": [
+    "supabase/live-auction-audit-hardening.sql",
+    "supabase/complete_schema.sql",
+    "supabase/full_database_setup.sql"
+  ],
+  "productionExecution": false,
+  "graphCalls": false,
+  "credentialInspection": false
+}

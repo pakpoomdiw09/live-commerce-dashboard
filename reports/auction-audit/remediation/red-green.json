@@ -1,0 +1,92 @@
+[
+  {
+    "scope": "SQL lifecycle",
+    "before": {
+      "file": "sql-red.log",
+      "tests": 2,
+      "pass": 0,
+      "fail": 2
+    },
+    "after": {
+      "file": "sql-green.log",
+      "tests": 10,
+      "pass": 10,
+      "fail": 0
+    }
+  },
+  {
+    "scope": "Pagination",
+    "before": {
+      "file": "poller-red.log",
+      "tests": 16,
+      "pass": 13,
+      "fail": 3
+    },
+    "after": {
+      "file": "privacy-poller-green.log",
+      "tests": 18,
+      "pass": 18,
+      "fail": 0
+    }
+  },
+  {
+    "scope": "Privacy",
+    "before": {
+      "file": "privacy-red.log",
+      "tests": 2,
+      "pass": 0,
+      "fail": 2
+    },
+    "after": {
+      "file": "privacy-poller-green.log",
+      "tests": 18,
+      "pass": 18,
+      "fail": 0
+    }
+  },
+  {
+    "scope": "Skip summaries",
+    "before": {
+      "file": "skip-red.log",
+      "tests": 5,
+      "pass": 4,
+      "fail": 1
+    },
+    "after": {
+      "file": "targeted.log",
+      "tests": 29,
+      "pass": 29,
+      "fail": 0
+    }
+  },
+  {
+    "scope": "Degraded form",
+    "before": {
+      "file": "form-red.log",
+      "tests": 1,
+      "pass": 0,
+      "fail": 1
+    },
+    "after": {
+      "file": "form-green.log",
+      "tests": 1,
+      "pass": 1,
+      "fail": 0
+    }
+  },
+  {
+    "scope": "Workspace and expiry caller",
+    "before": {
+      "file": "workspace-cron-entry-red.log",
+      "tests": 2,
+      "pass": 0,
+      "fail": 2
+    },
+    "after": {
+      "file": "targeted.log",
+      "tests": 29,
+      "pass": 29,
+      "fail": 0
+    }
+  }
+]

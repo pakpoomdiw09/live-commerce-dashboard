@@ -1,0 +1,19 @@
+{
+  "typecheck": {
+    "command": "npx.cmd tsc --noEmit",
+    "exitCode": 0,
+    "output": "typecheck.log",
+    "note": "Compiler produced no output; exit status recorded from the completed terminal session."
+  },
+  "build": {
+    "command": "npm.cmd run build",
+    "exitCode": 0,
+    "output": "build.log"
+  },
+  "sourceDiffCheck": {
+    "command": "git diff --check -- app components lib scripts supabase",
+    "exitCode": 0
+  },
+  "productionDatabaseAccess": false,
+  "deployments": false
+}

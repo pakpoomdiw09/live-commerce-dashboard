@@ -1,0 +1,33 @@
+{
+  "typecheck": {
+    "command": "npx.cmd tsc --noEmit",
+    "exit": 0,
+    "log": "typecheck.log"
+  },
+  "build": {
+    "command": "npm.cmd run build",
+    "exit": 0,
+    "log": "build.log"
+  },
+  "targeted": {
+    "tests": 29,
+    "pass": 29,
+    "fail": 0,
+    "log": "targeted.log"
+  },
+  "financial": {
+    "head": {
+      "tests": 12,
+      "pass": 12,
+      "fail": 0,
+      "log": "financial-head.log"
+    },
+    "current": {
+      "tests": 12,
+      "pass": 12,
+      "fail": 0,
+      "log": "financial-green.log"
+    }
+  },
+  "productionActions": false
+}

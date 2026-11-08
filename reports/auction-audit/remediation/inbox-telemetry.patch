@@ -1,0 +1,32 @@
+diff --git a/components/inbox/InboxClient.tsx b/components/inbox/InboxClient.tsx
+index ecad023..72bc39e 100644
+--- a/components/inbox/InboxClient.tsx
++++ b/components/inbox/InboxClient.tsx
+@@ -389,11 +389,13 @@ export function InboxClient({
+         snapshotController.signal.addEventListener('abort', abortRequest, { once: true })
+         if (snapshotController.signal.aborted) abortRequest()
+         const timeout = setTimeout(abortRequest, 10000)
++        const snapshotStarted = Date.now()
+         try {
+           const response = await fetch(
+             `/api/inbox/conversations?tenantId=${encodeURIComponent(tenantId)}${params}`,
+             { cache: 'no-store', signal: requestController.signal },
+           )
++          console.info('[inbox/snapshot]', { status: response.status, durationMs: Date.now() - snapshotStarted })
+           const data = (await response.json().catch(() => null)) as {
+             chats?: ChatSummary[]
+             comments?: CommentItem[]
+@@ -674,12 +676,11 @@ export function InboxClient({
+             typeof err.code === 'string' && /^[A-Z0-9_-]{1,40}$/.test(err.code)
+             ? err.code
+             : undefined
+-          if (status === 'SUBSCRIBED') console.info('[inbox/realtime] channel subscribed')
++          if (status === 'SUBSCRIBED') console.info('[inbox/realtime]', { status })
+           else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status))
+             console.warn('[inbox/realtime] channel disconnected', {
+               status,
+               errorCode,
+-              errorType: err instanceof Error ? err.name : undefined,
+             })
+           if (status === 'SUBSCRIBED') {
+             live = true
