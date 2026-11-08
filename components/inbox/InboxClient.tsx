@@ -119,6 +119,7 @@ export function InboxClient({
   const [searchQuery, setSearchQuery] = useState('')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
   const [filterCounts, setFilterCounts] = useState<Partial<Record<InboxView, number>>>({})
+  const [syncNotice, setSyncNotice] = useState('')
   const listCursor = useRef(initialChats.at(-1)?.customer)
   const discover = useCallback((items: ChatSummary[]) => {
     for (const item of items) knownCustomers.current.add(item.customer.id)
@@ -169,7 +170,8 @@ export function InboxClient({
           cache: 'no-store',
         })
           .then(async (res) => {
-            if (!res.ok) return { data: null, hasMore: false, error: { code: `HTTP_${res.status}` } }
+            if (!res.ok)
+              return { data: null, hasMore: false, error: { code: `HTTP_${res.status}` } }
             const body = (await res.json()) as { messages?: unknown[]; hasMore?: boolean }
             return {
               data: [...(body.messages ?? [])].reverse(),
@@ -229,6 +231,7 @@ export function InboxClient({
       syncBusy.current = true
       setSyncingCustomerId(customerId ?? 'all')
       setSyncError('')
+      setSyncNotice('')
       try {
         const response = await fetch('/api/inbox/sync', {
           method: 'POST',
@@ -238,6 +241,8 @@ export function InboxClient({
         const result = (await response.json().catch(() => null)) as {
           error?: string
           syncedMessages?: number
+          partial?: boolean
+          message?: string
         } | null
         if (!response.ok) throw new Error(result?.error || 'ซิงค์ข้อความจาก Facebook ไม่สำเร็จ')
 
@@ -273,6 +278,10 @@ export function InboxClient({
           else if (listResult.chats[0]) setSelectedId(listResult.chats[0].customer.id)
         }
         window.dispatchEvent(new Event('inbox:refresh'))
+        if (result?.partial)
+          setSyncNotice(
+            result.message || 'บันทึกข้อความที่ดึงได้แล้ว แต่ยังซิงค์ไม่ครบ กรุณาซิงค์อีกครั้ง',
+          )
       } catch (error) {
         setSyncError(error instanceof Error ? error.message : 'ซิงค์ข้อความจาก Facebook ไม่สำเร็จ')
       } finally {
@@ -818,6 +827,11 @@ export function InboxClient({
           {syncError && (
             <p role="alert" className="text-xs text-rose-700">
               {syncError}
+            </p>
+          )}
+          {syncNotice && (
+            <p role="status" className="text-xs text-amber-700">
+              {syncNotice}
             </p>
           )}
         </div>

@@ -200,7 +200,10 @@ export async function postFacebookWebhook(req: NextRequest) {
     } catch {
       console.error('[facebook-webhook/worker] deferred scheduling unavailable')
     }
-    return NextResponse.json({ ok: true })
+    return new NextResponse('EVENT_RECEIVED', {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    })
   } catch (error) {
     if (error instanceof WebhookInputError) {
       console.log('[WEBHOOK DROP] เหตุผล:', {

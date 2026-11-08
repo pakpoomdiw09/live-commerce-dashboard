@@ -977,7 +977,9 @@ test('HTTP acknowledges only after durable commit; failed persistence returns 50
       headers: { 'x-hub-signature-256': signature },
       body: bytes,
     })
-  assert.equal((await route.POST(request())).status, 200)
+  const accepted = await route.POST(request())
+  assert.equal(accepted.status, 200)
+  assert.equal(await accepted.text(), 'EVENT_RECEIVED')
   assert.equal(processing, 0)
   await deferred()
   assert.equal(processing, 1)

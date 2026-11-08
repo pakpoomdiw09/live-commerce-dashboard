@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { inboxTenant, inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
 import { pageTokenFor } from '@/lib/integrations/facebook/client'
+import {
+  createFacebookSyncPager,
+  nextGraphPage,
+  type GraphPaging,
+  type GraphPage,
+} from '@/lib/integrations/facebook/sync-pagination'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const PAGE_ID = '122099866472012045'
-const GRAPH_ENDPOINT = 'https://graph.facebook.com/v21.0'
 const PAGE_FIELDS = 'id,updated_time,participants,messages{id,message,from,created_time}'
 
 type FacebookProfile = { id?: unknown; name?: unknown }
@@ -19,9 +23,8 @@ type FacebookMessage = {
 type FacebookConversation = {
   id?: unknown
   participants?: { data?: FacebookProfile[] }
-  messages?: { data?: FacebookMessage[]; paging?: { next?: string } }
+  messages?: { data?: FacebookMessage[]; paging?: GraphPaging }
 }
-type GraphResponse<T> = { data?: T[]; paging?: { next?: string }; error?: unknown }
 type CustomerForSync = {
   id: string
   tenant_id: string | null
@@ -40,54 +43,12 @@ function profileName(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 200) : null
 }
 
-function checkedNextPage(value: unknown): URL | null {
-  if (typeof value !== 'string') return null
-  try {
-    const url = new URL(value)
-    if (
-      url.protocol !== 'https:' ||
-      url.hostname !== 'graph.facebook.com' ||
-      !url.pathname.startsWith('/v21.0/')
-    )
-      throw new InboxError('Facebook ส่งลิงก์หน้าถัดไปที่ไม่ถูกต้อง', 502)
-    return url
-  } catch (error) {
-    if (error instanceof InboxError) throw error
-    throw new InboxError('Facebook ส่งลิงก์หน้าถัดไปที่ไม่ถูกต้อง', 502)
-  }
-}
-
-async function graphRequest<T>(url: URL): Promise<GraphResponse<T>> {
-  let response: Response
-  try {
-    response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) })
-  } catch {
-    throw new InboxError(
-      'เชื่อมต่อ Facebook ไม่สำเร็จ กรุณาลองอีกครั้ง',
-      502,
-      'FACEBOOK_UNAVAILABLE',
-    )
-  }
-  const result: unknown = await response.json().catch(() => null)
-  if (!response.ok || !isRecord(result) || !Array.isArray(result.data)) {
-    throw new InboxError('Facebook ไม่สามารถส่งประวัติข้อความได้', 502, 'FACEBOOK_SYNC_FAILED')
-  }
-  return result as GraphResponse<T>
-}
-
-function firstConversationsUrl(token: string): URL {
-  const url = new URL(`${GRAPH_ENDPOINT}/me/conversations`)
-  url.searchParams.set('fields', PAGE_FIELDS)
-  url.searchParams.set('limit', '100')
-  url.searchParams.set('access_token', token)
-  return url
-}
-
 async function resolveCustomer(
   db: Awaited<ReturnType<typeof inboxTenant>>['db'],
   tenantId: string,
   psid: string,
   name: string | null,
+  retry = false,
 ): Promise<CustomerForSync> {
   const existing = await db
     .from('customers')
@@ -107,16 +68,18 @@ async function resolveCustomer(
     if (!existing.data.tenant_id) changes.tenant_id = tenantId
     if (name) changes.display_name = name
     if (Object.keys(changes).length) {
-      const saved = await db
+      let update = db
         .from('customers')
         .update(changes)
         .eq('id', existing.data.id)
         .eq('platform', 'facebook')
         .eq('platform_user_id', psid)
-        .select('id,tenant_id,last_message_at')
-        .single()
+      update = existing.data.tenant_id
+        ? update.eq('tenant_id', tenantId)
+        : update.is('tenant_id', null)
+      const saved = await update.select('id,tenant_id,last_message_at').maybeSingle()
       if (saved.error) throw saved.error
-      if (saved.data.tenant_id !== tenantId)
+      if (!saved.data || saved.data.tenant_id !== tenantId)
         throw new InboxError(
           'ลูกค้า Facebook นี้เชื่อมกับร้านค้าอื่น',
           409,
@@ -133,12 +96,12 @@ async function resolveCustomer(
       platform: 'facebook',
       platform_user_id: psid,
       tenant_id: tenantId,
-      ...(name ? { display_name: name } : {}),
+      display_name: name ?? `ลูกค้า Facebook (${psid.slice(-4)})`,
     })
     .select('id,tenant_id,last_message_at')
     .single()
-  if (inserted.error?.code === '23505') {
-    return resolveCustomer(db, tenantId, psid, name)
+  if (inserted.error?.code === '23505' && !retry) {
+    return resolveCustomer(db, tenantId, psid, name, true)
   }
   if (inserted.error) throw inserted.error
   return inserted.data as CustomerForSync
@@ -146,13 +109,26 @@ async function resolveCustomer(
 
 async function conversationMessages(
   firstPage: FacebookConversation['messages'],
+  conversationId: string | null,
+  pager: ReturnType<typeof createFacebookSyncPager>,
 ): Promise<FacebookMessage[]> {
-  const messages = [...(firstPage?.data ?? [])]
-  let next = checkedNextPage(firstPage?.paging?.next)
-  while (next) {
-    const page = await graphRequest<FacebookMessage>(next)
-    messages.push(...(page.data ?? []))
-    next = checkedNextPage(page.paging?.next)
+  const messages = Array.isArray(firstPage?.data) ? [...firstPage.data] : []
+  try {
+    if (!firstPage?.paging?.next) return messages
+    if (!conversationId) throw new InboxError('ไม่มีรหัสบทสนทนา', 502, 'FACEBOOK_PAGING_INVALID')
+    let current = pager.url(
+      `${encodeURIComponent(conversationId)}/messages`,
+      'id,message,from,created_time',
+    )
+    let next = nextGraphPage(firstPage.paging, current)
+    while (next) {
+      current = next
+      const page = await pager.read<FacebookMessage>(current)
+      messages.push(...page.data)
+      next = nextGraphPage(page.paging, current)
+    }
+  } catch (error) {
+    pager.warn(error, 'messages')
   }
   return messages
 }
@@ -171,14 +147,17 @@ export async function POST(req: NextRequest) {
       .from('tenants')
       .select('page_id,page_access_token')
       .eq('id', tenantId)
-      .eq('page_id', PAGE_ID)
       .eq('is_active', true)
       .maybeSingle()
     if (tenant.error) throw tenant.error
     if (!tenant.data)
       throw new InboxError('ไม่พบเพจ Facebook ที่ใช้งานอยู่', 409, 'PAGE_NOT_LINKED')
+    const pageId = tenant.data.page_id
+    if (typeof pageId !== 'string' || !/^\d+$/.test(pageId))
+      throw new InboxError('ยังไม่ได้ตั้ง Page ID ของร้านค้านี้', 409, 'PAGE_NOT_LINKED')
     const token = pageTokenFor(tenant.data)
     if (!token) throw new InboxError('ไม่พบ Page Access Token', 409, 'PAGE_TOKEN_MISSING')
+    const pager = createFacebookSyncPager(token)
 
     let target: CustomerForSync | null = null
     let targetPsid: string | null = null
@@ -210,22 +189,41 @@ export async function POST(req: NextRequest) {
     const customerRows = new Map<string, CustomerForSync>()
     const latestMessageAt = new Map<string, string>()
     let syncedConversations = 0
-    let next: URL | null = firstConversationsUrl(token)
+    let next: URL | null = pager.url(`${pageId}/conversations`, PAGE_FIELDS)
     let matchedTarget = false
+    let pagesRead = 0
 
     while (next) {
-      const page = await graphRequest<FacebookConversation>(next)
+      let page: GraphPage<FacebookConversation>
+      try {
+        page = await pager.read<FacebookConversation>(next)
+        pagesRead++
+      } catch (error) {
+        if (!pagesRead) throw error
+        pager.warn(error, 'conversations')
+        break
+      }
       for (const conversation of page.data ?? []) {
-        const participants = conversation.participants?.data ?? []
+        if (!pager.hasTime()) {
+          pager.warn(
+            new InboxError('หมดเวลาซิงค์รอบนี้', 409, 'FACEBOOK_SYNC_LIMIT'),
+            'conversations',
+          )
+          break
+        }
+        if (!isRecord(conversation)) continue
+        const participants = Array.isArray(conversation.participants?.data)
+          ? conversation.participants.data
+          : []
         const firstMessages = conversation.messages
         const participantProfiles = participants.filter(
-          (profile) => externalId(profile.id) && externalId(profile.id) !== PAGE_ID,
+          (profile) => profile && externalId(profile.id) && externalId(profile.id) !== pageId,
         )
-        const pageMessageCustomers = (firstMessages?.data ?? [])
-          .map((message) => message.from)
+        const pageMessageCustomers = (Array.isArray(firstMessages?.data) ? firstMessages.data : [])
+          .map((message) => message?.from)
           .filter(
             (profile): profile is FacebookProfile =>
-              !!externalId(profile?.id) && externalId(profile?.id) !== PAGE_ID,
+              !!externalId(profile?.id) && externalId(profile?.id) !== pageId,
           )
         const allProfiles = [...participantProfiles, ...pageMessageCustomers]
         const targetProfile = target
@@ -240,6 +238,13 @@ export async function POST(req: NextRequest) {
           if (id && !profilesById.has(id)) profilesById.set(id, profile)
         }
         if (!profilesById.size) continue
+        if (profilesById.size !== 1 && !target) {
+          pager.warn(
+            new InboxError('บทสนทนามีผู้รับหลายคน', 409, 'FACEBOOK_CONVERSATION_AMBIGUOUS'),
+            'messages',
+          )
+          continue
+        }
         const resolved = new Map<string, CustomerForSync>()
         const primaryPsid =
           targetPsid ??
@@ -255,8 +260,13 @@ export async function POST(req: NextRequest) {
           customerRows.set(customer.id, customer)
         }
 
-        const messages = await conversationMessages(firstMessages)
+        const messages = await conversationMessages(
+          firstMessages,
+          externalId(conversation.id),
+          pager,
+        )
         for (const message of messages) {
+          if (!isRecord(message)) continue
           const id = externalId(message.id)
           const senderId = externalId(message.from?.id)
           const createdAt =
@@ -264,17 +274,14 @@ export async function POST(req: NextRequest) {
             Number.isFinite(Date.parse(message.created_time))
               ? new Date(message.created_time).toISOString()
               : null
-          if (!id || !createdAt) continue
-          const customer =
-            senderId === PAGE_ID
-              ? resolved.get(primaryPsid)
-              : ((senderId ? resolved.get(senderId) : undefined) ?? resolved.get(primaryPsid))
+          if (!id || !createdAt || !senderId) continue
+          const customer = senderId === pageId ? resolved.get(primaryPsid) : resolved.get(senderId)
           if (!customer) continue
           pendingMessages.push({
             customer_id: customer.id,
             external_id: id,
             provider_message_id: id,
-            sender: senderId === PAGE_ID ? 'agent' : 'customer',
+            sender: senderId === pageId ? 'agent' : 'customer',
             body: typeof message.message === 'string' ? message.message : null,
             attachments: [],
             created_at: createdAt,
@@ -285,14 +292,45 @@ export async function POST(req: NextRequest) {
         syncedConversations++
       }
       if (target && matchedTarget) break
-      next = checkedNextPage(page.paging?.next)
+      if (!pager.hasTime()) break
+      try {
+        next = nextGraphPage(page.paging, next)
+      } catch (error) {
+        pager.warn(error, 'conversations')
+        break
+      }
     }
 
-    if (target && !matchedTarget)
+    if (target && !matchedTarget && !pager.partial)
       throw new InboxError('ไม่พบบทสนทนานี้ใน Facebook', 404, 'FACEBOOK_CONVERSATION_NOT_FOUND')
 
     for (let offset = 0; offset < pendingMessages.length; offset += 100) {
-      const saved = await db.from('messages').upsert(pendingMessages.slice(offset, offset + 100), {
+      const batch = [
+        ...new Map(
+          pendingMessages.slice(offset, offset + 100).map((row) => [row.external_id, row]),
+        ).values(),
+      ]
+      // Dashboard sends and echoes use local external IDs but share Meta's provider ID.
+      const existing = await db
+        .from('messages')
+        .select('customer_id,provider_message_id')
+        .in(
+          'provider_message_id',
+          batch.map((row) => row.provider_message_id),
+        )
+        .in(
+          'customer_id',
+          batch.map((row) => row.customer_id),
+        )
+      if (existing.error) throw existing.error
+      const known = new Set(
+        (existing.data ?? []).map((row) => `${row.customer_id}:${row.provider_message_id}`),
+      )
+      const fresh = batch.filter(
+        (row) => !known.has(`${row.customer_id}:${row.provider_message_id}`),
+      )
+      if (!fresh.length) continue
+      const saved = await db.from('messages').upsert(fresh, {
         onConflict: 'external_id',
         ignoreDuplicates: true,
       })
@@ -304,6 +342,7 @@ export async function POST(req: NextRequest) {
         .update({ last_message_at: lastMessageAt })
         .eq('id', customerId)
         .eq('tenant_id', tenantId)
+        .or(`last_message_at.is.null,last_message_at.lt.${lastMessageAt}`)
       if (saved.error) throw saved.error
     }
 
@@ -313,6 +352,11 @@ export async function POST(req: NextRequest) {
         syncedMessages: pendingMessages.length,
         customerCount: customerRows.size,
         targetFound: target ? matchedTarget : undefined,
+        partial: pager.partial,
+        warnings: pager.warnings,
+        message: pager.partial
+          ? 'บันทึกข้อความที่ดึงได้แล้ว แต่ยังซิงค์ไม่ครบ กรุณาลองซิงค์อีกครั้งหรือตรวจสิทธิ์เพจ'
+          : undefined,
       },
       { headers: { 'Cache-Control': 'no-store' } },
     )
