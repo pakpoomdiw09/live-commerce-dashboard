@@ -65,8 +65,9 @@ export async function POST(req: NextRequest) {
     if (tenant.error) throw tenant.error
     if (!tenant.data || !(await canAccessTenant(actor, tenant.data.id, 'staff')))
       return json({ error: 'ไม่มีสิทธิ์จัดการเพจนี้' }, 403)
+    const tenantId = tenant.data.id
     const rate = await db.rpc('commerce_rate_limit', {
-      p_bucket: `auction-poll:${tenant.data.id}:${actor.id}`,
+      p_bucket: `auction-poll:${tenantId}:${actor.id}`,
       p_max: 40, // 2.5s cadence is 24/minute; headroom for a second tab
     })
     if (rate.error) throw rate.error
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
         .from('live_sessions')
         .select('live_post_id')
         .eq('id', sessionId)
-        .eq('tenant_id', tenant.data.id)
+        .eq('tenant_id', tenantId)
         .eq('page_id', pageId)
         .maybeSingle()
       if (session.error) throw session.error
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
     const round = await db
       .from('auctions')
       .select(COLUMNS)
-      .eq('tenant_id', tenant.data.id)
+      .eq('tenant_id', tenantId)
       .eq('page_id', pageId)
       .eq('status', 'active')
       .or(sessionFilter)
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest) {
       : await db
           .from('auctions')
           .select(COLUMNS)
-          .eq('tenant_id', tenant.data.id)
+          .eq('tenant_id', tenantId)
           .eq('page_id', pageId)
           .eq('status', 'closed')
           .not('winner_locked_at', 'is', null)
@@ -272,7 +273,7 @@ export async function POST(req: NextRequest) {
       const cursorSaved = await db.from('auction_poll_cursors').upsert({
         cursor_id: cursorId,
         auction_id: target.id,
-        tenant_id: tenant.data.id,
+        tenant_id: tenantId,
         session_id: sessionId,
         live_video_id: pollId,
         high_water_at: new Date(highWaterToSave).toISOString(),
