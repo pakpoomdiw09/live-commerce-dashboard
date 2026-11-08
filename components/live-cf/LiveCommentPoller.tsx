@@ -3,11 +3,19 @@
 import { useEffect, useRef } from 'react'
 
 /** Polls the selected session in the background while its dashboard is mounted. */
-export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessionId: string }) {
-  const stopped = useRef(false)
-
+export function LiveCommentPoller({
+  pageId,
+  sessionId,
+  onVideoUnavailable,
+}: {
+  pageId: string
+  sessionId: string
+  onVideoUnavailable?: () => void
+}) {
+  const unavailable = useRef(onVideoUnavailable)
+  unavailable.current = onVideoUnavailable
   useEffect(() => {
-    stopped.current = false
+    let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const controller = new AbortController()
 
@@ -23,7 +31,7 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
         })
 
         if ([401, 403, 404].includes(response.status)) {
-          stopped.current = true
+          stopped = true
           return
         }
         if (response.status === 429) {
@@ -31,7 +39,8 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
         } else {
           const data = await response.json().catch(() => null)
           if (data?.reason === 'VIDEO_NOT_ACCESSIBLE') {
-            stopped.current = true
+            stopped = true
+            if (!controller.signal.aborted) unavailable.current?.()
             return
           }
           if (data?.reason === 'SESSION_NOT_FOUND' || data?.reason === 'NO_ACTIVE_ROUND') {
@@ -45,12 +54,12 @@ export function LiveCommentPoller({ pageId, sessionId }: { pageId: string; sessi
         delay = 5000
       }
 
-      if (!stopped.current) timer = setTimeout(tick, delay)
+      if (!stopped && !controller.signal.aborted) timer = setTimeout(tick, delay)
     }
 
     void tick()
     return () => {
-      stopped.current = true
+      stopped = true
       controller.abort()
       if (timer) clearTimeout(timer)
     }

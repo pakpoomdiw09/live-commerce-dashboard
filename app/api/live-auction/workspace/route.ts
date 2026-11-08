@@ -27,17 +27,36 @@ function failure(error: unknown) {
   if (issue.code === '42501') return auctionReply({ error: 'ไม่มีสิทธิ์ใช้เพจหรือบัญชีนี้' }, 403)
   if (['P0001', '22P02', '23514'].includes(issue.code ?? ''))
     return auctionReply({ error: 'ตรวจข้อมูลราคาและเงื่อนไข รอบที่รับบิดแล้วแก้ราคาไม่ได้' }, 400)
-  return auctionReply(
-    { error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' },
-    503,
-  )
+  return auctionReply({ error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, 503)
+}
+
+// Workspace reads are optional hydration. Writes still report database failures.
+async function workspaceRead<T>(
+  query: PromiseLike<{ data: T; error: unknown }>,
+): Promise<T | null> {
+  try {
+    const result = await query
+    if (result.error) throw result.error
+    return result.data
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code
+    console.error('[live-auction/workspace] optional read failed', {
+      code: /^[A-Z0-9_]{1,80}$/i.test(code ?? '') ? code : 'UNAVAILABLE',
+    })
+    return null
+  }
 }
 
 export async function GET(req: NextRequest) {
+  // Keep authorization failures outside the optional database fallback.
+  const tenantId = req.nextUrl.searchParams.get('tenantId')
   try {
-    const tenantId = req.nextUrl.searchParams.get('tenantId')
     const denied = await authorizeAuction(req, tenantId)
     if (denied) return denied
+  } catch (error) {
+    return failure(error)
+  }
+  try {
     const sessionId = req.nextUrl.searchParams.get('sessionId')
     const pageId = req.nextUrl.searchParams.get('pageId')
     const livePostId = req.nextUrl.searchParams.get('livePostId')
@@ -52,42 +71,59 @@ export async function GET(req: NextRequest) {
     if (sessionId) query = query.eq('id', sessionId)
     if (pageId) query = query.eq('page_id', pageId)
     if (livePostId) query = query.eq('live_post_id', livePostId)
-    const session = await query.order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (session.error) throw session.error
-    if (sessionId && !session.data) return auctionReply({ error: 'ไม่พบเซสชันของร้านนี้' }, 404)
+    const session = await workspaceRead(
+      query.order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    )
     // A new live can inherit the merchant's previous preferences without creating data on GET.
-    let previous = session.data
+    let previous = session
     if (!previous && pageId) {
-      const result = await db
-        .from('live_sessions')
-        .select('*')
-        .eq('tenant_id', tenantId!)
-        .eq('page_id', pageId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (result.error) throw result.error
-      previous = result.data
+      previous = await workspaceRead(
+        db
+          .from('live_sessions')
+          .select('*')
+          .eq('tenant_id', tenantId!)
+          .eq('page_id', pageId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      )
     }
     let rounds = db.from('auctions').select('*').eq('tenant_id', tenantId!)
-    const selectedPage = pageId ?? session.data?.page_id
-    const selectedPost = livePostId ?? session.data?.live_post_id
+    const selectedPage = pageId ?? session?.page_id
+    const selectedPost = livePostId ?? session?.live_post_id
     if (selectedPage) rounds = rounds.eq('page_id', selectedPage)
-    if (session.data && selectedPost) rounds = rounds.eq('live_post_id', selectedPost)
-    const round = await rounds.order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (round.error) throw round.error
+    if (selectedPost) rounds = rounds.eq('live_post_id', selectedPost)
+    // A missing session must not restore an unrelated live's round.
+    const round =
+      sessionId && !session
+        ? null
+        : await workspaceRead(
+            rounds.order('created_at', { ascending: false }).limit(1).maybeSingle(),
+          )
     return auctionReply({
-      session: session.data,
-      round: round.data,
+      ready: true,
+      auction: round,
+      bids: [],
+      session,
+      round,
       settings:
-        session.data?.auction_settings ??
+        session?.auction_settings ??
         previous?.auction_settings ??
-        round.data?.session_automation ??
+        round?.session_automation ??
         null,
-      preferencesOnly: !session.data,
+      preferencesOnly: !session,
     })
-  } catch (error) {
-    return failure(error)
+  } catch {
+    console.error('[live-auction/workspace] using empty workspace')
+    return auctionReply({
+      ready: true,
+      auction: null,
+      bids: [],
+      session: null,
+      round: null,
+      settings: null,
+      preferencesOnly: true,
+    })
   }
 }
 
@@ -103,7 +139,9 @@ export async function POST(req: NextRequest) {
     if (
       !UUID.test(input.requestId ?? '') ||
       (input.durationSeconds !== undefined &&
-        (!Number.isSafeInteger(input.durationSeconds) || input.durationSeconds < 30 || input.durationSeconds > 86400)) ||
+        (!Number.isSafeInteger(input.durationSeconds) ||
+          input.durationSeconds < 30 ||
+          input.durationSeconds > 86400)) ||
       typeof input.pageId !== 'string' ||
       !/^\d{1,64}$/.test(input.pageId) ||
       typeof input.livePostId !== 'string' ||

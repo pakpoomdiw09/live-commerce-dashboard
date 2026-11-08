@@ -530,7 +530,7 @@ export async function handleAuctionComment(input: {
   const { value, tenantId, pageId, token, execution } = input
   const hasFrom = Boolean(value.from && typeof value.from === 'object')
   const senderId = (value.from as { id?: unknown } | undefined)?.id
-  const hasFromId = typeof senderId === 'string' && senderId.length > 0
+  const hasFromId = typeof senderId === 'string' && /^\d{1,64}$/.test(senderId)
   const skipped = (reason: string, details: Record<string, unknown> = {}) =>
     console.info('[auction/comment] skipped', {
       eventId: execution.event.id,
@@ -657,7 +657,7 @@ export async function handleAuctionComment(input: {
     return false
   }
   const author = value.from as { id?: unknown } | undefined
-  if (typeof author?.id !== 'string') {
+  if (typeof author?.id !== 'string' || !hasFromId) {
     console.warn('[auction/comment] missing author', {
       has_from: hasFrom,
       has_from_id: hasFromId,

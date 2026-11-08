@@ -85,12 +85,21 @@ export function AuctionUnifiedForm({
   options: AuctionDashboardOptions
   onSaved: (sessionId: string) => void
 }) {
-  const [draft, setDraft] = useState<Draft | null>(null)
+  const [draft, setDraft] = useState<Draft>(() => ({
+    pageId: options.pages[0]?.id ?? '',
+    livePostId: '',
+    itemName: '',
+    startPrice: '',
+    minStep: '',
+    shippingFee: '0',
+    durationMinutes: '5',
+    settings: blankSessionAutomation(),
+    finance: { cost: '0', ads: '0', shipping: '0', fees: '0' },
+  }))
   const [base, setBase] = useState<Config | null>(null)
   const [source, setSource] = useState<{ pageId: string; livePostId: string } | null>(null)
   const [reload, setReload] = useState(0)
-  const [loading, setLoading] = useState(true),
-    [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState(''),
     [notice, setNotice] = useState('')
   const dirty = useRef(false)
@@ -100,7 +109,7 @@ export function AuctionUnifiedForm({
 
   const hydrate = useCallback(
     (config: Config, selected?: { pageId: string; livePostId: string } | null) => {
-      const settings = config.settings ?? blankSessionAutomation()
+      const settings = { ...blankSessionAutomation(), ...config.settings }
       const session = config.session
       setBase(config)
       setDraft({
@@ -109,7 +118,7 @@ export function AuctionUnifiedForm({
         itemName: config.round?.item_name ?? '',
         startPrice: config.round ? String(config.round.start_price) : '',
         minStep: config.round ? String(config.round.min_step) : '',
-        shippingFee: config.round ? String(config.round.shipping_fee) : '',
+        shippingFee: String(config.round?.shipping_fee ?? 0),
         durationMinutes: String((config.round?.duration_seconds ?? 300) / 60),
         settings: {
           ...settings,
@@ -123,9 +132,9 @@ export function AuctionUnifiedForm({
           privateText: displaySessionTemplate(settings.privateText),
         },
         finance: {
-          cost: session ? String(session.cost_amount) : '0',
-          ads: session ? String(session.ad_spent) : '0',
-          shipping: session ? String(session.shipping_cost) : '0',
+          cost: String(session?.cost_amount ?? 0),
+          ads: String(session?.ad_spent ?? 0),
+          shipping: String(session?.shipping_cost ?? 0),
           fees: session?.other_fees == null ? '0' : String(session.other_fees),
         },
       })
@@ -136,7 +145,6 @@ export function AuctionUnifiedForm({
 
   useEffect(() => {
     const controller = new AbortController()
-    setLoading(true)
     setError('')
     const params = new URLSearchParams({ tenantId })
     if (source?.pageId) {
@@ -146,17 +154,15 @@ export function AuctionUnifiedForm({
     void read(`/api/live-auction/workspace?${params}`, controller.signal)
       .then((config: Config) => {
         if (!controller.signal.aborted) {
-          hydrate(config, source)
+          // A slow settings read must never replace edits made while it was loading.
+          if (!dirty.current) hydrate(config, source)
+          else setBase(config)
           if (config.session && config.session.id !== sessionId)
             savedCallback.current(config.session.id)
         }
       })
-      .catch((cause) => {
-        if (!controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : 'โหลดค่าที่บันทึกไว้ไม่สำเร็จ')
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
+      .catch(() => {
+        // Saved settings are optional; keep the usable draft on read failures.
       })
     return () => controller.abort()
     // Hydrate only on explicit selection/reload, never on the dashboard polling interval.
@@ -198,7 +204,7 @@ export function AuctionUnifiedForm({
   }
   async function handleSubmitAll(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!draft || loading || busy) return
+    if (busy) return
     setBusy(true)
     setError('')
     setNotice('')
@@ -243,7 +249,7 @@ export function AuctionUnifiedForm({
       setBusy(false)
     }
   }
-  const disabled = loading || busy || !!base?.session?.ended_at
+  const disabled = busy || !!base?.session?.ended_at
   const locked =
     disabled ||
     (!base?.preferencesOnly && base?.round?.status === 'active' && !!base.round.leading_bidder_id)
@@ -314,24 +320,37 @@ export function AuctionUnifiedForm({
           กำลังทำงาน
         </span>
       </header>
-      {base?.round && !base.preferencesOnly && <LiveAuctionTimer
-        key={base.round.id} tenantId={tenantId} auctionId={base.round.id}
-        onResolved={() => { setReload((n) => n + 1); onSaved(base.session?.id ?? sessionId) }}
-      />}
-      {draft && <label className="block text-sm font-medium text-slate-700">
-        ระยะเวลาประมูล (นาที)
-        <input type="number" min="0.5" max="1440" step="0.5"
-          className={field} value={draft.durationMinutes} disabled={disabled}
-          onChange={(event) => { dirty.current = true; setDraft({ ...draft, durationMinutes: event.target.value }) }} />
-        <span className="mt-1 block text-xs text-slate-500">นับจากเวลาเริ่มรอบ การบันทึกซ้ำไม่เริ่มเวลาใหม่</span>
-      </label>}
-      {loading && (
-        <p
-          role="status"
-          className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500"
-        >
-          กำลังโหลดค่าที่บันทึกไว้…
-        </p>
+      {base?.round && !base.preferencesOnly && (
+        <LiveAuctionTimer
+          key={base.round.id}
+          tenantId={tenantId}
+          auctionId={base.round.id}
+          onResolved={() => {
+            setReload((n) => n + 1)
+            onSaved(base.session?.id ?? sessionId)
+          }}
+        />
+      )}
+      {draft && (
+        <label className="block text-sm font-medium text-slate-700">
+          ระยะเวลาประมูล (นาที)
+          <input
+            type="number"
+            min="0.5"
+            max="1440"
+            step="0.5"
+            className={field}
+            value={draft.durationMinutes}
+            disabled={disabled}
+            onChange={(event) => {
+              dirty.current = true
+              setDraft({ ...draft, durationMinutes: event.target.value })
+            }}
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            นับจากเวลาเริ่มรอบ การบันทึกซ้ำไม่เริ่มเวลาใหม่
+          </span>
+        </label>
       )}
       {error && (
         <p
@@ -442,7 +461,7 @@ export function AuctionUnifiedForm({
                   pages={options.pages}
                   pageId={draft.pageId}
                   livePostId={draft.livePostId}
-                  disabled={busy || loading}
+                  disabled={busy}
                   onPageChange={(pageId) => {
                     setSource({ pageId, livePostId: '' })
                     edit({ pageId, livePostId: '' })

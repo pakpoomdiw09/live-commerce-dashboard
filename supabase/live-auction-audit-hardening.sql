@@ -23,8 +23,12 @@ create table if not exists public.auction_poll_cursors (
  live_video_id text not null,
  high_water_at timestamptz not null,
  continuation_url text,
+ continuation_anchor_url text,
+ continuation_boundary_at timestamptz,
  updated_at timestamptz not null default clock_timestamp()
 );
+alter table public.auction_poll_cursors add column if not exists continuation_anchor_url text;
+alter table public.auction_poll_cursors add column if not exists continuation_boundary_at timestamptz;
 alter table public.auction_poll_cursors enable row level security;
 revoke all on public.auction_poll_cursors from public,anon,authenticated;
 grant all on public.auction_poll_cursors to service_role;
@@ -46,7 +50,7 @@ begin
  end if;
  -- The locked auctions row is the authoritative leader for both winner flows.
  -- Closing creates no order; the winner's later confirmation creates it atomically.
- if a.leading_bidder_id is not null and coalesce(a.current_price,0)>0 then
+ if a.leading_bidder_id ~ '^[0-9]{1,64}$' and coalesce(a.current_price,0)>0 then
   locked_at:=coalesce(a.winner_locked_at,clock_timestamp());
   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
    winner_locked_at=locked_at where id=a.id;
@@ -74,6 +78,50 @@ begin
  return jsonb_build_object('status','closed','orderId',null);
 end $$;
 
+-- Expiry uses the same confirmation-only close as a host command. Never invoice
+-- a winner merely because a browser timer or cron reaches the deadline.
+create or replace function public.close_due_live_auction(
+ p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if a.status<>'active' then return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);end if;
+ if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then
+  return jsonb_build_object('status','not_due');
+ end if;
+ if not p_cancel and exists(select 1 from public.facebook_webhook_events e
+  where e.page_id=a.page_id and e.kind='change' and e.status in ('pending','processing')
+   and e.created_at>=a.created_at and (a.ends_at is null or e.created_at<a.ends_at)
+   and (a.live_post_id=regexp_replace(e.payload->'value'->>'post_id','^.*_','')
+    or a.live_post_id=e.payload->'value'->>'video_id'
+    or a.live_post_id=e.payload->'value'->>'live_video_id'
+    or e.payload->'value'->>'post_id'=any(a.live_post_aliases))
+ ) then return jsonb_build_object('status','draining');end if;
+ return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);
+end $$;
+
+create or replace function public.expire_live_auctions(p_tenant uuid default null)
+returns integer language plpgsql set search_path=pg_catalog,public as $$
+declare a record; result jsonb; count_closed integer:=0;
+begin
+ for a in select id,tenant_id from public.auctions
+  where status='active' and ends_at<=clock_timestamp()
+   and (p_tenant is null or tenant_id=p_tenant)
+  order by ends_at limit 100 for update skip locked
+ loop
+  begin
+   result:=public.close_due_live_auction(a.id,a.tenant_id);
+   if result->>'status' in ('closed','awaiting_confirmation') then count_closed:=count_closed+1;end if;
+  exception when others then
+   -- Codes only: exception text can contain customer data.
+   raise warning 'Auction expiry failed [%]',sqlstate;
+  end;
+ end loop;
+ return count_closed;
+end $$;
+
 -- Keep historical bidding/confirmation behavior, but enforce the source comment's round window
 -- before any confirmation, host close, or host count changes state.
 create or replace function public.process_live_auction_comment(
@@ -88,7 +136,7 @@ begin
  select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
  if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
  v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
- if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
  if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
  select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
  if found then return prior;end if;
@@ -108,16 +156,20 @@ begin
  end if;
  if confirming then
   source_at:=public.auction_comment_timestamp(v->>'created_time');
-  if source_at is null or source_at<a.created_at-interval '1 second'
+  if source_at is null or source_at<a.created_at
    or (a.winner_locked_at is not null and source_at<a.winner_locked_at) then
    return jsonb_build_object('status','stale');
   end if;
  elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
   source_at:=public.auction_comment_timestamp(v->>'created_time');
-  if source_at is null or source_at<a.created_at-interval '1 second'
-   or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
+  if source_at is null or source_at<a.created_at
+   or (a.closed_at is not null and source_at>a.closed_at) then
    return jsonb_build_object('status','stale');
   end if;
+ end if;
+ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
+  perform public.close_due_live_auction(a.id,a.tenant_id);
+  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
  end if;
  if a.session_automation is distinct from settings then
   update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
@@ -144,7 +196,7 @@ begin
  if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
  else
   update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
-  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
+  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
   update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
   r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
  end if;

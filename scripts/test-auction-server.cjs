@@ -117,7 +117,10 @@ function fixture({
             match = clause.match(/^([a-z_]+)\.ov\.\{(.*)\}$/)
             if (match) {
               const values = new Set(match[2].split(','))
-              return Array.isArray(row[match[1]]) && row[match[1]].some((value) => values.has(String(value)))
+              return (
+                Array.isArray(row[match[1]]) &&
+                row[match[1]].some((value) => values.has(String(value)))
+              )
             }
             match = clause.match(/^([a-z_]+)\.not\.is\.null$/)
             if (match) return row[match[1]] != null
@@ -281,6 +284,15 @@ function fixture({
   }
   return { api, receive, tables, calls }
 }
+
+test('missing, blank and synthetic authors never reach an auction mutation RPC', async () => {
+  for (const sender of [null, '', ' ', 'anon_123']) {
+    const f = fixture()
+    assert.equal(await f.receive('500', sender), true)
+    assert.equal(f.calls.rpc.length, 0)
+    assert.equal(f.calls.private.length, 0)
+  }
+})
 
 test('highest-bid confirmation dispatches the active winner bill immediately and honors public reply off', async () => {
   for (const keyword of ['1', '11', '+1', '+', 'เปิด']) {

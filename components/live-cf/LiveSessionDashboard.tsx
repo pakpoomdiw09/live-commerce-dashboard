@@ -117,7 +117,8 @@ export function LiveSessionDashboard({
           if (!controller.signal.aborted) setError('')
         }
       } catch (cause) {
-        if (!controller.signal.aborted)
+        // Optional dashboard reads must not cover the auction setup with schema alerts.
+        if (!controller.signal.aborted && !allInOne)
           setError(cause instanceof Error ? cause.message : 'โหลดข้อมูลไม่สำเร็จ')
       } finally {
         pending = false
@@ -419,14 +420,19 @@ export function LiveSessionDashboard({
       aria-label={auction ? 'จัดการประมูลและขายสินค้าผ่านไลฟ์สด' : 'สรุป เซสชัน ประมูล'}
       data-auction-dashboard={auction ? true : undefined}
     >
-      {auction && sessionId && (data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id) && (
-        // Keyed by session: switching the selected live resets state and retargets at once.
-        <LiveCommentPoller
-          key={sessionId}
-          sessionId={sessionId}
-          pageId={(data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id)!}
-        />
-      )}
+      {auction &&
+        sessionId &&
+        (data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id) && (
+          // Keyed by session: switching the selected live resets state and retargets at once.
+          <LiveCommentPoller
+            key={sessionId}
+            sessionId={sessionId}
+            pageId={(data?.session.page_id ?? sessions.find((s) => s.id === sessionId)?.page_id)!}
+            onVideoUnavailable={() =>
+              setNotice('ไม่สามารถเข้าถึงวิดีโอไลฟ์นี้ได้ กรุณาเลือกไลฟ์หรือเซสชันใหม่')
+            }
+          />
+        )}
       {!auction && (
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>

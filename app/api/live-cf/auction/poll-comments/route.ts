@@ -34,7 +34,12 @@ type GraphComment = {
 
 function graphPagingUrl(value: string): URL {
   const url = new URL(value)
-  if (url.protocol !== 'https:' || url.hostname !== 'graph.facebook.com' || url.username || url.password)
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname !== 'graph.facebook.com' ||
+    url.username ||
+    url.password
+  )
     throw Object.assign(new Error('INVALID_GRAPH_PAGING_URL'), { code: 'INVALID_GRAPH_PAGING_URL' })
   url.searchParams.delete('access_token')
   return url
@@ -92,9 +97,7 @@ export async function POST(req: NextRequest) {
       sessionPost = String(session.data.live_post_id)
     }
     const COLUMNS = 'id,live_post_id,created_at'
-    const sessionFilter = sessionPost
-      ? `live_post_id.eq.${sessionPost}`
-      : 'id.not.is.null'
+    const sessionFilter = sessionPost ? `live_post_id.eq.${sessionPost}` : 'id.not.is.null'
     const round = await db
       .from('auctions')
       .select(COLUMNS)
@@ -123,8 +126,7 @@ export async function POST(req: NextRequest) {
           .maybeSingle()
     if (waiting?.error) throw waiting.error
     const target = round.data ?? waiting?.data
-    if (!target)
-      return json({ polled: false, reason: 'NO_ACTIVE_ROUND', videoId: sessionPost })
+    if (!target) return json({ polled: false, reason: 'NO_ACTIVE_ROUND', videoId: sessionPost })
 
     const token = pageTokenFor(tenant.data)
     if (!token) return json({ error: 'ยังไม่ได้เชื่อมต่อ Facebook' }, 409)
@@ -139,6 +141,7 @@ export async function POST(req: NextRequest) {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
         cache: 'no-store',
+        redirect: 'error',
       })
       return { res: response, graphBody: await response.json().catch(() => null) }
     }
@@ -147,23 +150,17 @@ export async function POST(req: NextRequest) {
     const pollId = String(target.live_post_id)
     let { res, graphBody } = await fetchComments(pollId)
     if (!res.ok) {
-      // Graph error text is safe to log (the token is sent in a header, never in the URL); strip
-      // it anyway if it were ever echoed back.
       const g = graphBody?.error
       console.warn('[auction/poll] graph error', {
-        pageId,
-        videoId: pollId,
         status: res.status,
-        code: g?.code ?? null,
-        subcode: g?.error_subcode ?? null,
-        type: g?.type ?? null,
-        message: typeof g?.message === 'string' ? g.message.split(token).join('[REDACTED]') : null,
+        code: typeof g?.code === 'number' ? g.code : null,
+        subcode: typeof g?.error_subcode === 'number' ? g.error_subcode : null,
       })
       return json(
         {
           polled: false,
           reason: g?.code === 100 ? 'VIDEO_NOT_ACCESSIBLE' : 'GRAPH_ERROR',
-          code: g?.code ?? null,
+          code: typeof g?.code === 'number' ? g.code : null,
           videoId: pollId,
         },
         502,
@@ -173,31 +170,53 @@ export async function POST(req: NextRequest) {
     const cursorId = sessionId ?? target.id
     const cursor = await db
       .from('auction_poll_cursors')
-      .select('high_water_at,live_video_id,continuation_url')
+      .select('*')
       .eq('cursor_id', cursorId)
+      .eq('tenant_id', tenantId)
       .maybeSingle()
     if (cursor.error) throw cursor.error
-    const continuation = cursor.data?.live_video_id === pollId ? cursor.data.continuation_url : null
-    const highWater = cursor.data?.live_video_id === pollId ? Date.parse(cursor.data.high_water_at) : 0
+    const highWater =
+      cursor.data?.live_video_id === pollId ? Date.parse(cursor.data.high_water_at) : 0
     let pages = (graphBody?.data ?? []) as GraphComment[]
-    // Always walk forward from the fresh first page. A stored cursor is reusable only
-    // when it is still exactly the link reached from page 1; otherwise it is stale.
     const pageOneNext = graphBody?.paging?.next as string | undefined
-    const storedContinuation = continuation ? graphPagingUrl(continuation).toString() : null
     const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext).toString() : null
-    const continuationLinked = !storedContinuation || storedContinuation === pageOneLink
-    let next = pageOneNext
-    let reachedBoundary = false
     const overlapMs = 20_000
     // SQL uses auctions.created_at as the round's started_at boundary.
     const startedAt = Date.parse(target.created_at)
-    const boundary = highWater ? highWater - overlapMs : startedAt
+    let boundary = Math.max(startedAt, highWater ? highWater - overlapMs : startedAt)
+    let next = pageOneLink ?? undefined
+    // Resume only a recent cursor anchored to this exact fresh page-one chain.
+    // Retain its original boundary: advancing high-water must not drop an unfinished backlog.
+    const cursorState = cursor.data
+    const savedBoundary = Date.parse(cursorState?.continuation_boundary_at ?? '')
+    const savedAge = Date.now() - Date.parse(cursorState?.updated_at ?? '')
+    if (
+      cursorState?.live_video_id === pollId &&
+      cursorState.continuation_url &&
+      Number.isFinite(savedBoundary) &&
+      savedAge >= 0 &&
+      savedAge <= 300_000
+    ) {
+      try {
+        if (
+          pageOneLink &&
+          cursorState.continuation_anchor_url &&
+          graphPagingUrl(cursorState.continuation_anchor_url).toString() === pageOneLink
+        ) {
+          next = graphPagingUrl(cursorState.continuation_url).toString()
+          boundary = Math.max(startedAt, savedBoundary)
+        }
+      } catch {
+        // Invalid/expired stored cursors are discarded; fresh provider links remain strict.
+      }
+    }
     const oldestTimestamp = (batch: GraphComment[]) => {
-      const times = batch.map((comment) => Date.parse(comment.created_time ?? '')).filter(Number.isFinite)
+      const times = batch
+        .map((comment) => Date.parse(comment.created_time ?? ''))
+        .filter(Number.isFinite)
       return times.length ? Math.min(...times) : Number.POSITIVE_INFINITY
     }
     if (oldestTimestamp(pages) <= boundary) {
-      reachedBoundary = true
       next = undefined
     }
     for (let page = 2; next && page <= 10; page++) {
@@ -206,36 +225,37 @@ export async function POST(req: NextRequest) {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.any([req.signal, AbortSignal.timeout(8_000)]),
         cache: 'no-store',
+        redirect: 'error',
       })
       const body = await response.json().catch(() => null)
       if (!response.ok) {
         if (body?.error?.code === 100)
-          return json({ polled: false, reason: 'VIDEO_NOT_ACCESSIBLE', code: 100, videoId: pollId }, 502)
+          return json(
+            { polled: false, reason: 'VIDEO_NOT_ACCESSIBLE', code: 100, videoId: pollId },
+            502,
+          )
         throw Object.assign(new Error('GRAPH_PAGINATION_FAILED'), { code: body?.error?.code })
       }
       const batch = (body?.data ?? []) as GraphComment[]
       pages = pages.concat(batch)
       next = body?.paging?.next
       if (oldestTimestamp(batch) <= boundary) {
-        reachedBoundary = true
         next = undefined
         break
       }
     }
-    // If the fresh chain cannot link to the saved cursor, discard the stale cursor;
-    // the next poll will continue from the fresh page chain saved below.
-    const continuationForSave = reachedBoundary ? null : next ?? (continuationLinked ? continuation : null)
+    const continuationForSave = next ?? null
     const inspected = pages.map((comment) => {
-      const hasFrom = Boolean(comment.from && typeof comment.from === 'object')
-      const hasFromId = typeof comment.from?.id === 'string' && comment.from.id.length > 0
+      const hasFromId = typeof comment.from?.id === 'string' && /^\d{1,64}$/.test(comment.from.id)
       const createdAt = Date.parse(comment.created_time ?? '')
       let reason: string | null = null
       if (typeof comment.id !== 'string' || !comment.id) reason = 'MISSING_COMMENT_ID'
-      else if (typeof comment.message !== 'string' || !comment.message.trim()) reason = 'MISSING_MESSAGE'
+      else if (typeof comment.message !== 'string' || !comment.message.trim())
+        reason = 'MISSING_MESSAGE'
       else if (!hasFromId) reason = 'MISSING_FROM_ID'
       else if (!Number.isFinite(createdAt)) reason = 'INVALID_CREATED_TIME'
       else if (createdAt < startedAt) reason = 'BEFORE_ROUND_START'
-      else if (highWater && createdAt < highWater - overlapMs) reason = 'BEFORE_HIGH_WATER_OVERLAP'
+      else if (createdAt < boundary) reason = 'BEFORE_HIGH_WATER_OVERLAP'
       else if (seen.has(comment.id)) reason = 'ALREADY_SEEN_IN_PROCESS'
       return { comment, reason }
     })
@@ -247,7 +267,7 @@ export async function POST(req: NextRequest) {
       if (diagnosticSample.length < 3)
         diagnosticSample.push({
           has_from: Boolean(comment.from && typeof comment.from === 'object'),
-          has_from_id: typeof comment.from?.id === 'string' && comment.from.id.length > 0,
+          has_from_id: typeof comment.from?.id === 'string' && /^\d{1,64}$/.test(comment.from.id),
           reason,
         })
     }
@@ -257,7 +277,8 @@ export async function POST(req: NextRequest) {
     )
     console.info('[auction/poll] cycle', {
       fetched: pages.length,
-      queued_candidates: inspected.length - Object.values(skipped).reduce((sum, count) => sum + count, 0),
+      queued_candidates:
+        inspected.length - Object.values(skipped).reduce((sum, count) => sum + count, 0),
       skipped,
       diagnostics: diagnosticSample,
     })
@@ -268,17 +289,25 @@ export async function POST(req: NextRequest) {
     const saveCursor = async () => {
       // This is the single persistence choke-point: validate and strip any legacy
       // access_token before the continuation URL can reach the database.
-      const safeContinuation = continuationForSave ? graphPagingUrl(continuationForSave).toString() : null
+      const safeContinuation = continuationForSave
+        ? graphPagingUrl(continuationForSave).toString()
+        : null
       const highWaterToSave = Math.max(highWater || 0, newestSeen || 0, startedAt)
-      const cursorSaved = await db.from('auction_poll_cursors').upsert({
-        cursor_id: cursorId,
-        auction_id: target.id,
-        tenant_id: tenantId,
-        session_id: sessionId,
-        live_video_id: pollId,
-        high_water_at: new Date(highWaterToSave).toISOString(),
-        continuation_url: safeContinuation,
-      }, { onConflict: 'cursor_id' })
+      const cursorSaved = await db.from('auction_poll_cursors').upsert(
+        {
+          cursor_id: cursorId,
+          auction_id: target.id,
+          tenant_id: tenantId,
+          session_id: sessionId,
+          live_video_id: pollId,
+          high_water_at: new Date(highWaterToSave).toISOString(),
+          continuation_url: safeContinuation,
+          continuation_anchor_url: safeContinuation ? pageOneLink : null,
+          continuation_boundary_at: safeContinuation ? new Date(boundary).toISOString() : null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'cursor_id' },
+      )
       if (cursorSaved.error) throw cursorSaved.error
     }
     if (!comments.length) {

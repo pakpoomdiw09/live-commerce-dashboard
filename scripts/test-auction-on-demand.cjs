@@ -293,6 +293,93 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
       7,
       'migration reruns never generate invoices',
     )
+
+    // Reapply the audited entrypoint after testing legacy migration replays.
+    await db.exec(fs.readFileSync('supabase/live-auction-audit-hardening.sql', 'utf8'))
+    await db.query(
+      "update live_sessions set mode='auction',auction_settings=$1,comment_settings='{}',confirmation_keywords=null,closing_keywords=null where tenant_id=$2",
+      [settings, tenant],
+    )
+    const audited = await round()
+    await db.query("update auctions set created_at='2026-01-01T00:00:00Z' where id=$1", [audited])
+    for (const sender of [null, '', ' ', 'anon_123']) {
+      assert.equal((await process(audited, await event(sender, '900'))).status, 'ignored')
+    }
+    assert.equal(
+      (await one('select leading_bidder_id from auctions where id=$1', [audited]))
+        .leading_bidder_id,
+      null,
+    )
+    await process(audited, await event('900', '500'))
+    assert.equal(
+      (
+        await process(
+          audited,
+          await event('999', '❌', { created_time: '2025-12-31T23:59:59.999Z' }),
+        )
+      ).status,
+      'stale',
+    )
+    const close = await process(audited, await event('999', '❌'))
+    assert.equal(close.status, 'awaiting_confirmation')
+    assert.equal((await one('select order_id from auctions where id=$1', [audited])).order_id, null)
+    await db.query(
+      "update auctions set winner_locked_at='2026-01-01T00:00:10Z',closed_at='2026-01-01T00:00:10Z' where id=$1",
+      [audited],
+    )
+    assert.equal(
+      (
+        await process(
+          audited,
+          await event('900', '1', { created_time: '2026-01-01T00:00:09.999Z' }),
+        )
+      ).status,
+      'stale',
+    )
+    assert.equal(
+      (
+        await process(
+          audited,
+          await event('999', '❌', { created_time: '2026-01-01T00:00:10.001Z' }),
+        )
+      ).status,
+      'stale',
+    )
+    const afterClose = await event('900', '1', { created_time: '2026-01-01T00:00:11Z' })
+    assert.equal(
+      (await process(audited, afterClose)).status,
+      'confirmed',
+      'confirmation has no closed_at upper bound',
+    )
+    assert.equal(
+      (await process(audited, afterClose)).status,
+      'confirmed',
+      'confirmation replay is idempotent',
+    )
+    assert.equal(
+      (await one('select count(*)::int n from orders where source_id=$1', [audited])).n,
+      1,
+    )
+    assert.equal(
+      (
+        await one(
+          "select relrowsecurity enabled from pg_class where oid='public.auction_poll_cursors'::regclass",
+        )
+      ).enabled,
+      true,
+    )
+    for (const role of ['anon', 'authenticated']) {
+      await db.exec(`set role ${role}`)
+      await assert.rejects(
+        db.query('select * from auction_poll_cursors'),
+        (error) => error.code === '42501',
+      )
+      await assert.rejects(
+        db.query('select expire_live_auctions()'),
+        (error) => error.code === '42501',
+      )
+      await db.exec('reset role')
+    }
   } finally {
     await db.close()
   }

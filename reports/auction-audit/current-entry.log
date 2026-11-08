@@ -1,0 +1,1041 @@
+Command: node --import tsx --test --test-concurrency=1 --test-reporter=tap scripts/test-admin-feature-bypass.cjs scripts/test-agent-control-sql.cjs scripts/test-agent-control-ui.cjs scripts/test-agent-control.cjs scripts/test-agent-handover.cjs scripts/test-agent-overview-sql.cjs scripts/test-agent-overview.cjs scripts/test-ai-agent-gate.cjs scripts/test-ai-draft-mode.cjs scripts/test-ai-only-routing.cjs scripts/test-ai-paid-access-sql.cjs scripts/test-ai-paid-runtime.cjs scripts/test-ai-product-delivery.cjs scripts/test-ai-vision-sql.cjs scripts/test-ai-vision.cjs scripts/test-auction-background.cjs scripts/test-auction-cron.cjs scripts/test-auction-customer-tab-slip.cjs scripts/test-auction-deadlines.cjs scripts/test-auction-host-actions.cjs scripts/test-auction-hosts.cjs scripts/test-auction-invoice-messaging.cjs scripts/test-auction-on-demand.cjs scripts/test-auction-poller-hardening.cjs scripts/test-auction-server.cjs scripts/test-auction-workspace-api.cjs scripts/test-auction-workspace.cjs scripts/test-automation-safety-sql.cjs scripts/test-automation-safety.cjs scripts/test-background-refresh.cjs scripts/test-bank-account-combined-save.cjs scripts/test-bank-accounts-sql.cjs scripts/test-bank-qr-upload-sql.cjs scripts/test-bank-qr-upload.cjs scripts/test-bank-registry.cjs scripts/test-billing-slip-topups.cjs scripts/test-broadcast-drafts.cjs scripts/test-broadcast-inbound-sync.cjs scripts/test-broadcast-policy-sql.cjs scripts/test-broadcast-policy.cjs scripts/test-category-manager.cjs scripts/test-chatbot-playground.cjs scripts/test-clean-cache.cjs scripts/test-commerce-media.cjs scripts/test-commerce-sql.cjs scripts/test-commerce.cjs scripts/test-complete-schema.cjs scripts/test-customer-tab-services.cjs scripts/test-customer-tabs.cjs scripts/test-dashboard-inbox-notifications.cjs scripts/test-dashboard-loading.cjs scripts/test-dashboard-page-scope.cjs scripts/test-dashboard-performance-sql.cjs scripts/test-dashboard-performance.cjs scripts/test-dashboard-read-models.cjs scripts/test-dashboard-recovery.cjs scripts/test-facebook-auth-flow.cjs scripts/test-facebook-login.cjs scripts/test-facebook-page-token.cjs scripts/test-facebook-send-diagnostics.cjs scripts/test-facebook-webhook-queue.cjs scripts/test-fallback-messages.cjs scripts/test-feature-access-api.cjs scripts/test-feature-access-sql.cjs scripts/test-feature-flags.cjs scripts/test-feature-restoration.cjs scripts/test-follow-up-cron.cjs scripts/test-followup-and-broadcast.cjs scripts/test-followup-approval-sql.cjs scripts/test-followup-simplified-sql.cjs scripts/test-followup-variables.cjs scripts/test-followups-paused.cjs scripts/test-free-message-quota-sql.cjs scripts/test-full-access.cjs scripts/test-full-database-setup.cjs scripts/test-gemini-ai-agent.cjs scripts/test-image-response-rules.cjs scripts/test-inbox-action-timeout.cjs scripts/test-inbox-assignment.cjs scripts/test-inbox-automatic-shutdown.cjs scripts/test-inbox-filters.cjs scripts/test-inbox-markers.cjs scripts/test-inbox-messenger-window.cjs scripts/test-inbox-quick-replies.cjs scripts/test-inbox-realtime.cjs scripts/test-inbox-render-lifecycle.cjs scripts/test-inbox-reply-isolation.cjs scripts/test-inbox-request.cjs scripts/test-inbox-sync.cjs scripts/test-keyword-reply-limits.cjs scripts/test-live-auction-dashboard-api.cjs scripts/test-live-auctions.cjs scripts/test-live-cf-mode.cjs scripts/test-live-session-dashboard.cjs scripts/test-llm-vision.cjs scripts/test-manual-followup-context.cjs scripts/test-message-quota.cjs scripts/test-migrate-followup-variables.cjs scripts/test-overview-fetch.cjs scripts/test-overview-premium-error.cjs scripts/test-overview-reader.cjs scripts/test-payment-api.cjs scripts/test-payment-checkout.cjs scripts/test-payment-codes-api.cjs scripts/test-payment-codes-sql.cjs scripts/test-payment-codes.cjs scripts/test-payment-pro-sql.cjs scripts/test-payment-pro.cjs scripts/test-payment-sql.cjs scripts/test-payment-validation.cjs scripts/test-platform-dashboard-api.cjs scripts/test-platform-dashboard-sql.cjs scripts/test-platform-migration.cjs scripts/test-playground-product-image.cjs scripts/test-premium-overview-sql.cjs scripts/test-premium-overview.cjs scripts/test-product-editor.cjs scripts/test-qr-designer-api.cjs scripts/test-qr-designer.cjs scripts/test-realtime-lifecycle.cjs scripts/test-realtime-visibility.cjs scripts/test-restored-exports.cjs scripts/test-route-security.cjs scripts/test-safe-db-migration.cjs scripts/test-sensitive-logging.cjs scripts/test-shipping-dispatch-api.cjs scripts/test-shipping-notifications.cjs scripts/test-shipping-provider.cjs scripts/test-shipping.cjs scripts/test-shop-persona.cjs scripts/test-shop-rules-form.cjs scripts/test-slip-automatic-gate.cjs scripts/test-slip-confirmation-settings.cjs scripts/test-slip-messenger-confirmation.cjs scripts/test-slip-order-total.cjs scripts/test-slip-settings.cjs scripts/test-slip-single-page-sql.cjs scripts/test-slip-single-page.cjs scripts/test-slipok-request.cjs scripts/test-smart-followup-presend-sql.cjs scripts/test-smart-followups-sql.cjs scripts/test-smart-followups.cjs scripts/test-smart-inbox-api.cjs scripts/test-smart-inbox-pro-api.cjs scripts/test-smart-inbox-pro-sql.cjs scripts/test-smart-inbox-sql.cjs scripts/test-smart-inbox-v2.cjs scripts/test-store-rule-items.cjs scripts/test-store-rules-sql.cjs scripts/test-store-rules-validation.cjs scripts/test-supported-bank-guard.cjs scripts/test-tenant-ai-quota-sql.cjs scripts/test-tenant-page-connections.cjs scripts/test-upload-security.cjs scripts/test-vision-page-resilience.cjs scripts/test-vision-product-catalog.cjs scripts/test-webhook-db-timeout.cjs tests/broadcast-policy.test.ts tests/chatbot-routing.test.ts tests/features/commerce/auction-comment.test.ts tests/features/commerce/auction-confirmation.test.ts tests/features/commerce/comment-config.test.ts tests/features/commerce/facebook-live-videos.test.ts tests/features/commerce/live-cf-codes-api.test.ts tests/features/commerce/live-cf-comment.test.ts tests/features/commerce/live-cf-input.test.ts tests/features/commerce/live-cf-payment-variant.test.ts tests/features/commerce/live-cf-product-options.test.ts tests/features/commerce/live-cf-setup.test.ts tests/features/commerce/live-webhook.test.ts tests/features/commerce/messenger-product.test.ts tests/features/commerce/product-options.test.ts tests/features/commerce/quick-product.test.ts tests/inbox-profile-fallback.test.ts tests/overview-activity.test.ts tests/overview-customer-gender.test.ts tests/payment-middleware.test.ts tests/slip-timestamp.test.ts tests/standalone-slip.test.ts tests/validate.test.ts
+TAP version 13
+# error: record "t" has no field "is_active"
+#     at p_.or (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\node_modules\\@electric-sql\\pglite\\dist\\index.cjs:4:22688)
+#     at p_.Yr (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\node_modules\\@electric-sql\\pglite\\dist\\index.cjs:4:20057)
+#     at p_.parse (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\node_modules\\@electric-sql\\pglite\\dist\\index.cjs:4:18712)
+#     at i_.Pr (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\node_modules\\@electric-sql\\pglite\\dist\\index.cjs:16:1789)
+#     at <anonymous> (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\node_modules\\@electric-sql\\pglite\\dist\\index.cjs:16:1161)
+#     at wasm://wasm/0280c65e:wasm-function[10964]:0x58cc19
+#     at wasm://wasm/0280c65e:wasm-function[3606]:0x2792af
+#     at wasm://wasm/0280c65e:wasm-function[3648]:0x2807ba
+#     at wasm://wasm/0280c65e:wasm-function[3658]:0x2809ef
+#     at wasm://wasm/0280c65e:wasm-function[9946]:0x5393b2 {
+#   length: 416,
+#   severity: 'ERROR',
+#   code: '42703',
+#   detail: undefined,
+#   hint: undefined,
+#   position: undefined,
+#   internalPosition: undefined,
+#   internalQuery: undefined,
+#   where: 'PL/pgSQL expression "not found or not t.is_active"\\n' +
+#     'PL/pgSQL function reserve_broadcast_credits_metered(uuid,integer) line 7 at IF\\n' +
+#     'SQL statement "select * from public.reserve_broadcast_credits_metered(p_tenant, p_count)"\\n' +
+#     'PL/pgSQL function reserve_broadcast_credits(uuid,integer) line 7 at RETURN QUERY',
+#   schema: undefined,
+#   table: undefined,
+#   column: undefined,
+#   dataType: undefined,
+#   constraint: undefined,
+#   file: 'pl_exec.c',
+#   line: '5590',
+#   routine: 'plpgsql_exec_get_datum_type_info',
+#   query: 'select * from reserve_broadcast_credits($1,999)',
+#   params: [ '117d9152-7719-49cc-83f6-c0a7096d8c85' ],
+#   queryOptions: undefined
+# }
+# Subtest: scripts\\test-admin-feature-bypass.cjs
+not ok 1 - scripts\\test-admin-feature-bypass.cjs
+  ---
+  duration_ms: 2378.674
+  type: 'test'
+  location: 'C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\scripts\\test-admin-feature-bypass.cjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# PASS: 22 PostgreSQL Agent Control scenarios: real package gates, prompt versions, atomic knowledge/audit, quotas, rate limits, idempotency, concurrent messages, Inbox ownership, opt-out, follow-up cancellation, restart, tenant isolation, restricted columns and safe reruns
+# Subtest: scripts\\test-agent-control-sql.cjs
+ok 2 - scripts\\test-agent-control-sql.cjs
+  ---
+  duration_ms: 2529.1924
+  type: 'test'
+  ...
+# Subtest: Thai menu buttons switch the current four panels without invoking network or mutations
+ok 3 - Thai menu buttons switch the current four panels without invoking network or mutations
+  ---
+  duration_ms: 122.8733
+  type: 'test'
+  ...
+# C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\scripts\\test-agent-control.cjs:27
+#       throw Error('Unexpected dependency ' + n)
+#       ^
+# Error: Unexpected dependency @/lib/features/commerce/cf-code
+#     at require (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\scripts\\test-agent-control.cjs:27:13)
+#     at evalmachine.<anonymous>:7:19
+#     at Script.runInContext (node:vm:149:12)
+#     at Script.runInNewContext (node:vm:154:17)
+#     at Object.runInNewContext (node:vm:310:38)
+#     at load (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\scripts\\test-agent-control.cjs:31:6)
+#     at Object.<anonymous> (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\scripts\\test-agent-control.cjs:43:46)
+#     at Module._compile (node:internal/modules/cjs/loader:1929:14)
+#     at Object.transformer (C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\node_modules\\tsx\\dist\\register-B1c7OH6V.cjs:22:2188)
+#     at Module.load (node:internal/modules/cjs/loader:1651:32)
+# Node.js v24.21.0
+# Subtest: scripts\\test-agent-control.cjs
+not ok 4 - scripts\\test-agent-control.cjs
+  ---
+  duration_ms: 552.6285
+  type: 'test'
+  location: 'C:\\Users\\Victus\\Downloads\\chat-dashboard2-with-env (2)\\scripts\\test-agent-control.cjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: customer identity uses real trimmed names and distinct fallback IDs, with truthful channel badges
+ok 5 - customer identity uses real trimmed names and distinct fallback IDs, with truthful channel badges
+  ---
+  duration_ms: 0.5995
+  type: 'test'
+  ...
+# Subtest: queue query fetches actual avatar, name and platform only after tenant customer entitlement
+ok 6 - queue query fetches actual avatar, name and platform only after tenant customer entitlement
+  ---
+  duration_ms: 24.3011
+  type: 'test'
+  ...
+# Subtest: queue read API uses session-scoped tenant and disables caching; unauthorized reads stop early
+ok 7 - queue read API uses session-scoped tenant and disables caching; unauthorized reads stop early
+  ---
+  duration_ms: 5.5679
+  type: 'test'
+  ...
+# PASS: owner authorization, tenant isolation, feature checks, all capability settings, atomic audit, follow-up cancellation, in-flight preservation, restricted RPC and safe migration reruns
+# Subtest: scripts\\test-agent-overview-sql.cjs
+ok 6 - scripts\\test-agent-overview-sql.cjs
+  ---
+  duration_ms: 1868.522
+  type: 'test'
+  ...
+# Subtest: all six capabilities require AI entitlement and quota, plus feature-specific slip/follow-up access
+ok 9 - all six capabilities require AI entitlement and quota, plus feature-specific slip/follow-up access
+  ---
+  duration_ms: 0.7305
+  type: 'test'
+  ...
+# Subtest: overview uses Bangkok dates, distinct lifetime AI customers, exact chart range and honest completion metrics
+ok 10 - overview uses Bangkok dates, distinct lifetime AI customers, exact chart range and honest completion metrics
+  ---
+  duration_ms: 16.0609
+  type: 'test'
+  ...
+# Subtest: overview reader uses one bounded aggregate RPC and never exposes names without entitlement
+ok 11 - overview reader uses one bounded aggregate RPC and never exposes names without entitlement
+  ---
+  duration_ms: 90.419
+  type: 'test'
+  ...
+# Subtest: overview controls reject cross-origin requests, require owner and write only validated capabilities
+ok 12 - overview controls reject cross-origin requests, require owner and write only validated capabilities
+  ---
+  duration_ms: 12.7733
+  type: 'test'
+  ...
+# Subtest: capability switches affect real routing while keywords retain priority and mandatory handoff stays active
+ok 13 - capability switches affect real routing while keywords retain priority and mandatory handoff stays active
+  ---
+  duration_ms: 55.2788
+  type: 'test'
+  ...
+# Subtest: disabling product search removes the catalog from actual managed AI generation
+ok 14 - disabling product search removes the catalog from actual managed AI generation
+  ---
+  duration_ms: 87.4188
+  type: 'test'
+  ...
+# Subtest: sandbox uses current store settings, keyword-first routing and managed usage without a real customer or sender
+ok 15 - sandbox uses current store settings, keyword-first routing and managed usage without a real customer or sender
+  ---
+  duration_ms: 6.551
+  type: 'test'
+  ...
+# PASS: Free/Starter/Pro/expired/null expiry, RLS direct reads/writes, preserved customer data after renewal, package+atomic slip quota and no bypass
+# Subtest: scripts\\test-ai-agent-gate.cjs
+ok 8 - scripts\\test-ai-agent-gate.cjs
+  ---
+  duration_ms: 2085.0417
+  type: 'test'
+  ...
+# Subtest: draft mode asks Gemini to clarify incomplete facts and converts handoff to a safe editable draft
+ok 17 - draft mode asks Gemini to clarify incomplete facts and converts handoff to a safe editable draft
+  ---
+  duration_ms: 86.9
+  type: 'test'
+  ...
+# Subtest: draft mode uses a safe draft when Gemini returns no text and closes reserved usage
+ok 18 - draft mode uses a safe draft when Gemini returns no text and closes reserved usage
+  ---
+  duration_ms: 24.9833
+  type: 'test'
+  ...
+# Subtest: non-draft agent requests preserve the handoff token behavior
+ok 19 - non-draft agent requests preserve the handoff token behavior
+  ---
+  duration_ms: 23.1737
+  type: 'test'
+  ...
+# Subtest: vision adds inline image parts after history sanitization and uses managed catalog grounding
+ok 20 - vision adds inline image parts after history sanitization and uses managed catalog grounding
+  ---
+  duration_ms: 22.11
+  type: 'test'
+  ...
+# Subtest: expired images and provider vision errors return safe text and close usage without retry
+ok 21 - expired images and provider vision errors return safe text and close usage without retry
+  ---
+  duration_ms: 30.9349
+  type: 'test'
+  ...
+# Subtest: product metadata uses validated DB IDs and images rather than Gemini-supplied URLs
+ok 22 - product metadata uses validated DB IDs and images rather than Gemini-supplied URLs
+  ---
+  duration_ms: 18.8782
+  type: 'test'
+  ...
+# [ai quota] handover { tenantId: 'tenant', reason: 'quota_exceeded' }
+# [ai quota] handover { tenantId: 'tenant', reason: 'quota_exceeded' }
+# [ai quota] handover { tenantId: 'tenant', reason: 'quota_exceeded' }
+# [ai quota] handover { tenantId: 'tenant', reason: 'quota_exceeded' }
+# Subtest: tenant quota exhaustion stops legacy AI before generation and hands off
+ok 23 - tenant quota exhaustion stops legacy AI before generation and hands off
+  ---
+  duration_ms: 92.3547
+  type: 'test'
+  ...
+# Subtest: tenant quota is rechecked before legacy delivery and the reservation settles
+ok 24 - tenant quota is rechecked before legacy delivery and the reservation settles
+  ---
+  duration_ms: 28.9045
+  type: 'test'
+  ...
+# Subtest: duplicate quota reservation cannot regenerate legacy reply
+ok 25 - duplicate quota reservation cannot regenerate legacy reply
+  ---
+  duration_ms: 24.7643
+  type: 'test'
+  ...
+# Subtest: product images reach legacy delivery
+ok 26 - product images reach legacy delivery
+  ---
+  duration_ms: 22.7234
+  type: 'test'
+  ...
+# Subtest: Unmatched legacy messages use AI knowledge
+ok 27 - Unmatched legacy messages use AI knowledge
+  ---
+  duration_ms: 46.5067
+  type: 'test'
+  ...
+# Subtest: AI-only legacy errors, empty and handoff results transfer to staff
+ok 28 - AI-only legacy errors, empty and handoff results transfer to staff
+  ---
+  duration_ms: 93.0982
+  type: 'test'
+  ...
+# Subtest: tenant quota exhaustion stops orchestrated AI before generation and hands off
+ok 29 - tenant quota exhaustion stops orchestrated AI before generation and hands off
+  ---
+  duration_ms: 18.708
+  type: 'test'
+  ...
+# Subtest: tenant quota is rechecked before orchestrated delivery and the reservation settles
+ok 30 - tenant quota is rechecked before orchestrated delivery and the reservation settles
+  ---
+  duration_ms: 12.9535
+  type: 'test'
+  ...
+# Subtest: duplicate quota reservation cannot regenerate orchestrated reply
+ok 31 - duplicate quota reservation cannot regenerate orchestrated reply
+  ---
+  duration_ms: 14.8604
+  type: 'test'
+  ...
+# Subtest: product images reach orchestrated delivery
+ok 32 - product images reach orchestrated delivery
+  ---
+  duration_ms: 12.8659
+  type: 'test'
+  ...
+# Subtest: Unmatched orchestrated messages use AI knowledge
+ok 33 - Unmatched orchestrated messages use AI knowledge
+  ---
+  duration_ms: 26.8853
+  type: 'test'
+  ...
+# Subtest: AI-only orchestrated errors, empty and handoff results transfer to staff
+ok 34 - AI-only orchestrated errors, empty and handoff results transfer to staff
+  ---
+  duration_ms: 75.7522
+  type: 'test'
+  ...
+# Subtest: orchestrator uses tenant quota even when the old monthly generation ceiling is zero
+ok 35 - orchestrator uses tenant quota even when the old monthly generation ceiling is zero
+  ---
+  duration_ms: 21.6789
+  type: 'test'
+  ...
+# Subtest: keyword mode without a matching rule never calls AI or sends a fallback
+ok 36 - keyword mode without a matching rule never calls AI or sends a fallback
+  ---
+  duration_ms: 21.1178
+  type: 'test'
+  ...
+# PASS: real paid Starter/Pro approval, free/pending/rejected/zero-price denial, expiry, quota exhaustion, no unearned credits, duplicate protection, purchase activation, tenant isolation, restricted execution and migration reruns
+# Subtest: scripts\\test-ai-paid-access-sql.cjs
+ok 11 - scripts\\test-ai-paid-access-sql.cjs
+  ---
+  duration_ms: 2535.7571
+  type: 'test'
+  ...
+# Subtest: free stores cannot reach the provider or consume AI quota
+ok 38 - free stores cannot reach the provider or consume AI quota
+  ---
+  duration_ms: 126.5628
+  type: 'test'
+  ...
+# Subtest: paid trials and drafts always reserve quota despite legacy environment and bypass parameters
+ok 39 - paid trials and drafts always reserve quota despite legacy environment and bypass parameters
+  ---
+  duration_ms: 34.3692
+  type: 'test'
+  ...
+# Subtest: an uncertain provider failure is charged once and never automatically retried
+ok 40 - an uncertain provider failure is charged once and never automatically retried
+  ---
+  duration_ms: 24.591
+  type: 'test'
+  ...
+# Subtest: simulator bypasses paid-package and quota checks without any database RPC
+ok 41 - simulator bypasses paid-package and quota checks without any database RPC
+  ---
+  duration_ms: 23.9819
+  type: 'test'
+  ...
+# Subtest: follow-up analysis reserves paid quota before the provider and skips exhausted or repeated messages
+ok 42 - follow-up analysis reserves paid quota before the provider and skips exhausted or repeated messages
+  ---
+  duration_ms: 25.5222
+  type: 'test'
+  ...
+# Subtest: control center no longer needs a deployment flag, but retains its emergency stop
+ok 43 - control center no longer needs a deployment flag, but retains its emergency stop
+  ---
+  duration_ms: 11.1268
+  type: 'test'
+  ...
+# Subtest: product reply sends text plus an image attachment and tolerates rejected/uncertain media without duplicate text
+ok 44 - product reply sends text plus an image attachment and tolerates rejected/uncertain media without duplicate text
+  ---
+  duration_ms: 51.7657
+  type: 'test'
+  ...
+# PASS: 36 PostgreSQL Vision scenarios: real entitlement migration, reruns, Free/Starter/Pro, expiry, quota, duplicate claims, refunds, recovery, safe retry, handoff, slip credits, tenant isolation, RLS and service-only RPCs
+# Subtest: scripts\\test-ai-vision-sql.cjs
+ok 14 - scripts\\test-ai-vision-sql.cjs
+  ---
+  duration_ms: 2128.5122
+  type: 'test'
+  ...
+# [VISION DOWNLOAD] start { host: 'scontent.fbcdn.net', source: 'customer' }
+# [VISION DOWNLOAD] response {
+#   host: 'scontent.fbcdn.net',
+#   status: 200,
+#   contentType: 'image/png',
+#   contentLength: null
+# }
+# Subtest: one deterministic highest-priority active rule; ties sort by ID without mutating source
+ok 46 - one deterministic highest-priority active rule; ties sort by ID without mutating source
+  ---
+  duration_ms: 7.4619
+  type: 'test'
+  ...
+# Subtest: product, general and slip images reply from their matching configured rules
+ok 47 - product, general and slip images reply from their matching configured rules
+  ---
+  duration_ms: 0.2278
+  type: 'test'
+  ...
+# Subtest: no matching rule hands off, including slips and catalog model IDs
+ok 48 - no matching rule hands off, including slips and catalog model IDs
+  ---
+  duration_ms: 0.1264
+  type: 'test'
+  ...
+# Subtest: Vision uses the fixed 80 percent confidence floor
+ok 49 - Vision uses the fixed 80 percent confidence floor
+  ---
+  duration_ms: 0.1021
+  type: 'test'
+  ...
+# Subtest: untrusted provider output rejects invalid categories, confidence and non-JSON
+ok 50 - untrusted provider output rejects invalid categories, confidence and non-JSON
+  ---
+  duration_ms: 0.2977
+  type: 'test'
+  ...
+# Subtest: file checks reject spoofed MIME, SVG, empty and oversized payloads
+ok 51 - file checks reject spoofed MIME, SVG, empty and oversized payloads
+  ---
+  duration_ms: 19.5087
+  type: 'test'
+  ...
+# [vision] catalog matching unavailable { jobId: '22222222-2222-4222-8222-222222222222' }
+# [vision] job needs review {
+#   jobId: '22222222-2222-4222-8222-222222222222',
+#   phase: 'dispatch',
+#   reason: 'DELIVERY_REQUIRES_REVIEW'
+# }
+# [vision] job needs review {
+#   jobId: '22222222-2222-4222-8222-222222222222',
+#   phase: 'analysis',
+#   reason: 'VISION_ANALYSIS_BLOCKED'
+# }
+# Subtest: webhook image downloader blocks private/arbitrary URLs and disallows CDN redirects
+ok 52 - webhook image downloader blocks private/arbitrary URLs and disallows CDN redirects
+  ---
+  duration_ms: 35.1213
+  type: 'test'
+  ...
+# Subtest: real Gemini adapter sends image inline data and validates structured result
+ok 53 - real Gemini adapter sends image inline data and validates structured result
+  ---
+  duration_ms: 23.3226
+  type: 'test'
+  ...
+# Subtest: two workers use one DB claim and one AI/send attempt
+ok 54 - two workers use one DB claim and one AI/send attempt
+  ---
+  duration_ms: 35.6208
+  type: 'test'
+  ...
+# Subtest: real-image playground never verifies slips or messages customers
+ok 55 - real-image playground never verifies slips or messages customers
+  ---
+  duration_ms: 24.7819
+  type: 'test'
+  ...
+# Subtest: confident slip detection routes to standalone verification, not product matching
+ok 56 - confident slip detection routes to standalone verification, not product matching
+  ---
+  duration_ms: 25.9232
+  type: 'test'
+  ...
+# Subtest: product image uses the catalog without manual reply rules or training mode
+ok 57 - product image uses the catalog without manual reply rules or training mode
+  ---
+  duration_ms: 30.1681
+  type: 'test'
+  ...
+# Subtest: low confidence and unknown images send an inquiry without pausing the bot
+ok 58 - low confidence and unknown images send an inquiry without pausing the bot
+  ---
+  duration_ms: 39.3947
+  type: 'test'
+  ...
+# Subtest: AI failure sends one inquiry; uncertain Messenger sends require review without a retry
+ok 59 - AI failure sends one inquiry; uncertain Messenger sends require review without a retry
+  ---
+  duration_ms: 33.1091
+  type: 'test'
+  ...
+# Subtest: handoff or expiry immediately before provider start blocks AI and refunds only unstarted quota
+ok 60 - handoff or expiry immediately before provider start blocks AI and refunds only unstarted quota
+  ---
+  duration_ms: 19.6542
+  type: 'test'
+  ...
+# Subtest: shop automation controls execution independently of the legacy training rollout flag
+ok 61 - shop automation controls execution independently of the legacy training rollout flag
+  ---
+  duration_ms: 35.0541
+  type: 'test'
+  ...
+# Subtest: Vision tenant guard requires user session, membership and database feature before returning service client
+ok 62 - Vision tenant guard requires user session, membership and database feature before returning service client
+  ---
+  duration_ms: 21.3254
+  type: 'test'
+  ...
+# Subtest: all public Vision routes reject direct unauthorized calls before storage or provider work
+ok 63 - all public Vision routes reject direct unauthorized calls before storage or provider work
+  ---
+  duration_ms: 17.0894
+  type: 'test'
+  ...
+# Subtest: Master Switch API locks rule replies, 0.8 confidence and automatic handover
+ok 64 - Master Switch API locks rule replies, 0.8 confidence and automatic handover
+  ---
+  duration_ms: 3.2134
+  type: 'test'
+  ...
+# Subtest: cron requires configured bearer secret before worker access
+ok 65 - cron requires configured bearer secret before worker access
+  ---
+  duration_ms: 5.0659
+  type: 'test'
+  ...
+# Subtest: multipart playground validates a bounded real image, ignores forged plan/credits and returns preview only
+ok 66 - multipart playground validates a bounded real image, ignores forged plan/credits and returns preview only
+  ---
+  duration_ms: 17.3085
+  type: 'test'
+  ...
+# Subtest: multipart playground enforces body size even when Content-Length is omitted
+ok 67 - multipart playground enforces body size even when Content-Length is omitted
+  ---
+  duration_ms: 11.3088
+  type: 'test'
+  ...
+# Subtest: headless timer resolves an expired round once and cancels its background work on unmount
+ok 68 - headless timer resolves an expired round once and cancels its background work on unmount
+  ---
+  duration_ms: 62.8875
+  type: 'test'
+  ...
+# Subtest: headless comment poller aborts in-flight reads without scheduling another request on unmount
+ok 69 - headless comment poller aborts in-flight reads without scheduling another request on unmount
+  ---
+  duration_ms: 15.2233
+  type: 'test'
+  ...
+# Subtest: inaccessible videos notify once and stop headless polling
+ok 70 - inaccessible videos notify once and stop headless polling
+  ---
+  duration_ms: 8.0982
+  type: 'test'
+  ...
+# Subtest: external cron GET requests require authentication and drain webhook and auction outbox work
+ok 71 - external cron GET requests require authentication and drain webhook and auction outbox work
+  ---
+  duration_ms: 112.2559
+  type: 'test'
+  ...
+# Subtest: auction amount mismatches are recorded as invalid and never use the paid auction settlement RPC
+ok 72 - auction amount mismatches are recorded as invalid and never use the paid auction settlement RPC
+  ---
+  duration_ms: 78.3635
+  type: 'test'
+  ...
+# Subtest: valid exact auction slips settle through the winner-scoped database function
+ok 73 - valid exact auction slips settle through the winner-scoped database function
+  ---
+  duration_ms: 24.3449
+  type: 'test'
+  ...
+# Subtest: deadline resolution, queue ordering, retry fencing and inbox tenant RLS
+    # Subtest: new rounds use a five minute UTC deadline; future and wrong-tenant closes cannot resolve
+    ok 1 - new rounds use a five minute UTC deadline; future and wrong-tenant closes cannot resolve
+      ---
+      duration_ms: 11.1557
+      type: 'test'
+      ...
+    # Subtest: expiry locks the leader without an order; only winner confirmation creates one invoice
+    ok 2 - expiry locks the leader without an order; only winner confirmation creates one invoice
+      ---
+      duration_ms: 47.7341
+      type: 'test'
+      ...
+    # Subtest: empty rounds close without inventing a buyer or order; cron recovers missed browser timers
+    ok 3 - empty rounds close without inventing a buyer or order; cron recovers missed browser timers
+      ---
+      duration_ms: 6.183
+      type: 'test'
+      ...
+    # Subtest: pre-deadline queued comments drain first; late comments cannot change the winner
+    ok 4 - pre-deadline queued comments drain first; late comments cannot change the winner
+      ---
+      duration_ms: 27.3323
+      type: 'test'
+      ...
+    # Subtest: legacy rounds only start a timer explicitly; duplicate starts cannot extend it
+    ok 5 - legacy rounds only start a timer explicitly; duplicate starts cannot extend it
+      ---
+      duration_ms: 7.1582
+      type: 'test'
+      ...
+    # Subtest: workspace duration saves and old idempotency keys never restart/revert the deadline
+    ok 6 - workspace duration saves and old idempotency keys never restart/revert the deadline
+      ---
+      duration_ms: 33.9188
+      type: 'test'
+      ...
+    # Subtest: authenticated inbox reads remain tenant scoped even with no customer_management entitlement
+    ok 7 - authenticated inbox reads remain tenant scoped even with no customer_management entitlement
+      ---
+      duration_ms: 20.7692
+      type: 'test'
+      ...
+    1..7
+ok 74 - deadline resolution, queue ordering, retry fencing and inbox tenant RLS
+  ---
+  duration_ms: 3050.3248
+  type: 'test'
+  ...
+# Subtest: host shortcuts post Page-owned comments to the stored live video and enqueue canonical events
+ok 75 - host shortcuts post Page-owned comments to the stored live video and enqueue canonical events
+  ---
+  duration_ms: 135.4766
+  type: 'test'
+  ...
+# Subtest: invalid, unauthorized, foreign, closed and disconnected host actions never contact Meta
+ok 76 - invalid, unauthorized, foreign, closed and disconnected host actions never contact Meta
+  ---
+  duration_ms: 120.5457
+  type: 'test'
+  ...
+# Subtest: close action uses active session settings and refuses a tag that does not parse as HOST_CONTROL
+ok 77 - close action uses active session settings and refuses a tag that does not parse as HOST_CONTROL
+  ---
+  duration_ms: 42.1546
+  type: 'test'
+  ...
+# Subtest: provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment
+ok 78 - provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment
+  ---
+  duration_ms: 52.3589
+  type: 'test'
+  ...
+# Subtest: hosts contain the Page and authenticated Facebook identity, never the Supabase UUID
+ok 79 - hosts contain the Page and authenticated Facebook identity, never the Supabase UUID
+  ---
+  duration_ms: 50.3669
+  type: 'test'
+  ...
+# Subtest: separate Facebook connection uses only the signed-in owner and selected Page
+ok 80 - separate Facebook connection uses only the signed-in owner and selected Page
+  ---
+  duration_ms: 8.7032
+  type: 'test'
+  ...
+# Subtest: missing or unverifiable personal identity requires reconnection instead of creating Page-only rounds
+ok 81 - missing or unverifiable personal identity requires reconnection instead of creating Page-only rounds
+  ---
+  duration_ms: 21.8405
+  type: 'test'
+  ...
+# Subtest: invoice uses MESSAGE_TAG and POST_PURCHASE_UPDATE; normal chat remains RESPONSE
+ok 82 - invoice uses MESSAGE_TAG and POST_PURCHASE_UPDATE; normal chat remains RESPONSE
+  ---
+  duration_ms: 172.3211
+  type: 'test'
+  ...
+# Subtest: definite window or missing-recipient rejection falls back to the winning comment exactly once
+ok 83 - definite window or missing-recipient rejection falls back to the winning comment exactly once
+  ---
+  duration_ms: 203.1757
+  type: 'test'
+  ...
+# Subtest: unsupported legacy tags fall back to RESPONSE, then private reply only on a definite rejection
+ok 84 - unsupported legacy tags fall back to RESPONSE, then private reply only on a definite rejection
+  ---
+  duration_ms: 77.3741
+  type: 'test'
+  ...
+# Subtest: permissions, rate limits, token errors, missing receipts and transport failures never blindly resend
+ok 85 - permissions, rate limits, token errors, missing receipts and transport failures never blindly resend
+  ---
+  duration_ms: 245.2702
+  type: 'test'
+  ...
+# Subtest: invoice endpoint generates ledger text, checks tenant/page, and permits a bill without inbound evidence
+ok 86 - invoice endpoint generates ledger text, checks tenant/page, and permits a bill without inbound evidence
+  ---
+  duration_ms: 5.7918
+  type: 'test'
+  ...
+# Subtest: invoice endpoint rejects foreign bills/origins/inactive Pages and does not repeat existing sends
+ok 87 - invoice endpoint rejects foreign bills/origins/inactive Pages and does not repeat existing sends
+  ---
+  duration_ms: 22.9151
+  type: 'test'
+  ...
+# Subtest: invoice rejection prompts first contact; ambiguous outcomes retain unknown status for reconciliation
+ok 88 - invoice rejection prompts first contact; ambiguous outcomes retain unknown status for reconciliation
+  ---
+  duration_ms: 8.327
+  type: 'test'
+  ...
+# Subtest: only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic
+ok 89 - only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic
+  ---
+  duration_ms: 3039.4311
+  type: 'test'
+  ...
+# Subtest: queues all 250 comments across Graph pages and advances the cursor
+ok 90 - queues all 250 comments across Graph pages and advances the cursor
+  ---
+  duration_ms: 113.3458
+  type: 'test'
+  ...
+# Subtest: a page-one comment reaching the overlap boundary prevents fetching page two
+ok 91 - a page-one comment reaching the overlap boundary prevents fetching page two
+  ---
+  duration_ms: 33.6728
+  type: 'test'
+  ...
+# Subtest: Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary video ID
+ok 92 - Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary video ID
+  ---
+  duration_ms: 19.7503
+  type: 'test'
+  ...
+# Subtest: comments missing from or from.id are skipped, valid author comments queue, and all-skipped cycles advance high water
+ok 93 - comments missing from or from.id are skipped, valid author comments queue, and all-skipped cycles advance high water
+  ---
+  duration_ms: 37.1372
+  type: 'test'
+  ...
+# Subtest: pagination rejects non Graph hosts and non HTTPS URLs before making a second request
+ok 94 - pagination rejects non Graph hosts and non HTTPS URLs before making a second request
+  ---
+  duration_ms: 18.3461
+  type: 'test'
+  ...
+# Subtest: continuation URLs are sanitized before persistence and logs omit tokens, author IDs, and comment bodies
+ok 95 - continuation URLs are sanitized before persistence and logs omit tokens, author IDs, and comment bodies
+  ---
+  duration_ms: 19.3212
+  type: 'test'
+  ...
+# Subtest: polling always sends the Page token in the Authorization header, never in a Graph URL
+ok 96 - polling always sends the Page token in the Authorization header, never in a Graph URL
+  ---
+  duration_ms: 13.7981
+  type: 'test'
+  ...
+# Subtest: session filters exclude other lives and poll a closed, unconfirmed winner
+ok 97 - session filters exclude other lives and poll a closed, unconfirmed winner
+  ---
+  duration_ms: 18.1562
+  type: 'test'
+  ...
+# Subtest: Graph error text containing tokens, author IDs or messages is never logged
+ok 98 - Graph error text containing tokens, author IDs or messages is never logged
+  ---
+  duration_ms: 13.5123
+  type: 'test'
+  ...
+# Subtest: blank and synthetic identities are skipped without enqueueing bids
+ok 99 - blank and synthetic identities are skipped without enqueueing bids
+  ---
+  duration_ms: 18.332
+  type: 'test'
+  ...
+# Subtest: only exact HTTPS Graph hosts receive a second request
+ok 100 - only exact HTTPS Graph hosts receive a second request
+  ---
+  duration_ms: 51.1515
+  type: 'test'
+  ...
+# Subtest: linked continuation resumes backlog without applying the advanced high-water boundary
+ok 101 - linked continuation resumes backlog without applying the advanced high-water boundary
+  ---
+  duration_ms: 16.5164
+  type: 'test'
+  ...
+# Subtest: expired or unlinked stored cursors are discarded for the fresh page chain
+ok 102 - expired or unlinked stored cursors are discarded for the fresh page chain
+  ---
+  duration_ms: 30.238
+  type: 'test'
+  ...
+# Subtest: missing, blank and synthetic authors never reach an auction mutation RPC
+ok 103 - missing, blank and synthetic authors never reach an auction mutation RPC
+  ---
+  duration_ms: 191.1759
+  type: 'test'
+  ...
+# Subtest: highest-bid confirmation dispatches the active winner bill immediately and honors public reply off
+ok 104 - highest-bid confirmation dispatches the active winner bill immediately and honors public reply off
+  ---
+  duration_ms: 78.3173
+  type: 'test'
+  ...
+# Subtest: legacy split-summary deliveries retain their ordered recovery plan
+ok 105 - legacy split-summary deliveries retain their ordered recovery plan
+  ---
+  duration_ms: 29.7724
+  type: 'test'
+  ...
+# Subtest: disabled accumulation or paid historical orders send only the latest item bill
+ok 106 - disabled accumulation or paid historical orders send only the latest item bill
+  ---
+  duration_ms: 53.3377
+  type: 'test'
+  ...
+# Subtest: closed Messenger windows send one complete tagged invoice without waiting for inbound chat
+ok 107 - closed Messenger windows send one complete tagged invoice without waiting for inbound chat
+  ---
+  duration_ms: 22.0853
+  type: 'test'
+  ...
+# Subtest: a window closing during a split invoice sends the full private invoice without a second summary
+ok 108 - a window closing during a split invoice sends the full private invoice without a second summary
+  ---
+  duration_ms: 22.9694
+  type: 'test'
+  ...
+# Subtest: an ambiguous second send preserves the first receipt and cannot blindly retry either message
+ok 109 - an ambiguous second send preserves the first receipt and cannot blindly retry either message
+  ---
+  duration_ms: 31.157
+  type: 'test'
+  ...
+# Subtest: auction routing uses scoped rows, separates host/customer commands and checkpoints confirmations
+ok 110 - auction routing uses scoped rows, separates host/customer commands and checkpoints confirmations
+  ---
+  duration_ms: 21.0196
+  type: 'test'
+  ...
+# Subtest: empty tag lists use the configured fallback keywords
+ok 111 - empty tag lists use the configured fallback keywords
+  ---
+  duration_ms: 0.3284
+  type: 'test'
+  ...
+# Subtest: dashboard admin closing tags replace stale round tags and do not dispatch a bill
+ok 112 - dashboard admin closing tags replace stale round tags and do not dispatch a bill
+  ---
+  duration_ms: 21.3851
+  type: 'test'
+  ...
+# Subtest: configured confirmation tags reach the locked winner even while the next auction is active
+ok 113 - configured confirmation tags reach the locked winner even while the next auction is active
+  ---
+  duration_ms: 24.2895
+  type: 'test'
+  ...
+# Subtest: unrelated posts fall through, but late auction confirmations never reach CF
+ok 114 - unrelated posts fall through, but late auction confirmations never reach CF
+  ---
+  duration_ms: 22.0407
+  type: 'test'
+  ...
+# Subtest: a CF live session without an active auction falls through instead of consuming comments
+ok 115 - a CF live session without an active auction falls through instead of consuming comments
+  ---
+  duration_ms: 19.4601
+  type: 'test'
+  ...
+# Subtest: seller-defined bid words record silently and only a trusted host can use the configured close word
+ok 116 - seller-defined bid words record silently and only a trusted host can use the configured close word
+  ---
+  duration_ms: 20.5125
+  type: 'test'
+  ...
+# Subtest: an active live is found beyond 100 newer rounds and cannot match a foreign tenant or Page
+ok 117 - an active live is found beyond 100 newer rounds and cannot match a foreign tenant or Page
+  ---
+  duration_ms: 19.7571
+  type: 'test'
+  ...
+# Subtest: closed rounds cannot receive late bids, even while their live session remains open
+ok 118 - closed rounds cannot receive late bids, even while their live session remains open
+  ---
+  duration_ms: 27.5126
+  type: 'test'
+  ...
+# Subtest: auction keywords require an explicit post or video ID match
+ok 119 - auction keywords require an explicit post or video ID match
+  ---
+  duration_ms: 18.6673
+  type: 'test'
+  ...
+# Subtest: unmatched Page posts are ignored; missing optional auction schema falls through to ordinary CF
+ok 120 - unmatched Page posts are ignored; missing optional auction schema falls through to ordinary CF
+  ---
+  duration_ms: 46.0699
+  type: 'test'
+  ...
+# Subtest: closing bills include shipping and target the winning comment; ambiguous sends never repeat
+ok 121 - closing bills include shipping and target the winning comment; ambiguous sends never repeat
+  ---
+  duration_ms: 22.4184
+  type: 'test'
+  ...
+# Subtest: two outbox runners cannot dispatch the same pending bill twice
+ok 122 - two outbox runners cannot dispatch the same pending bill twice
+  ---
+  duration_ms: 22.8483
+  type: 'test'
+  ...
+# Subtest: closed winners receive both replies at their winning comment without a confirmation or another keyword
+ok 123 - closed winners receive both replies at their winning comment without a confirmation or another keyword
+  ---
+  duration_ms: 35.9335
+  type: 'test'
+  ...
+# Subtest: the previous winner bids in the next round immediately without losing a bid to confirmation
+ok 124 - the previous winner bids in the next round immediately without losing a bid to confirmation
+  ---
+  duration_ms: 19.1876
+  type: 'test'
+  ...
+# Subtest: auction templates and switches control replies and use the cumulative net balance
+ok 125 - auction templates and switches control replies and use the cumulative net balance
+  ---
+  duration_ms: 41.1187
+  type: 'test'
+  ...
+# Subtest: auctions without configured close keywords ignore built-in close markers
+ok 126 - auctions without configured close keywords ignore built-in close markers
+  ---
+  duration_ms: 18.179
+  type: 'test'
+  ...
+# Subtest: Thai auction variables are single-pass, validated per channel, and preserve financial footers
+ok 127 - Thai auction variables are single-pass, validated per channel, and preserve financial footers
+  ---
+  duration_ms: 0.1731
+  type: 'test'
+  ...
+# Subtest: auction API rejects anonymous, foreign-shop, cross-origin and disabled requests before data access
+ok 128 - auction API rejects anonymous, foreign-shop, cross-origin and disabled requests before data access
+  ---
+  duration_ms: 7.503
+  type: 'test'
+  ...
+# Subtest: auction setup persists typed replies, rejects unsafe public variables and mismatched Pages
+ok 129 - auction setup persists typed replies, rejects unsafe public variables and mismatched Pages
+  ---
+  duration_ms: 9.48
+  type: 'test'
+  ...
+# Subtest: workspace API restores scoped saved values and commits a single normalized request after owner authorization
+ok 130 - workspace API restores scoped saved values and commits a single normalized request after owner authorization
+  ---
+  duration_ms: 56.1373
+  type: 'test'
+  ...
+# Subtest: unified workspace saves all zones atomically, preserves merchant values and fences retries/bids
+ok 131 - unified workspace saves all zones atomically, preserves merchant values and fences retries/bids
+  ---
+  duration_ms: 2716.4036
+  type: 'test'
+  ...
+# Subtest: safety migration is repeatable; stop is audited/scoped; human reply ownership and lease are atomic
+ok 132 - safety migration is repeatable; stop is audited/scoped; human reply ownership and lease are atomic
+  ---
+  duration_ms: 1952.0893
+  type: 'test'
+  ...
+# [ai] Gemini reply failed {
+#   model: 'gemini-3-flash-preview',
+#   status: undefined,
+#   name: 'UnknownError',
+#   message: 'Error: AUTOMATION_STOPPED'
+# }
+# [ai] Gemini reply failed {
+#   model: 'gemini-3-flash-preview',
+#   status: undefined,
+#   name: 'UnknownError',
+#   message: 'Error: AUTOMATION_STOPPED'
+# }
+# Subtest: disabled safety never reads optional tables; global stop always wins
+ok 133 - disabled safety never reads optional tables; global stop always wins
+  ---
+  duration_ms: 52.1697
+  type: 'test'
+  ...
+# Subtest: tenant stop is uncached, tenant scoped, and denies known stops and database failures
+ok 134 - tenant stop is uncached, tenant scoped, and denies known stops and database failures
+  ---
+  duration_ms: 25.8185
+  type: 'test'
+  ...
+# Subtest: canonical states adapt legacy values and unknown payments require review
+ok 135 - canonical states adapt legacy values and unknown payments require review
+  ---
+  duration_ms: 7.8621
+  type: 'test'
+  ...
+# Subtest: text AI does not start while stopped and discards a response when stop occurs during generation
+ok 136 - text AI does not start while stopped and discards a response when stop occurs during generation
+  ---
+  duration_ms: 77.2849
+  type: 'test'
+  ...
+# Subtest: automatic delivery rechecks stop before network and releases its lease without sending
+ok 137 - automatic delivery rechecks stop before network and releases its lease without sending
+  ---
+  duration_ms: 30.5599
+  type: 'test'
+  ...
+# Subtest: stop API rejects non-owner/anonymous/foreign access before reading or writing controls
+ok 138 - stop API rejects non-owner/anonymous/foreign access before reading or writing controls
+  ---
+  duration_ms: 14.5814
+  type: 'test'
+  ...
+# Subtest: stop API uses server tenant and actor, validates booleans and cannot override global stop
+ok 139 - stop API uses server tenant and actor, validates booleans and cannot override global stop
+  ---
+  duration_ms: 4.2328
+  type: 'test'
+  ...
+# Subtest: refresh bursts never overlap; stop aborts in-flight work and clears timers
+ok 140 - refresh bursts never overlap; stop aborts in-flight work and clears timers
+  ---
+  duration_ms: 48.0449
+  type: 'test'
+  ...
+# Subtest: hidden tabs do not refresh and repeated failures back off
+ok 141 - hidden tabs do not refresh and repeated failures back off
+  ---
+  duration_ms: 11.8064
+  type: 'test'
+  ...
+# Subtest: single-flight cron work is shared only while active and released on success/failure
+ok 142 - single-flight cron work is shared only while active and released on success/failure
+  ---
+  duration_ms: 5.5612
+  type: 'test'
+  ...
+# Subtest: a provider ignoring pagination stops with an explicit error instead of scanning forever
+ok 143 - a provider ignoring pagination stops with an explicit error instead of scanning forever
+  ---
+  duration_ms: 24.7885
+  type: 'test'
+  ...
+# Subtest: one create/edit POST passes normalized account and QR to a single atomic RPC; retries do not upload or save twice
+ok 144 - one create/edit POST passes normalized account and QR to a single atomic RPC; retries do not upload or save twice
+  ---
+  duration_ms: 84.9495
+  type: 'test'
+  ...
+# Subtest: edits without a replacement preserve QR; changed receiver requires a new QR and stale snapshots fail before storage
+ok 145 - edits without a replacement preserve QR; changed receiver requires a new QR and stale snapshots fail before storage
+  ---
+  duration_ms: 63.0066
+  type: 'test'
+  ...
+# Subtest: invalid fields, unauthorized/cross-site calls, corrupt files and non-payment QR never save account data
+ok 146 - invalid fields, unauthorized/cross-site calls, corrupt files and non-payment QR never save account data
+  ---
+  duration_ms: 77.466
+  type: 'test'
+  ...
+# Subtest: storage failure never writes the database; definite DB refusal cleans upload while ambiguous failure preserves it
+ok 147 - storage failure never writes the database; definite DB refusal cleans upload while ambiguous failure preserves it
+  ---
+  duration_ms: 55.8721
+  type: 'test'
+  ...
+# Subtest: SQL saves account+QR together, rolls back failures, preserves old QR and deduplicates retries
+ok 148 - SQL saves account+QR together, rolls back failures, preserves old QR and deduplicates retries
+  ---
+  duration_ms: 1787.304
+  type: 'test'
+  ...
+# PASS: legacy migration, multiple accounts, duplicates, owner/staff isolation, active primary sync, deletion reruns and tenant creation
+# Subtest: scripts\\test-bank-accounts-sql.cjs
+ok 32 - scripts\\test-bank-accounts-sql.cjs
+  ---
+  duration_ms: 1968.6113
+  type: 'test'
+  ...

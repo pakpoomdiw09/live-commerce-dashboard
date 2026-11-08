@@ -16,6 +16,7 @@ test('workspace API restores scoped saved values and commits a single normalized
     bankId = randomUUID()
   const calls = []
   let denied = false
+  let failedTable = null
   const settings = {
     ...automation.defaultSessionAutomation(bankId),
     keywords: ['raise'],
@@ -56,6 +57,7 @@ test('workspace API restores scoped saved values and commits a single normalized
           return query
         },
         async maybeSingle() {
+          if (table === failedTable) return { data: null, error: { code: '42501' } }
           return {
             data: rows[table].find((row) => filters.every((predicate) => predicate(row))) ?? null,
             error: null,
@@ -144,8 +146,40 @@ test('workspace API restores scoped saved values and commits a single normalized
         ),
       )
     ).status,
-    404,
+    200,
   )
+  for (const table of ['live_sessions', 'auctions']) {
+    failedTable = table
+    const response = await api.GET(
+      new NextRequest(
+        `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
+      ),
+    )
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.ready, true)
+    assert.deepEqual(body.bids, [])
+    if (table === 'auctions') assert.equal(body.auction, null)
+    else
+      assert.equal(body.auction.shipping_fee, 47, 'session failures must not block auction reads')
+  }
+  failedTable = null
+  const foreign = await (
+    await api.GET(
+      new NextRequest(
+        `https://shop.example/api/live-auction/workspace?tenantId=${randomUUID()}&pageId=100&livePostId=456`,
+      ),
+    )
+  ).json()
+  assert.equal(foreign.auction, null, 'never restore another tenant’s auction')
+  const anotherLive = await (
+    await api.GET(
+      new NextRequest(
+        `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=789`,
+      ),
+    )
+  ).json()
+  assert.equal(anotherLive.auction, null, 'never restore a different live’s auction')
   calls.length = 0
   for (const patch of [
     { shippingFee: '-1' },
