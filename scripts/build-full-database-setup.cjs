@@ -416,6 +416,9 @@ function build(root = path.resolve(__dirname, '..')) {
     .readdirSync(folder, { recursive: true })
     .filter((f) => f.endsWith('.sql'))
     .map((f) => f.replaceAll('\\', '/'))
+    // Supabase CLI migrations, manual rollbacks, and pgTAP tests are managed
+    // separately from the local full-schema setup bundle.
+    .filter((f) => !/^(migrations|rollbacks|tests)\//.test(f))
     .filter((f) => !['full_database_setup.sql', 'complete_schema.sql'].includes(f))
     .sort()
   const unclassified = files.filter((f) => !sources.includes(f) && !(f in excluded))
