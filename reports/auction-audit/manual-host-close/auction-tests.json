@@ -1,0 +1,32 @@
+{
+  "files": [
+    "scripts/test-auction-audit-lifecycle.cjs",
+    "scripts/test-auction-background.cjs",
+    "scripts/test-auction-cron.cjs",
+    "scripts/test-auction-customer-tab-slip.cjs",
+    "scripts/test-auction-deadlines.cjs",
+    "scripts/test-auction-degraded-form.cjs",
+    "scripts/test-auction-hardening-2.cjs",
+    "scripts/test-auction-host-actions.cjs",
+    "scripts/test-auction-hosts.cjs",
+    "scripts/test-auction-ingestion-privacy.cjs",
+    "scripts/test-auction-invoice-messaging.cjs",
+    "scripts/test-auction-manual-form.cjs",
+    "scripts/test-auction-manual-host-close.cjs",
+    "scripts/test-auction-on-demand.cjs",
+    "scripts/test-auction-poller-hardening.cjs",
+    "scripts/test-auction-poller-remediation.cjs",
+    "scripts/test-auction-preflight.cjs",
+    "scripts/test-auction-server.cjs",
+    "scripts/test-auction-workspace-api.cjs",
+    "scripts/test-auction-workspace.cjs"
+  ],
+  "exit": 0,
+  "counts": {
+    "tests": 104,
+    "pass": 104,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0
+  }
+}

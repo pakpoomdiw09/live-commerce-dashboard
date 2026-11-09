@@ -1,5 +1,9 @@
 # Auction deployment and operator plan
 
+## Manual workspace mode update
+
+The unified form now always submits `durationSeconds: null`. Its deployment additionally requires `live-auction-manual-host-close.sql` **after** the deadlines → audit 1 → audit 2 suffix described below. Without this new migration, the older workspace save RPC converts null back into a five-minute deadline. See [manual-host-close/README.md](manual-host-close/README.md) for behavior, compatibility, tests, and the explicit staging-save check. The earlier preflight's original hardening checks do not certify this added workspace behavior.
+
 This task performs no production migration, deployment, real Graph call, or credential inspection. Validation uses local mocks and in-memory PGlite. The committed bootstrap bundles are deliberately unchanged and are **not ready for use as the current auction installer**.
 
 The user's latest active-database audit reports legacy immediate-order comment SQL, absent timer columns/expiry RPCs, an existing migration ledger, and audit 1 never applied. These are user-supplied observations, not database queries performed here. **The current application must not be enabled against that reported schema yet.** Use the read-only [preflight.sql](preflight.sql) and [Compatibility Matrix / staging sequence](COMPATIBILITY.md) before an operator applies migrations. The known required suffix is `live-auction-deadlines.sql` → `live-auction-audit-hardening.sql` → `live-auction-audit-hardening-2.sql`, after any missing prerequisites. Audit 2 alone is insufficient.

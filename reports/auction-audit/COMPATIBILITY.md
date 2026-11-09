@@ -1,5 +1,7 @@
 # Application / database compatibility and staging release gates
 
+**Manual form update:** `AuctionUnifiedForm` now sends `durationSeconds: null` and has no duration field/timer component. This additionally requires the last-registered `live-auction-manual-host-close.sql` after audit 2. The older duration wrapper silently defaults null to 300 seconds; do not enable the updated form against it. Existing timed rounds switch to manual mode on save, not through a bulk data rewrite. The matrix below records the original hardening capabilities; validate the added manual save behavior in staging as described in [manual-host-close/README.md](manual-host-close/README.md).
+
 The active database observations below are supplied by the user's final directive on 2026-11-09. They were not independently queried in this task. No deployed application build identifier was supplied: “application” below means the current workspace source, not a verified deployed binary. The read-only [preflight](preflight.sql) provides executable checks for an authorized operator.
 
 ## Compatibility matrix
