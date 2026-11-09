@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
     )
     if (
       !UUID.test(input.requestId ?? '') ||
-      (input.durationSeconds !== undefined &&
+      (input.durationSeconds != null &&
         (!Number.isSafeInteger(input.durationSeconds) ||
           input.durationSeconds < 30 ||
           input.durationSeconds > 86400)) ||
@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
       startPrice: Number(input.startPrice),
       minStep: Number(input.minStep),
       shippingFee: Number(input.shippingFee),
-      durationSeconds: input.durationSeconds ?? 300,
+      durationSeconds: input.durationSeconds ?? null,
       settings,
       hostIds,
       finance,

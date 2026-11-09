@@ -18,7 +18,7 @@ test('a degraded workspace keeps inputs visible and prevents submitting rounds u
   const temporary = path.join(os.tmpdir(), 'auction-form-test-' + process.pid + '.js')
   fs.writeFileSync(temporary, ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText)
   try {
-    const { AuctionUnifiedForm } = load(temporary, deps, { AbortController, URLSearchParams, crypto: require('node:crypto').webcrypto, fetch: async () => { writes++; throw Error('Unexpected mutation') } })
+    const { AuctionUnifiedForm } = load(temporary, deps, { AbortController, AbortSignal, URLSearchParams, crypto: require('node:crypto').webcrypto, fetch: async () => { writes++; throw Error('Unexpected mutation') } })
     const props = { tenantId: 'fixture', sessionId: '', data: null, options: { pages: [{ id: '100' }], bankAccounts: [] }, onSaved() {} }
     AuctionUnifiedForm(props)
     effects.forEach(fn => fn())

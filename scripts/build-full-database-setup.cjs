@@ -145,6 +145,7 @@ const groups = [
       'live-auction-deadlines.sql',
       'live-auction-audit-hardening.sql',
       'live-auction-audit-hardening-2.sql',
+      'live-auction-manual-host-close.sql',
     ],
   ],
 ]
@@ -321,6 +322,7 @@ const prerequisites = {
   'live-auction-deadlines.sql': ['facebook-comment-configuration.sql', 'live-auction-production-readiness.sql'],
   'live-auction-audit-hardening.sql': ['facebook-comment-configuration.sql', 'live-auction-on-demand.sql', 'live-auction-deadlines.sql'],
   'live-auction-audit-hardening-2.sql': ['live-auction-audit-hardening.sql', 'live-auction-deadlines.sql'],
+  'live-auction-manual-host-close.sql': ['live-auction-audit-hardening-2.sql', 'live-auction-deadlines.sql'],
   'inbox-load-indexes.sql': ['inbox-realtime.sql'],
   'facebook-inbox-recovery.sql': ['facebook-webhook-queue.sql', 'smart-inbox.sql'],
   'live-cf-variants.sql': ['commerce-v2.sql', 'facebook-webhook-queue.sql'],

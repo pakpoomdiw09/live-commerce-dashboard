@@ -116,6 +116,7 @@ test('workspace API restores scoped saved values and commits a single normalized
     startPrice: '300',
     minStep: '25',
     shippingFee: '47',
+    durationSeconds: null,
     settings,
     finance: { cost: '125.50', ads: '15', shipping: '7', fees: '3.25' },
   }
@@ -185,6 +186,8 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.equal(anotherLive.auction, null, 'never restore a different live’s auction')
   calls.length = 0
   for (const patch of [
+    { durationSeconds: 0 },
+    { durationSeconds: '300' },
     { shippingFee: '-1' },
     { minStep: '0' },
     { finance: { cost: '1.001', ads: '0', shipping: '0', fees: '0' } },
@@ -210,6 +213,7 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.equal(calls.length, 1)
   assert.equal(calls[0].name, 'save_auction_workspace')
   assert.equal(calls[0].args.p_input.shippingFee, 47)
+  assert.equal(calls[0].args.p_input.durationSeconds, null)
   assert.deepEqual(Array.from(calls[0].args.p_input.settings.keywords), ['raise'])
   assert.equal(calls[0].args.p_input.settings.bidText, '{bidder_name} {price}')
   assert.equal(calls[0].args.p_input.settings.auto_accumulate_summary, false)
