@@ -42,6 +42,8 @@ export type AuctionBid = {
 }
 
 export type AuctionResult = {
+  auctionId?: string
+  nextAuctionId?: string | null
   status: string
   amount?: number
   minimum?: number

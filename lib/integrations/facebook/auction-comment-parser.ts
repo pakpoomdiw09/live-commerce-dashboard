@@ -41,15 +41,15 @@ export function parseAuctionComment(
   const value = normalizeAuctionTag(text)
   const settings = resolveCommentSettings({}, automation ?? {})
   if (isHost) {
-    if (automation?.closeEnabled !== false && settings.closeKeywords.includes(value))
-      return { type: 'HOST_CONTROL', action: 'close', count: null }
-    // Counting remains separate from closing; configured closing tags take precedence.
-    const count = settings.counting_tags[value]
-    if (count)
-      return automation?.countEnabled === true
-        ? { type: 'HOST_CONTROL', action: 'count', count }
-        : { type: 'IGNORE' }
-    return { type: 'IGNORE' }
+    let count: string | null = null
+    for (const line of text.split(/[\r\n]+/u).map(normalizeAuctionTag).filter(Boolean)) {
+      if (automation?.closeEnabled !== false && settings.closeKeywords.includes(line))
+        return { type: 'HOST_CONTROL', action: 'close', count: null }
+      if (automation?.countEnabled !== true || typeof settings.counting_tags[line] !== 'string' || !settings.counting_tags[line].trim())
+        return { type: 'IGNORE' }
+      count = settings.counting_tags[line]
+    }
+    return count ? { type: 'HOST_CONTROL', action: 'count', count } : { type: 'IGNORE' }
   }
   const matchesKeyword = settings.keywords.includes(value)
   if (matchesKeyword) return { type: 'CONFIRM_BID' }

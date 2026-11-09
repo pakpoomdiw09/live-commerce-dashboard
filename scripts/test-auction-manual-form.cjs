@@ -16,7 +16,8 @@ for (const editing of [false, true]) test(`manual form hydrates ${editing ? 'a t
   deps['react/jsx-runtime'] = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
   const config = { ready: true, session: editing ? { id: 'session', page_id: '100', live_post_id: '456' } : null,
     round: editing ? { id: 'round', status: 'active', item_name: 'Hydrated item', start_price: 100, min_step: 10, duration_seconds: 600 } : null,
-    settings: null, preferencesOnly: !editing }
+    template: editing ? { itemName: 'Next template', startPrice: 300, minStep: 20, shippingFee: 40 } : null,
+    settings: { countEnabled: true, counting_tags: { '3': '3', '2': '2', '1': '1' }, autoCycleRounds: true }, preferencesOnly: !editing }
   deps['./session-ui'] = { read: async () => config, field: '', orange: '' }
   const temporary = path.join(os.tmpdir(), `auction-manual-form-${process.pid}-${editing}.js`)
   fs.writeFileSync(temporary, ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText)
@@ -34,7 +35,10 @@ for (const editing of [false, true]) test(`manual form hydrates ${editing ? 'a t
     await nodes.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
     assert.equal(sent.length, 1)
     assert.equal(sent[0].durationSeconds, null)
+    assert.equal(sent[0].settings.countEnabled, true)
+    assert.equal(sent[0].settings.autoCycleRounds, true)
+    assert.deepEqual(sent[0].settings.counting_tags, { '3': '3', '2': '2', '1': '1' })
     assert.equal(sent[0].roundId, editing ? 'round' : null)
-    if (editing) assert.equal(sent[0].itemName, 'Hydrated item')
+    if (editing) { assert.equal(sent[0].itemName, 'Next template'); assert.equal(sent[0].startPrice, '300') }
   } finally { fs.unlinkSync(temporary) }
 })

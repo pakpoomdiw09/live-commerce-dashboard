@@ -34,6 +34,7 @@ import { field, orange, read } from './session-ui'
 
 type Config = {
   ready: boolean
+  template?: { itemName: string; startPrice: number; minStep: number; shippingFee: number } | null
   session: LiveSession | null
   round: Auction | null
   settings: SessionAutomation | null
@@ -60,6 +61,8 @@ const blankSessionAutomation = (bankAccountId = ''): SessionAutomation => ({
   closeText: '',
   bankAccountId,
   countEnabled: false,
+  counting_tags: {},
+  autoCycleRounds: true,
   closeEnabled: false,
   heartCloses: false,
 })
@@ -114,10 +117,10 @@ export function AuctionUnifiedForm({
       setDraft({
         pageId: selected?.pageId ?? session?.page_id ?? options.pages[0]?.id ?? '',
         livePostId: selected?.livePostId || session?.live_post_id || '',
-        itemName: config.round?.item_name ?? '',
-        startPrice: config.round ? String(config.round.start_price) : '',
-        minStep: config.round ? String(config.round.min_step) : '',
-        shippingFee: String(config.round?.shipping_fee ?? 0),
+        itemName: config.template?.itemName ?? config.round?.item_name ?? '',
+        startPrice: config.template ? String(config.template.startPrice) : config.round ? String(config.round.start_price) : '',
+        minStep: config.template ? String(config.template.minStep) : config.round ? String(config.round.min_step) : '',
+        shippingFee: String(config.template?.shippingFee ?? config.round?.shipping_fee ?? 0),
         settings: {
           ...settings,
           auto_accumulate_summary: settings.auto_accumulate_summary ?? true,
@@ -180,7 +183,6 @@ export function AuctionUnifiedForm({
     if (
       liveSessionId &&
       savedSessionId === liveSessionId &&
-      !dirty.current &&
       savedActiveId !== liveActiveId
     ) {
       setReload((n) => n + 1)
@@ -479,7 +481,7 @@ export function AuctionUnifiedForm({
                       aria-label="ชื่อสินค้า"
                       required
                       maxLength={200}
-                      disabled={locked}
+                      disabled={disabled || (!draft.settings.autoCycleRounds && locked)}
                       value={draft.itemName}
                       onChange={(e) => edit({ itemName: e.target.value })}
                     />
@@ -532,7 +534,7 @@ export function AuctionUnifiedForm({
                         max={max}
                         step="0.01"
                         required
-                        disabled={locked}
+                        disabled={disabled || (!draft.settings.autoCycleRounds && locked)}
                         value={draft[key]}
                         onChange={(e) => edit({ [key]: e.target.value })}
                       />
@@ -585,6 +587,23 @@ export function AuctionUnifiedForm({
                       normalize={normalizeCloseKeyword}
                       disabled={disabled}
                     />
+                  </div>
+                  <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+                    <LiveSwitch checked={draft.settings.countEnabled}
+                      onChange={(value) => edit({ settings: { ...draft.settings, countEnabled: value } })}
+                      label="เปิดคำสั่งนับของโฮสต์" disabled={disabled} />
+                    <AuctionKeywordEditor label="คำนับของโฮสต์ (เช่น 5, 4, 3, 2, 1 หรือนับ 1)" kind="bid"
+                      keywords={Object.keys(draft.settings.counting_tags ?? {})}
+                      onChange={(value) => {
+                        const previous = draft.settings.counting_tags ?? {}
+                        const tags = typeof value === 'function' ? value(Object.keys(previous)) : value
+                        edit({ settings: { ...draft.settings, counting_tags: Object.fromEntries(tags.map(tag => [tag, previous[tag] ?? tag])) } })
+                      }}
+                      onEdited={() => setNotice('')} normalize={normalizeBidKeyword} disabled={disabled} />
+                    <LiveSwitch checked={draft.settings.autoCycleRounds ?? true}
+                      onChange={(value) => edit({ settings: { ...draft.settings, autoCycleRounds: value } })}
+                      label="เปิดรอบถัดไปอัตโนมัติเมื่อโฮสต์ปิดรอบ" disabled={disabled} />
+                    <p className="text-xs text-slate-500">กดบันทึกเพื่อใช้แม่แบบรอบถัดไป เมื่อมีบิดแล้ว ราคาของรอบปัจจุบันจะไม่เปลี่ยน</p>
                   </div>
                   <p className="text-xs leading-relaxed text-slate-500">
                     ขณะเปิดรอบ คำดักใช้เคาะราคา หลังปิดรอบ ผู้ชนะพิมพ์คำเดิมอีกครั้งเพื่อรับยอด

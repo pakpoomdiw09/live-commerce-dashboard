@@ -79,18 +79,17 @@ export async function GET(req: NextRequest) {
           .maybeSingle(),
       )
     }
-    let rounds = db.from('auctions').select('*').eq('tenant_id', tenantId!)
     const selectedPage = pageId ?? session?.page_id
     const selectedPost = livePostId ?? session?.live_post_id
-    if (selectedPage) rounds = rounds.eq('page_id', selectedPage)
-    if (selectedPost) rounds = rounds.eq('live_post_id', selectedPost)
-    // A missing session must not restore an unrelated live's round.
-    const round =
-      sessionId && !session
-        ? null
-        : await workspaceRead(
-            rounds.order('created_at', { ascending: false }).limit(1).maybeSingle(),
-          )
+    const rounds = () => {
+      let query = db.from('auctions').select('*').eq('tenant_id', tenantId!)
+      if (selectedPage) query = query.eq('page_id', selectedPage)
+      if (selectedPost) query = query.eq('live_post_id', selectedPost)
+      return query.order('created_at', { ascending: false }).limit(1)
+    }
+    // Cycled rounds may share a source timestamp. Prefer the single active round.
+    const round = await workspaceRead(rounds().eq('status', 'active').maybeSingle()) ??
+      await workspaceRead(rounds().maybeSingle())
     let reviews = db.from('auction_deliveries')
       .select('channel,status,auctions!inner(tenant_id,page_id,live_post_id)')
       .eq('auctions.tenant_id', tenantId!)
@@ -105,6 +104,7 @@ export async function GET(req: NextRequest) {
     return auctionReply({
       ready: true,
       deliveryReviews,
+      template: session?.auction_round_template ?? previous?.auction_round_template ?? null,
       auction: round,
       bids: [],
       session,
@@ -174,11 +174,15 @@ export async function POST(req: NextRequest) {
       auto_accumulate_summary: input.settings.auto_accumulate_summary ?? true,
       keywords: input.settings.keywords.map(normalizeBidKeyword),
       closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
+      counting_tags: Object.fromEntries(Object.entries<string>(input.settings.counting_tags ?? {}).map(
+        ([tag, count]) => [normalizeBidKeyword(tag), count.trim()],
+      )),
+      autoCycleRounds: input.settings.autoCycleRounds ?? true,
       bidText: sessionAuctionTemplate(input.settings.bidText),
       closeText: sessionAuctionTemplate(input.settings.bidText),
       privateText: sessionAuctionTemplate(input.settings.privateText),
       closeEnabled: true,
-      countEnabled: false,
+      countEnabled: input.settings.countEnabled,
       heartCloses: false,
     }
     const payload = {

@@ -24,7 +24,7 @@ test('read-only preflight reports absent prerequisites without crashing on a mis
 test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 1, then audit 2 without premature orders', async () => {
   const result = build()
   const index = result.sources.indexOf('live-auction-deadlines.sql')
-  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql'])
+  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql', 'live-auction-auto-cycle.sql'])
   const prefix = n => completeSchema({ ...result, sections: result.sections.slice(0, n) })
   const f = await fixture(prefix(index))
   const captures = {}
@@ -70,7 +70,8 @@ test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 
     assert.equal(confirmation.result.status, 'stale', 'audit 1 still has the source-seconds race')
     await f.db.exec(prefix(index + 3))
     captures.audit2 = await definition()
-    await f.db.exec(prefix(index + 4))
+    await f.db.exec(prefix(index + 5))
+    captures.cycle = await definition()
     const final = await inspect(f.db)
     assert.deepEqual(final.filter(row => row.status !== 'PASS'), [])
     assert.equal((await f.processEvent(a, confirmation.event, confirmation.parsed)).status, 'confirmed')
@@ -81,7 +82,7 @@ test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 
     const current = await fixture()
     try {
       const expected = await current.one('select pg_get_functiondef($1::regprocedure) definition', [signature])
-      assert.equal(captures.audit2, expected.definition, 'no function drift versus fresh current installation')
+      assert.equal(captures.cycle, expected.definition, 'no function drift versus fresh current installation')
     } finally { await current.db.close() }
     if (process.env.AUCTION_PREFLIGHT_EVIDENCE) {
       const folder = path.resolve(process.env.AUCTION_PREFLIGHT_EVIDENCE)

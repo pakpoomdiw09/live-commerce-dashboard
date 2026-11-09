@@ -15,6 +15,7 @@ export type SessionAutomation = CommentSettings & {
   publicReply: boolean
   privateReply: boolean
   auto_accumulate_summary?: boolean
+  autoCycleRounds?: boolean
   bidText: string
   privateText: string
   closeText: string
@@ -106,6 +107,12 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
   return (
     (v.winnerFlow === undefined || ['on_demand', 'highest_bid'].includes(v.winnerFlow)) &&
     (v.auto_accumulate_summary === undefined || typeof v.auto_accumulate_summary === 'boolean') &&
+    (v.autoCycleRounds === undefined || typeof v.autoCycleRounds === 'boolean') &&
+    (v.counting_tags === undefined ||
+      (v.counting_tags !== null && typeof v.counting_tags === 'object' && !Array.isArray(v.counting_tags) &&
+        Object.entries(v.counting_tags).every(([tag, count]) =>
+          tag.length <= 40 && normalizeBidKeyword(tag).length > 0 && !/[\r\n{}]/u.test(tag) &&
+          typeof count === 'string' && count.trim().length > 0 && count.length <= 40 && !/[\r\n{}]/u.test(count)))) &&
     ['publicReply', 'privateReply', 'countEnabled', 'closeEnabled', 'heartCloses'].every(
       (key) => typeof v[key as keyof SessionAutomation] === 'boolean',
     ) &&

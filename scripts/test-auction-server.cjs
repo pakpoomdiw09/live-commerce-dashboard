@@ -672,6 +672,16 @@ test('unrelated posts fall through, but late auction confirmations never reach C
   assert.equal(f.calls.private.length, 0)
 })
 
+test('a replay routed to the new active round delivers the original confirmed auction outbox', async () => {
+  const f = fixture({ result: { status: 'confirmed', auctionId, orderId, amount: 250 } })
+  Object.assign(f.tables.auctions[0], { status: 'closed', winner_locked_at: '2026-01-02', winner_confirmed_at: '2026-01-03' })
+  f.tables.auctions.push({ ...f.tables.auctions[0], id: 'next-cycle', status: 'active', created_at: '2026-01-03', winner_locked_at: null, winner_confirmed_at: null })
+  f.tables.auction_deliveries.push({ id: 'original-outbox', auction_id: auctionId, channel: 'private', status: 'pending', comment_id: '456_789' })
+  await f.receive('1', '900')
+  assert.equal(f.calls.rpc[0].input.p_auction, 'next-cycle')
+  assert.equal(f.calls.private.length, 1)
+})
+
 test('a CF live session without an active auction falls through instead of consuming comments', async () => {
   const f = fixture()
   f.tables.live_sessions.push({

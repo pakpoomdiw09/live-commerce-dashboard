@@ -719,7 +719,7 @@ export async function handleAuctionComment(input: {
   if (parsed.type === 'CONFIRM_BID') {
     // Supabase checks sender == current leader under a row lock before creating any invoice.
     if (result.status === 'confirmed' || result.status === 'already_confirmed')
-      await deliverAuctionNotifications(auction.id)
+      await deliverAuctionNotifications(result.auctionId ?? auction.id)
     return true
   }
   // The simplified seller workspace records bids silently; only the winner is notified.
