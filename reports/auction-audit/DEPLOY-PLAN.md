@@ -1,5 +1,9 @@
 # Auction deployment and operator plan
 
+## Configurable counting and continuous-cycle update
+
+The dashboard now saves host counting tags, counting enablement, and an explicit `autoCycleRounds` switch (on for the unified form's new drafts). The new last migration `live-auction-auto-cycle.sql` must follow `live-auction-manual-host-close.sql`. It persists the saved next-round template, preserves the financial normalizer wrapper, and closes/creates the successor atomically. Deploy it before enabling the new application. No existing sessions are automatically opted in by installation: save the form to persist the template/settings. Unsaved browser edits cannot drive server-side rounds. See [auto-cycle/README.md](auto-cycle/README.md) for tests, replay safety, and parallel confirmations. Preflight now includes the cycle schema/helpers and updated reviewed function-body digests; prior reports remain historical evidence.
+
 ## Manual workspace mode update
 
 The unified form now always submits `durationSeconds: null`. Its deployment additionally requires `live-auction-manual-host-close.sql` **after** the deadlines → audit 1 → audit 2 suffix described below. Without this new migration, the older workspace save RPC converts null back into a five-minute deadline. See [manual-host-close/README.md](manual-host-close/README.md) for behavior, compatibility, tests, and the explicit staging-save check. The earlier preflight's original hardening checks do not certify this added workspace behavior.

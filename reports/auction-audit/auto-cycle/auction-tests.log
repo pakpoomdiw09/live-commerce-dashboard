@@ -1,0 +1,822 @@
+Command: node --import tsx --test --test-concurrency=1 --test-reporter=tap scripts/test-auction-audit-lifecycle.cjs scripts/test-auction-auto-cycle.cjs scripts/test-auction-background.cjs scripts/test-auction-cron.cjs scripts/test-auction-customer-tab-slip.cjs scripts/test-auction-deadlines.cjs scripts/test-auction-degraded-form.cjs scripts/test-auction-hardening-2.cjs scripts/test-auction-host-actions.cjs scripts/test-auction-hosts.cjs scripts/test-auction-ingestion-privacy.cjs scripts/test-auction-invoice-messaging.cjs scripts/test-auction-manual-form.cjs scripts/test-auction-manual-host-close.cjs scripts/test-auction-on-demand.cjs scripts/test-auction-poller-hardening.cjs scripts/test-auction-poller-remediation.cjs scripts/test-auction-preflight.cjs scripts/test-auction-server.cjs scripts/test-auction-workspace-api.cjs scripts/test-auction-workspace.cjs scripts/test-customer-tabs.cjs scripts/test-live-session-dashboard.cjs scripts/test-shipping.cjs scripts/test-live-auctions.cjs scripts/test-live-auction-dashboard-api.cjs tests/features/commerce/auction-comment.test.ts tests/features/commerce/auction-confirmation.test.ts tests/features/commerce/comment-config.test.ts
+TAP version 13
+# Subtest: normal round lifecycle: real parser, two bidders, close without order, confirmed once, cancellation and stale boundaries
+ok 1 - normal round lifecycle: real parser, two bidders, close without order, confirmed once, cancellation and stale boundaries
+  ---
+  duration_ms: 2401.4066
+  type: 'test'
+  ...
+# Subtest: empty count configuration has identical disabled behavior in SQL and the real TypeScript parser
+ok 2 - empty count configuration has identical disabled behavior in SQL and the real TypeScript parser
+  ---
+  duration_ms: 2820.6655
+  type: 'test'
+  ...
+# Subtest: dashboard counting supports five steps and multiline custom counts without closing or accepting host bids
+ok 3 - dashboard counting supports five steps and multiline custom counts without closing or accepting host bids
+  ---
+  duration_ms: 2294.0108
+  type: 'test'
+  ...
+# Subtest: host close atomically cycles from the saved template and previous winner confirms while new bids continue
+ok 4 - host close atomically cycles from the saved template and previous winner confirms while new bids continue
+  ---
+  duration_ms: 3012.1031
+  type: 'test'
+  ...
+# Subtest: template edits after accepted bids change only the following round and are replay fenced
+ok 5 - template edits after accepted bids change only the following round and are replay fenced
+  ---
+  duration_ms: 2868.3181
+  type: 'test'
+  ...
+# Subtest: each cycled round inherits saved public/private switches and reply templates
+ok 6 - each cycled round inherits saved public/private switches and reply templates
+  ---
+  duration_ms: 2998.9905
+  type: 'test'
+  ...
+# Subtest: successor creation failure rolls back host closure and the same event can safely retry
+ok 7 - successor creation failure rolls back host closure and the same event can safely retry
+  ---
+  duration_ms: 2978.1249
+  type: 'test'
+  ...
+# Subtest: headless timer resolves an expired round once and cancels its background work on unmount
+ok 8 - headless timer resolves an expired round once and cancels its background work on unmount
+  ---
+  duration_ms: 49.8876
+  type: 'test'
+  ...
+# Subtest: headless comment poller aborts in-flight reads without scheduling another request on unmount
+ok 9 - headless comment poller aborts in-flight reads without scheduling another request on unmount
+  ---
+  duration_ms: 13.8412
+  type: 'test'
+  ...
+# Subtest: inaccessible videos notify once and stop headless polling
+ok 10 - inaccessible videos notify once and stop headless polling
+  ---
+  duration_ms: 8.5264
+  type: 'test'
+  ...
+# Subtest: headless polling forwards only aggregate missing-author counts to the dashboard
+ok 11 - headless polling forwards only aggregate missing-author counts to the dashboard
+  ---
+  duration_ms: 6.7284
+  type: 'test'
+  ...
+# Subtest: headless polling exposes only recognized aggregate skip reasons
+ok 12 - headless polling exposes only recognized aggregate skip reasons
+  ---
+  duration_ms: 7.1487
+  type: 'test'
+  ...
+# Subtest: external cron GET requests require authentication and drain webhook and auction outbox work
+ok 13 - external cron GET requests require authentication and drain webhook and auction outbox work
+  ---
+  duration_ms: 55.6435
+  type: 'test'
+  ...
+# Subtest: auction amount mismatches are recorded as invalid and never use the paid auction settlement RPC
+ok 14 - auction amount mismatches are recorded as invalid and never use the paid auction settlement RPC
+  ---
+  duration_ms: 68.3146
+  type: 'test'
+  ...
+# Subtest: valid exact auction slips settle through the winner-scoped database function
+ok 15 - valid exact auction slips settle through the winner-scoped database function
+  ---
+  duration_ms: 21.2838
+  type: 'test'
+  ...
+# Subtest: deadline resolution, queue ordering, retry fencing and inbox tenant RLS
+    # Subtest: new rounds use a five minute UTC deadline; future and wrong-tenant closes cannot resolve
+    ok 1 - new rounds use a five minute UTC deadline; future and wrong-tenant closes cannot resolve
+      ---
+      duration_ms: 8.9318
+      type: 'test'
+      ...
+    # Subtest: expiry locks the leader without an order; only winner confirmation creates one invoice
+    ok 2 - expiry locks the leader without an order; only winner confirmation creates one invoice
+      ---
+      duration_ms: 40.6307
+      type: 'test'
+      ...
+    # Subtest: empty rounds close without inventing a buyer or order; cron recovers missed browser timers
+    ok 3 - empty rounds close without inventing a buyer or order; cron recovers missed browser timers
+      ---
+      duration_ms: 4.0039
+      type: 'test'
+      ...
+    # Subtest: pre-deadline queued comments drain first; late comments cannot change the winner
+    ok 4 - pre-deadline queued comments drain first; late comments cannot change the winner
+      ---
+      duration_ms: 17.0021
+      type: 'test'
+      ...
+    # Subtest: legacy rounds only start a timer explicitly; duplicate starts cannot extend it
+    ok 5 - legacy rounds only start a timer explicitly; duplicate starts cannot extend it
+      ---
+      duration_ms: 4.8449
+      type: 'test'
+      ...
+    # Subtest: workspace duration saves and old idempotency keys never restart/revert the deadline
+    ok 6 - workspace duration saves and old idempotency keys never restart/revert the deadline
+      ---
+      duration_ms: 15.3899
+      type: 'test'
+      ...
+    # Subtest: authenticated inbox reads remain tenant scoped even with no customer_management entitlement
+    ok 7 - authenticated inbox reads remain tenant scoped even with no customer_management entitlement
+      ---
+      duration_ms: 13.9951
+      type: 'test'
+      ...
+    1..7
+ok 16 - deadline resolution, queue ordering, retry fencing and inbox tenant RLS
+  ---
+  duration_ms: 2322.8761
+  type: 'test'
+  ...
+# Subtest: a degraded workspace keeps inputs visible and prevents submitting rounds until an explicit reload
+ok 17 - a degraded workspace keeps inputs visible and prevents submitting rounds until an explicit reload
+  ---
+  duration_ms: 144.0725
+  type: 'test'
+  ...
+# Subtest: host-source seconds resolve the confirmation race while older confirmations remain stale
+ok 18 - host-source seconds resolve the confirmation race while older confirmations remain stale
+  ---
+  duration_ms: 2316.0624
+  type: 'test'
+  ...
+# Subtest: expiry reports no-op, draining, locked winners and audited failures without issuing an order
+ok 19 - expiry reports no-op, draining, locked winners and audited failures without issuing an order
+  ---
+  duration_ms: 2913.2116
+  type: 'test'
+  ...
+# Subtest: host shortcuts post Page-owned comments to the stored live video and enqueue canonical events
+ok 20 - host shortcuts post Page-owned comments to the stored live video and enqueue canonical events
+  ---
+  duration_ms: 72.6676
+  type: 'test'
+  ...
+# Subtest: invalid, unauthorized, foreign, closed and disconnected host actions never contact Meta
+ok 21 - invalid, unauthorized, foreign, closed and disconnected host actions never contact Meta
+  ---
+  duration_ms: 68.4504
+  type: 'test'
+  ...
+# Subtest: close action uses active session settings and refuses a tag that does not parse as HOST_CONTROL
+ok 22 - close action uses active session settings and refuses a tag that does not parse as HOST_CONTROL
+  ---
+  duration_ms: 18.7439
+  type: 'test'
+  ...
+# Subtest: custom count tokens use real comment_settings and session overrides; disabled defaults never post
+ok 23 - custom count tokens use real comment_settings and session overrides; disabled defaults never post
+  ---
+  duration_ms: 48.2566
+  type: 'test'
+  ...
+# Subtest: provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment
+ok 24 - provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment
+  ---
+  duration_ms: 19.1274
+  type: 'test'
+  ...
+# Subtest: hosts contain the Page and authenticated Facebook identity, never the Supabase UUID
+ok 25 - hosts contain the Page and authenticated Facebook identity, never the Supabase UUID
+  ---
+  duration_ms: 41.0252
+  type: 'test'
+  ...
+# Subtest: separate Facebook connection uses only the signed-in owner and selected Page
+ok 26 - separate Facebook connection uses only the signed-in owner and selected Page
+  ---
+  duration_ms: 6.5333
+  type: 'test'
+  ...
+# Subtest: missing or unverifiable personal identity requires reconnection instead of creating Page-only rounds
+ok 27 - missing or unverifiable personal identity requires reconnection instead of creating Page-only rounds
+  ---
+  duration_ms: 16.1598
+  type: 'test'
+  ...
+# Subtest: shared message profile and fallback paths log no sender identities, bodies or credentials
+ok 28 - shared message profile and fallback paths log no sender identities, bodies or credentials
+  ---
+  duration_ms: 134.5889
+  type: 'test'
+  ...
+# Subtest: ingress and deferred-worker exceptions never dump provider errors or payload data
+ok 29 - ingress and deferred-worker exceptions never dump provider errors or payload data
+  ---
+  duration_ms: 25.7925
+  type: 'test'
+  ...
+# Subtest: invoice uses MESSAGE_TAG and POST_PURCHASE_UPDATE; normal chat remains RESPONSE
+ok 30 - invoice uses MESSAGE_TAG and POST_PURCHASE_UPDATE; normal chat remains RESPONSE
+  ---
+  duration_ms: 134.8081
+  type: 'test'
+  ...
+# Subtest: definite window or missing-recipient rejection falls back to the winning comment exactly once
+ok 31 - definite window or missing-recipient rejection falls back to the winning comment exactly once
+  ---
+  duration_ms: 115.4254
+  type: 'test'
+  ...
+# Subtest: unsupported legacy tags fall back to RESPONSE, then private reply only on a definite rejection
+ok 32 - unsupported legacy tags fall back to RESPONSE, then private reply only on a definite rejection
+  ---
+  duration_ms: 55.7333
+  type: 'test'
+  ...
+# Subtest: permissions, rate limits, token errors, missing receipts and transport failures never blindly resend
+ok 33 - permissions, rate limits, token errors, missing receipts and transport failures never blindly resend
+  ---
+  duration_ms: 186.7997
+  type: 'test'
+  ...
+# Subtest: invoice endpoint generates ledger text, checks tenant/page, and permits a bill without inbound evidence
+ok 34 - invoice endpoint generates ledger text, checks tenant/page, and permits a bill without inbound evidence
+  ---
+  duration_ms: 5.1489
+  type: 'test'
+  ...
+# Subtest: invoice endpoint rejects foreign bills/origins/inactive Pages and does not repeat existing sends
+ok 35 - invoice endpoint rejects foreign bills/origins/inactive Pages and does not repeat existing sends
+  ---
+  duration_ms: 19.0379
+  type: 'test'
+  ...
+# Subtest: invoice rejection prompts first contact; ambiguous outcomes retain unknown status for reconciliation
+ok 36 - invoice rejection prompts first contact; ambiguous outcomes retain unknown status for reconciliation
+  ---
+  duration_ms: 7.1104
+  type: 'test'
+  ...
+# Subtest: manual form hydrates an empty workspace and submits null duration without a duration field
+ok 37 - manual form hydrates an empty workspace and submits null duration without a duration field
+  ---
+  duration_ms: 149.0737
+  type: 'test'
+  ...
+# Subtest: manual form hydrates a timed existing round and submits null duration without a duration field
+ok 38 - manual form hydrates a timed existing round and submits null duration without a duration field
+  ---
+  duration_ms: 59.9691
+  type: 'test'
+  ...
+# Subtest: manual workspace has no deadline, ignores expiry, and only the host closes before the locked winner confirms
+ok 39 - manual workspace has no deadline, ignores expiry, and only the host closes before the locked winner confirms
+  ---
+  duration_ms: 2300.1917
+  type: 'test'
+  ...
+# Subtest: saving a timed round as manual clears all timer fields and replaying an old timed save cannot restart it
+ok 40 - saving a timed round as manual clears all timer fields and replaying an old timed save cannot restart it
+  ---
+  duration_ms: 2789.9752
+  type: 'test'
+  ...
+# Subtest: only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic
+ok 41 - only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic
+  ---
+  duration_ms: 2472.4429
+  type: 'test'
+  ...
+# Subtest: queues all 250 comments across Graph pages and advances the cursor
+ok 42 - queues all 250 comments across Graph pages and advances the cursor
+  ---
+  duration_ms: 96.568
+  type: 'test'
+  ...
+# Subtest: a page-one comment reaching the overlap boundary prevents fetching page two
+ok 43 - a page-one comment reaching the overlap boundary prevents fetching page two
+  ---
+  duration_ms: 32.0702
+  type: 'test'
+  ...
+# Subtest: Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary video ID
+ok 44 - Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary video ID
+  ---
+  duration_ms: 18.8869
+  type: 'test'
+  ...
+# Subtest: comments missing from or from.id are skipped, valid author comments queue, and all-skipped cycles advance high water
+ok 45 - comments missing from or from.id are skipped, valid author comments queue, and all-skipped cycles advance high water
+  ---
+  duration_ms: 33.1941
+  type: 'test'
+  ...
+# Subtest: pagination rejects non Graph hosts and non HTTPS URLs before making a second request
+ok 46 - pagination rejects non Graph hosts and non HTTPS URLs before making a second request
+  ---
+  duration_ms: 22.2448
+  type: 'test'
+  ...
+# Subtest: continuation URLs are sanitized before persistence and logs omit tokens, author IDs, and comment bodies
+ok 47 - continuation URLs are sanitized before persistence and logs omit tokens, author IDs, and comment bodies
+  ---
+  duration_ms: 19.1349
+  type: 'test'
+  ...
+# Subtest: polling always sends the Page token in the Authorization header, never in a Graph URL
+ok 48 - polling always sends the Page token in the Authorization header, never in a Graph URL
+  ---
+  duration_ms: 13.3353
+  type: 'test'
+  ...
+# Subtest: session filters exclude other lives and poll a closed, unconfirmed winner
+ok 49 - session filters exclude other lives and poll a closed, unconfirmed winner
+  ---
+  duration_ms: 15.1196
+  type: 'test'
+  ...
+# Subtest: Graph error text containing tokens, author IDs or messages is never logged
+ok 50 - Graph error text containing tokens, author IDs or messages is never logged
+  ---
+  duration_ms: 11.5861
+  type: 'test'
+  ...
+# Subtest: blank and synthetic identities are skipped without enqueueing bids
+ok 51 - blank and synthetic identities are skipped without enqueueing bids
+  ---
+  duration_ms: 9.6383
+  type: 'test'
+  ...
+# Subtest: only exact HTTPS Graph hosts receive a second request
+ok 52 - only exact HTTPS Graph hosts receive a second request
+  ---
+  duration_ms: 47.6477
+  type: 'test'
+  ...
+# Subtest: linked continuation resumes backlog without applying the advanced high-water boundary
+ok 53 - linked continuation resumes backlog without applying the advanced high-water boundary
+  ---
+  duration_ms: 11.0916
+  type: 'test'
+  ...
+# Subtest: expired or unlinked stored cursors are discarded for the fresh page chain
+ok 54 - expired or unlinked stored cursors are discarded for the fresh page chain
+  ---
+  duration_ms: 29.819
+  type: 'test'
+  ...
+# Subtest: queues all 250 comments across Graph pages and advances the cursor
+ok 55 - queues all 250 comments across Graph pages and advances the cursor
+  ---
+  duration_ms: 99.0397
+  type: 'test'
+  ...
+# Subtest: a page-one comment reaching the overlap boundary prevents fetching page two
+ok 56 - a page-one comment reaching the overlap boundary prevents fetching page two
+  ---
+  duration_ms: 26.7068
+  type: 'test'
+  ...
+# Subtest: Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary video ID
+ok 57 - Graph Error 100 returns VIDEO_NOT_ACCESSIBLE and never tries a secondary video ID
+  ---
+  duration_ms: 20.2774
+  type: 'test'
+  ...
+# Subtest: comments missing from or from.id are skipped, valid author comments queue, and all-skipped cycles advance high water
+ok 58 - comments missing from or from.id are skipped, valid author comments queue, and all-skipped cycles advance high water
+  ---
+  duration_ms: 33.9217
+  type: 'test'
+  ...
+# Subtest: pagination rejects non Graph hosts and non HTTPS URLs before making a second request
+ok 59 - pagination rejects non Graph hosts and non HTTPS URLs before making a second request
+  ---
+  duration_ms: 19.5338
+  type: 'test'
+  ...
+# Subtest: continuation URLs are sanitized before persistence and logs omit tokens, author IDs, and comment bodies
+ok 60 - continuation URLs are sanitized before persistence and logs omit tokens, author IDs, and comment bodies
+  ---
+  duration_ms: 19.8893
+  type: 'test'
+  ...
+# Subtest: polling always sends the Page token in the Authorization header, never in a Graph URL
+ok 61 - polling always sends the Page token in the Authorization header, never in a Graph URL
+  ---
+  duration_ms: 13.0352
+  type: 'test'
+  ...
+# Subtest: session filters exclude other lives and poll a closed, unconfirmed winner
+ok 62 - session filters exclude other lives and poll a closed, unconfirmed winner
+  ---
+  duration_ms: 15.4722
+  type: 'test'
+  ...
+# Subtest: Graph error text containing tokens, author IDs or messages is never logged
+ok 63 - Graph error text containing tokens, author IDs or messages is never logged
+  ---
+  duration_ms: 13.2542
+  type: 'test'
+  ...
+# Subtest: blank and synthetic identities are skipped without enqueueing bids
+ok 64 - blank and synthetic identities are skipped without enqueueing bids
+  ---
+  duration_ms: 12.5146
+  type: 'test'
+  ...
+# Subtest: only exact HTTPS Graph hosts receive a second request
+ok 65 - only exact HTTPS Graph hosts receive a second request
+  ---
+  duration_ms: 47.8469
+  type: 'test'
+  ...
+# Subtest: linked continuation resumes backlog without applying the advanced high-water boundary
+ok 66 - linked continuation resumes backlog without applying the advanced high-water boundary
+  ---
+  duration_ms: 10.9771
+  type: 'test'
+  ...
+# Subtest: expired or unlinked stored cursors are discarded for the fresh page chain
+ok 67 - expired or unlinked stored cursors are discarded for the fresh page chain
+  ---
+  duration_ms: 28.5412
+  type: 'test'
+  ...
+# Subtest: live query retains ordering/stream and explicitly requests no quality filter
+ok 68 - live query retains ordering/stream and explicitly requests no quality filter
+  ---
+  duration_ms: 12.2689
+  type: 'test'
+  ...
+# Subtest: paging refuses another video, another edge and another version before any bearer request
+ok 69 - paging refuses another video, another edge and another version before any bearer request
+  ---
+  duration_ms: 42.6812
+  type: 'test'
+  ...
+# Subtest: cursor shifts cannot skip a newly inserted intermediate page
+ok 70 - cursor shifts cannot skip a newly inserted intermediate page
+  ---
+  duration_ms: 9.9825
+  type: 'test'
+  ...
+# Subtest: read-only preflight reports absent prerequisites without crashing on a missing schema
+ok 71 - read-only preflight reports absent prerequisites without crashing on a missing schema
+  ---
+  duration_ms: 1318.5136
+  type: 'test'
+  ...
+# Subtest: staging rehearsal upgrades a legacy comment flow through deadlines, audit 1, then audit 2 without premature orders
+ok 72 - staging rehearsal upgrades a legacy comment flow through deadlines, audit 1, then audit 2 without premature orders
+  ---
+  duration_ms: 5475.7571
+  type: 'test'
+  ...
+# Subtest: preflight blocks browser grants and missing reporting-RPC execution privileges without changing them
+ok 73 - preflight blocks browser grants and missing reporting-RPC execution privileges without changing them
+  ---
+  duration_ms: 2812.0133
+  type: 'test'
+  ...
+# Subtest: missing, blank and synthetic authors never reach an auction mutation RPC
+ok 74 - missing, blank and synthetic authors never reach an auction mutation RPC
+  ---
+  duration_ms: 144.3535
+  type: 'test'
+  ...
+# Subtest: highest-bid confirmation dispatches the active winner bill immediately and honors public reply off
+ok 75 - highest-bid confirmation dispatches the active winner bill immediately and honors public reply off
+  ---
+  duration_ms: 65.8268
+  type: 'test'
+  ...
+# Subtest: legacy split-summary deliveries retain their ordered recovery plan
+ok 76 - legacy split-summary deliveries retain their ordered recovery plan
+  ---
+  duration_ms: 26.4217
+  type: 'test'
+  ...
+# Subtest: disabled accumulation or paid historical orders send only the latest item bill
+ok 77 - disabled accumulation or paid historical orders send only the latest item bill
+  ---
+  duration_ms: 50.3711
+  type: 'test'
+  ...
+# Subtest: closed Messenger windows send one complete tagged invoice without waiting for inbound chat
+ok 78 - closed Messenger windows send one complete tagged invoice without waiting for inbound chat
+  ---
+  duration_ms: 20.5713
+  type: 'test'
+  ...
+# Subtest: a window closing during a split invoice sends the full private invoice without a second summary
+ok 79 - a window closing during a split invoice sends the full private invoice without a second summary
+  ---
+  duration_ms: 21.0208
+  type: 'test'
+  ...
+# Subtest: an ambiguous second send preserves the first receipt and cannot blindly retry either message
+ok 80 - an ambiguous second send preserves the first receipt and cannot blindly retry either message
+  ---
+  duration_ms: 28.83
+  type: 'test'
+  ...
+# Subtest: auction routing uses scoped rows, separates host/customer commands and checkpoints confirmations
+ok 81 - auction routing uses scoped rows, separates host/customer commands and checkpoints confirmations
+  ---
+  duration_ms: 20.2173
+  type: 'test'
+  ...
+# Subtest: empty tag lists use the configured fallback keywords
+ok 82 - empty tag lists use the configured fallback keywords
+  ---
+  duration_ms: 0.2918
+  type: 'test'
+  ...
+# Subtest: dashboard admin closing tags replace stale round tags and do not dispatch a bill
+ok 83 - dashboard admin closing tags replace stale round tags and do not dispatch a bill
+  ---
+  duration_ms: 19.6501
+  type: 'test'
+  ...
+# Subtest: configured confirmation tags reach the locked winner even while the next auction is active
+ok 84 - configured confirmation tags reach the locked winner even while the next auction is active
+  ---
+  duration_ms: 21.1995
+  type: 'test'
+  ...
+# Subtest: unrelated posts fall through, but late auction confirmations never reach CF
+ok 85 - unrelated posts fall through, but late auction confirmations never reach CF
+  ---
+  duration_ms: 20.4069
+  type: 'test'
+  ...
+# Subtest: a replay routed to the new active round delivers the original confirmed auction outbox
+ok 86 - a replay routed to the new active round delivers the original confirmed auction outbox
+  ---
+  duration_ms: 19.9606
+  type: 'test'
+  ...
+# Subtest: a CF live session without an active auction falls through instead of consuming comments
+ok 87 - a CF live session without an active auction falls through instead of consuming comments
+  ---
+  duration_ms: 18.6664
+  type: 'test'
+  ...
+# Subtest: seller-defined bid words record silently and only a trusted host can use the configured close word
+ok 88 - seller-defined bid words record silently and only a trusted host can use the configured close word
+  ---
+  duration_ms: 19.1581
+  type: 'test'
+  ...
+# Subtest: an active live is found beyond 100 newer rounds and cannot match a foreign tenant or Page
+ok 89 - an active live is found beyond 100 newer rounds and cannot match a foreign tenant or Page
+  ---
+  duration_ms: 29.5011
+  type: 'test'
+  ...
+# Subtest: closed rounds cannot receive late bids, even while their live session remains open
+ok 90 - closed rounds cannot receive late bids, even while their live session remains open
+  ---
+  duration_ms: 18.6101
+  type: 'test'
+  ...
+# Subtest: auction keywords require an explicit post or video ID match
+ok 91 - auction keywords require an explicit post or video ID match
+  ---
+  duration_ms: 20.5722
+  type: 'test'
+  ...
+# Subtest: unmatched Page posts are ignored; missing optional auction schema falls through to ordinary CF
+ok 92 - unmatched Page posts are ignored; missing optional auction schema falls through to ordinary CF
+  ---
+  duration_ms: 36.893
+  type: 'test'
+  ...
+# Subtest: closing bills include shipping and target the winning comment; ambiguous sends never repeat
+ok 93 - closing bills include shipping and target the winning comment; ambiguous sends never repeat
+  ---
+  duration_ms: 19.2933
+  type: 'test'
+  ...
+# Subtest: two outbox runners cannot dispatch the same pending bill twice
+ok 94 - two outbox runners cannot dispatch the same pending bill twice
+  ---
+  duration_ms: 32.8134
+  type: 'test'
+  ...
+# Subtest: closed winners receive both replies at their winning comment without a confirmation or another keyword
+ok 95 - closed winners receive both replies at their winning comment without a confirmation or another keyword
+  ---
+  duration_ms: 19.6112
+  type: 'test'
+  ...
+# Subtest: the previous winner bids in the next round immediately without losing a bid to confirmation
+ok 96 - the previous winner bids in the next round immediately without losing a bid to confirmation
+  ---
+  duration_ms: 19.2819
+  type: 'test'
+  ...
+# Subtest: auction templates and switches control replies and use the cumulative net balance
+ok 97 - auction templates and switches control replies and use the cumulative net balance
+  ---
+  duration_ms: 35.7418
+  type: 'test'
+  ...
+# Subtest: auctions without configured close keywords ignore built-in close markers
+ok 98 - auctions without configured close keywords ignore built-in close markers
+  ---
+  duration_ms: 17.6608
+  type: 'test'
+  ...
+# Subtest: Thai auction variables are single-pass, validated per channel, and preserve financial footers
+ok 99 - Thai auction variables are single-pass, validated per channel, and preserve financial footers
+  ---
+  duration_ms: 0.1547
+  type: 'test'
+  ...
+# Subtest: auction API rejects anonymous, foreign-shop, cross-origin and disabled requests before data access
+ok 100 - auction API rejects anonymous, foreign-shop, cross-origin and disabled requests before data access
+  ---
+  duration_ms: 7.1919
+  type: 'test'
+  ...
+# Subtest: auction setup persists typed replies, rejects unsafe public variables and mismatched Pages
+ok 101 - auction setup persists typed replies, rejects unsafe public variables and mismatched Pages
+  ---
+  duration_ms: 10.3406
+  type: 'test'
+  ...
+# Subtest: workspace API restores scoped saved values and commits a single normalized request after owner authorization
+ok 102 - workspace API restores scoped saved values and commits a single normalized request after owner authorization
+  ---
+  duration_ms: 34.2705
+  type: 'test'
+  ...
+# Subtest: unified workspace saves all zones atomically, preserves merchant values and fences retries/bids
+ok 103 - unified workspace saves all zones atomically, preserves merchant values and fences retries/bids
+  ---
+  duration_ms: 2257.5501
+  type: 'test'
+  ...
+# Subtest: cumulative tabs atomically reopen, accept partials, charge shipping once and fence duplicate/foreign payments
+ok 104 - cumulative tabs atomically reopen, accept partials, charge shipping once and fence duplicate/foreign payments
+  ---
+  duration_ms: 2491.3443
+  type: 'test'
+  ...
+# Subtest: all-in-one API authorizes before reads, validates settings and normalizes templates without accepting client balances
+ok 105 - all-in-one API authorizes before reads, validates settings and normalizes templates without accepting client balances
+  ---
+  duration_ms: 34.2317
+  type: 'test'
+  ...
+# Subtest: live auctions execute against the complete schema: ordering, steps, close, replay, proof and isolation
+ok 106 - live auctions execute against the complete schema: ordering, steps, close, replay, proof and isolation
+  ---
+  duration_ms: 2357.2763
+  type: 'test'
+  ...
+# Subtest: the customer grid merges identities once, retains billed-only customers, and never merges namesakes
+ok 107 - the customer grid merges identities once, retains billed-only customers, and never merges namesakes
+  ---
+  duration_ms: 0.718
+  type: 'test'
+  ...
+# Subtest: customer status counts unique bills and separates unpaid, partial, exact and overpaid balances
+ok 108 - customer status counts unique bills and separates unpaid, partial, exact and overpaid balances
+  ---
+  duration_ms: 0.2279
+  type: 'test'
+  ...
+# Subtest: Session bid shortcuts and host switches are deterministic and preserve legacy parsing
+ok 109 - Session bid shortcuts and host switches are deterministic and preserve legacy parsing
+  ---
+  duration_ms: 2.5848
+  type: 'test'
+  ...
+# Subtest: session money uses integer satang; follow-up formulas and placeholders never invent balances
+ok 110 - session money uses integer satang; follow-up formulas and placeholders never invent balances
+  ---
+  duration_ms: 11.2835
+  type: 'test'
+  ...
+# Subtest: session financial transactions preserve proofs/payments, fence revisions and limit reminder dispatch per Page
+ok 111 - session financial transactions preserve proofs/payments, fence revisions and limit reminder dispatch per Page
+  ---
+  duration_ms: 2858.7451
+  type: 'test'
+  ...
+# Subtest: session API scopes ownership before data access and validates all mutation boundaries
+ok 112 - session API scopes ownership before data access and validates all mutation boundaries
+  ---
+  duration_ms: 47.7388
+  type: 'test'
+  ...
+# Subtest: Thai address parsing copies complete evidence and refuses missing/ambiguous recipients and phones
+ok 113 - Thai address parsing copies complete evidence and refuses missing/ambiguous recipients and phones
+  ---
+  duration_ms: 2.5777
+  type: 'test'
+  ...
+# Subtest: shipping routes reject anonymous/foreign/cross-origin requests before reading or writing recipient details
+ok 114 - shipping routes reject anonymous/foreign/cross-origin requests before reading or writing recipient details
+  ---
+  duration_ms: 14.8242
+  type: 'test'
+  ...
+# Subtest: Messenger address handling stores evidence, asks for confirmation once and honors paused/optional-schema paths
+ok 115 - Messenger address handling stores evidence, asks for confirmation once and honors paused/optional-schema paths
+  ---
+  duration_ms: 40.9242
+  type: 'test'
+  ...
+# Subtest: carrier CSV has precisely ten columns, UTF-8 BOM, COD zero, quoted newlines and formula protection
+ok 116 - carrier CSV has precisely ten columns, UTF-8 BOM, COD zero, quoted newlines and formula protection
+  ---
+  duration_ms: 0.4687
+  type: 'test'
+  ...
+# Subtest: paid bills become parcel allocations; confirmation, stale print fencing, shipment and later wins preserve ledger and labels
+ok 117 - paid bills become parcel allocations; confirmation, stale print fencing, shipment and later wins preserve ledger and labels
+  ---
+  duration_ms: 2531.3908
+  type: 'test'
+  ...
+# Subtest: opening chatter uses opening intent, including incidental numbers
+ok 118 - opening chatter uses opening intent, including incidental numbers
+  ---
+  duration_ms: 1.4804
+  type: 'test'
+  ...
+# Subtest: host identity determines commands; a customer cannot close or count
+ok 119 - host identity determines commands; a customer cannot close or count
+  ---
+  duration_ms: 1.3471
+  type: 'test'
+  ...
+# Subtest: empty tags use defaults while configured tags replace defaults and respect disabled automation
+ok 120 - empty tags use defaults while configured tags replace defaults and respect disabled automation
+  ---
+  duration_ms: 0.4125
+  type: 'test'
+  ...
+# Subtest: configured closing keywords include composed and repeated emoji text for the Page only
+ok 121 - configured closing keywords include composed and repeated emoji text for the Page only
+  ---
+  duration_ms: 0.1641
+  type: 'test'
+  ...
+# Subtest: prices must be an entire valid number, not embedded product or phone chatter
+ok 122 - prices must be an entire valid number, not embedded product or phone chatter
+  ---
+  duration_ms: 0.2303
+  type: 'test'
+  ...
+# Subtest: all live commenters and the host share a queue ordering key
+ok 123 - all live commenters and the host share a queue ordering key
+  ---
+  duration_ms: 0.5488
+  type: 'test'
+  ...
+# Subtest: only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic
+ok 124 - only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic
+  ---
+  duration_ms: 2460.1722
+  type: 'test'
+  ...
+# Subtest: dashboard tags win and empty normalized arrays fall through every source before defaults
+ok 125 - dashboard tags win and empty normalized arrays fall through every source before defaults
+  ---
+  duration_ms: 1.6437
+  type: 'test'
+  ...
+# Subtest: canonical session tags override aliases, normalize Unicode and use centralized empty defaults
+ok 126 - canonical session tags override aliases, normalize Unicode and use centralized empty defaults
+  ---
+  duration_ms: 0.5724
+  type: 'test'
+  ...
+# Subtest: reply aliases interpolate once without evaluating customer supplied template tokens
+ok 127 - reply aliases interpolate once without evaluating customer supplied template tokens
+  ---
+  duration_ms: 0.1641
+  type: 'test'
+  ...
+# Subtest: database configuration isolates modes and tenants; dynamic catalog matching preserves stock, post and replay
+ok 128 - database configuration isolates modes and tenants; dynamic catalog matching preserves stock, post and replay
+  ---
+  duration_ms: 2348.6388
+  type: 'test'
+  ...
+1..128
+# tests 135
+# suites 0
+# pass 135
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 77770.85

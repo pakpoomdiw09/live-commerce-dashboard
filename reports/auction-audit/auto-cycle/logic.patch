@@ -1,0 +1,721 @@
+diff --git a/app/api/live-auction/workspace/route.ts b/app/api/live-auction/workspace/route.ts
+index e38e193..2bd9152 100644
+--- a/app/api/live-auction/workspace/route.ts
++++ b/app/api/live-auction/workspace/route.ts
+@@ -79,18 +79,17 @@ export async function GET(req: NextRequest) {
+           .maybeSingle(),
+       )
+     }
+-    let rounds = db.from('auctions').select('*').eq('tenant_id', tenantId!)
+     const selectedPage = pageId ?? session?.page_id
+     const selectedPost = livePostId ?? session?.live_post_id
+-    if (selectedPage) rounds = rounds.eq('page_id', selectedPage)
+-    if (selectedPost) rounds = rounds.eq('live_post_id', selectedPost)
+-    // A missing session must not restore an unrelated live's round.
+-    const round =
+-      sessionId && !session
+-        ? null
+-        : await workspaceRead(
+-            rounds.order('created_at', { ascending: false }).limit(1).maybeSingle(),
+-          )
++    const rounds = () => {
++      let query = db.from('auctions').select('*').eq('tenant_id', tenantId!)
++      if (selectedPage) query = query.eq('page_id', selectedPage)
++      if (selectedPost) query = query.eq('live_post_id', selectedPost)
++      return query.order('created_at', { ascending: false }).limit(1)
++    }
++    // Cycled rounds may share a source timestamp. Prefer the single active round.
++    const round = await workspaceRead(rounds().eq('status', 'active').maybeSingle()) ??
++      await workspaceRead(rounds().maybeSingle())
+     let reviews = db.from('auction_deliveries')
+       .select('channel,status,auctions!inner(tenant_id,page_id,live_post_id)')
+       .eq('auctions.tenant_id', tenantId!)
+@@ -105,6 +104,7 @@ export async function GET(req: NextRequest) {
+     return auctionReply({
+       ready: true,
+       deliveryReviews,
++      template: session?.auction_round_template ?? previous?.auction_round_template ?? null,
+       auction: round,
+       bids: [],
+       session,
+@@ -174,11 +174,15 @@ export async function POST(req: NextRequest) {
+       auto_accumulate_summary: input.settings.auto_accumulate_summary ?? true,
+       keywords: input.settings.keywords.map(normalizeBidKeyword),
+       closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
++      counting_tags: Object.fromEntries(Object.entries<string>(input.settings.counting_tags ?? {}).map(
++        ([tag, count]) => [normalizeBidKeyword(tag), count.trim()],
++      )),
++      autoCycleRounds: input.settings.autoCycleRounds ?? true,
+       bidText: sessionAuctionTemplate(input.settings.bidText),
+       closeText: sessionAuctionTemplate(input.settings.bidText),
+       privateText: sessionAuctionTemplate(input.settings.privateText),
+       closeEnabled: true,
+-      countEnabled: false,
++      countEnabled: input.settings.countEnabled,
+       heartCloses: false,
+     }
+     const payload = {
+diff --git a/components/live-cf/AuctionUnifiedForm.tsx b/components/live-cf/AuctionUnifiedForm.tsx
+index b795d64..9fda96c 100644
+--- a/components/live-cf/AuctionUnifiedForm.tsx
++++ b/components/live-cf/AuctionUnifiedForm.tsx
+@@ -34,6 +34,7 @@ import { field, orange, read } from './session-ui'
+ 
+ type Config = {
+   ready: boolean
++  template?: { itemName: string; startPrice: number; minStep: number; shippingFee: number } | null
+   session: LiveSession | null
+   round: Auction | null
+   settings: SessionAutomation | null
+@@ -60,6 +61,8 @@ const blankSessionAutomation = (bankAccountId = ''): SessionAutomation => ({
+   closeText: '',
+   bankAccountId,
+   countEnabled: false,
++  counting_tags: {},
++  autoCycleRounds: true,
+   closeEnabled: false,
+   heartCloses: false,
+ })
+@@ -114,10 +117,10 @@ export function AuctionUnifiedForm({
+       setDraft({
+         pageId: selected?.pageId ?? session?.page_id ?? options.pages[0]?.id ?? '',
+         livePostId: selected?.livePostId || session?.live_post_id || '',
+-        itemName: config.round?.item_name ?? '',
+-        startPrice: config.round ? String(config.round.start_price) : '',
+-        minStep: config.round ? String(config.round.min_step) : '',
+-        shippingFee: String(config.round?.shipping_fee ?? 0),
++        itemName: config.template?.itemName ?? config.round?.item_name ?? '',
++        startPrice: config.template ? String(config.template.startPrice) : config.round ? String(config.round.start_price) : '',
++        minStep: config.template ? String(config.template.minStep) : config.round ? String(config.round.min_step) : '',
++        shippingFee: String(config.template?.shippingFee ?? config.round?.shipping_fee ?? 0),
+         settings: {
+           ...settings,
+           auto_accumulate_summary: settings.auto_accumulate_summary ?? true,
+@@ -180,7 +183,6 @@ export function AuctionUnifiedForm({
+     if (
+       liveSessionId &&
+       savedSessionId === liveSessionId &&
+-      !dirty.current &&
+       savedActiveId !== liveActiveId
+     ) {
+       setReload((n) => n + 1)
+@@ -479,7 +481,7 @@ export function AuctionUnifiedForm({
+                       aria-label="ชื่อสินค้า"
+                       required
+                       maxLength={200}
+-                      disabled={locked}
++                      disabled={disabled || (!draft.settings.autoCycleRounds && locked)}
+                       value={draft.itemName}
+                       onChange={(e) => edit({ itemName: e.target.value })}
+                     />
+@@ -532,7 +534,7 @@ export function AuctionUnifiedForm({
+                         max={max}
+                         step="0.01"
+                         required
+-                        disabled={locked}
++                        disabled={disabled || (!draft.settings.autoCycleRounds && locked)}
+                         value={draft[key]}
+                         onChange={(e) => edit({ [key]: e.target.value })}
+                       />
+@@ -586,6 +588,23 @@ export function AuctionUnifiedForm({
+                       disabled={disabled}
+                     />
+                   </div>
++                  <div className="space-y-3 rounded-xl border border-slate-200 p-3">
++                    <LiveSwitch checked={draft.settings.countEnabled}
++                      onChange={(value) => edit({ settings: { ...draft.settings, countEnabled: value } })}
++                      label="เปิดคำสั่งนับของโฮสต์" disabled={disabled} />
++                    <AuctionKeywordEditor label="คำนับของโฮสต์ (เช่น 5, 4, 3, 2, 1 หรือนับ 1)" kind="bid"
++                      keywords={Object.keys(draft.settings.counting_tags ?? {})}
++                      onChange={(value) => {
++                        const previous = draft.settings.counting_tags ?? {}
++                        const tags = typeof value === 'function' ? value(Object.keys(previous)) : value
++                        edit({ settings: { ...draft.settings, counting_tags: Object.fromEntries(tags.map(tag => [tag, previous[tag] ?? tag])) } })
++                      }}
++                      onEdited={() => setNotice('')} normalize={normalizeBidKeyword} disabled={disabled} />
++                    <LiveSwitch checked={draft.settings.autoCycleRounds ?? true}
++                      onChange={(value) => edit({ settings: { ...draft.settings, autoCycleRounds: value } })}
++                      label="เปิดรอบถัดไปอัตโนมัติเมื่อโฮสต์ปิดรอบ" disabled={disabled} />
++                    <p className="text-xs text-slate-500">กดบันทึกเพื่อใช้แม่แบบรอบถัดไป เมื่อมีบิดแล้ว ราคาของรอบปัจจุบันจะไม่เปลี่ยน</p>
++                  </div>
+                   <p className="text-xs leading-relaxed text-slate-500">
+                     ขณะเปิดรอบ คำดักใช้เคาะราคา หลังปิดรอบ ผู้ชนะพิมพ์คำเดิมอีกครั้งเพื่อรับยอด
+                   </p>
+diff --git a/lib/features/commerce/auction-server.ts b/lib/features/commerce/auction-server.ts
+index 3e3d52f..115c8c6 100644
+--- a/lib/features/commerce/auction-server.ts
++++ b/lib/features/commerce/auction-server.ts
+@@ -719,7 +719,7 @@ export async function handleAuctionComment(input: {
+   if (parsed.type === 'CONFIRM_BID') {
+     // Supabase checks sender == current leader under a row lock before creating any invoice.
+     if (result.status === 'confirmed' || result.status === 'already_confirmed')
+-      await deliverAuctionNotifications(auction.id)
++      await deliverAuctionNotifications(result.auctionId ?? auction.id)
+     return true
+   }
+   // The simplified seller workspace records bids silently; only the winner is notified.
+diff --git a/lib/features/commerce/auction-types.ts b/lib/features/commerce/auction-types.ts
+index 338f53c..da5813e 100644
+--- a/lib/features/commerce/auction-types.ts
++++ b/lib/features/commerce/auction-types.ts
+@@ -42,6 +42,8 @@ export type AuctionBid = {
+ }
+ 
+ export type AuctionResult = {
++  auctionId?: string
++  nextAuctionId?: string | null
+   status: string
+   amount?: number
+   minimum?: number
+diff --git a/lib/features/commerce/session-automation.ts b/lib/features/commerce/session-automation.ts
+index ae9b22b..f92cb50 100644
+--- a/lib/features/commerce/session-automation.ts
++++ b/lib/features/commerce/session-automation.ts
+@@ -15,6 +15,7 @@ export type SessionAutomation = CommentSettings & {
+   publicReply: boolean
+   privateReply: boolean
+   auto_accumulate_summary?: boolean
++  autoCycleRounds?: boolean
+   bidText: string
+   privateText: string
+   closeText: string
+@@ -106,6 +107,12 @@ export function validSessionAutomation(value: unknown): value is SessionAutomati
+   return (
+     (v.winnerFlow === undefined || ['on_demand', 'highest_bid'].includes(v.winnerFlow)) &&
+     (v.auto_accumulate_summary === undefined || typeof v.auto_accumulate_summary === 'boolean') &&
++    (v.autoCycleRounds === undefined || typeof v.autoCycleRounds === 'boolean') &&
++    (v.counting_tags === undefined ||
++      (v.counting_tags !== null && typeof v.counting_tags === 'object' && !Array.isArray(v.counting_tags) &&
++        Object.entries(v.counting_tags).every(([tag, count]) =>
++          tag.length <= 40 && normalizeBidKeyword(tag).length > 0 && !/[\r\n{}]/u.test(tag) &&
++          typeof count === 'string' && count.trim().length > 0 && count.length <= 40 && !/[\r\n{}]/u.test(count)))) &&
+     ['publicReply', 'privateReply', 'countEnabled', 'closeEnabled', 'heartCloses'].every(
+       (key) => typeof v[key as keyof SessionAutomation] === 'boolean',
+     ) &&
+diff --git a/lib/integrations/facebook/auction-comment-parser.ts b/lib/integrations/facebook/auction-comment-parser.ts
+index 5617d1d..8f2211f 100644
+--- a/lib/integrations/facebook/auction-comment-parser.ts
++++ b/lib/integrations/facebook/auction-comment-parser.ts
+@@ -41,15 +41,15 @@ export function parseAuctionComment(
+   const value = normalizeAuctionTag(text)
+   const settings = resolveCommentSettings({}, automation ?? {})
+   if (isHost) {
+-    if (automation?.closeEnabled !== false && settings.closeKeywords.includes(value))
++    let count: string | null = null
++    for (const line of text.split(/[\r\n]+/u).map(normalizeAuctionTag).filter(Boolean)) {
++      if (automation?.closeEnabled !== false && settings.closeKeywords.includes(line))
+         return { type: 'HOST_CONTROL', action: 'close', count: null }
+-    // Counting remains separate from closing; configured closing tags take precedence.
+-    const count = settings.counting_tags[value]
+-    if (count)
+-      return automation?.countEnabled === true
+-        ? { type: 'HOST_CONTROL', action: 'count', count }
+-        : { type: 'IGNORE' }
++      if (automation?.countEnabled !== true || typeof settings.counting_tags[line] !== 'string' || !settings.counting_tags[line].trim())
+         return { type: 'IGNORE' }
++      count = settings.counting_tags[line]
++    }
++    return count ? { type: 'HOST_CONTROL', action: 'count', count } : { type: 'IGNORE' }
+   }
+   const matchesKeyword = settings.keywords.includes(value)
+   if (matchesKeyword) return { type: 'CONFIRM_BID' }
+diff --git a/scripts/build-full-database-setup.cjs b/scripts/build-full-database-setup.cjs
+index 4f7a16b..a783578 100644
+--- a/scripts/build-full-database-setup.cjs
++++ b/scripts/build-full-database-setup.cjs
+@@ -146,6 +146,7 @@ const groups = [
+       'live-auction-audit-hardening.sql',
+       'live-auction-audit-hardening-2.sql',
+       'live-auction-manual-host-close.sql',
++      'live-auction-auto-cycle.sql',
+     ],
+   ],
+ ]
+@@ -323,6 +324,7 @@ const prerequisites = {
+   'live-auction-audit-hardening.sql': ['facebook-comment-configuration.sql', 'live-auction-on-demand.sql', 'live-auction-deadlines.sql'],
+   'live-auction-audit-hardening-2.sql': ['live-auction-audit-hardening.sql', 'live-auction-deadlines.sql'],
+   'live-auction-manual-host-close.sql': ['live-auction-audit-hardening-2.sql', 'live-auction-deadlines.sql'],
++  'live-auction-auto-cycle.sql': ['live-auction-manual-host-close.sql', 'facebook-comment-configuration.sql'],
+   'inbox-load-indexes.sql': ['inbox-realtime.sql'],
+   'facebook-inbox-recovery.sql': ['facebook-webhook-queue.sql', 'smart-inbox.sql'],
+   'live-cf-variants.sql': ['commerce-v2.sql', 'facebook-webhook-queue.sql'],
+diff --git a/scripts/test-auction-manual-form.cjs b/scripts/test-auction-manual-form.cjs
+index abf5da2..53d22c6 100644
+--- a/scripts/test-auction-manual-form.cjs
++++ b/scripts/test-auction-manual-form.cjs
+@@ -16,7 +16,8 @@ for (const editing of [false, true]) test(`manual form hydrates ${editing ? 'a t
+   deps['react/jsx-runtime'] = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
+   const config = { ready: true, session: editing ? { id: 'session', page_id: '100', live_post_id: '456' } : null,
+     round: editing ? { id: 'round', status: 'active', item_name: 'Hydrated item', start_price: 100, min_step: 10, duration_seconds: 600 } : null,
+-    settings: null, preferencesOnly: !editing }
++    template: editing ? { itemName: 'Next template', startPrice: 300, minStep: 20, shippingFee: 40 } : null,
++    settings: { countEnabled: true, counting_tags: { '3': '3', '2': '2', '1': '1' }, autoCycleRounds: true }, preferencesOnly: !editing }
+   deps['./session-ui'] = { read: async () => config, field: '', orange: '' }
+   const temporary = path.join(os.tmpdir(), `auction-manual-form-${process.pid}-${editing}.js`)
+   fs.writeFileSync(temporary, ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText)
+@@ -34,7 +35,10 @@ for (const editing of [false, true]) test(`manual form hydrates ${editing ? 'a t
+     await nodes.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
+     assert.equal(sent.length, 1)
+     assert.equal(sent[0].durationSeconds, null)
++    assert.equal(sent[0].settings.countEnabled, true)
++    assert.equal(sent[0].settings.autoCycleRounds, true)
++    assert.deepEqual(sent[0].settings.counting_tags, { '3': '3', '2': '2', '1': '1' })
+     assert.equal(sent[0].roundId, editing ? 'round' : null)
+-    if (editing) assert.equal(sent[0].itemName, 'Hydrated item')
++    if (editing) { assert.equal(sent[0].itemName, 'Next template'); assert.equal(sent[0].startPrice, '300') }
+   } finally { fs.unlinkSync(temporary) }
+ })
+diff --git a/scripts/test-auction-preflight.cjs b/scripts/test-auction-preflight.cjs
+index 2f5f39e..9bef94e 100644
+--- a/scripts/test-auction-preflight.cjs
++++ b/scripts/test-auction-preflight.cjs
+@@ -24,7 +24,7 @@ test('read-only preflight reports absent prerequisites without crashing on a mis
+ test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 1, then audit 2 without premature orders', async () => {
+   const result = build()
+   const index = result.sources.indexOf('live-auction-deadlines.sql')
+-  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql'])
++  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql', 'live-auction-auto-cycle.sql'])
+   const prefix = n => completeSchema({ ...result, sections: result.sections.slice(0, n) })
+   const f = await fixture(prefix(index))
+   const captures = {}
+@@ -70,7 +70,8 @@ test('staging rehearsal upgrades a legacy comment flow through deadlines, audit
+     assert.equal(confirmation.result.status, 'stale', 'audit 1 still has the source-seconds race')
+     await f.db.exec(prefix(index + 3))
+     captures.audit2 = await definition()
+-    await f.db.exec(prefix(index + 4))
++    await f.db.exec(prefix(index + 5))
++    captures.cycle = await definition()
+     const final = await inspect(f.db)
+     assert.deepEqual(final.filter(row => row.status !== 'PASS'), [])
+     assert.equal((await f.processEvent(a, confirmation.event, confirmation.parsed)).status, 'confirmed')
+@@ -81,7 +82,7 @@ test('staging rehearsal upgrades a legacy comment flow through deadlines, audit
+     const current = await fixture()
+     try {
+       const expected = await current.one('select pg_get_functiondef($1::regprocedure) definition', [signature])
+-      assert.equal(captures.audit2, expected.definition, 'no function drift versus fresh current installation')
++      assert.equal(captures.cycle, expected.definition, 'no function drift versus fresh current installation')
+     } finally { await current.db.close() }
+     if (process.env.AUCTION_PREFLIGHT_EVIDENCE) {
+       const folder = path.resolve(process.env.AUCTION_PREFLIGHT_EVIDENCE)
+diff --git a/scripts/test-auction-server.cjs b/scripts/test-auction-server.cjs
+index 8e317db..47df470 100644
+--- a/scripts/test-auction-server.cjs
++++ b/scripts/test-auction-server.cjs
+@@ -672,6 +672,16 @@ test('unrelated posts fall through, but late auction confirmations never reach C
+   assert.equal(f.calls.private.length, 0)
+ })
+ 
++test('a replay routed to the new active round delivers the original confirmed auction outbox', async () => {
++  const f = fixture({ result: { status: 'confirmed', auctionId, orderId, amount: 250 } })
++  Object.assign(f.tables.auctions[0], { status: 'closed', winner_locked_at: '2026-01-02', winner_confirmed_at: '2026-01-03' })
++  f.tables.auctions.push({ ...f.tables.auctions[0], id: 'next-cycle', status: 'active', created_at: '2026-01-03', winner_locked_at: null, winner_confirmed_at: null })
++  f.tables.auction_deliveries.push({ id: 'original-outbox', auction_id: auctionId, channel: 'private', status: 'pending', comment_id: '456_789' })
++  await f.receive('1', '900')
++  assert.equal(f.calls.rpc[0].input.p_auction, 'next-cycle')
++  assert.equal(f.calls.private.length, 1)
++})
++
+ test('a CF live session without an active auction falls through instead of consuming comments', async () => {
+   const f = fixture()
+   f.tables.live_sessions.push({
+diff --git a/scripts/test-auction-workspace-api.cjs b/scripts/test-auction-workspace-api.cjs
+index 96fb08a..c3fab2f 100644
+--- a/scripts/test-auction-workspace-api.cjs
++++ b/scripts/test-auction-workspace-api.cjs
+@@ -20,6 +20,9 @@ test('workspace API restores scoped saved values and commits a single normalized
+   const settings = {
+     ...automation.defaultSessionAutomation(bankId),
+     keywords: ['raise'],
++    countEnabled: true,
++    counting_tags: { ' LAST CALL ': '5' },
++    autoCycleRounds: true,
+     privateText: '{bidder_name} {total} {bank_account}',
+   }
+   const rows = {
+@@ -213,6 +216,9 @@ test('workspace API restores scoped saved values and commits a single normalized
+   assert.equal(calls.length, 1)
+   assert.equal(calls[0].name, 'save_auction_workspace')
+   assert.equal(calls[0].args.p_input.shippingFee, 47)
++  assert.equal(calls[0].args.p_input.settings.countEnabled, true)
++  assert.equal(calls[0].args.p_input.settings.counting_tags['last call'], '5')
++  assert.equal(calls[0].args.p_input.settings.autoCycleRounds, true)
+   assert.equal(calls[0].args.p_input.durationSeconds, null)
+   assert.deepEqual(Array.from(calls[0].args.p_input.settings.keywords), ['raise'])
+   assert.equal(calls[0].args.p_input.settings.bidText, '{bidder_name} {price}')
+diff --git a/scripts/test-auction-auto-cycle.cjs b/scripts/test-auction-auto-cycle.cjs
+new file mode 100644
+index 0000000..a61906d
+--- /dev/null
++++ b/scripts/test-auction-auto-cycle.cjs
+@@ -0,0 +1,132 @@
++const { test } = require('node:test'), assert = require('node:assert/strict')
++const { randomUUID } = require('node:crypto')
++const { fixture } = require('./helpers/auction-hardening-db.cjs')
++const { parseAuctionComment } = require('./helpers/load-typescript.cjs')('lib/integrations/facebook/auction-comment-parser.ts')
++
++async function setup() {
++  const f = await fixture()
++  Object.assign(f.settings, { autoCycleRounds: true, countEnabled: true,
++    counting_tags: { '5': '5', '4': '4', '3': '3', '2': '2', '1': '1', 'นับ 1': '1', 'นับ 2': '2', 'นับ 3': '3' },
++    keywords: ['รับ', 'cf', 'ยืนยัน'], closeKeywords: ['ปิด', 'x', 'กากบาท'] })
++  const actor = (await f.one('insert into auth.users default values returning id')).id
++  const input = { pageId: '100', livePostId: '456', sessionId: null, roundId: null, revision: 0, financialRevision: 0,
++    itemName: 'พระ', startPrice: 200, minStep: 10, shippingFee: 35, durationSeconds: null,
++    hostIds: ['100', '999'], settings: { ...f.settings, bidText: '', privateText: '', closeText: '', heartCloses: false },
++    finance: { cost: 0, ads: 0, shipping: 0, fees: 0 } }
++  const save = async (v, id = randomUUID()) => (await f.one('select save_auction_workspace($1,$2,$3,$4) r', [f.tenant, actor, id, v])).r
++  const saved = await save(input)
++  const a = await f.one('select * from auctions where id=$1', [saved.auctionId])
++  return { ...f, a, input, save, saved }
++}
++
++test('dashboard counting supports five steps and multiline custom counts without closing or accepting host bids', async () => {
++  const f = await setup()
++  try {
++    for (const count of ['5', '4', '3', '2', '1']) {
++      assert.equal((await f.receive(f.a, '999', count)).result.status, 'count')
++      assert.equal((await f.one('select host_count from auctions where id=$1', [f.a.id])).host_count, count)
++    }
++    assert.equal((await f.receive(f.a, '999', 'นับ 1\nนับ 2\nนับ 3')).result.status, 'count')
++    assert.equal((await f.one('select host_count from auctions where id=$1', [f.a.id])).host_count, '3')
++    assert.equal((await f.receive(f.a, '900', 'ปิด')).result.status, 'ignored')
++    assert.equal((await f.one('select status from auctions where id=$1', [f.a.id])).status, 'active')
++    assert.equal((await f.one('select count(*)::int n from auctions')).n, 1)
++  } finally { await f.db.close() }
++})
++
++test('host close atomically cycles from the saved template and previous winner confirms while new bids continue', async () => {
++  const f = await setup()
++  try {
++    await f.receive(f.a, '900', '200'); await f.receive(f.a, '901', '250')
++    const event = await f.event(f.a, '999', '3\n2\n1\nปิด')
++    const queuedBid = await f.event(f.a, '902', '200')
++    const parsed = parseAuctionComment('3\n2\n1\nปิด', true, f.settings)
++    const close = { event, parsed, result: await f.processEvent(f.a, event, parsed) }
++    assert.equal(close.result.status, 'awaiting_confirmation')
++    assert.ok(close.result.nextAuctionId)
++    const next = await f.one('select * from auctions where id=$1', [close.result.nextAuctionId])
++    assert.equal(next.item_name, 'พระ'); assert.equal(Number(next.start_price), 200)
++    assert.equal(Number(next.min_step), 10); assert.equal(Number(next.shipping_fee), 35)
++    assert.equal(next.current_price, '0.00'); assert.equal(next.leading_bidder_id, null)
++    assert.equal(next.ends_at, null); assert.equal(next.previous_auction_id, f.a.id)
++    assert.equal((await f.one('select order_id from auctions where id=$1', [f.a.id])).order_id, null)
++    // Retry routed to the new active round must not close it or create a third round.
++    assert.deepEqual(await f.processEvent(next, close.event, close.parsed), close.result)
++    assert.equal((await f.one('select count(*)::int n from auctions')).n, 2)
++    assert.equal((await f.processEvent(next, queuedBid, parseAuctionComment('200', false, f.settings))).status, 'accepted')
++    assert.equal((await f.receive(f.a, '900', 'cf')).result.status, 'not_winner')
++    const confirmed = await f.receive(f.a, '901', 'รับ')
++    assert.equal(confirmed.result.status, 'confirmed')
++    assert.equal(confirmed.result.auctionId, f.a.id)
++    assert.equal((await f.receive(next, '903', '210')).result.status, 'accepted')
++    await f.processEvent(next, confirmed.event, confirmed.parsed)
++    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 1)
++    assert.equal((await f.one('select order_id from auctions where id=$1', [next.id])).order_id, null)
++    const early = await f.receive(next, '903', 'cf')
++    assert.equal(early.result.status, 'awaiting_host_close')
++    const closedNext = await f.receive(next, '999', 'x')
++    assert.ok(closedNext.result.nextAuctionId)
++    assert.equal((await f.processEvent(next, early.event, early.parsed)).status, 'awaiting_host_close')
++    assert.equal((await f.one('select order_id from auctions where id=$1', [next.id])).order_id, null)
++    assert.equal((await f.receive(next, '903', 'ยืนยัน')).result.status, 'confirmed')
++    assert.equal((await f.one("select count(*)::int n from auctions where status='active'")).n, 1)
++  } finally { await f.db.close() }
++})
++
++test('template edits after accepted bids change only the following round and are replay fenced', async () => {
++  const f = await setup()
++  try {
++    await f.receive(f.a, '900', '200')
++    const s = await f.one('select * from live_sessions where id=$1', [f.saved.sessionId])
++    const updated = { ...f.input, itemName: 'พระรุ่นใหม่', startPrice: 300, minStep: 20,
++      sessionId: s.id, roundId: f.a.id, revision: s.automation_revision, financialRevision: s.financial_revision }
++    const request = randomUUID(); await f.save(updated, request); await f.save(updated, request)
++    assert.equal((await f.one('select start_price from auctions where id=$1', [f.a.id])).start_price, '200.00')
++    const close = await f.receive(f.a, '999', 'x')
++    const next = await f.one('select * from auctions where id=$1', [close.result.nextAuctionId])
++    assert.equal(next.item_name, 'พระรุ่นใหม่'); assert.equal(next.start_price, '300.00')
++    assert.equal(next.min_step, '20.00')
++    assert.equal(next.public_reply_enabled, false); assert.equal(next.private_reply_enabled, false)
++  } finally { await f.db.close() }
++})
++
++test('each cycled round inherits saved public/private switches and reply templates', async () => {
++  const f = await setup()
++  try {
++    for (const [publicReply, privateReply] of [[true, false], [false, true], [true, true], [false, false]]) {
++      const a = await f.one("select * from auctions where status='active' and tenant_id=$1", [f.tenant])
++      const s = await f.one('select * from live_sessions where id=$1', [f.saved.sessionId])
++      const settings = { ...f.input.settings, publicReply, privateReply,
++        bidText: 'Sold {product_name} {price}', closeText: 'Sold {product_name} {price}',
++        privateText: 'Invoice {product_name} {total} {bank_account} {payment_link}' }
++      await f.save({ ...f.input, settings, sessionId: s.id, roundId: a.id,
++        revision: s.automation_revision, financialRevision: s.financial_revision })
++      await f.receive(a, '900', '200')
++      const close = await f.receive(a, '999', 'กากบาท')
++      const next = await f.one('select * from auctions where id=$1', [close.result.nextAuctionId])
++      assert.equal(next.public_reply_enabled, publicReply); assert.equal(next.private_reply_enabled, privateReply)
++      assert.equal(next.bid_reply_template, settings.bidText); assert.equal(next.private_reply_template, settings.privateText)
++      assert.equal((await f.receive(a, '900', 'ยืนยัน')).result.status, 'confirmed')
++      const channels = (await f.db.query('select channel from auction_deliveries where auction_id=$1', [a.id])).rows.map(r => r.channel)
++      if (publicReply) assert.ok(channels.includes('public'))
++      if (privateReply) assert.ok(channels.includes('private'))
++    }
++  } finally { await f.db.close() }
++})
++
++test('successor creation failure rolls back host closure and the same event can safely retry', async () => {
++  const f = await setup()
++  try {
++    await f.receive(f.a, '900', '200')
++    await f.db.exec("create function reject_cycle_fixture() returns trigger language plpgsql as $$begin if new.previous_auction_id is not null then raise exception 'ROLLOVER_FIXTURE';end if;return new;end $$;create trigger reject_cycle_fixture before insert on auctions for each row execute function reject_cycle_fixture();")
++    const event = await f.event(f.a, '999', 'ปิด')
++    const parsed = parseAuctionComment('ปิด', true, f.settings)
++    await assert.rejects(f.processEvent(f.a, event, parsed), /ROLLOVER_FIXTURE/)
++    assert.deepEqual(await f.one('select status,winner_locked_at,order_id from auctions where id=$1', [f.a.id]),
++      { status: 'active', winner_locked_at: null, order_id: null })
++    assert.equal((await f.one('select count(*)::int n from auction_bids where event_id=$1', [event.id])).n, 0)
++    await f.db.exec('drop trigger reject_cycle_fixture on auctions')
++    assert.ok((await f.processEvent(f.a, event, parsed)).nextAuctionId)
++    assert.equal((await f.one('select count(*)::int n from auctions')).n, 2)
++  } finally { await f.db.close() }
++})
+diff --git a/supabase/live-auction-auto-cycle.sql b/supabase/live-auction-auto-cycle.sql
+new file mode 100644
+index 0000000..eff9334
+--- /dev/null
++++ b/supabase/live-auction-auto-cycle.sql
+@@ -0,0 +1,233 @@
++-- Forward-only successor to live-auction-manual-host-close.sql. No event replay or sends.
++begin;
++alter table public.live_sessions add column if not exists auction_round_template jsonb;
++alter table public.auctions add column if not exists previous_auction_id uuid references public.auctions(id);
++create unique index if not exists auctions_one_successor on public.auctions(previous_auction_id) where previous_auction_id is not null;
++create index if not exists auction_bids_comment_lookup on public.auction_bids(comment_id);
++
++create or replace function public.normalize_auction_settings_before_split(settings jsonb) returns jsonb
++language sql immutable returns null on null input set search_path=pg_catalog,public as $$
++ select case when coalesce(settings->>'winnerFlow','on_demand') in ('on_demand','highest_bid') then settings||jsonb_build_object(
++  'winnerFlow',coalesce(settings->>'winnerFlow','on_demand'),
++  'keywords',coalesce(settings->'keywords','[]'::jsonb),
++  'closeKeywords',coalesce(settings->'closeKeywords','[]'::jsonb),
++  'closeKeywordPresetsVersion',1,'countEnabled',coalesce((settings->>'countEnabled')::boolean,false),'heartCloses',false,'closeEnabled',coalesce((settings->>'closeEnabled')::boolean,true),
++  'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
++  'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end) else null end
++$$;
++
++create or replace function public.auction_host_command(message text,settings jsonb)
++returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
++declare line text;count_value text;last_count text;closing text[];
++begin
++ closing:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ for line in select public.normalize_auction_tag(v) from regexp_split_to_table(coalesce(message,''),E'[\r\n]+') v loop
++  continue when line='';
++  if coalesce((settings->>'closeEnabled')::boolean,true) and line=any(closing) then
++   return jsonb_build_object('action','close');
++  end if;
++  count_value:=null;
++  if coalesce((settings->>'countEnabled')::boolean,false) and jsonb_typeof(settings->'counting_tags')='object' then
++   select btrim(value#>>'{}') into count_value from jsonb_each(settings->'counting_tags')
++    where public.normalize_auction_tag(key)=line and jsonb_typeof(value)='string' limit 1;
++  end if;
++  if coalesce(count_value,'')='' or length(count_value)>40 then return jsonb_build_object('action','ignore');end if;
++  last_count:=count_value;
++ end loop;
++ return case when last_count is null then jsonb_build_object('action','ignore') else jsonb_build_object('action','count','count',last_count) end;
++end $$;
++
++create or replace function public.advance_live_auction(p_auction uuid,p_tenant uuid,p_event uuid)
++returns uuid language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;s public.live_sessions;e public.facebook_webhook_events;t jsonb;settings jsonb;next_id uuid;started timestamptz;bank uuid;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ select id into next_id from public.auctions where previous_auction_id=a.id and tenant_id=p_tenant;
++ if found then return next_id;end if;
++ if a.status<>'closed' or a.close_event_id is distinct from p_event or p_event is null then return null;end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id and kind='change';
++ if not found or not coalesce(e.payload->'value'->'from'->>'id'=a.page_id or e.payload->'value'->'from'->>'id'=any(a.host_ids),false) then
++  raise exception 'AUCTION_HOST_REQUIRED' using errcode='42501';end if;
++ select * into s from public.live_sessions where tenant_id=a.tenant_id and page_id=a.page_id and live_post_id=a.live_post_id and ended_at is null for update;
++ if not found or s.auction_round_template is null or not coalesce((s.auction_settings->>'autoCycleRounds')::boolean,false) then return null;end if;
++ settings:=public.resolve_facebook_comment_settings(to_jsonb(s),a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode' is distinct from 'auction' then return null;end if;
++ t:=s.auction_round_template;bank:=(settings->>'bankAccountId')::uuid;
++ if not exists(select 1 from public.bank_accounts where id=bank and tenant_id=a.tenant_id and is_active) then raise exception 'BANK_SCOPE' using errcode='42501';end if;
++ -- Source-time floor preserves comments already queued after the close in the same poll cycle.
++ started:=least(e.created_at,coalesce(public.auction_comment_timestamp(e.payload->'value'->>'created_time'),e.created_at));
++ insert into public.auctions(tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,
++  bank_account_id,host_ids,session_automation,private_reply_enabled,public_reply_enabled,
++  private_reply_template,bid_reply_template,close_reply_template,previous_auction_id,created_at)
++ values(a.tenant_id,a.page_id,a.live_post_id,a.live_post_aliases,t->>'itemName',(t->>'startPrice')::numeric,
++  (t->>'minStep')::numeric,(t->>'shippingFee')::numeric,bank,a.host_ids,settings,
++  coalesce((settings->>'privateReply')::boolean,false),coalesce((settings->>'publicReply')::boolean,false),
++  coalesce(settings->>'private_reply_template',settings->>'privateText',a.private_reply_template),
++  coalesce(settings->>'public_reply_template',settings->>'bidText',a.bid_reply_template),
++  coalesce(settings->>'closeText',a.close_reply_template),a.id,started) returning id into next_id;
++ update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=next_id;
++ return next_id;
++end $$;
++
++create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
++begin
++ if p_request is null or p_actor is null then raise exception 'INVALID_REQUEST';end if;
++ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
++ select * into prior from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request;
++ if found then
++  if prior.actor_id<>p_actor or prior.input<>p_input then raise exception 'REQUEST_REUSED' using errcode='40001';end if;
++  return prior.result;
++ end if;
++ if jsonb_typeof(p_input->'settings'->'autoCycleRounds') is not null and jsonb_typeof(p_input->'settings'->'autoCycleRounds')<>'boolean' then raise exception 'INVALID_SETTINGS';end if;
++ if p_input->'settings' ? 'counting_tags' then
++  if jsonb_typeof(p_input->'settings'->'counting_tags')<>'object' then raise exception 'INVALID_SETTINGS';end if;
++  if exists(select 1 from jsonb_each(p_input->'settings'->'counting_tags') where length(key)>40 or public.normalize_auction_tag(key)='' or key~E'[\r\n{}]'
++   or jsonb_typeof(value)<>'string' or length(btrim(value#>>'{}')) not between 1 and 40 or (value#>>'{}')~E'[\r\n{}]') then raise exception 'INVALID_SETTINGS';end if;
++ end if;
++ cycling:=coalesce((p_input->'settings'->>'autoCycleRounds')::boolean,false);
++ effective:=p_input;
++ if cycling then
++  if coalesce(length(btrim(p_input->>'itemName')),0) not between 1 and 200
++   or coalesce((p_input->>'startPrice')::numeric,0) not between 0.01 and 999999999
++   or coalesce((p_input->>'minStep')::numeric,0) not between 0.01 and 999999999
++   or coalesce((p_input->>'shippingFee')::numeric,-1) not between 0 and 999999 then raise exception 'INVALID_ROUND';end if;
++  select * into a from public.auctions where tenant_id=p_tenant and page_id=p_input->>'pageId' and live_post_id=p_input->>'livePostId' and status='active' for update;
++  if a.leading_bidder_id is not null then
++   if a.bank_account_id is distinct from (p_input->'settings'->>'bankAccountId')::uuid then raise exception 'BIDS_ALREADY_ACCEPTED';end if;
++   effective:=p_input||jsonb_build_object('itemName',a.item_name,'startPrice',a.start_price,'minStep',a.min_step,'shippingFee',a.shipping_fee);
++  end if;
++ end if;
++ if cycling or (p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb) then duration:=null;
++ else
++  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
++  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
++ end if;
++ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,effective);
++ if duration is null then
++  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
++ else
++  update public.auctions set duration_seconds=duration,timer_started_at=coalesce(timer_started_at,clock_timestamp()),
++   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
++   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active' and (duration_seconds is distinct from duration or ends_at is null);
++ end if;
++ update public.live_sessions set comment_settings=coalesce(comment_settings,'{}')||(p_input->'settings')||
++  jsonb_build_object('public_reply_template',p_input->'settings'->>'bidText','private_reply_template',p_input->'settings'->>'privateText'),
++  auction_round_template=jsonb_build_object('itemName',btrim(p_input->>'itemName'),
++  'startPrice',(p_input->>'startPrice')::numeric,'minStep',(p_input->>'minStep')::numeric,'shippingFee',(p_input->>'shippingFee')::numeric)
++  where id=(result->>'sessionId')::uuid and tenant_id=p_tenant;
++ -- Preserve original request identity when the active round's bid prices were protected.
++ update public.auction_workspace_requests set input=p_input where tenant_id=p_tenant and request_id=p_request;
++ return result;
++end $$;
++
++
++-- Public comment RPC with dynamic host commands and atomic cycling.
++create or replace function public.process_live_auction_comment(
++ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
++ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;command jsonb;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
++ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
++ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
++ select b.result into prior from public.auction_bids b join public.auctions old on old.id=b.auction_id
++  where old.tenant_id=a.tenant_id and old.page_id=a.page_id and old.live_post_id=a.live_post_id
++   and (b.event_id=e.id or b.comment_id=cid) limit 1;
++ if found then return prior;end if;
++ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
++ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
++ host:=sender=a.page_id or sender=any(a.host_ids);
++ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
++ message:=public.normalize_auction_tag(v->>'message');
++ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
++ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ confirming:=not host and message=any(keywords);
++ if host then
++  p_kind:='IGNORE';p_control:=null;
++  command:=public.auction_host_command(v->>'message',settings);
++  if command->>'action'='close' then p_kind:='HOST_CONTROL';p_control:='close';
++  elsif command->>'action'='count' then p_kind:='HOST_CONTROL';p_control:=command->>'count';counting:=true;
++  end if;
++ end if;
++ if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
++  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
++  return r;
++ end if;
++ if confirming then
++  confirmation_floor:=a.winner_locked_at;
++  if a.close_event_id is not null then
++   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
++   if found and close_event.payload->'value'->>'verb'='add'
++    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
++    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
++   end if;
++  end if;
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (confirmation_floor is not null and source_at<confirmation_floor) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
++ if a.session_automation is distinct from settings then
++  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
++  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
++  r:=r||jsonb_build_object('nextAuctionId',public.advance_live_auction(a.id,a.tenant_id,e.id));
++  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
++  return r;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
++  update public.auctions set host_count=p_control where id=a.id;
++  r:=jsonb_build_object('status','count');
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
++  return r;
++ end if;
++ if host then return jsonb_build_object('status','ignored');end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
++ if not confirming then
++  numeric_price:=public.auction_numeric_price(v->>'message');
++  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
++ end if;
++ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
++ else
++  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
++  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
++  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
++ end if;
++ r:=r||jsonb_build_object('auctionId',a.id);
++ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
++ return r;
++end $$;
++
++revoke all on function public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated;
++grant execute on function public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role;
++notify pgrst,'reload schema';
++commit;

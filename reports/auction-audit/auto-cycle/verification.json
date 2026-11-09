@@ -1,0 +1,26 @@
+{
+  "tests": {
+    "tests": 135,
+    "pass": 135,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "testExit": 0,
+  "typecheckExit": 0,
+  "buildExit": 0,
+  "preflightChecks": 149,
+  "preflightBlocked": 0,
+  "parity": "Known intentional failure; bootstrap regeneration remains separate",
+  "protectedFilesUnchanged": [
+    "supabase/live-auction-deadlines.sql",
+    "supabase/live-auction-audit-hardening.sql",
+    "supabase/live-auction-audit-hardening-2.sql",
+    "supabase/live-auction-manual-host-close.sql",
+    "supabase/complete_schema.sql",
+    "supabase/full_database_setup.sql"
+  ],
+  "productionMigration": false,
+  "graphRequests": false,
+  "credentialInspection": false
+}

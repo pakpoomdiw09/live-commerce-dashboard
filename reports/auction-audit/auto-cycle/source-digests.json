@@ -1,0 +1,18 @@
+[
+  {
+    "signature": "public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)",
+    "body_md5": "d70e47ba525254e154cacef0d0e6de40"
+  },
+  {
+    "signature": "public.save_auction_workspace(uuid,uuid,uuid,jsonb)",
+    "body_md5": "4580170e7db655b990704d3e0d8c2982"
+  },
+  {
+    "signature": "public.normalize_auction_thai_settings(jsonb)",
+    "body_md5": "826503e8104845a20361af538791b3bb"
+  },
+  {
+    "signature": "public.normalize_auction_settings_before_split(jsonb)",
+    "body_md5": "ac515b7fd153e773754c7d0a82e81247"
+  }
+]

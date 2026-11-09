@@ -1,0 +1,41 @@
+{
+  "files": [
+    "scripts/test-auction-audit-lifecycle.cjs",
+    "scripts/test-auction-auto-cycle.cjs",
+    "scripts/test-auction-background.cjs",
+    "scripts/test-auction-cron.cjs",
+    "scripts/test-auction-customer-tab-slip.cjs",
+    "scripts/test-auction-deadlines.cjs",
+    "scripts/test-auction-degraded-form.cjs",
+    "scripts/test-auction-hardening-2.cjs",
+    "scripts/test-auction-host-actions.cjs",
+    "scripts/test-auction-hosts.cjs",
+    "scripts/test-auction-ingestion-privacy.cjs",
+    "scripts/test-auction-invoice-messaging.cjs",
+    "scripts/test-auction-manual-form.cjs",
+    "scripts/test-auction-manual-host-close.cjs",
+    "scripts/test-auction-on-demand.cjs",
+    "scripts/test-auction-poller-hardening.cjs",
+    "scripts/test-auction-poller-remediation.cjs",
+    "scripts/test-auction-preflight.cjs",
+    "scripts/test-auction-server.cjs",
+    "scripts/test-auction-workspace-api.cjs",
+    "scripts/test-auction-workspace.cjs",
+    "scripts/test-customer-tabs.cjs",
+    "scripts/test-live-session-dashboard.cjs",
+    "scripts/test-shipping.cjs",
+    "scripts/test-live-auctions.cjs",
+    "scripts/test-live-auction-dashboard-api.cjs",
+    "tests/features/commerce/auction-comment.test.ts",
+    "tests/features/commerce/auction-confirmation.test.ts",
+    "tests/features/commerce/comment-config.test.ts"
+  ],
+  "exit": 0,
+  "counts": {
+    "tests": 135,
+    "pass": 135,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0
+  }
+}

@@ -38,15 +38,20 @@ column_groups(stage,table_name,names) as (values
  ('20_before_audit_2','auction_poll_cursors',array['cursor_id','auction_id','tenant_id',
   'session_id','live_video_id','high_water_at','continuation_url',
   'continuation_anchor_url','continuation_boundary_at','updated_at']),
- ('30_application','auction_expiry_failures',array['sqlstate','auction_id','occurred_at'])
+ ('30_application','auction_expiry_failures',array['sqlstate','auction_id','occurred_at']),
+ ('40_auto_cycle','live_sessions',array['auction_round_template']),
+ ('40_auto_cycle','auctions',array['previous_auction_id'])
 ),
 -- Reviewed source-body digests from local PGlite, not from the active database.
 -- CRLF is normalized. A formatting-only body change also BLOCKS: investigate, do not bypass.
 function_bodies(signature,body_md5) as (values
- ('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','091b062e3b8d978ae94311e5b6a1ac67'),
+ ('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','d70e47ba525254e154cacef0d0e6de40'),
  ('public.finalize_live_auction(uuid,uuid,uuid,boolean)','6560e4c09610a3ed2c9d52623b9f48e5'),
  ('public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)','928d06341b80641be8511f9e67d583c1'),
- ('public.close_due_live_auction(uuid,uuid,boolean,boolean)','155def5bb234558e7eeea0df0602fe26')
+ ('public.close_due_live_auction(uuid,uuid,boolean,boolean)','155def5bb234558e7eeea0df0602fe26'),
+ ('public.save_auction_workspace(uuid,uuid,uuid,jsonb)','4580170e7db655b990704d3e0d8c2982'),
+ ('public.normalize_auction_thai_settings(jsonb)','826503e8104845a20361af538791b3bb'),
+ ('public.normalize_auction_settings_before_split(jsonb)','ac515b7fd153e773754c7d0a82e81247')
 ),
 functions(stage,signature,return_type) as (values
  ('00_base','public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','jsonb'),
@@ -63,7 +68,9 @@ functions(stage,signature,return_type) as (values
  ('10_before_audit_1','public.expire_live_auctions(uuid)','integer'),
  ('10_before_audit_1','public.start_legacy_auction_timer(uuid,uuid)','void'),
  ('20_before_audit_2','public.auction_comment_timestamp(text)','timestamp with time zone'),
- ('30_application','public.expire_live_auctions_report(uuid)','jsonb')
+ ('30_application','public.expire_live_auctions_report(uuid)','jsonb'),
+ ('40_auto_cycle','public.auction_host_command(text,jsonb)','jsonb'),
+ ('40_auto_cycle','public.advance_live_auction(uuid,uuid,uuid)','uuid')
 ),
 checks(stage,kind,requirement,passed,detail) as (
  select stage,'table','public.'||name,to_regclass('public.'||name) is not null,
