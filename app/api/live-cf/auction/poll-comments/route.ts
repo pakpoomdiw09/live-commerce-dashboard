@@ -128,6 +128,22 @@ export async function POST(req: NextRequest) {
     const target = round.data ?? waiting?.data
     if (!target) return json({ polled: false, reason: 'NO_ACTIVE_ROUND', videoId: sessionPost })
 
+    // A newer active round must not filter out delayed confirmations for earlier winners.
+    // Keep the query on this exact tenant/Page/video; SQL still validates each round's floor.
+    const pendingWinner = await db
+      .from('auctions')
+      .select(COLUMNS)
+      .eq('tenant_id', tenantId)
+      .eq('page_id', pageId)
+      .eq('live_post_id', target.live_post_id)
+      .eq('status', 'closed')
+      .not('winner_locked_at', 'is', null)
+      .is('winner_confirmed_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (pendingWinner.error) throw pendingWinner.error
+
     const token = pageTokenFor(tenant.data)
     if (!token) return json({ error: 'ยังไม่ได้เชื่อมต่อ Facebook' }, 409)
 
@@ -184,7 +200,11 @@ export async function POST(req: NextRequest) {
     const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext, pollPath).toString() : null
     const overlapMs = 20_000
     // SQL uses auctions.created_at as the round's started_at boundary.
-    const startedAt = Date.parse(target.created_at)
+    const targetStartedAt = Date.parse(target.created_at)
+    const pendingStartedAt = Date.parse(pendingWinner.data?.created_at ?? '')
+    const startedAt = Number.isFinite(pendingStartedAt)
+      ? Math.min(targetStartedAt, pendingStartedAt)
+      : targetStartedAt
     let boundary = Math.max(startedAt, highWater ? highWater - overlapMs : startedAt)
     let next = pageOneLink ?? undefined
     // Resume only a recent cursor anchored to this exact fresh page-one chain.
