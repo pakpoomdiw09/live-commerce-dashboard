@@ -1,0 +1,91 @@
+diff --git a/app/api/live-cf/auction/poll-comments/route.ts b/app/api/live-cf/auction/poll-comments/route.ts
+index d646f4e..71d7e9e 100644
+--- a/app/api/live-cf/auction/poll-comments/route.ts
++++ b/app/api/live-cf/auction/poll-comments/route.ts
+@@ -128,6 +128,22 @@ export async function POST(req: NextRequest) {
+     const target = round.data ?? waiting?.data
+     if (!target) return json({ polled: false, reason: 'NO_ACTIVE_ROUND', videoId: sessionPost })
+ 
++    // A newer active round must not filter out delayed confirmations for earlier winners.
++    // Keep the query on this exact tenant/Page/video; SQL still validates each round's floor.
++    const pendingWinner = await db
++      .from('auctions')
++      .select(COLUMNS)
++      .eq('tenant_id', tenantId)
++      .eq('page_id', pageId)
++      .eq('live_post_id', target.live_post_id)
++      .eq('status', 'closed')
++      .not('winner_locked_at', 'is', null)
++      .is('winner_confirmed_at', null)
++      .order('created_at', { ascending: true })
++      .limit(1)
++      .maybeSingle()
++    if (pendingWinner.error) throw pendingWinner.error
++
+     const token = pageTokenFor(tenant.data)
+     if (!token) return json({ error: 'ยังไม่ได้เชื่อมต่อ Facebook' }, 409)
+ 
+@@ -184,7 +200,11 @@ export async function POST(req: NextRequest) {
+     const pageOneLink = pageOneNext ? graphPagingUrl(pageOneNext, pollPath).toString() : null
+     const overlapMs = 20_000
+     // SQL uses auctions.created_at as the round's started_at boundary.
+-    const startedAt = Date.parse(target.created_at)
++    const targetStartedAt = Date.parse(target.created_at)
++    const pendingStartedAt = Date.parse(pendingWinner.data?.created_at ?? '')
++    const startedAt = Number.isFinite(pendingStartedAt)
++      ? Math.min(targetStartedAt, pendingStartedAt)
++      : targetStartedAt
+     let boundary = Math.max(startedAt, highWater ? highWater - overlapMs : startedAt)
+     let next = pageOneLink ?? undefined
+     // Resume only a recent cursor anchored to this exact fresh page-one chain.
+diff --git a/scripts/test-auction-cycle-polling.cjs b/scripts/test-auction-cycle-polling.cjs
+new file mode 100644
+index 0000000..7353a13
+--- /dev/null
++++ b/scripts/test-auction-cycle-polling.cjs
+@@ -0,0 +1,45 @@
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const { fixture, comment, pageUrl } = require('./test-auction-poller-hardening.cjs')
++
++function cycled(f, confirmed = false) {
++  const active = f.tables.auctions[0]
++  active.created_at = '2026-02-01T00:00:15.000Z'
++  f.tables.auctions.push({ ...active, id: 'waiting-round', status: 'closed',
++    created_at: '2026-02-01T00:00:00.000Z', closed_at: '2026-02-01T00:00:05.000Z',
++    winner_locked_at: '2026-02-01T00:00:05.000Z', winner_confirmed_at: confirmed ? '2026-02-01T00:00:09.000Z' : null })
++}
++
++test('an active successor does not hide a delayed previous-winner confirmation inside the overlap window', async () => {
++  const bid = comment('new-bid', '2026-02-01T00:00:20.000Z')
++  const confirmation = { ...comment('old-confirm', '2026-02-01T00:00:10.000Z'), message: 'cf' }
++  const f = fixture({ cursor: { high_water_at: '2026-02-01T00:00:20.000Z' }, pages: () => ({ data: [bid, confirmation] }) })
++  cycled(f)
++  const result = await f.poll(true)
++  assert.equal(result.status, 200)
++  assert.equal(result.body.queued, 2)
++  assert.equal(result.body.skipped.BEFORE_ROUND_START, undefined)
++})
++
++test('pagination reaches older waiting winners instead of stopping at the latest active round boundary', async () => {
++  const f = fixture({ cursor: { high_water_at: '2026-02-01T00:00:20.000Z' }, pages: page => page === 1
++    ? { data: [comment('new-bid', '2026-02-01T00:00:20.000Z'), { ...comment('confirm-one', '2026-02-01T00:00:14.000Z'), message: 'cf' }], paging: { next: pageUrl(2) } }
++    : { data: [{ ...comment('confirm-two', '2026-02-01T00:00:08.000Z'), message: 'cf' }] } })
++  cycled(f)
++  const result = await f.poll(true)
++  assert.equal(result.status, 200)
++  assert.equal(result.body.queued, 3)
++  assert.equal(f.graphCalls.length, 2)
++})
++
++test('confirmed, foreign-tenant and other-live rounds do not widen the active session polling floor', async () => {
++  const f = fixture({ pages: () => ({ data: [comment('new', '2026-02-01T00:00:20.000Z'), comment('old', '2026-02-01T00:00:10.000Z')] }) })
++  cycled(f, true)
++  const old = f.tables.auctions[1]
++  f.tables.auctions.push({ ...old, id: 'foreign', tenant_id: 'foreign', winner_confirmed_at: null },
++    { ...old, id: 'other-live', live_post_id: '777', winner_confirmed_at: null })
++  const result = await f.poll(true)
++  assert.equal(result.status, 200)
++  assert.equal(result.body.queued, 1)
++  assert.equal(result.body.skipped.BEFORE_ROUND_START, 1)
++})

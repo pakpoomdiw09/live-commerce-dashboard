@@ -1,0 +1,22 @@
+{
+  "full": {
+    "tests": 1013,
+    "pass": 955,
+    "fail": 58,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "fullExit": 1,
+  "added": [],
+  "resolved": [],
+  "targeted": {
+    "tests": 49,
+    "pass": 49,
+    "fail": 0
+  },
+  "typecheckExit": 0,
+  "buildExit": 0,
+  "baseline": "hardening-verified.json (previous completed full run)",
+  "productionExecution": false
+}
