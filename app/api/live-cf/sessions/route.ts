@@ -47,7 +47,9 @@ export async function GET(req: NextRequest) {
     if (!sessionId) {
       const sessions = await db
         .from('live_sessions')
-        .select('*')
+        .select(
+          'id,tenant_id,page_id,live_post_id,ended_at,reminders_enabled,created_at,mode,confirmation_keywords,closing_keywords,cf_patterns,comment_settings,cost_amount,ad_spent,shipping_cost,other_fees,financial_revision,auction_settings,automation_revision,auction_round_template',
+        )
         .eq('tenant_id', tenantId!)
         .order('created_at', { ascending: false })
         .limit(100)

@@ -1,25 +1,16 @@
 ﻿import { singleFlight } from '@/lib/single-flight'
-import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { runFollowUps } from '@/lib/features/follow-ups/follow-ups'
 import { SMART_FOLLOW_UP_ENABLED } from '@/lib/features/follow-ups/availability'
+import { verifyCronAuth } from '@/lib/security/cron-auth'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
-function isAuthorized(req: NextRequest) {
-  const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
-  const expected = Buffer.from(`Bearer ${secret}`)
-  const received = Buffer.from(req.headers.get('authorization') ?? '')
-  return (
-    Boolean(secret) && expected.length === received.length && timingSafeEqual(expected, received)
-  )
-}
-
 async function handle(req: NextRequest) {
-  if (!isAuthorized(req)) {
+  if (!verifyCronAuth(req)) {
     console.warn('[FOLLOW-UP CRON] unauthorized invocation', { method: req.method })
     return NextResponse.json(
       { error: 'unauthorized' },

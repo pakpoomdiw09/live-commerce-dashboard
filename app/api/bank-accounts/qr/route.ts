@@ -52,7 +52,9 @@ export async function GET(req: NextRequest) {
     if (!selected.data) throw new InboxError('ไม่พบบัญชีในร้านนี้', 404)
     const current = await db
       .from('bank_receiving_qr')
-      .select('*')
+      .select(
+        'tenant_id,account_id,bank_code_snapshot,account_number_snapshot,image_path,payload,version,updated_at',
+      )
       .eq('tenant_id', tenantId)
       .eq('account_id', accountId)
       .maybeSingle()
@@ -120,7 +122,9 @@ export async function POST(req: NextRequest) {
       throw new InboxError('กรุณาโหลดข้อมูล QR ใหม่')
     const previous = await db
       .from('bank_receiving_qr')
-      .select('*')
+      .select(
+        'tenant_id,account_id,bank_code_snapshot,account_number_snapshot,image_path,payload,version,updated_at',
+      )
       .eq('tenant_id', tenantId)
       .eq('account_id', accountId)
       .maybeSingle()

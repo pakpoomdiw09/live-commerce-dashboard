@@ -6,12 +6,14 @@ import { receiverMatchesAny } from './receiver-matching'
 import { providerPaidAt } from '@/lib/features/payments/payment-pro-core'
 import type { ProcessedSlip, SlipInput } from './process'
 import type { TabBalance } from '@/lib/features/commerce/customer-tab-types'
+import type { PaymentImageMimeType } from '@/lib/features/payments/payment-validation'
 
 /** One provider attempt per image; a validated partial payment is committed with the ledger. */
 export async function processCustomerTabSlip(
   db: SupabaseClient,
   input: SlipInput,
   tabIds: string[],
+  fileMimeType: PaymentImageMimeType | null,
 ): Promise<ProcessedSlip> {
   const tenantId = input.tenant!.id
   const selected = await db
@@ -113,7 +115,7 @@ export async function processCustomerTabSlip(
   if (imagePath) {
     const upload = await db.storage
       .from('slips')
-      .upload(imagePath, input.file!, { contentType: input.file!.type })
+      .upload(imagePath, input.file!, { contentType: fileMimeType! })
     if (upload.error) throw upload.error
   }
   const claim = await db.rpc('claim_customer_tab_slip', {
@@ -124,13 +126,17 @@ export async function processCustomerTabSlip(
     p_message: input.messageId ?? null,
   })
   if (claim.error) {
-    // Unknown RPC outcomes may have committed a slip; retain its evidence image.
+    // Check the database before cleanup: transport failures can hide a committed RPC.
+    if (imagePath) await removeIfUnclaimed(db, imagePath)
     throw claim.error
   }
-  if (!claim.data?.slipId) throw new Error('TAB_SLIP_CLAIM_INVALID')
+  if (!claim.data?.slipId) {
+    if (imagePath) await removeIfUnclaimed(db, imagePath)
+    throw new Error('TAB_SLIP_CLAIM_INVALID')
+  }
   if (!claim.data.claimed) {
     if (imagePath && imagePath !== claim.data.imagePath)
-      await db.storage.from('slips').remove([imagePath])
+      await removeIfUnclaimed(db, imagePath)
     return readResult(claim.data.slipId)
   }
   const slipId = claim.data.slipId as string
@@ -261,5 +267,25 @@ export async function processCustomerTabSlip(
       code: 'TAB_PAYMENT_UNCONFIRMED',
     })
     return readResult(slipId)
+  }
+}
+
+/** Delete a just-uploaded image only after confirming no slip row references it. */
+async function removeIfUnclaimed(db: SupabaseClient, imagePath: string) {
+  try {
+    const { data, error } = await db
+      .from('slips')
+      .select('id')
+      .eq('image_path', imagePath)
+      .maybeSingle()
+    if (error || data) return
+    const removed = await db.storage.from('slips').remove([imagePath])
+    if (removed.error)
+      console.error('[customer-tabs/payment] orphan image cleanup failed', {
+        code: removed.error.statusCode ?? 'STORAGE_REMOVE_FAILED',
+      })
+  } catch {
+    // Preserve evidence when row state or storage cleanup cannot be confirmed.
+    console.error('[customer-tabs/payment] orphan image cleanup uncertain')
   }
 }

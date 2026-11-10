@@ -1,4 +1,6 @@
 import { notFound } from 'next/navigation'
+import { headers } from 'next/headers'
+import type { Metadata } from 'next'
 import { Building2, Clock3, LockKeyhole, PackageCheck } from 'lucide-react'
 import { verifyLiveCfPaymentToken } from '@/lib/features/commerce/live-cf-payment-link'
 import { supabaseAdmin } from '@/lib/supabase/server'
@@ -7,9 +9,17 @@ import { LiveCfVariantPayment } from '@/components/live-cf/LiveCfVariantPayment'
 import { AuctionSlipUpload } from '@/components/live-cf/AuctionSlipUpload'
 import { tabForOrder } from '@/lib/features/commerce/customer-tabs-server'
 import { CustomerTabPayment } from '@/components/live-cf/CustomerTabPayment'
+import {
+  limitLivePaymentIp,
+  limitLivePaymentOrder,
+} from '@/lib/features/commerce/live-payment-rate-limit'
 
-export const metadata = { title: 'ชำระเงินออเดอร์ Live CF | SnapBot' }
+export const metadata: Metadata = {
+  title: 'ชำระเงินออเดอร์ Live CF | SnapBot',
+  referrer: 'no-referrer',
+}
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 
 export default async function LiveCfPaymentPage({
   params,
@@ -17,9 +27,14 @@ export default async function LiveCfPaymentPage({
   params: Promise<{ token: string }>
 }) {
   const token = (await params).token
+  const requestHeaders = await headers()
+  const db = supabaseAdmin()
+  const ipLimit = await limitLivePaymentIp(db, requestHeaders, 'get')
+  if (ipLimit !== 'allowed') notFound()
   const verified = verifyLiveCfPaymentToken(token)
   if (!verified) notFound()
-  const db = supabaseAdmin()
+  const orderLimit = await limitLivePaymentOrder(db, verified.orderId, 'get')
+  if (orderLimit !== 'allowed') notFound()
   const order = await db
     .from('orders')
     .select(
@@ -29,20 +44,43 @@ export default async function LiveCfPaymentPage({
     .maybeSingle()
   if (order.error || !order.data) notFound()
   const orderData = order.data
+  const isCancelled = orderData.status === 'cancelled'
+  const isPaidOrFulfilled = orderData.status === 'paid' || orderData.status === 'shipped'
+  const isPendingPayment = orderData.status === 'pending_payment'
   const customerTab = await tabForOrder(db, orderData.id)
   if (
     customerTab &&
     (!orderData.live_variant_selection_required || orderData.live_variant_confirmed_at)
   )
-    return <CustomerTabPayment tab={customerTab} token={token} />
+    return (
+      <CustomerTabPayment
+        tab={customerTab}
+        token={token}
+        status={orderData.status}
+        allowUpload={orderData.status === 'pending_payment'}
+      />
+    )
   const proof =
     orderData.source === 'live_auction'
       ? await db
           .from('auction_payment_proofs')
-          .select('order_id')
+          .select('slip_id,submission_attempts')
           .eq('order_id', orderData.id)
+          .eq('tenant_id', orderData.tenant_id)
           .maybeSingle()
       : null
+  const proofSlip = proof?.data
+    ? await db
+        .from('slips')
+        .select('status')
+        .eq('id', proof.data.slip_id)
+        .eq('tenant_id', orderData.tenant_id)
+        .maybeSingle()
+    : null
+  const proofAttemptLimitReached =
+    proofSlip?.data?.status === 'rejected' && (proof?.data?.submission_attempts ?? 0) >= 5
+  const proofCanResubmit =
+    proofSlip?.data?.status === 'rejected' && (proof?.data?.submission_attempts ?? 0) < 5
 
   const baseAccount = () =>
     db
@@ -50,9 +88,11 @@ export default async function LiveCfPaymentPage({
       .select('id,bank_code,account_name,account_number')
       .eq('tenant_id', orderData.tenant_id)
       .eq('is_active', true)
-  const account = orderData.live_bank_account_id
-    ? await baseAccount().eq('id', orderData.live_bank_account_id).maybeSingle()
-    : await baseAccount().eq('is_primary', true).maybeSingle()
+  const account = isPendingPayment
+    ? orderData.live_bank_account_id
+      ? await baseAccount().eq('id', orderData.live_bank_account_id).maybeSingle()
+      : await baseAccount().eq('is_primary', true).maybeSingle()
+    : { data: null }
   const bank = account.data
   let qrUrl: string | null = null
   if (bank) {
@@ -73,8 +113,6 @@ export default async function LiveCfPaymentPage({
       qrUrl = signed.data?.signedUrl ?? null
     }
   }
-  const paid = orderData.status !== 'pending_payment'
-
   if (orderData.live_variant_selection_required) {
     const pending = await db
       .from('orders')
@@ -150,7 +188,12 @@ export default async function LiveCfPaymentPage({
               </p>
             </div>
           </div>
-          {paid ? (
+          {isCancelled ? (
+            <p role="status" className="rounded-2xl bg-rose-50 p-4 font-medium text-rose-800">
+              คำสั่งซื้อนี้ถูกยกเลิกแล้ว จึงไม่สามารถชำระเงินหรือส่งสลิปผ่านลิงก์นี้ได้
+              หากชำระเงินไปแล้ว กรุณาติดต่อร้านค้า
+            </p>
+          ) : isPaidOrFulfilled ? (
             <div className="rounded-2xl bg-emerald-50 p-4 font-medium text-emerald-800">
               ออเดอร์นี้ได้รับการชำระหรือดำเนินการแล้ว
             </div>
@@ -178,9 +221,20 @@ export default async function LiveCfPaymentPage({
           <p className="flex items-center justify-center gap-2 text-xs text-slate-400">
             <Clock3 className="h-3.5 w-3.5" /> ลิงก์นี้หมดอายุอัตโนมัติภายใน 24 ชั่วโมง
           </p>
-          {orderData.source === 'live_auction' && !paid && !proof?.error && (
-            <AuctionSlipUpload token={token} initiallySubmitted={!!proof?.data} />
-          )}
+          {orderData.source === 'live_auction' &&
+            isPendingPayment &&
+            !proof?.error &&
+            !proofSlip?.error &&
+            (proofAttemptLimitReached ? (
+              <p role="status" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">
+                ส่งสลิปครบจำนวนครั้งแล้ว กรุณาติดต่อร้านค้า
+              </p>
+            ) : (
+              <AuctionSlipUpload
+                token={token}
+                initiallySubmitted={!!proofSlip?.data && !proofCanResubmit}
+              />
+            ))}
         </div>
       </section>
     </main>

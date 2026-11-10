@@ -2,9 +2,9 @@ import { singleFlight } from '@/lib/single-flight'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { paymentProAvailable } from '@/lib/features/payments/payment-pro-flags'
+import { verifyCronAuth } from '@/lib/security/cron-auth'
 export async function POST(req: NextRequest) {
-  const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
-  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`)
+  if (!verifyCronAuth(req))
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   if (!paymentProAvailable()) return NextResponse.json({ enabled: false, recovered: 0 })
   const result = await singleFlight(

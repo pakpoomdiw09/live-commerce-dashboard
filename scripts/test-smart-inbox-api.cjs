@@ -55,7 +55,12 @@ function guardFixture({ actor = { kind: 'user', id: user }, member = true, allow
   const guard = load('lib/features/inbox/inbox-server.ts', {
     'server-only': {},
     'next/server': next,
-    '@/lib/auth': { getActor: async () => actor, canAccessTenant: async () => member },
+    '@/lib/auth': {
+      getActor: async () => actor,
+      canAccessTenant: async () => member,
+      tenantRole: async () => 'staff',
+      roleAtLeast: (role, need) => role === 'owner' || role === 'admin',
+    },
     '@/lib/supabase/server': {
       supabaseAdmin: () => {
         clients++

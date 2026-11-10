@@ -14,6 +14,8 @@ function load(file, dependencies = {}, globals = {}) {
     AbortSignal,
     require: (name) => {
       if (name === '@/lib/safe-logging') return require('./helpers/load-safe-logging.cjs')()
+      if (name === '@/lib/features/commerce/comment-config')
+        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
       if (name in dependencies) return dependencies[name]
       throw Error('Unexpected dependency: ' + name)
     },

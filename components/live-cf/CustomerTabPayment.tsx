@@ -2,9 +2,21 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { findBank } from '@/lib/features/banking/banks'
 import type { CustomerTab } from '@/lib/features/commerce/customer-tab-types'
 import { tabMoney, customerTabItemLabel } from '@/lib/features/commerce/customer-tab-types'
+import type { CfOrderStatus } from '@/lib/types'
 import { AuctionSlipUpload } from './AuctionSlipUpload'
 
-export async function CustomerTabPayment({ tab, token }: { tab: CustomerTab; token: string }) {
+export async function CustomerTabPayment({
+  tab,
+  token,
+  status,
+  allowUpload = true,
+}: {
+  tab: CustomerTab
+  token: string
+  status: CfOrderStatus
+  allowUpload?: boolean
+}) {
+  const canUpload = allowUpload && status === 'pending_payment'
   const db = supabaseAdmin()
   let account = db
     .from('bank_accounts')
@@ -14,7 +26,7 @@ export async function CustomerTabPayment({ tab, token }: { tab: CustomerTab; tok
   account = tab.bank_account_id
     ? account.eq('id', tab.bank_account_id)
     : account.eq('is_primary', true)
-  const bank = await account.maybeSingle()
+  const bank = canUpload ? await account.maybeSingle() : { data: null }
   let qrUrl: string | null = null
   if (bank.data) {
     const qr = await db
@@ -48,7 +60,7 @@ export async function CustomerTabPayment({ tab, token }: { tab: CustomerTab; tok
                 <span>
                   {customerTabItemLabel(item)}
                   {item.variant_label ? ` • ${item.variant_label}` : ''}
-                  {item.requires_variant && item.selection_link && (
+                  {status === 'pending_payment' && item.requires_variant && item.selection_link && (
                     <a
                       className="mt-1 block font-semibold text-orange-700 underline"
                       href={item.selection_link}
@@ -88,7 +100,7 @@ export async function CustomerTabPayment({ tab, token }: { tab: CustomerTab; tok
             กรุณาติดต่อร้านค้าเพื่อยืนยันการจัดการยอดเกิน
           </p>
         )}
-        {bank.data && (
+        {canUpload && bank.data && (
           <div className="rounded-2xl border border-slate-200 p-4 text-center">
             <p>{findBank(bank.data.bank_code)?.name ?? bank.data.bank_code}</p>
             <p className="mt-1 text-xl font-bold">{bank.data.account_number}</p>
@@ -103,9 +115,26 @@ export async function CustomerTabPayment({ tab, token }: { tab: CustomerTab; tok
             )}
           </div>
         )}
-        {tab.customer_tab_items.some((item) => !item.cancelled && item.requires_variant) ? (
+        {status === 'cancelled' ? (
+          <p role="status" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">
+            คำสั่งซื้อนี้ถูกยกเลิกแล้ว จึงไม่สามารถชำระเงินหรือส่งสลิปผ่านลิงก์นี้ได้
+            หากชำระเงินไปแล้ว กรุณาติดต่อร้านค้า
+          </p>
+        ) : status === 'paid' ? (
+          <p role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
+            คำสั่งซื้อนี้ชำระเงินแล้ว
+          </p>
+        ) : status === 'shipped' ? (
+          <p role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
+            ชำระเงินแล้วและจัดส่งสินค้าแล้ว
+          </p>
+        ) : tab.customer_tab_items.some((item) => !item.cancelled && item.requires_variant) ? (
           <p className="rounded-xl bg-amber-50 p-4 text-sm text-amber-800">
             กรุณาเลือกรูปแบบสินค้าในรายการที่ยังไม่ยืนยันก่อนแนบสลิปครับ
+          </p>
+        ) : !canUpload ? (
+          <p role="status" className="rounded-xl bg-slate-100 p-4 text-sm text-slate-700">
+            รายการนี้ไม่พร้อมรับชำระจากลิงก์นี้
           </p>
         ) : Number(tab.remaining_amount) > 0 ? (
           <>

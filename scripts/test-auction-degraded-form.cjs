@@ -7,6 +7,7 @@ test('a degraded workspace keeps inputs visible and prevents submitting rounds u
   const deps = {}, values = [], effects = []
   let cursor = 0, mounting = true, writes = 0
   for (const imp of ts.preProcessFile(source).importedFiles) deps[imp.fileName] = new Proxy({}, { get: () => () => null })
+  deps['@/lib/features/commerce/auction-settings-status'] = load('lib/features/commerce/auction-settings-status.ts')
   deps.react = {
     useState(init) { const i = cursor++; if (!(i in values)) values[i] = typeof init === 'function' ? init() : init; return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v }] },
     useRef(init) { const i = cursor++; return values[i] ?? (values[i] = { current: init }) },
@@ -28,6 +29,10 @@ test('a degraded workspace keeps inputs visible and prevents submitting rounds u
     function walk(n) { if (!n || typeof n !== 'object') return; if (Array.isArray(n)) return n.forEach(walk); nodes.push(n); walk(n.props?.children) }
     walk(tree)
     assert.ok(nodes.some(n => n.type === 'input'), 'draft inputs remain mounted')
+    assert.ok(
+      nodes.some(n => typeof n.props?.className === 'string' && n.props.className.includes('bg-rose-100')),
+      'a failed workspace read shows a degraded status instead of a success badge',
+    )
     const submit = nodes.find(n => n.type === 'button' && n.props.type === 'submit')
     assert.equal(submit.props.disabled, true)
     await nodes.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })

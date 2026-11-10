@@ -188,7 +188,9 @@ export async function POST(req: NextRequest) {
     const cursorId = sessionId ?? target.id
     const cursor = await db
       .from('auction_poll_cursors')
-      .select('*')
+      .select(
+        'cursor_id,auction_id,tenant_id,session_id,live_video_id,high_water_at,continuation_url,continuation_anchor_url,continuation_boundary_at,updated_at',
+      )
       .eq('cursor_id', cursorId)
       .eq('tenant_id', tenantId)
       .maybeSingle()

@@ -1,4 +1,6 @@
 const { test } = require('node:test'), assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { fixture } = require('./helpers/auction-hardening-db.cjs')
 const { parseAuctionComment } = require('./helpers/load-typescript.cjs')('lib/integrations/facebook/auction-comment-parser.ts')
@@ -38,6 +40,8 @@ test('host close atomically cycles from the saved template and previous winner c
   const f = await setup()
   try {
     await f.receive(f.a, '900', '200'); await f.receive(f.a, '901', '250')
+    assert.equal((await f.receive(f.a, '901', 'cf')).result.status, 'awaiting_host_close')
+    assert.equal((await f.receive(f.a, '901', 'รับ', new Date(Date.parse(f.a.created_at) - 1000).toISOString())).result.status, 'stale')
     const event = await f.event(f.a, '999', '3\n2\n1\nปิด')
     const queuedBid = await f.event(f.a, '902', '200')
     const parsed = parseAuctionComment('3\n2\n1\nปิด', true, f.settings)
@@ -47,9 +51,13 @@ test('host close atomically cycles from the saved template and previous winner c
     const next = await f.one('select * from auctions where id=$1', [close.result.nextAuctionId])
     assert.equal(next.item_name, 'พระ'); assert.equal(Number(next.start_price), 200)
     assert.equal(Number(next.min_step), 10); assert.equal(Number(next.shipping_fee), 35)
+    assert.equal(next.status, 'active')
     assert.equal(next.current_price, '0.00'); assert.equal(next.leading_bidder_id, null)
     assert.equal(next.ends_at, null); assert.equal(next.previous_auction_id, f.a.id)
-    assert.equal((await f.one('select order_id from auctions where id=$1', [f.a.id])).order_id, null)
+    const closed = await f.one('select status,winner_locked_at,order_id,closed_at,close_event_id from auctions where id=$1', [f.a.id])
+    assert.equal(closed.status, 'closed'); assert.ok(closed.winner_locked_at); assert.equal(closed.order_id, null)
+    assert.equal(closed.close_event_id, event.id)
+    assert.deepEqual(await f.processEvent(f.a, event, parsed), close.result)
     // Retry routed to the new active round must not close it or create a third round.
     assert.deepEqual(await f.processEvent(next, close.event, close.parsed), close.result)
     assert.equal((await f.one('select count(*)::int n from auctions')).n, 2)
@@ -58,10 +66,13 @@ test('host close atomically cycles from the saved template and previous winner c
     const confirmed = await f.receive(f.a, '901', 'รับ')
     assert.equal(confirmed.result.status, 'confirmed')
     assert.equal(confirmed.result.auctionId, f.a.id)
+    assert.deepEqual(await f.processEvent(f.a, confirmed.event, confirmed.parsed), confirmed.result)
+    assert.deepEqual(await f.one('select closed_at,close_event_id from auctions where id=$1', [f.a.id]),
+      { closed_at: closed.closed_at, close_event_id: event.id })
     assert.equal((await f.receive(next, '903', '210')).result.status, 'accepted')
-    await f.processEvent(next, confirmed.event, confirmed.parsed)
     assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 1)
-    assert.equal((await f.one('select order_id from auctions where id=$1', [next.id])).order_id, null)
+    assert.deepEqual(await f.one('select status,current_price,leading_bidder_id,order_id from auctions where id=$1', [next.id]),
+      { status: 'active', current_price: '210.00', leading_bidder_id: '903', order_id: null })
     const early = await f.receive(next, '903', 'cf')
     assert.equal(early.result.status, 'awaiting_host_close')
     const closedNext = await f.receive(next, '999', 'x')
@@ -70,6 +81,134 @@ test('host close atomically cycles from the saved template and previous winner c
     assert.equal((await f.one('select order_id from auctions where id=$1', [next.id])).order_id, null)
     assert.equal((await f.receive(next, '903', 'ยืนยัน')).result.status, 'confirmed')
     assert.equal((await f.one("select count(*)::int n from auctions where status='active'")).n, 1)
+  } finally { await f.db.close() }
+})
+
+test('auto-cycle finalizer permissions deny anon and authenticated and grant service_role', async () => {
+  const f = await setup()
+  try {
+    await f.db.exec(fs.readFileSync(path.join(process.cwd(), 'supabase/live-auction-auto-cycle.sql'), 'utf8'))
+    const signatures = [
+      'public.finalize_live_auction(uuid,uuid,uuid,boolean)',
+      'public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)',
+      'public.normalize_auction_settings_before_split(jsonb)',
+    ]
+    for (const signature of signatures) {
+      assert.equal((await f.one('select has_function_privilege($1,$2,$3) allowed', ['service_role', signature, 'execute'])).allowed, true)
+      for (const role of ['anon', 'authenticated']) {
+        assert.equal((await f.one('select has_function_privilege($1,$2,$3) allowed', [role, signature, 'execute'])).allowed, false)
+        await f.db.query(`set role ${role}`)
+        try {
+          const call = signature.includes('highest_bid')
+            ? 'select public.finalize_live_auction_highest_bid(null::uuid,null::uuid,null::uuid,false)'
+            : signature.includes('normalize_auction_settings')
+              ? "select public.normalize_auction_settings_before_split('null'::jsonb)"
+              : 'select public.finalize_live_auction(null::uuid,null::uuid,null::uuid,false)'
+          await assert.rejects(f.db.query(call), (error) => error.code === '42501')
+        } finally {
+          await f.db.query('reset role')
+        }
+      }
+    }
+    await f.db.query('set role service_role')
+    try {
+      const highest = await f.one(
+        'select public.finalize_live_auction_highest_bid($1,$2,null,true) result',
+        [f.a.id, f.tenant],
+      )
+      assert.equal(highest.result.status, 'cancelled')
+      const manual = await f.one(
+        'select public.finalize_live_auction($1,$2,null,true) result',
+        [f.a.id, f.tenant],
+      )
+      assert.equal(manual.result.status, 'cancelled')
+      await f.db.query("select public.normalize_auction_settings_before_split('null'::jsonb)")
+    } finally {
+      await f.db.query('reset role')
+    }
+  } finally { await f.db.close() }
+})
+
+test('auto-cycle cancellation closes the round without an order or successor', async () => {
+  const f = await setup()
+  try {
+    await f.receive(f.a, '900', '200')
+    const cancelled = await f.one('select finalize_live_auction($1,$2,null,true) result', [f.a.id, f.tenant])
+    assert.equal(cancelled.result.status, 'cancelled')
+    assert.deepEqual(await f.one('select status,winner_locked_at,order_id from auctions where id=$1', [f.a.id]),
+      { status: 'cancelled', winner_locked_at: null, order_id: null })
+    assert.equal((await f.one('select count(*)::int n from auctions where previous_auction_id=$1', [f.a.id])).n, 0)
+    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
+  } finally { await f.db.close() }
+})
+
+test('author-less comments do not produce bids or orders', async () => {
+  const f = await setup()
+  try {
+    const missing = await f.receive(f.a, null, '200')
+    assert.equal(missing.result.status, 'ignored')
+    assert.equal((await f.one('select count(*)::int n from auction_bids where event_id=$1', [missing.event.id])).n, 0)
+    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
+  } finally { await f.db.close() }
+})
+
+test('null or inactive successor bank account aborts and rolls back host close atomically', async () => {
+  for (const bankState of ['null', 'inactive']) {
+    const f = await setup()
+    try {
+      await f.receive(f.a, '900', '200')
+      if (bankState === 'null')
+        await f.db.query(
+          "update live_sessions set comment_settings=comment_settings || '{\"bankAccountId\":null}'::jsonb where id=$1",
+          [f.saved.sessionId],
+        )
+      else
+        await f.db.query('update bank_accounts set is_active=false where id=$1', [f.settings.bankAccountId])
+      await assert.rejects(f.receive(f.a, '999', 'ปิด'), /BANK_SCOPE/)
+      assert.deepEqual(await f.one('select status,winner_locked_at,order_id from auctions where id=$1', [f.a.id]),
+        { status: 'active', winner_locked_at: null, order_id: null })
+      assert.equal((await f.one('select count(*)::int n from auctions where previous_auction_id=$1', [f.a.id])).n, 0)
+    } finally { await f.db.close() }
+  }
+})
+
+test('parallel confirmation requests generate exactly one order', async () => {
+  const f = await setup()
+  try {
+    await f.receive(f.a, '900', '200')
+    await f.receive(f.a, '901', '250')
+    await f.receive(f.a, '999', 'ปิด')
+    const attempts = await Promise.all([
+      f.receive(f.a, '901', 'cf'),
+      f.receive(f.a, '901', 'รับ'),
+    ])
+    assert.ok(attempts.some((attempt) => attempt.result.status === 'confirmed'))
+    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 1)
+  } finally { await f.db.close() }
+})
+
+test('failed order-to-customer-tab attachment rolls back winner confirmation and order', async () => {
+  const f = await setup()
+  try {
+    await f.receive(f.a, '901', '200')
+    await f.receive(f.a, '999', 'ปิด')
+    await f.db.exec(`create function public.test_remove_auction_customer_tab() returns trigger language plpgsql as $$begin new.customer_tab_id:=null;return new;end$$;
+      create trigger zz_test_remove_auction_customer_tab before insert on public.orders for each row execute function public.test_remove_auction_customer_tab()`)
+    await assert.rejects(f.receive(f.a, '901', 'รับ'))
+    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
+    assert.equal((await f.one('select winner_confirmation_comment_id from auctions where id=$1', [f.a.id])).winner_confirmation_comment_id, null)
+  } finally { await f.db.close() }
+})
+
+test('cross-tenant Facebook customer collision blocks order generation', async () => {
+  const f = await setup()
+  try {
+    const other = await f.one("insert into tenants(name,page_id) values('Foreign fixture','200') returning id")
+    await f.db.query("insert into customers(tenant_id,platform,platform_user_id,display_name) values($1,'facebook','901','Foreign fixture')", [other.id])
+    await f.receive(f.a, '901', '200')
+    await f.receive(f.a, '999', 'ปิด')
+    await assert.rejects(f.receive(f.a, '901', 'รับ'), (error) => error.code === '42501' && /AUCTION_CUSTOMER_TENANT/.test(error.message))
+    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
   } finally { await f.db.close() }
 })
 

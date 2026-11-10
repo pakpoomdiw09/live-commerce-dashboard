@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { inboxCustomer, inboxError, InboxError, checkRpc } from '@/lib/features/inbox/inbox-server'
+import {
+  inboxCustomer,
+  inboxError,
+  InboxError,
+  checkRpc,
+  canManageInboxTeam,
+} from '@/lib/features/inbox/inbox-server'
 import {
   pageTokenFor,
   sendMessageWithReceipt,
@@ -48,10 +54,11 @@ export async function POST(req: NextRequest) {
     )
       throw new InboxError('ไม่อนุญาตคำขอจากเว็บไซต์อื่น', 403)
     const humanAgent = input.humanAgent === true
+    const teamManager = await canManageInboxTeam(actor, tenantId)
     if (
       humanAgent &&
-      (customer.assigned_user_id !== actor.id ||
-        customer.bot_enabled ||
+      ((!teamManager &&
+        (customer.assigned_user_id !== actor.id || customer.bot_enabled)) ||
         customer.conversation_status !== 'open')
     )
       throw new InboxError(

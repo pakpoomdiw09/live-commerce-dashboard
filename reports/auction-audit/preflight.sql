@@ -45,9 +45,9 @@ column_groups(stage,table_name,names) as (values
 -- Reviewed source-body digests from local PGlite, not from the active database.
 -- CRLF is normalized. A formatting-only body change also BLOCKS: investigate, do not bypass.
 function_bodies(signature,body_md5) as (values
- ('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','d70e47ba525254e154cacef0d0e6de40'),
+ ('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','42bc54bfdf9bb74043783ac491895b71'),
  ('public.finalize_live_auction(uuid,uuid,uuid,boolean)','6560e4c09610a3ed2c9d52623b9f48e5'),
- ('public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)','928d06341b80641be8511f9e67d583c1'),
+ ('public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)','de77b39b6b846f2d7c7aa6df9d303919'),
  ('public.close_due_live_auction(uuid,uuid,boolean,boolean)','155def5bb234558e7eeea0df0602fe26'),
  ('public.save_auction_workspace(uuid,uuid,uuid,jsonb)','4580170e7db655b990704d3e0d8c2982'),
  ('public.normalize_auction_thai_settings(jsonb)','826503e8104845a20361af538791b3bb'),

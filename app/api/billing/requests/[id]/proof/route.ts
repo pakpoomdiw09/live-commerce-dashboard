@@ -74,13 +74,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (file instanceof File) return bad('แนบสลิปแล้ว กรุณากดตรวจสอบอีกครั้งหรือติดต่อผู้ดูแล', 409)
     return verifySaved(request)
   }
-  if (!(file instanceof File) || !(await isPaymentImage(file)))
+  if (!(file instanceof File))
     return bad('เลือกไฟล์ JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB')
-  const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type]
+  const check = await isPaymentImage(file)
+  if (!check.isValid) return bad('เลือกไฟล์ JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB')
+  const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[check.mimeType]
   const path = `${request.tenant_id}/${id}/${randomUUID()}.${ext}`
   const { error: uploadError } = await db.storage
     .from('billing-proofs')
-    .upload(path, file, { contentType: file.type, upsert: false })
+    .upload(path, file, { contentType: check.mimeType, upsert: false })
   if (uploadError) return bad('อัปโหลดสลิปไม่สำเร็จ กรุณาลองใหม่', 503)
   // Conditional update arbitrates simultaneous uploads and approval/cancellation.
   const { data: saved, error: saveError } = await db

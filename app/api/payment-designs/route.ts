@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     if (!UUID.test(id)) throw new InboxError('กรุณาเลือกบัญชี')
     const account = await db
       .from('bank_accounts')
-      .select('*')
+      .select('id,tenant_id,bank_code,account_name,account_number,is_active,is_primary,created_at')
       .eq('tenant_id', tenantId)
       .eq('id', id)
       .maybeSingle()
@@ -33,7 +33,9 @@ export async function GET(req: NextRequest) {
     if (!account.data) throw new InboxError('ไม่พบบัญชี', 404)
     const result = await db
       .from('bank_qr_designs')
-      .select('*')
+      .select(
+        'account_id,tenant_id,payload,recipient_snapshot,amount_satang,qr_type,original_path,logo_path,design,version,updated_at',
+      )
       .eq('tenant_id', tenantId)
       .eq('account_id', id)
       .maybeSingle()
@@ -114,7 +116,7 @@ export async function POST(req: NextRequest) {
     const design = validateQrDesign(JSON.parse(String(form.get('design'))))
     const account = await db
       .from('bank_accounts')
-      .select('*')
+      .select('id,tenant_id,bank_code,account_name,account_number,is_active,is_primary,created_at')
       .eq('tenant_id', tenantId)
       .eq('id', id)
       .maybeSingle()
@@ -122,7 +124,9 @@ export async function POST(req: NextRequest) {
     if (!account.data) throw new InboxError('ไม่พบบัญชี', 404)
     const previous = await db
       .from('bank_qr_designs')
-      .select('*')
+      .select(
+        'account_id,tenant_id,payload,recipient_snapshot,amount_satang,qr_type,original_path,logo_path,design,version,updated_at',
+      )
       .eq('tenant_id', tenantId)
       .eq('account_id', id)
       .maybeSingle()

@@ -329,8 +329,19 @@ function webhookFixture({
   graphLive = true,
   replyError = false,
   ambiguous = false,
+  pageLinked = true,
 } = {}) {
-  const calls = { rpc: [], private: [], public: [], generic: [], queries: [], lookups: 0 }
+  const calls = {
+    rpc: [],
+    private: [],
+    public: [],
+    generic: [],
+    queries: [],
+    contextRpcs: [],
+    lookups: 0,
+    persists: [],
+    slipVerifications: 0,
+  }
   const rulesList = [
     {
       id: 'rule',
@@ -379,6 +390,7 @@ function webhookFixture({
         }
       function result() {
         calls.queries.push({ table, filters: { ...filters } })
+        if (table === 'tenants' && !pageLinked) return { data: null, error: null }
         if (table === 'tenants')
           return {
             data: {
@@ -427,8 +439,10 @@ function webhookFixture({
       return q
     },
     rpc: async (name, args) => {
-      if (name === 'facebook_comment_context')
+      if (name === 'facebook_comment_context') {
+        calls.contextRpcs.push({ name, args })
         return { data: { mode: null, settings: {} }, error: null }
+      }
       if (name === 'place_facebook_catalog_order')
         return { data: [{ r_status: 'no_match' }], error: null }
       calls.rpc.push({ name, args })
@@ -458,7 +472,7 @@ function webhookFixture({
   const deps = {
     '@/lib/supabase/server': { supabaseAdmin: () => db },
     '@/lib/integrations/facebook/client': {
-      pageTokenFor: (t) => t.page_access_token,
+      pageTokenFor: (t) => t?.page_access_token,
       isLiveVideoComment: async () => {
         calls.lookups++
         return graphLive
@@ -502,14 +516,27 @@ function webhookFixture({
     }),
     '@/lib/features/banking/banks': { findBank: () => ({ name: 'ธนาคารกสิกรไทย' }) },
     '@/lib/features/agents/chatbot-server': {},
-    '@/lib/features/slips/process': {},
+    '@/lib/features/slips/process': {
+      processSlip: async () => {
+        calls.slipVerifications++
+        return { status: 'valid' }
+      },
+    },
     '@/lib/features/slips/notify': {},
     '@/lib/features/slips/image': {},
     '@/lib/message-quota': { sendWithMessageCredit: async (_db, _tenant, send) => send() },
     '@/lib/features/follow-ups/followup-ai': {},
     '@/lib/features/vision/vision': {},
     '@/lib/features/broadcast/broadcast-policy': {},
-    '@/lib/integrations/facebook/message-window': {},
+    '@/lib/integrations/facebook/message-window': {
+      facebookMessageEcho: () => null,
+      facebookInboundMessage: (event) => ({
+        senderId: event.sender.id,
+        messageId: event.message.mid,
+        timestamp: event.timestamp,
+        occurredAt: new Date(event.timestamp).toISOString(),
+      }),
+    },
     '@/lib/features/inbox/inbox-automation-window': {},
   }
   const handler = load('lib/integrations/facebook/webhook-handler.ts', deps, {
@@ -534,18 +561,73 @@ function webhookFixture({
         },
       },
     },
-    persistRecord: async () => ({
-      id: 'comment',
-      duplicate,
-      customer: { id: C, bot_enabled: true },
-    }),
+    persistRecord: async (tenantId) => {
+      calls.persists.push(tenantId)
+      return {
+        id: 'comment',
+        duplicate,
+        customer: { id: C, bot_enabled: true },
+      }
+    },
     once: async (name, work) => {
       if (!steps.has(name)) steps.set(name, await work())
       return steps.get(name)
     },
   }
-  return { calls, execution, run: () => handler.handleFacebookWebhookEvent(execution) }
+  return {
+    calls,
+    execution,
+    run: () => handler.handleFacebookWebhookEvent(execution),
+    receiveMessage: () => handler.handleFacebookWebhookEvent({
+      event: {
+        id: 'message-event',
+        page_id: '100',
+        kind: 'message',
+        created_at: new Date().toISOString(),
+        payload: {
+          sender: { id: '900' },
+          recipient: { id: '100' },
+          timestamp: Date.now(),
+          message: { mid: 'inbound-message', text: 'CF Z99' },
+        },
+      },
+      persistRecord: async (tenantId) => {
+        calls.persists.push(tenantId)
+        return { id: 'message', duplicate: false, customer: { id: C } }
+      },
+      assertLease: async () => {},
+      once: async (_name, work) => work(),
+    }),
+  }
 }
+
+test('unlinked or inactive Page comments are acknowledged without tenant writes or automated actions', async () => {
+  const f = webhookFixture({ pageLinked: false })
+  await f.run()
+  assert.deepEqual(f.calls.persists, [])
+  assert.equal(f.calls.rpc.length, 0)
+  assert.equal(f.calls.contextRpcs.length, 0)
+  assert.equal(f.calls.private.length, 0)
+  assert.equal(f.calls.public.length, 0)
+  assert.equal(f.calls.generic.length, 0)
+  assert.equal(f.calls.slipVerifications, 0)
+  assert.deepEqual(f.calls.queries.map((query) => query.table), ['tenants'])
+  assert.equal(f.calls.queries[0].filters.is_active, true)
+})
+
+test('unlinked or inactive Page messages are not persisted or processed for replies or slip verification', async () => {
+  const f = webhookFixture({ pageLinked: false })
+  await assert.rejects(f.receiveMessage(), (error) => error.code === 'PAGE_NOT_LINKED')
+  assert.deepEqual(f.calls.persists, [])
+  assert.equal(f.calls.rpc.length, 0)
+  assert.equal(f.calls.contextRpcs.length, 0)
+  assert.equal(f.calls.private.length, 0)
+  assert.equal(f.calls.public.length, 0)
+  assert.equal(f.calls.generic.length, 0)
+  assert.equal(f.calls.slipVerifications, 0)
+  assert.deepEqual(f.calls.queries.map((query) => query.table), ['tenants'])
+  assert.equal(f.calls.queries[0].filters.is_active, true)
+})
 
 test('webhook Live CF creates one pending order and sends a signed payment link with the correct Page token and comment recipient', async () => {
   for (const options of [

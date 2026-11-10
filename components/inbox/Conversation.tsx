@@ -143,6 +143,18 @@ export function Conversation({
     (inbox?.autoReplyEnabled ?? tenant?.autoReply !== false)
   const closed =
     (conversationState?.conversation_status ?? customer.conversation_status) === 'closed'
+  const teamManager = inbox?.canManageTeam === true
+  const assignedToViewer = conversationState?.assigned_user_id === inbox?.viewerId
+  const canReply =
+    !closed &&
+    (policyWindow.allowed
+      ? teamManager ||
+        (inbox?.autoClaimOnReply === true
+          ? !conversationState?.assigned_user_id || assignedToViewer
+          : assignedToViewer && !conversationState?.bot_enabled)
+      : policyWindow.humanAllowed &&
+        workspace.data?.humanAgentAvailable === true &&
+        (teamManager || (assignedToViewer && !conversationState?.bot_enabled)))
   const handler = closed
     ? 'ปิดแชทแล้ว'
     : assigned
@@ -336,15 +348,8 @@ export function Conversation({
         humanAgent={!policyWindow.allowed}
         enabled={
           !!workspace.data &&
-          (policyWindow.allowed ||
-            (policyWindow.humanAllowed && workspace.data.humanAgentAvailable === true)) &&
           !!conversationState &&
-          conversationState.conversation_status === 'open' &&
-          (policyWindow.allowed && inbox?.autoClaimOnReply
-            ? !conversationState.assigned_user_id ||
-              conversationState.assigned_user_id === inbox.viewerId
-            : conversationState.assigned_user_id === inbox?.viewerId &&
-              !conversationState.bot_enabled)
+          canReply
         }
         onSent={() => {
           latest()

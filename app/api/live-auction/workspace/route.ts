@@ -25,9 +25,37 @@ function failure(error: unknown) {
       409,
     )
   if (issue.code === '42501') return auctionReply({ error: 'ไม่มีสิทธิ์ใช้เพจหรือบัญชีนี้' }, 403)
+  if (['PGRST202', '42883'].includes(issue.code ?? ''))
+    return auctionReply(
+      { error: 'Auction settings cannot be saved because a required database function is missing. Apply the local database setup, then retry.' },
+      503,
+    )
+  if (['PGRST205', '42P01', 'PGRST204', '42703'].includes(issue.code ?? ''))
+    return auctionReply(
+      { error: 'Auction settings cannot be saved because the database schema is incomplete. Apply the local database setup, then retry.' },
+      503,
+    )
   if (['P0001', '22P02', '23514'].includes(issue.code ?? ''))
     return auctionReply({ error: 'ตรวจข้อมูลราคาและเงื่อนไข รอบที่รับบิดแล้วแก้ราคาไม่ได้' }, 400)
   return auctionReply({ error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, 503)
+}
+
+function readFailure(error: unknown) {
+  const issue = (error ?? {}) as { code?: string }
+  const missingFunction = ['PGRST202', '42883'].includes(issue.code ?? '')
+  const missingSchema = ['PGRST205', '42P01', 'PGRST204', '42703'].includes(issue.code ?? '')
+  const reason = missingFunction
+    ? 'RPC_MISSING'
+    : missingSchema
+      ? 'DATABASE_SCHEMA_INCOMPLETE'
+      : 'READ_UNAVAILABLE'
+  const message = missingFunction
+    ? 'Auction settings are unavailable because a required database function is missing. Apply the local database setup, then reload.'
+    : missingSchema
+      ? 'Auction settings are unavailable because the database schema is incomplete. Apply the local database setup, then reload.'
+      : 'Could not load auction settings. Retry; if this continues, check the database setup.'
+  console.error('[live-auction/workspace]', { category: reason, code: issue.code ?? 'UNAVAILABLE' })
+  return auctionReply({ ready: false, degraded: true, reason, error: message }, 503)
 }
 
 // A failed read must never masquerade as a new, empty workspace.
@@ -57,7 +85,11 @@ export async function GET(req: NextRequest) {
     )
       return auctionReply({ error: 'รหัสไลฟ์หรือเซสชันไม่ถูกต้อง' }, 400)
     const db = supabaseAdmin({ timeoutMs: 15000 })
-    let query = db.from('live_sessions').select('*').eq('tenant_id', tenantId!)
+    const SESSION_COLUMNS =
+      'id,tenant_id,page_id,live_post_id,ended_at,reminders_enabled,created_at,mode,confirmation_keywords,closing_keywords,cf_patterns,comment_settings,cost_amount,ad_spent,shipping_cost,other_fees,financial_revision,auction_settings,automation_revision,auction_round_template'
+    const AUCTION_COLUMNS =
+      'id,tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,current_price,leading_bidder_id,leading_bidder_name,leading_comment_id,host_ids,host_count,bank_account_id,status,closed_at,close_event_id,order_id,created_at,private_reply_enabled,public_reply_enabled,private_reply_template,bid_reply_template,close_reply_template,session_automation,duration_seconds,timer_started_at,ends_at,winner_locked_at,previous_auction_id,winner_confirmation_comment_id,winner_confirmation_event_id,winner_confirmed_at'
+    let query = db.from('live_sessions').select(SESSION_COLUMNS).eq('tenant_id', tenantId!)
     if (sessionId) query = query.eq('id', sessionId)
     if (pageId) query = query.eq('page_id', pageId)
     if (livePostId) query = query.eq('live_post_id', livePostId)
@@ -71,7 +103,7 @@ export async function GET(req: NextRequest) {
       previous = await workspaceRead(
         db
           .from('live_sessions')
-          .select('*')
+          .select(SESSION_COLUMNS)
           .eq('tenant_id', tenantId!)
           .eq('page_id', pageId)
           .order('created_at', { ascending: false })
@@ -82,7 +114,7 @@ export async function GET(req: NextRequest) {
     const selectedPage = pageId ?? session?.page_id
     const selectedPost = livePostId ?? session?.live_post_id
     const rounds = () => {
-      let query = db.from('auctions').select('*').eq('tenant_id', tenantId!)
+      let query = db.from('auctions').select(AUCTION_COLUMNS).eq('tenant_id', tenantId!)
       if (selectedPage) query = query.eq('page_id', selectedPage)
       if (selectedPost) query = query.eq('live_post_id', selectedPost)
       return query.order('created_at', { ascending: false }).limit(1)
@@ -116,9 +148,8 @@ export async function GET(req: NextRequest) {
         null,
       preferencesOnly: !session,
     })
-  } catch {
-    console.error('[live-auction/workspace]', { category: 'READ_UNAVAILABLE' })
-    return auctionReply({ ready: false, degraded: true, error: 'Workspace temporarily unavailable. Please retry.' }, 503)
+  } catch (error) {
+    return readFailure(error)
   }
 }
 

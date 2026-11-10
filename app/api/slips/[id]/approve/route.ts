@@ -26,20 +26,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const db = supabaseAdmin()
   let lookup = await db
     .from('slips')
-    .select('id, tenant_id, status, customer_id, approved_at,customer_tab_id')
+    .select('id, tenant_id, status, customer_id, approved_at,customer_tab_id,image_path')
     .eq('id', id)
     .maybeSingle()
   if (lookup.error && ['42703', 'PGRST204'].includes(lookup.error.code)) {
     const legacy = await db
       .from('slips')
-      .select('id,tenant_id,status,customer_id,approved_at')
+      .select('id,tenant_id,status,customer_id,approved_at,image_path')
       .eq('id', id)
       .maybeSingle()
     lookup = legacy as typeof lookup
   }
   const { data: slip, error } = lookup
   if (error) return bad(error.message, 500)
-  if (!slip || !(await canAccessTenant(actor, slip.tenant_id))) return bad('slip not found', 404)
+  if (!slip || !(await canAccessTenant(actor, slip.tenant_id, 'staff'))) return bad('slip not found', 404)
   if (!(await hasFeature(db, slip.tenant_id, 'customer_management')))
     return featureLockedResponse('customer_management')
   if (!(await canAccessTenant(actor, slip.tenant_id, 'owner')))
@@ -86,6 +86,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return bad('อนุมัติรายการประมูลไม่สำเร็จ กรุณาตรวจสอบออเดอร์แล้วลองใหม่', 409)
     return NextResponse.json({ ok: true, approvedAt: approved.data })
   }
+
+  // An old auction slip may no longer be the proof row's current slip after resubmission.
+  // Never let it fall through to the generic approval path for pending customer orders.
+  if (slip.image_path?.startsWith(`auction/${slip.tenant_id}/`))
+    return bad('auction payment proof is no longer current', 409)
 
   const approvedAt = slip.approved_at ?? new Date().toISOString()
   if (!slip.approved_at) {

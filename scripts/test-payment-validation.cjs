@@ -446,19 +446,22 @@ test('images must have matching JPEG, PNG or WebP signatures; empty and oversize
     [png, 'image/png'],
     [webp, 'image/webp'],
   ]) {
-    assert.equal(
+    assert.deepEqual(
       await api.isPaymentImage(new File([new Uint8Array(bytes)], 'slip', { type })),
-      true,
+      { isValid: true, mimeType: type },
     )
   }
   for (const file of [
     new File([], 'empty', { type: 'image/jpeg' }),
     new File(['text disguised as image'], 'fake.png', { type: 'image/png' }),
-    new File([new Uint8Array(jpeg)], 'wrong-mime', { type: 'image/webp' }),
     new File(['<svg/>'], 'image.svg', { type: 'image/svg+xml' }),
     new File([new Uint8Array([0xff, 0xd8])], 'truncated.jpg', { type: 'image/jpeg' }),
     new File([new Uint8Array(api.PAYMENT_MAX_BYTES + 1)], 'large.jpg', { type: 'image/jpeg' }),
   ])
-    assert.equal(await api.isPaymentImage(file), false)
+    assert.deepEqual(await api.isPaymentImage(file), { isValid: false, mimeType: null })
+  assert.deepEqual(
+    await api.isPaymentImage(new File([new Uint8Array(jpeg)], 'wrong-mime', { type: 'image/webp' })),
+    { isValid: true, mimeType: 'image/jpeg' },
+  )
   assert.equal(api.PAYMENT_MAX_BYTES, 5 * 1024 * 1024)
 })

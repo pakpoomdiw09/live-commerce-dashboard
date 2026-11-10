@@ -21,10 +21,10 @@ test('read-only preflight reports absent prerequisites without crashing on a mis
   } finally { await db.close() }
 })
 
-test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 1, then audit 2 without premature orders', async () => {
+test('staging rehearsal upgrades the legacy flow through auction and RPC privilege hardening', async () => {
   const result = build()
   const index = result.sources.indexOf('live-auction-deadlines.sql')
-  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql', 'live-auction-auto-cycle.sql'])
+  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql', 'live-auction-auto-cycle.sql', 'live-auction-confirmation-preservation.sql', 'rpc-execution-hardening.sql'])
   const prefix = n => completeSchema({ ...result, sections: result.sections.slice(0, n) })
   const f = await fixture(prefix(index))
   const captures = {}
@@ -70,7 +70,7 @@ test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 
     assert.equal(confirmation.result.status, 'stale', 'audit 1 still has the source-seconds race')
     await f.db.exec(prefix(index + 3))
     captures.audit2 = await definition()
-    await f.db.exec(prefix(index + 5))
+    await f.db.exec(prefix(index + 7))
     captures.cycle = await definition()
     const final = await inspect(f.db)
     assert.deepEqual(final.filter(row => row.status !== 'PASS'), [])

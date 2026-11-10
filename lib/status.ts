@@ -11,6 +11,7 @@ export const SLIP_STATUS: Record<SlipStatus, { label: string; tone: Tone }> = {
   fake: { label: 'ไม่พบรายการโอน', tone: 'danger' },
   wrong_receiver: { label: 'บัญชีผู้รับไม่ตรง', tone: 'danger' },
   error: { label: 'ตรวจไม่สำเร็จ', tone: 'neutral' },
+  rejected: { label: 'ถูกปฏิเสธ', tone: 'danger' },
 }
 
 export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: Tone }> = {

@@ -5,10 +5,13 @@ const { spawn } = require('node:child_process')
 const root = path.resolve(process.argv[2])
 const label = process.argv[3]
 if (!/^[a-z-]+$/.test(label ?? '')) throw new Error('Invalid run label')
+// These are operator-facing CLI tools, not unattended test suites. Keep them
+// withdrawn from this auto-discovering runner even though their filenames match.
+const withdrawn = new Set(['test-overview-fetch.cjs', 'test-followup-and-broadcast.cjs'])
 const files = [
   ...fs
     .readdirSync(path.join(root, 'scripts'))
-    .filter((f) => /^test-.*\.cjs$/.test(f))
+    .filter((f) => /^test-.*\.cjs$/.test(f) && !withdrawn.has(f))
     .map((f) => `scripts/${f}`),
   ...fs
     .readdirSync(path.join(root, 'tests'))
@@ -19,7 +22,8 @@ const files = [
     .filter((f) => /\.test\.ts$/.test(f))
     .map((f) => `tests/features/commerce/${f}`),
 ].sort()
-const args = ['--import', 'tsx', '--test', '--test-concurrency=1', '--test-reporter=tap', ...files]
+const networkGuard = path.resolve(__dirname, '../../scripts/test-network-guard.cjs')
+const args = ['--require', networkGuard, '--import', 'tsx', '--test', '--test-concurrency=1', '--test-reporter=tap', ...files]
 const log = fs.openSync(path.join(__dirname, `${label}.log`), 'w')
 const started = new Date().toISOString()
 fs.writeSync(log, `Command: node ${args.join(' ')}\n`)

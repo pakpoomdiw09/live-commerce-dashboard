@@ -1,0 +1,5389 @@
+{
+  "functions": [
+    {
+      "function_signature": "account_tenant_ai_reply()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "messages_account_tenant_ai_reply"
+      ]
+    },
+    {
+      "function_signature": "act_follow_up_job(uuid,uuid,uuid,text,text)",
+      "argument_names": [
+        "p_job",
+        "p_tenant",
+        "p_actor",
+        "p_action",
+        "p_text"
+      ],
+      "arguments": "p_job uuid, p_tenant uuid, p_actor uuid, p_action text, p_text text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "act_payment_pro(uuid,uuid,uuid,text,text)",
+      "argument_names": [
+        "p_attempt",
+        "p_tenant",
+        "p_actor",
+        "p_action",
+        "p_reason"
+      ],
+      "arguments": "p_attempt uuid, p_tenant uuid, p_actor uuid, p_action text, p_reason text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "activate_billing_payment(uuid)",
+      "argument_names": [
+        "p_request"
+      ],
+      "arguments": "p_request uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "activate_payment(uuid)",
+      "argument_names": [
+        "p_session"
+      ],
+      "arguments": "p_session uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "add_manual_follow_up(uuid,uuid,uuid,text,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_customer",
+        "p_kind",
+        "p_reference"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_customer uuid, p_kind text, p_reference uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "advance_live_auction(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "agent_control_overview(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "agent_customer_consent()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "messages_agent_consent"
+      ]
+    },
+    {
+      "function_signature": "agent_job_audit()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "agent_job_audit"
+      ]
+    },
+    {
+      "function_signature": "agent_overview_stats(uuid,integer,timestamp with time zone)",
+      "argument_names": [
+        "p_tenant",
+        "p_days",
+        "p_now"
+      ],
+      "arguments": "p_tenant uuid, p_days integer, p_now timestamp with time zone",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "apply_follow_up_approval_mode()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "follow_up_approval_mode"
+      ]
+    },
+    {
+      "function_signature": "apply_payment_pro(uuid,uuid)",
+      "argument_names": [
+        "p_attempt",
+        "p_actor"
+      ],
+      "arguments": "p_attempt uuid, p_actor uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "approve_auction_payment_proof(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_slip",
+        "p_tenant",
+        "p_actor"
+      ],
+      "arguments": "p_slip uuid, p_tenant uuid, p_actor uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "approve_billing_request(uuid,uuid)",
+      "argument_names": [
+        "p_request",
+        "p_admin"
+      ],
+      "arguments": "p_request uuid, p_admin uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "armor(bytea)",
+      "argument_names": null,
+      "arguments": "bytea",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "armor(bytea,text[],text[])",
+      "argument_names": null,
+      "arguments": "bytea, text[], text[]",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "assert_valid_store_rules(text)",
+      "argument_names": [
+        "p_instructions"
+      ],
+      "arguments": "p_instructions text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "attach_customer_tab_order()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customer_tab_order_guard"
+      ]
+    },
+    {
+      "function_signature": "auction_close_keyword_matches(text,jsonb)",
+      "argument_names": [
+        "message",
+        "keywords"
+      ],
+      "arguments": "message text, keywords jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "auction_comment_ordering()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "auction_comment_ordering"
+      ]
+    },
+    {
+      "function_signature": "auction_comment_tags(jsonb,text,text)",
+      "argument_names": [
+        "settings",
+        "field",
+        "fallback"
+      ],
+      "arguments": "settings jsonb, field text, fallback text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "auction_comment_timestamp(text)",
+      "argument_names": [
+        "value"
+      ],
+      "arguments": "value text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "auction_host_command(text,jsonb)",
+      "argument_names": [
+        "message",
+        "settings"
+      ],
+      "arguments": "message text, settings jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "auction_inbox_status(uuid,uuid[])",
+      "argument_names": [
+        "p_tenant",
+        "p_customers",
+        "customer_id",
+        "item_name",
+        "remaining_amount"
+      ],
+      "arguments": "p_tenant uuid, p_customers uuid[]",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "auction_numeric_price(text)",
+      "argument_names": [
+        "p_text"
+      ],
+      "arguments": "p_text text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "audit_image_rule_change()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "image_rule_vision_audit"
+      ]
+    },
+    {
+      "function_signature": "authorize_follow_up_dispatch(uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_job uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "authorize_tenant_ai_reply(uuid)",
+      "argument_names": [
+        "p_reservation"
+      ],
+      "arguments": "p_reservation uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "bank_registry_code_valid(text)",
+      "argument_names": [
+        "p_code"
+      ],
+      "arguments": "p_code text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "basic_overview_stats(uuid,timestamp with time zone)",
+      "argument_names": [
+        "p_tenant",
+        "p_now"
+      ],
+      "arguments": "p_tenant uuid, p_now timestamp with time zone",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "begin_agent_dispatch(uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_job uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "begin_broadcast_transport(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_broadcast",
+        "p_customer",
+        "p_lease"
+      ],
+      "arguments": "p_broadcast uuid, p_customer uuid, p_lease uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "begin_facebook_webhook_step(uuid,uuid,text)",
+      "argument_names": [
+        "p_event",
+        "p_claim",
+        "p_name"
+      ],
+      "arguments": "p_event uuid, p_claim uuid, p_name text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "begin_shipping_provider_job(uuid,uuid,uuid,uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_request",
+        "p_shipment",
+        "p_provider"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_request uuid, p_shipment uuid, p_provider text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "begin_vision_dispatch(uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_job uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "broadcast_recipient_reason(uuid,uuid)",
+      "argument_names": [
+        "p_broadcast",
+        "p_customer"
+      ],
+      "arguments": "p_broadcast uuid, p_customer uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "bump_chat_rule(uuid)",
+      "argument_names": [
+        "p_rule"
+      ],
+      "arguments": "p_rule uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": []
+    },
+    {
+      "function_signature": "can_access_tenant(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "can_manage_bank_accounts(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "can_manage_image_rules(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "cancel_paid_follow_ups()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "orders_cancel_follow_ups"
+      ]
+    },
+    {
+      "function_signature": "capture_shipping_address(uuid,uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message",
+        "p_address"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid, p_address jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_agent_message(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_and_start_inbox_reply(uuid,uuid,integer)",
+      "argument_names": [
+        "p_customer",
+        "p_actor",
+        "p_version"
+      ],
+      "arguments": "p_customer uuid, p_actor uuid, p_version integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_auction_bill_delivery(uuid,bigint)",
+      "argument_names": [
+        "p_delivery",
+        "p_revision"
+      ],
+      "arguments": "p_delivery uuid, p_revision bigint",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_broadcast_recipient(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_broadcast",
+        "p_customer",
+        "p_lease"
+      ],
+      "arguments": "p_broadcast uuid, p_customer uuid, p_lease uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_broadcast_run(uuid,uuid)",
+      "argument_names": [
+        "p_broadcast",
+        "p_actor"
+      ],
+      "arguments": "p_broadcast uuid, p_actor uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_customer_tab_reminder()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_customer_tab_slip(uuid,uuid,text,text,uuid)",
+      "argument_names": [
+        "p_tab",
+        "p_customer",
+        "p_hash",
+        "p_image",
+        "p_message"
+      ],
+      "arguments": "p_tab uuid, p_customer uuid, p_hash text, p_image text, p_message uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_facebook_webhook(integer)",
+      "argument_names": [
+        "p_lease_seconds"
+      ],
+      "arguments": "p_lease_seconds integer DEFAULT 120",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_follow_up_jobs(uuid,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_limit"
+      ],
+      "arguments": "p_tenant uuid DEFAULT NULL::uuid, p_limit integer DEFAULT 5",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_payment_image(text,text,uuid)",
+      "argument_names": [
+        "p_hash",
+        "p_source",
+        "p_id"
+      ],
+      "arguments": "p_hash text, p_source text, p_id uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_payment_pro(uuid,uuid,uuid,text,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message",
+        "p_hash",
+        "p_image",
+        "p_kind"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid, p_hash text, p_image text, p_kind text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_payment_transfer(text,text,uuid)",
+      "argument_names": [
+        "p_ref",
+        "p_source",
+        "p_id"
+      ],
+      "arguments": "p_ref text, p_source text, p_id uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "claim_vision_job(uuid)",
+      "argument_names": [
+        "p_job"
+      ],
+      "arguments": "p_job uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "clear_handover()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": [
+        "customers_clear_handover"
+      ]
+    },
+    {
+      "function_signature": "close_due_live_auction(uuid,uuid,boolean,boolean)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_due_only",
+        "p_cancel"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_due_only boolean DEFAULT true, p_cancel boolean DEFAULT false",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "collect_auction_session_customers(uuid,uuid,text[])",
+      "argument_names": [
+        "p_tenant",
+        "p_session",
+        "p_fb_ids"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid, p_fb_ids text[]",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_access(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_checkout(text,jsonb)",
+      "argument_names": [
+        "p_slug",
+        "p_value"
+      ],
+      "arguments": "p_slug text, p_value jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_product_page",
+        "p_order_page",
+        "p_customer_page",
+        "p_category_page",
+        "p_page_page",
+        "p_query",
+        "p_category",
+        "p_sort",
+        "p_status"
+      ],
+      "arguments": "p_tenant uuid, p_product_page integer DEFAULT 1, p_order_page integer DEFAULT 1, p_customer_page integer DEFAULT 1, p_category_page integer DEFAULT 1, p_page_page integer DEFAULT 1, p_query text DEFAULT ''::text, p_category uuid DEFAULT NULL::uuid, p_sort text DEFAULT 'new'::text, p_status text DEFAULT 'all'::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_dashboard_stats(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_manage(uuid,uuid,text,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_action",
+        "p_value"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_action text, p_value jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_move_order(uuid,uuid,uuid,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_id",
+        "p_status",
+        "p_note"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_id uuid, p_status text, p_note text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_plan(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_product_quota()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "commerce_product_quota"
+      ]
+    },
+    {
+      "function_signature": "commerce_product_version()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": [
+        "commerce_product_version"
+      ]
+    },
+    {
+      "function_signature": "commerce_rate_limit(text,integer)",
+      "argument_names": [
+        "p_bucket",
+        "p_max"
+      ],
+      "arguments": "p_bucket text, p_max integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "commerce_save_product(uuid,uuid,uuid,jsonb,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_id",
+        "p_value",
+        "p_version"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_id uuid, p_value jsonb, p_version integer DEFAULT NULL::integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text)",
+      "argument_names": [
+        "p_slip",
+        "p_tenant",
+        "p_customer",
+        "p_sender",
+        "p_amount",
+        "p_ref",
+        "p_paid_at",
+        "p_raw",
+        "p_note"
+      ],
+      "arguments": "p_slip uuid, p_tenant uuid, p_customer uuid, p_sender text, p_amount numeric, p_ref text, p_paid_at timestamp with time zone, p_raw jsonb, p_note text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text)",
+      "argument_names": [
+        "p_slip",
+        "p_tenant",
+        "p_customer",
+        "p_verdict",
+        "p_amount",
+        "p_ref",
+        "p_paid_at",
+        "p_raw",
+        "p_note"
+      ],
+      "arguments": "p_slip uuid, p_tenant uuid, p_customer uuid, p_verdict text, p_amount numeric, p_ref text, p_paid_at timestamp with time zone, p_raw jsonb, p_note text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "complete_facebook_webhook_step(uuid,uuid,text,jsonb)",
+      "argument_names": [
+        "p_event",
+        "p_claim",
+        "p_name",
+        "p_result"
+      ],
+      "arguments": "p_event uuid, p_claim uuid, p_name text, p_result jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "complete_follow_up(uuid,uuid,text,text,text)",
+      "argument_names": [
+        "p_job",
+        "p_claim",
+        "p_result",
+        "p_provider",
+        "p_reason"
+      ],
+      "arguments": "p_job uuid, p_claim uuid, p_result text, p_provider text DEFAULT NULL::text, p_reason text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "complete_payment_pro(uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_attempt",
+        "p_claim",
+        "p_evidence"
+      ],
+      "arguments": "p_attempt uuid, p_claim uuid, p_evidence jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "complete_shipping_provider_job(uuid,text,text,text,text)",
+      "argument_names": [
+        "p_job",
+        "p_tracking",
+        "p_courier",
+        "p_tracking_url",
+        "p_label_url"
+      ],
+      "arguments": "p_job uuid, p_tracking text, p_courier text, p_tracking_url text, p_label_url text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "configure_auction_session(uuid,uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_request",
+        "p_input"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_request uuid, p_input jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "confirm_cf_order()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "orders_confirm_cf"
+      ]
+    },
+    {
+      "function_signature": "confirm_follow_up_order(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_order",
+        "p_tenant",
+        "p_actor"
+      ],
+      "arguments": "p_order uuid, p_tenant uuid, p_actor uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "confirm_live_auction_winner(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "confirm_live_cf_variant(uuid,uuid)",
+      "argument_names": [
+        "p_order",
+        "p_variant"
+      ],
+      "arguments": "p_order uuid, p_variant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "confirm_shipping_address(uuid,uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message",
+        "p_candidate"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid, p_candidate uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "consume_slip_credit(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "consume_slip_credit_metered(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "crypt(text,text)",
+      "argument_names": null,
+      "arguments": "text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "customer_directory(uuid,integer,text,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_page",
+        "p_query",
+        "p_status",
+        "p_tag"
+      ],
+      "arguments": "p_tenant uuid, p_page integer DEFAULT 1, p_query text DEFAULT ''::text, p_status text DEFAULT 'all'::text, p_tag text DEFAULT ''::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "dearmor(text)",
+      "argument_names": null,
+      "arguments": "text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "decrypt(bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "decrypt_iv(bytea,bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "default_auction_close_keywords()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "digest(bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "digest(text,text)",
+      "argument_names": null,
+      "arguments": "text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "encrypt(bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "encrypt_iv(bytea,bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "end_customer_tab_live(uuid,uuid,boolean)",
+      "argument_names": [
+        "p_session",
+        "p_tenant",
+        "p_reminders"
+      ],
+      "arguments": "p_session uuid, p_tenant uuid, p_reminders boolean DEFAULT true",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "end_inbox_delivery(uuid,uuid)",
+      "argument_names": [
+        "p_customer",
+        "p_lease"
+      ],
+      "arguments": "p_customer uuid, p_lease uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "enforce_auction_bid_deadline()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": [
+        "enforce_auction_bid_deadline"
+      ]
+    },
+    {
+      "function_signature": "enqueue_facebook_webhook(text,text,jsonb)",
+      "argument_names": [
+        "p_raw",
+        "p_hash",
+        "p_events"
+      ],
+      "arguments": "p_raw text, p_hash text, p_events jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_kind",
+        "p_order",
+        "p_source",
+        "p_product"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_kind text, p_order uuid DEFAULT NULL::uuid, p_source uuid DEFAULT NULL::uuid, p_product uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "ensure_auction_live_session()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "auction_live_session"
+      ]
+    },
+    {
+      "function_signature": "ensure_facebook_customer_fallback_name()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": [
+        "customers_facebook_fallback_name"
+      ]
+    },
+    {
+      "function_signature": "expire_follow_up_if_outside_window(uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_job uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "expire_inbox_automation(uuid)",
+      "argument_names": [
+        "p_customer"
+      ],
+      "arguments": "p_customer uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "expire_inbox_automation_windows(integer)",
+      "argument_names": [
+        "p_limit"
+      ],
+      "arguments": "p_limit integer DEFAULT 200",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "expire_live_auctions(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "expire_live_auctions_report(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "facebook_comment_context(uuid,text,text[])",
+      "argument_names": [
+        "p_tenant",
+        "p_page",
+        "p_posts"
+      ],
+      "arguments": "p_tenant uuid, p_page text, p_posts text[]",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "facebook_inbound_message_at(jsonb,text,timestamp with time zone)",
+      "argument_names": [
+        "p_payload",
+        "p_page",
+        "p_received_at"
+      ],
+      "arguments": "p_payload jsonb, p_page text, p_received_at timestamp with time zone",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "finalize_live_auction(uuid,uuid,uuid,boolean)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event",
+        "p_cancel"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid DEFAULT NULL::uuid, p_cancel boolean DEFAULT false",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event",
+        "p_cancel"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid DEFAULT NULL::uuid, p_cancel boolean DEFAULT false",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "finish_facebook_webhook(uuid,uuid,text,text)",
+      "argument_names": [
+        "p_event",
+        "p_claim",
+        "p_outcome",
+        "p_error"
+      ],
+      "arguments": "p_event uuid, p_claim uuid, p_outcome text, p_error text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "finish_live_reminder_slot()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "live_reminder_slot_finished"
+      ]
+    },
+    {
+      "function_signature": "finish_shipping_provider_job(uuid,text,text)",
+      "argument_names": [
+        "p_job",
+        "p_status",
+        "p_error"
+      ],
+      "arguments": "p_job uuid, p_status text, p_error text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "fips_mode()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "first_configured_facebook_comment_tags(jsonb)",
+      "argument_names": [
+        "candidates"
+      ],
+      "arguments": "candidates jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "follow_up_overview(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "follow_up_window_expires_at(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "follow_up_window_open(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "freeze_broadcast_content()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": [
+        "freeze_broadcast_content"
+      ]
+    },
+    {
+      "function_signature": "gen_random_bytes(integer)",
+      "argument_names": null,
+      "arguments": "integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "public.gen_random_uuid()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "gen_salt(text)",
+      "argument_names": null,
+      "arguments": "text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "gen_salt(text,integer)",
+      "argument_names": null,
+      "arguments": "text, integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "guard_agent_consent()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "customers_agent_consent_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_agent_dispatch_window()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "agent_dispatch_window"
+      ]
+    },
+    {
+      "function_signature": "guard_ai_agent_plan()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "bot_settings_ai_plan_gate"
+      ]
+    },
+    {
+      "function_signature": "guard_billing_approved_image()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "billing_requests_approved_image_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_billing_payment_receipt()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "billing_payment_receipts_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_broadcast_selection()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": [
+        "broadcast_selection_immutable"
+      ]
+    },
+    {
+      "function_signature": "guard_customer_tab_slip()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customer_tab_slip_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_followup_plan()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "bot_settings_followup_plan_gate"
+      ]
+    },
+    {
+      "function_signature": "guard_inbox_automation_window()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "inbox_automation_window"
+      ]
+    },
+    {
+      "function_signature": "guard_keyword_reply_limit()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "keyword_reply_limit"
+      ]
+    },
+    {
+      "function_signature": "guard_live_cf_variant_payment()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "orders_live_cf_variant_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_live_cf_variant_slip()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "slips_live_cf_selection_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_package_payment_image()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "payment_receipts_image_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_payment_pro_order()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "orders_payment_pro_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_payment_pro_slip()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "slips_payment_pro_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_payment_receipt()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "payment_receipts_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_sale_payment_transfer()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "slips_payment_transfer_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_standalone_slip()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "standalone_slip_transfer_guard"
+      ]
+    },
+    {
+      "function_signature": "guard_store_rules_validation()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "bot_settings_store_rules_validation"
+      ]
+    },
+    {
+      "function_signature": "guard_tenant_ai_quota()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "tenants_ai_quota_server_only"
+      ]
+    },
+    {
+      "function_signature": "handover_tenant_ai_quota(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "handover_vision_job(uuid,uuid,text)",
+      "argument_names": [
+        "p_job",
+        "p_claim",
+        "p_reason"
+      ],
+      "arguments": "p_job uuid, p_claim uuid, p_reason text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "has_tenant_feature(uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_feature"
+      ],
+      "arguments": "p_tenant uuid, p_feature text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "heartbeat_facebook_webhook(uuid,uuid)",
+      "argument_names": [
+        "p_event",
+        "p_claim"
+      ],
+      "arguments": "p_event uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "hmac(bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "hmac(text,text,text)",
+      "argument_names": null,
+      "arguments": "text, text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "hold_payment_follow_up_for_slip()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "slips_hold_payment_follow_up"
+      ]
+    },
+    {
+      "function_signature": "inbox_automation_window_open(uuid,uuid)",
+      "argument_names": [
+        "p_customer",
+        "p_tenant"
+      ],
+      "arguments": "p_customer uuid, p_tenant uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "inbox_incoming_message()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "inbox_message_counter"
+      ]
+    },
+    {
+      "function_signature": "inbox_pro_message_progress()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "messages_inbox_pro_progress"
+      ]
+    },
+    {
+      "function_signature": "inbox_pro_overview(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "inbox_verified_inbound_at(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "inherit_auction_session_settings()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "auction_session_settings"
+      ]
+    },
+    {
+      "function_signature": "initialize_auction_deadline()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": [
+        "initialize_auction_deadline"
+      ]
+    },
+    {
+      "function_signature": "is_platform_admin()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "live_auction_customer_dashboard(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_session"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "live_auction_dashboard(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_session"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "live_auction_matched_customers(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_session",
+        "fb_id"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "live_auction_thai_dashboard(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_session"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "live_comment_time(jsonb,timestamp with time zone)",
+      "argument_names": [
+        "p_value",
+        "p_fallback"
+      ],
+      "arguments": "p_value jsonb, p_fallback timestamp with time zone",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "live_session_dashboard(uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_session"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "live_session_tab_proof(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_session",
+        "p_tab"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid, p_tab uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "log_follow_up_state()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "follow_up_state_log"
+      ]
+    },
+    {
+      "function_signature": "manage_agent_knowledge(uuid,uuid,text,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_action",
+        "p_id",
+        "p_data"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_action text, p_id uuid, p_data jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "manage_inbox_conversation(uuid,uuid,text,integer,uuid)",
+      "argument_names": [
+        "p_customer",
+        "p_actor",
+        "p_action",
+        "p_version",
+        "p_assignee"
+      ],
+      "arguments": "p_customer uuid, p_actor uuid, p_action text, p_version integer, p_assignee uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid)",
+      "argument_names": [
+        "p_customer",
+        "p_actor",
+        "p_action",
+        "p_version",
+        "p_key",
+        "p_reason",
+        "p_assignee"
+      ],
+      "arguments": "p_customer uuid, p_actor uuid, p_action text, p_version integer, p_key uuid, p_reason text DEFAULT NULL::text, p_assignee uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "manage_inbox_workspace(uuid,uuid,text,uuid,text)",
+      "argument_names": [
+        "p_customer",
+        "p_actor",
+        "p_action",
+        "p_key",
+        "p_body"
+      ],
+      "arguments": "p_customer uuid, p_actor uuid, p_action text, p_key uuid, p_body text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "manage_live_session(uuid,uuid,uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_session",
+        "p_actor",
+        "p_request",
+        "p_input"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid, p_actor uuid, p_request uuid, p_input jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "manage_shipping(uuid,uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_request",
+        "p_input"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_request uuid, p_input jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_action",
+        "p_id",
+        "p_data",
+        "p_confirmed"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_action text, p_id uuid DEFAULT NULL::uuid, p_data jsonb DEFAULT '{}'::jsonb, p_confirmed boolean DEFAULT false",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "mark_inbox_read(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_customer",
+        "p_actor",
+        "p_message"
+      ],
+      "arguments": "p_customer uuid, p_actor uuid, p_message uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "mark_shipping_tracking_notification(uuid,text)",
+      "argument_names": [
+        "p_job",
+        "p_status"
+      ],
+      "arguments": "p_job uuid, p_status text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "messenger_product_lookup(uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_code",
+        "id",
+        "name",
+        "price",
+        "description",
+        "images",
+        "store_slug",
+        "sales_page_url",
+        "variant_id",
+        "variant_label"
+      ],
+      "arguments": "p_tenant uuid, p_code text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "normalize_auction_settings_before_split(jsonb)",
+      "argument_names": [
+        "settings"
+      ],
+      "arguments": "settings jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "normalize_auction_tag(text)",
+      "argument_names": [
+        "value"
+      ],
+      "arguments": "value text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "normalize_auction_thai_settings(jsonb)",
+      "argument_names": [
+        "settings"
+      ],
+      "arguments": "settings jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "normalize_paid_ai_settings()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "paid_ai_settings_ready"
+      ]
+    },
+    {
+      "function_signature": "on_follow_up_customer()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customers_follow_up_stop"
+      ]
+    },
+    {
+      "function_signature": "on_follow_up_delivery()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "delivery_schedule_follow_up"
+      ]
+    },
+    {
+      "function_signature": "on_follow_up_message()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "messages_follow_up_stop"
+      ]
+    },
+    {
+      "function_signature": "on_order_status()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "orders_status_change"
+      ]
+    },
+    {
+      "function_signature": "overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_from",
+        "p_to",
+        "p_previous",
+        "p_page",
+        "p_query"
+      ],
+      "arguments": "p_tenant uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_previous timestamp with time zone, p_page integer, p_query text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "payment_legacy_credit_mode()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "billing_requests_credit_mode"
+      ]
+    },
+    {
+      "function_signature": "payment_pro_account(text,text)",
+      "argument_names": [
+        "p_full",
+        "p_mask"
+      ],
+      "arguments": "p_full text, p_mask text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "payment_pro_audit_state()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "payment_pro_audit_state"
+      ]
+    },
+    {
+      "function_signature": "payment_pro_bank(text)",
+      "argument_names": [
+        "p_bank"
+      ],
+      "arguments": "p_bank text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_from",
+        "p_to",
+        "p_query"
+      ],
+      "arguments": "p_tenant uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_query text DEFAULT ''::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "payment_pro_overview(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "payment_pro_receiver(uuid,text,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_bank",
+        "p_account",
+        "p_proxy"
+      ],
+      "arguments": "p_tenant uuid, p_bank text, p_account text, p_proxy text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "payment_pro_state_guard()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "payment_pro_state_guard"
+      ]
+    },
+    {
+      "function_signature": "persist_facebook_message_echo(uuid,uuid,uuid,text)",
+      "argument_names": [
+        "p_event",
+        "p_claim",
+        "p_tenant",
+        "p_app"
+      ],
+      "arguments": "p_event uuid, p_claim uuid, p_tenant uuid, p_app text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "persist_facebook_webhook_record(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_event",
+        "p_claim",
+        "p_tenant"
+      ],
+      "arguments": "p_event uuid, p_claim uuid, p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_armor_headers(text)",
+      "argument_names": [
+        "",
+        "key",
+        "value"
+      ],
+      "arguments": "text, OUT key text, OUT value text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_key_id(bytea)",
+      "argument_names": null,
+      "arguments": "bytea",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_decrypt(bytea,bytea)",
+      "argument_names": null,
+      "arguments": "bytea, bytea",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_decrypt(bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_decrypt(bytea,bytea,text,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_decrypt_bytea(bytea,bytea)",
+      "argument_names": null,
+      "arguments": "bytea, bytea",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_decrypt_bytea(bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_decrypt_bytea(bytea,bytea,text,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_encrypt(text,bytea)",
+      "argument_names": null,
+      "arguments": "text, bytea",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_encrypt(text,bytea,text)",
+      "argument_names": null,
+      "arguments": "text, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_encrypt_bytea(bytea,bytea)",
+      "argument_names": null,
+      "arguments": "bytea, bytea",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_pub_encrypt_bytea(bytea,bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_decrypt(bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_decrypt(bytea,text,text)",
+      "argument_names": null,
+      "arguments": "bytea, text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_decrypt_bytea(bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_decrypt_bytea(bytea,text,text)",
+      "argument_names": null,
+      "arguments": "bytea, text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_encrypt(text,text)",
+      "argument_names": null,
+      "arguments": "text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_encrypt(text,text,text)",
+      "argument_names": null,
+      "arguments": "text, text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_encrypt_bytea(bytea,text)",
+      "argument_names": null,
+      "arguments": "bytea, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "pgp_sym_encrypt_bytea(bytea,text,text)",
+      "argument_names": null,
+      "arguments": "bytea, text, text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "place_cf_order(uuid,text,text,text,text)",
+      "argument_names": [
+        "p_tenant_id",
+        "p_code",
+        "p_customer_psid",
+        "p_source",
+        "p_source_id",
+        "r_status",
+        "r_order_id",
+        "r_name",
+        "r_code",
+        "r_amount",
+        "r_variant_label"
+      ],
+      "arguments": "p_tenant_id uuid, p_code text, p_customer_psid text, p_source text, p_source_id text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "place_cf_order(uuid,uuid,uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message",
+        "p_code",
+        "r_status",
+        "r_order_id",
+        "r_name",
+        "r_code",
+        "r_amount",
+        "r_variant_label"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid, p_code text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "place_cf_order(uuid,uuid,uuid,text,text,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_rule",
+        "p_code",
+        "p_comment",
+        "p_post",
+        "p_page",
+        "r_status",
+        "r_order_id",
+        "r_name",
+        "r_code",
+        "r_amount",
+        "r_variant_label"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_rule uuid, p_code text, p_comment text, p_post text, p_page text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "place_cf_order_core(uuid,uuid,uuid,text,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message",
+        "p_code",
+        "p_source",
+        "p_source_id",
+        "r_status",
+        "r_order_id",
+        "r_name",
+        "r_code",
+        "r_amount",
+        "r_variant_label"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid, p_code text, p_source text, p_source_id text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "place_facebook_catalog_order(uuid,uuid,text,text,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_page",
+        "p_post",
+        "p_comment",
+        "p_text",
+        "r_status",
+        "r_order_id",
+        "r_name",
+        "r_code",
+        "r_amount",
+        "r_variant_label"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_page text, p_post text, p_comment text, p_text text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "place_live_cf_order(uuid,uuid,uuid,text,text,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_rule",
+        "p_code",
+        "p_comment",
+        "p_post",
+        "p_page",
+        "r_status",
+        "r_order_id",
+        "r_name",
+        "r_code",
+        "r_amount",
+        "r_variant_label"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_rule uuid, p_code text, p_comment text, p_post text, p_page text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "platform_dashboard_overview()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "platform_update_tenant(uuid,uuid,text,boolean)",
+      "argument_names": [
+        "p_tenant",
+        "p_admin",
+        "p_plan",
+        "p_active"
+      ],
+      "arguments": "p_tenant uuid, p_admin uuid, p_plan text DEFAULT NULL::text, p_active boolean DEFAULT NULL::boolean",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_from",
+        "p_to",
+        "p_previous",
+        "p_page",
+        "p_query"
+      ],
+      "arguments": "p_tenant uuid, p_from timestamp with time zone, p_to timestamp with time zone, p_previous timestamp with time zone DEFAULT NULL::timestamp with time zone, p_page integer DEFAULT 1, p_query text DEFAULT ''::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "prepare_follow_up(uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_job uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "prepare_paid_ai_purchase()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "paid_ai_purchase_ready"
+      ]
+    },
+    {
+      "function_signature": "preserve_message_receipt_status()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "messages_preserve_receipt_status"
+      ]
+    },
+    {
+      "function_signature": "process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event",
+        "p_kind",
+        "p_amount",
+        "p_control"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid, p_kind text, p_amount numeric DEFAULT NULL::numeric, p_control text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event",
+        "p_kind",
+        "p_amount",
+        "p_control"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid, p_kind text, p_amount numeric DEFAULT NULL::numeric, p_control text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event",
+        "p_kind",
+        "p_amount",
+        "p_control"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid, p_kind text, p_amount numeric DEFAULT NULL::numeric, p_control text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant",
+        "p_event",
+        "p_kind",
+        "p_amount",
+        "p_control"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid, p_event uuid, p_kind text, p_amount numeric DEFAULT NULL::numeric, p_control text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "queue_customer_tab_reminders(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_request"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_request uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text)",
+      "argument_names": [
+        "p_tenant",
+        "p_session",
+        "p_actor",
+        "p_request",
+        "p_tabs",
+        "p_template"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid, p_actor uuid, p_request uuid, p_tabs uuid[], p_template text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "queue_shipping_tracking_delivery()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "shipping_tracking_outbox"
+      ]
+    },
+    {
+      "function_signature": "reconcile_shipping(uuid,uuid)",
+      "argument_names": [
+        "p_tab",
+        "p_order"
+      ],
+      "arguments": "p_tab uuid, p_order uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "record_agent_prompt()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "bot_settings_agent_version"
+      ]
+    },
+    {
+      "function_signature": "recover_agent_jobs()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "recover_payment_pro()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "refresh_broadcast_credits(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "refresh_customer_tab(uuid)",
+      "argument_names": [
+        "p_tab"
+      ],
+      "arguments": "p_tab uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "refund_broadcast_credits(uuid,integer,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_monthly",
+        "p_topup"
+      ],
+      "arguments": "p_tenant uuid, p_monthly integer, p_topup integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "refund_broadcast_credits_metered(uuid,integer,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_monthly",
+        "p_topup"
+      ],
+      "arguments": "p_tenant uuid, p_monthly integer, p_topup integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "refund_slip_credit(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "refund_slip_credit_metered(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "refund_unstarted_vision(uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_job uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "render_smart_follow_up(text,text,text,numeric)",
+      "argument_names": [
+        "p_template",
+        "p_name",
+        "p_product",
+        "p_total"
+      ],
+      "arguments": "p_template text, p_name text, p_product text, p_total numeric",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "reserve_broadcast_credits(uuid,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_count",
+        "monthly",
+        "topup"
+      ],
+      "arguments": "p_tenant uuid, p_count integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "reserve_broadcast_credits_metered(uuid,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_count",
+        "monthly",
+        "topup"
+      ],
+      "arguments": "p_tenant uuid, p_count integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "reserve_tenant_ai_reply(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_customer",
+        "p_message"
+      ],
+      "arguments": "p_tenant uuid, p_customer uuid, p_message uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "resolve_facebook_comment_settings(jsonb,jsonb)",
+      "argument_names": [
+        "session",
+        "snapshot"
+      ],
+      "arguments": "session jsonb, snapshot jsonb DEFAULT '{}'::jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "restore_agent_prompt(uuid,uuid,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_version"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_version integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "retry_rejected_follow_up(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_tenant",
+        "p_actor"
+      ],
+      "arguments": "p_job uuid, p_tenant uuid, p_actor uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "retry_unstarted_vision(uuid,uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_tenant",
+        "p_actor"
+      ],
+      "arguments": "p_job uuid, p_tenant uuid, p_actor uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "review_payment_pro_failure(uuid,uuid)",
+      "argument_names": [
+        "p_attempt",
+        "p_claim"
+      ],
+      "arguments": "p_attempt uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_agent_prompt(uuid,uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_instructions"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_instructions text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_session",
+        "p_actor",
+        "p_request",
+        "p_fb_id",
+        "p_note",
+        "p_revision"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid, p_actor uuid, p_request uuid, p_fb_id text, p_note text, p_revision integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_auction_workspace(uuid,uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_request",
+        "p_input"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_request uuid, p_input jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_request",
+        "p_input"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_request uuid, p_input jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_account",
+        "p_bank",
+        "p_number",
+        "p_path",
+        "p_payload",
+        "p_version"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_account uuid, p_bank text, p_number text, p_path text, p_payload text, p_version integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_account",
+        "p_create",
+        "p_data",
+        "p_original",
+        "p_path",
+        "p_payload",
+        "p_version",
+        "p_request",
+        "p_fingerprint"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_account uuid, p_create boolean, p_data jsonb, p_original jsonb, p_path text, p_payload text, p_version integer, p_request uuid, p_fingerprint text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_account",
+        "p_recipient",
+        "p_payload",
+        "p_amount",
+        "p_original",
+        "p_logo",
+        "p_design",
+        "p_version"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_account uuid, p_recipient text, p_payload text, p_amount bigint, p_original text, p_logo text, p_design jsonb, p_version integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_bank",
+        "p_name",
+        "p_number",
+        "p_path",
+        "p_payload",
+        "p_version"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_bank text, p_name text, p_number text, p_path text, p_payload text, p_version integer",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_facebook_comment_config(uuid,uuid,uuid,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_session",
+        "p_actor",
+        "p_settings"
+      ],
+      "arguments": "p_tenant uuid, p_session uuid, p_actor uuid, p_settings jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_kind",
+        "p_version",
+        "p_index",
+        "p_steps",
+        "p_config"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_kind text, p_version integer, p_index integer, p_steps jsonb, p_config jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_inbox_quick_reply(uuid,uuid,uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_key",
+        "p_body"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_key uuid, p_body text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_inbox_quick_reply(uuid,uuid,uuid,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_key",
+        "p_body",
+        "p_shortcut"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_key uuid, p_body text, p_shortcut text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_key",
+        "p_account",
+        "p_label",
+        "p_payload",
+        "p_recipient",
+        "p_amount",
+        "p_order",
+        "p_source"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_key uuid, p_account uuid, p_label text, p_payload text, p_recipient text, p_amount bigint, p_order uuid DEFAULT NULL::uuid, p_source text DEFAULT 'generated'::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean)",
+      "argument_names": [
+        "p_tenant",
+        "p_provider",
+        "p_endpoint",
+        "p_credentials",
+        "p_sender",
+        "p_tracking_template",
+        "p_weight",
+        "p_active",
+        "p_default"
+      ],
+      "arguments": "p_tenant uuid, p_provider text, p_endpoint text, p_credentials text, p_sender jsonb, p_tracking_template text, p_weight numeric, p_active boolean, p_default boolean",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_smart_follow_up(uuid,uuid,jsonb,jsonb)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_policy",
+        "p_workflows"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_policy jsonb, p_workflows jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_store_rule_items(uuid,uuid,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_expected",
+        "p_instructions"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_expected text, p_instructions text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_validated_store_rules(uuid,uuid,text,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_expected",
+        "p_instructions"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_expected text, p_instructions text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "save_vision_settings(uuid,uuid,boolean,text,numeric,boolean)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_enabled",
+        "p_mode",
+        "p_confidence",
+        "p_handoff"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_enabled boolean, p_mode text, p_confidence numeric, p_handoff boolean",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "schedule_follow_ups()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": [
+        "orders_schedule_follow_ups"
+      ]
+    },
+    {
+      "function_signature": "seed_tenant_bank_account()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "tenants_seed_bank_account"
+      ]
+    },
+    {
+      "function_signature": "set_agent_overview_capability(uuid,uuid,text,boolean)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_capability",
+        "p_enabled"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_capability text, p_enabled boolean",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "set_follow_up_approval_mode(uuid,uuid,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_mode"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_mode text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "set_inbox_follow_up_flag(uuid,uuid,boolean,uuid)",
+      "argument_names": [
+        "p_customer",
+        "p_actor",
+        "p_enabled",
+        "p_key"
+      ],
+      "arguments": "p_customer uuid, p_actor uuid, p_enabled boolean, p_key uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "set_payment_receiving_code_active(uuid,uuid,uuid,boolean)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_id",
+        "p_active"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_id uuid, p_active boolean",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "set_tenant_automation_stop(uuid,uuid,boolean,text)",
+      "argument_names": [
+        "p_tenant",
+        "p_actor",
+        "p_stopped",
+        "p_reason"
+      ],
+      "arguments": "p_tenant uuid, p_actor uuid, p_stopped boolean, p_reason text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "settle_broadcast_recipient(uuid,uuid,uuid,text,text,text)",
+      "argument_names": [
+        "p_broadcast",
+        "p_customer",
+        "p_lease",
+        "p_result",
+        "p_reason",
+        "p_receipt"
+      ],
+      "arguments": "p_broadcast uuid, p_customer uuid, p_lease uuid, p_result text, p_reason text DEFAULT NULL::text, p_receipt text DEFAULT NULL::text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "settle_tenant_ai_reply(uuid)",
+      "argument_names": [
+        "p_reservation"
+      ],
+      "arguments": "p_reservation uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "shipping_address_valid(jsonb)",
+      "argument_names": [
+        "v"
+      ],
+      "arguments": "v jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "shipping_balance_changed()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "shipping_tab_sync"
+      ]
+    },
+    {
+      "function_signature": "shipping_guard_dispatched()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "shipping_dispatched_order_guard"
+      ]
+    },
+    {
+      "function_signature": "shipping_mirror_fields()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "shipping_mirror"
+      ]
+    },
+    {
+      "function_signature": "shipping_order_changed()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "shipping_order_sync"
+      ]
+    },
+    {
+      "function_signature": "shipping_payment_ready(uuid)",
+      "argument_names": [
+        "p_shipment"
+      ],
+      "arguments": "p_shipment uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "shipping_snapshot(uuid,uuid[],uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_ids",
+        "p_session"
+      ],
+      "arguments": "p_tenant uuid, p_ids uuid[] DEFAULT NULL::uuid[], p_session uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "stamp_customer_tab_proof()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customer_tab_proof"
+      ]
+    },
+    {
+      "function_signature": "stamp_facebook_catalog_post()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "a_stamp_facebook_catalog_post"
+      ]
+    },
+    {
+      "function_signature": "stamp_live_item_type()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customer_tab_item_type"
+      ]
+    },
+    {
+      "function_signature": "start_agent_ai_call(uuid,uuid,uuid,uuid,uuid)",
+      "argument_names": [
+        "p_tenant",
+        "p_key",
+        "p_customer",
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_tenant uuid, p_key uuid, p_customer uuid DEFAULT NULL::uuid, p_job uuid DEFAULT NULL::uuid, p_claim uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "start_inbox_delivery(uuid,uuid)",
+      "argument_names": [
+        "p_customer",
+        "p_actor"
+      ],
+      "arguments": "p_customer uuid, p_actor uuid DEFAULT NULL::uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "start_inbox_handover(uuid)",
+      "argument_names": [
+        "p_customer"
+      ],
+      "arguments": "p_customer uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "start_legacy_auction_timer(uuid,uuid)",
+      "argument_names": [
+        "p_auction",
+        "p_tenant"
+      ],
+      "arguments": "p_auction uuid, p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "start_payment_pro_provider(uuid,uuid)",
+      "argument_names": [
+        "p_attempt",
+        "p_claim"
+      ],
+      "arguments": "p_attempt uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "start_vision_analysis(uuid,uuid)",
+      "argument_names": [
+        "p_job",
+        "p_claim"
+      ],
+      "arguments": "p_job uuid, p_claim uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "submit_auction_payment_proof(uuid,text)",
+      "argument_names": [
+        "p_order",
+        "p_image"
+      ],
+      "arguments": "p_order uuid, p_image text",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "sync_broadcast_inbound_message()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "broadcast_inbound_message_sync"
+      ]
+    },
+    {
+      "function_signature": "sync_customer_tab_order()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customer_tab_order_sync"
+      ]
+    },
+    {
+      "function_signature": "sync_facebook_customer_window()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customers_facebook_window"
+      ]
+    },
+    {
+      "function_signature": "sync_facebook_evidence_window()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "broadcast_inbound_customer_window"
+      ]
+    },
+    {
+      "function_signature": "sync_facebook_tenants(uuid,jsonb)",
+      "argument_names": [
+        "p_user_id",
+        "p_pages"
+      ],
+      "arguments": "p_user_id uuid, p_pages jsonb",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "sync_inbox_pro_stage()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "customers_inbox_pro_stage"
+      ]
+    },
+    {
+      "function_signature": "sync_payment_follow_up_switch()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "payment_follow_up_master_switch"
+      ]
+    },
+    {
+      "function_signature": "sync_primary_bank_account()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "bank_accounts_primary"
+      ]
+    },
+    {
+      "function_signature": "tenant_has_feature_bypass(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "tenant_has_paid_ai_access(uuid)",
+      "argument_names": [
+        "p_tenant"
+      ],
+      "arguments": "p_tenant uuid",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "touch_image_response_rule()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "image_response_rules_updated"
+      ]
+    },
+    {
+      "function_signature": "valid_fallback_messages(text[])",
+      "argument_names": [
+        "messages"
+      ],
+      "arguments": "messages text[]",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "valid_handover_messages(text[])",
+      "argument_names": [
+        "messages"
+      ],
+      "arguments": "messages text[]",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": false,
+      "anon_exec": true,
+      "auth_exec": true,
+      "service_role_exec": true,
+      "triggers": []
+    },
+    {
+      "function_signature": "validate_live_cf_rule()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": []
+    },
+    {
+      "function_signature": "validate_live_cf_setup_rule()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "validate_live_cf_setup_rule"
+      ]
+    },
+    {
+      "function_signature": "vision_job_audit()",
+      "argument_names": null,
+      "arguments": "",
+      "owner": "postgres",
+      "kind": "f",
+      "is_security_definer": true,
+      "anon_exec": false,
+      "auth_exec": false,
+      "service_role_exec": false,
+      "triggers": [
+        "vision_job_audit"
+      ]
+    }
+  ],
+  "default_privileges": [
+    {
+      "session_user": "postgres",
+      "owner_role": "postgres",
+      "schema_name": "public",
+      "object_type": "S",
+      "default_acl": "{anon=rwU/postgres,authenticated=rwU/postgres,service_role=rwU/postgres}"
+    },
+    {
+      "session_user": "postgres",
+      "owner_role": "postgres",
+      "schema_name": "public",
+      "object_type": "r",
+      "default_acl": "{anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}"
+    }
+  ],
+  "policies": [
+    {
+      "tablename": "agent_ai_monthly_usage",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'ai_agent'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "agent_ai_usage",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'ai_agent'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "agent_control_audit",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'ai_agent'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "agent_control_settings",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'ai_agent'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "agent_knowledge_sources",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'ai_agent'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "agent_message_jobs",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'ai_agent'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "agent_prompt_versions",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'ai_agent'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "bank_accounts",
+      "policyname": "owner_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_manage_bank_accounts(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "billing_requests",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "bot_settings",
+      "policyname": "member_all",
+      "cmd": "ALL",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": "can_access_tenant(tenant_id)"
+    },
+    {
+      "tablename": "broadcasts",
+      "policyname": "member_delete_draft",
+      "cmd": "DELETE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND (status = 'draft'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "broadcasts",
+      "policyname": "member_draft",
+      "cmd": "INSERT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": null,
+      "with_check": "(can_access_tenant(tenant_id) AND (status = 'draft'::text))"
+    },
+    {
+      "tablename": "broadcasts",
+      "policyname": "member_edit_draft",
+      "cmd": "UPDATE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND (status = 'draft'::text))",
+      "with_check": "(can_access_tenant(tenant_id) AND (status = 'draft'::text))"
+    },
+    {
+      "tablename": "broadcasts",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "chat_rules",
+      "policyname": "member_all",
+      "cmd": "ALL",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": "can_access_tenant(tenant_id)"
+    },
+    {
+      "tablename": "comment_rules",
+      "policyname": "member_all",
+      "cmd": "ALL",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": "((tenant_id IS NOT NULL) AND can_access_tenant(tenant_id))"
+    },
+    {
+      "tablename": "comments",
+      "policyname": "comment_feature_access",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "has_tenant_feature(tenant_id, 'customer_management'::text)",
+      "with_check": null
+    },
+    {
+      "tablename": "comments",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "conversation_events",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'customer_management'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "conversation_reads",
+      "policyname": "own_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "((user_id = auth.uid()) AND (EXISTS ( SELECT 1\n   FROM customers c\n  WHERE ((c.id = conversation_reads.customer_id) AND can_access_tenant(c.tenant_id)))))",
+      "with_check": null
+    },
+    {
+      "tablename": "customers",
+      "policyname": "customer_feature_write_access",
+      "cmd": "UPDATE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "has_tenant_feature(tenant_id, 'customer_management'::text)",
+      "with_check": "has_tenant_feature(tenant_id, 'customer_management'::text)"
+    },
+    {
+      "tablename": "customers",
+      "policyname": "inbox_customer_tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "customers",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "customers",
+      "policyname": "member_toggle",
+      "cmd": "UPDATE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": "can_access_tenant(tenant_id)"
+    },
+    {
+      "tablename": "follow_up_execution_logs",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'customer_follow_up'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "follow_up_jobs",
+      "policyname": "followup_feature_access",
+      "cmd": "ALL",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "has_tenant_feature(tenant_id, 'customer_follow_up'::text)",
+      "with_check": "has_tenant_feature(tenant_id, 'customer_follow_up'::text)"
+    },
+    {
+      "tablename": "follow_up_jobs",
+      "policyname": "member_cancel",
+      "cmd": "UPDATE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND (status = 'scheduled'::text))",
+      "with_check": "(can_access_tenant(tenant_id) AND (status = 'cancelled'::text))"
+    },
+    {
+      "tablename": "follow_up_jobs",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "follow_up_policies",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'customer_follow_up'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "follow_up_workflows",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'customer_follow_up'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "image_response_rules",
+      "policyname": "image_feature_access",
+      "cmd": "ALL",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "has_tenant_feature(tenant_id, 'image_assistant'::text)",
+      "with_check": "has_tenant_feature(tenant_id, 'image_assistant'::text)"
+    },
+    {
+      "tablename": "image_response_rules",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "image_response_rules",
+      "policyname": "owner_delete",
+      "cmd": "DELETE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_manage_image_rules(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "image_response_rules",
+      "policyname": "owner_insert",
+      "cmd": "INSERT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": null,
+      "with_check": "can_manage_image_rules(tenant_id)"
+    },
+    {
+      "tablename": "image_response_rules",
+      "policyname": "owner_update",
+      "cmd": "UPDATE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_manage_image_rules(tenant_id)",
+      "with_check": "can_manage_image_rules(tenant_id)"
+    },
+    {
+      "tablename": "messages",
+      "policyname": "inbox_message_tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(EXISTS ( SELECT 1\n   FROM customers c\n  WHERE ((c.id = messages.customer_id) AND can_access_tenant(c.tenant_id))))",
+      "with_check": null
+    },
+    {
+      "tablename": "messages",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(EXISTS ( SELECT 1\n   FROM customers c\n  WHERE ((c.id = messages.customer_id) AND can_access_tenant(c.tenant_id))))",
+      "with_check": null
+    },
+    {
+      "tablename": "order_delivery_events",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'customer_follow_up'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "orders",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "orders",
+      "policyname": "member_update",
+      "cmd": "UPDATE",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": "can_access_tenant(tenant_id)"
+    },
+    {
+      "tablename": "orders",
+      "policyname": "order_feature_access",
+      "cmd": "ALL",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "has_tenant_feature(tenant_id, 'customer_management'::text)",
+      "with_check": "has_tenant_feature(tenant_id, 'customer_management'::text)"
+    },
+    {
+      "tablename": "payment_pro_attempts",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'slip_auto_pilot'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "payment_pro_audit",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'slip_auto_pilot'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "payment_pro_settings",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'slip_auto_pilot'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "platform_admins",
+      "policyname": "own_row",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(user_id = auth.uid())",
+      "with_check": null
+    },
+    {
+      "tablename": "products",
+      "policyname": "member_all",
+      "cmd": "ALL",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": "can_access_tenant(tenant_id)"
+    },
+    {
+      "tablename": "slip_settings",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "slips",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "slips",
+      "policyname": "slip_feature_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "has_tenant_feature(tenant_id, 'slip_auto_pilot'::text)",
+      "with_check": null
+    },
+    {
+      "tablename": "standalone_slips",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(tenant_id)",
+      "with_check": null
+    },
+    {
+      "tablename": "tenant_members",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "((user_id = auth.uid()) OR can_access_tenant(tenant_id))",
+      "with_check": null
+    },
+    {
+      "tablename": "tenants",
+      "policyname": "member_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "can_access_tenant(id)",
+      "with_check": null
+    },
+    {
+      "tablename": "vision_audit_logs",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'image_assistant'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "vision_jobs",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'image_assistant'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "vision_settings",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'image_assistant'::text))",
+      "with_check": null
+    },
+    {
+      "tablename": "vision_usage",
+      "policyname": "tenant_read",
+      "cmd": "SELECT",
+      "roles": [
+        "authenticated"
+      ],
+      "qual": "(can_access_tenant(tenant_id) AND has_tenant_feature(tenant_id, 'image_assistant'::text))",
+      "with_check": null
+    }
+  ],
+  "dependency_audit": []
+}

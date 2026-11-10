@@ -128,7 +128,8 @@ begin
     ('public.shipping_tracking_deliveries'),
     ('public.auction_winner_claims'),
     ('public.facebook_comment_defaults'),
-    ('public.auction_poll_cursors')) expected(name)
+    ('public.auction_poll_cursors'),
+    ('public.auction_expiry_failures')) expected(name)
   where to_regclass(name) is not null;
   if existing is not null then
     raise exception 'Fresh database only. Existing application tables: %', existing
@@ -15913,7 +15914,7 @@ notify pgrst,'reload schema';
 commit;
 -- ============================================================================
 -- 120. live-auction-audit-hardening.sql | Latest delivery safety, reporting and index patches
--- SHA256: 960f8300baa2e0e101066a9bf4ec743e48c189d502058f49dd406ab179f1a7f9
+-- SHA256: 2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -15922,7 +15923,7 @@ set local search_path = public, extensions;
 
 -- Source statement 2
 create or replace function public.auction_comment_timestamp(value text) returns timestamptz
-language plpgsql immutable set search_path=pg_catalog,public as $$
+language plpgsql stable set search_path=pg_catalog,public as $$
 declare n numeric;
 begin
  if value is null or btrim(value)='' then return null; end if;
@@ -15944,50 +15945,117 @@ create table if not exists public.auction_poll_cursors (
  live_video_id text not null,
  high_water_at timestamptz not null,
  continuation_url text,
+ continuation_anchor_url text,
+ continuation_boundary_at timestamptz,
  updated_at timestamptz not null default clock_timestamp()
 );
 
 -- Source statement 4
-alter table public.auction_poll_cursors enable row level security;
+alter table public.auction_poll_cursors add column if not exists continuation_anchor_url text;
 
 -- Source statement 5
-revoke all on public.auction_poll_cursors from public,anon,authenticated;
+alter table public.auction_poll_cursors add column if not exists continuation_boundary_at timestamptz;
 
 -- Source statement 6
-grant all on public.auction_poll_cursors to service_role;
+alter table public.auction_poll_cursors enable row level security;
 
 -- Source statement 7
+revoke all on public.auction_poll_cursors from public,anon,authenticated;
+
+-- Source statement 8
+grant all on public.auction_poll_cursors to service_role;
+
+-- Source statement 9
 create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
-declare a public.auctions; leader record;
+declare a public.auctions;locked_at timestamptz;
 begin
  select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
  if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002'; end if;
- if a.status in ('cancelled','closed') then
-  return jsonb_build_object('status',case when a.status='closed' and a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else a.status end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
+ if a.status='cancelled' then return jsonb_build_object('status','cancelled','orderId',a.order_id);end if;
+ if a.status='closed' then
+  return jsonb_build_object('status',case when a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else 'closed' end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
  end if;
+ if a.status<>'active' then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
  if p_cancel then
   update public.auctions set status='cancelled',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
   return jsonb_build_object('status','cancelled','orderId',null);
  end if;
- if coalesce(a.session_automation->>'winnerFlow','highest_bid')='on_demand' then
-  select bidder_id,bidder_name,bid_amount,comment_id into leader from public.auction_bids
-   where auction_id=a.id and bid_amount>0 and status in ('accepted','claimed')
-   order by bid_amount desc,created_at asc,id asc limit 1;
-  if found then
-   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
-    winner_locked_at=coalesce(winner_locked_at,clock_timestamp()),leading_bidder_id=leader.bidder_id,
-    leading_bidder_name=leader.bidder_name,current_price=leader.bid_amount,leading_comment_id=leader.comment_id
-    where id=a.id;
-   return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',leader.bidder_id,'amount',leader.bid_amount);
+ -- The locked auctions row is the authoritative leader for both winner flows.
+ -- Closing creates no order; the winner's later confirmation creates it atomically.
+ if a.leading_bidder_id ~ '^[0-9]{1,64}$' and coalesce(a.current_price,0)>0 then
+  locked_at:=coalesce(a.winner_locked_at,clock_timestamp());
+  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
+   winner_locked_at=locked_at where id=a.id;
+  if a.public_reply_enabled then
+   if a.session_automation ? 'closeKeywords' then
+    insert into public.auction_deliveries(auction_id,channel,comment_id)
+     values(a.id,'public',a.leading_comment_id)
+     on conflict(auction_id,channel) where claim_id is null do nothing;
+   elsif p_event is not null then
+    insert into public.auction_deliveries(auction_id,channel,comment_id)
+     select a.id,'public',payload->'value'->>'comment_id'
+      from public.facebook_webhook_events where id=p_event
+     on conflict(auction_id,channel) where claim_id is null do nothing;
+   end if;
   end if;
-  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
-  return jsonb_build_object('status','closed','orderId',null);
+  return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',a.leading_bidder_id,'amount',a.current_price);
  end if;
- return public.finalize_live_auction_highest_bid(p_auction,p_tenant,p_event,false);
+ update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+ if p_event is not null and a.public_reply_enabled then
+  insert into public.auction_deliveries(auction_id,channel,comment_id)
+   select a.id,'public',payload->'value'->>'comment_id'
+    from public.facebook_webhook_events where id=p_event
+   on conflict(auction_id,channel) where claim_id is null do nothing;
+ end if;
+ return jsonb_build_object('status','closed','orderId',null);
 end $$;
 
--- Source statement 8
+-- Source statement 10
+create or replace function public.close_due_live_auction(
+ p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if a.status<>'active' then return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);end if;
+ if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then
+  return jsonb_build_object('status','not_due');
+ end if;
+ if not p_cancel and exists(select 1 from public.facebook_webhook_events e
+  where e.page_id=a.page_id and e.kind='change' and e.status in ('pending','processing')
+   and e.created_at>=a.created_at and (a.ends_at is null or e.created_at<a.ends_at)
+   and (a.live_post_id=regexp_replace(e.payload->'value'->>'post_id','^.*_','')
+    or a.live_post_id=e.payload->'value'->>'video_id'
+    or a.live_post_id=e.payload->'value'->>'live_video_id'
+    or e.payload->'value'->>'post_id'=any(a.live_post_aliases))
+ ) then return jsonb_build_object('status','draining');end if;
+ return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);
+end $$;
+
+-- Source statement 11
+create or replace function public.expire_live_auctions(p_tenant uuid default null)
+returns integer language plpgsql set search_path=pg_catalog,public as $$
+declare a record; result jsonb; count_closed integer:=0;
+begin
+ for a in select id,tenant_id from public.auctions
+  where status='active' and ends_at<=clock_timestamp()
+   and (p_tenant is null or tenant_id=p_tenant)
+  order by ends_at limit 100 for update skip locked
+ loop
+  begin
+   result:=public.close_due_live_auction(a.id,a.tenant_id);
+   if result->>'status' in ('closed','awaiting_confirmation') then count_closed:=count_closed+1;end if;
+  exception when others then
+   -- Codes only: exception text can contain customer data.
+   raise warning 'Auction expiry failed [%]',sqlstate;
+  end;
+ end loop;
+ return count_closed;
+end $$;
+
+-- Source statement 12
 create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
@@ -16000,7 +16068,7 @@ begin
  select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
  if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
  v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
- if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
  if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
  select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
  if found then return prior;end if;
@@ -16018,11 +16086,22 @@ begin
   elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
   end if;
  end if;
- if confirming or (p_kind='HOST_CONTROL' and (p_control='close' or counting)) then
+ if confirming then
   source_at:=public.auction_comment_timestamp(v->>'created_time');
-  if source_at is null or source_at<a.created_at-interval '1 second' or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
+  if source_at is null or source_at<a.created_at
+   or (a.winner_locked_at is not null and source_at<a.winner_locked_at) then
    return jsonb_build_object('status','stale');
   end if;
+ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+  source_at:=public.auction_comment_timestamp(v->>'created_time');
+  if source_at is null or source_at<a.created_at
+   or (a.closed_at is not null and source_at>a.closed_at) then
+   return jsonb_build_object('status','stale');
+  end if;
+ end if;
+ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
+  perform public.close_due_live_auction(a.id,a.tenant_id);
+  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
  end if;
  if a.session_automation is distinct from settings then
   update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
@@ -16049,7 +16128,7 @@ begin
  if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
  else
   update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
-  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
+  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
   update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
   r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
  end if;
@@ -16057,11 +16136,1662 @@ begin
  return r;
 end $$;
 
--- Source statement 9
+-- Source statement 13
 revoke all on function public.auction_comment_timestamp(text) from public,anon,authenticated;
 
--- Source statement 10
+-- Source statement 14
 grant execute on function public.auction_comment_timestamp(text) to service_role;
+
+-- Source statement 15
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 121. live-auction-audit-hardening-2.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create table if not exists public.auction_expiry_failures (
+ sqlstate text not null check(sqlstate ~ '^[A-Z0-9]{5}$'),
+ auction_id uuid not null references public.auctions(id) on delete cascade,
+ occurred_at timestamptz not null default clock_timestamp()
+);
+
+-- Source statement 3
+create index if not exists auction_expiry_failures_recent on public.auction_expiry_failures(occurred_at desc);
+
+-- Source statement 4
+alter table public.auction_expiry_failures enable row level security;
+
+-- Source statement 5
+revoke all on public.auction_expiry_failures from public,anon,authenticated;
+
+-- Source statement 6
+grant select,insert on public.auction_expiry_failures to service_role;
+
+-- Source statement 7
+create or replace function public.expire_live_auctions_report(p_tenant uuid default null)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a record;result jsonb;closed integer:=0;failed integer:=0;
+begin
+ for a in select id,tenant_id from public.auctions where status='active' and ends_at<=clock_timestamp()
+  and (p_tenant is null or tenant_id=p_tenant) order by ends_at limit 100 for update skip locked
+ loop
+  begin
+   result:=public.close_due_live_auction(a.id,a.tenant_id);
+   if result->>'status' in ('closed','awaiting_confirmation') then closed:=closed+1;end if;
+  exception when others then
+   insert into public.auction_expiry_failures(sqlstate,auction_id,occurred_at) values(sqlstate,a.id,clock_timestamp());
+   failed:=failed+1;
+  end;
+ end loop;
+ return jsonb_build_object('closed',closed,'failed',failed);
+end $$;
+
+-- Source statement 8
+create or replace function public.expire_live_auctions(p_tenant uuid default null)
+returns integer language sql set search_path=pg_catalog,public as $$
+ select (public.expire_live_auctions_report(p_tenant)->>'closed')::integer
+$$;
+
+-- Source statement 9
+revoke all on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) from public,anon,authenticated;
+
+-- Source statement 10
+grant execute on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) to service_role;
+
+-- Source statement 11
+create or replace function public.process_live_auction_comment(
+ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
+ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+ if found then return prior;end if;
+ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
+ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
+ host:=sender=a.page_id or sender=any(a.host_ids);
+ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
+ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
+ message:=public.normalize_auction_tag(v->>'message');
+ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
+ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
+ confirming:=not host and message=any(keywords);
+ if host then
+  if coalesce((settings->>'closeEnabled')::boolean,true) and message=any(close_keywords) then p_kind:='HOST_CONTROL';p_control:='close';
+  elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
+  end if;
+ end if;
+ if confirming then
+  confirmation_floor:=a.winner_locked_at;
+  if a.close_event_id is not null then
+   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
+   if found and close_event.payload->'value'->>'verb'='add'
+    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
+    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
+   end if;
+  end if;
+  source_at:=public.auction_comment_timestamp(v->>'created_time');
+  if source_at is null or source_at<a.created_at
+   or (confirmation_floor is not null and source_at<confirmation_floor) then
+   return jsonb_build_object('status','stale');
+  end if;
+ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+  source_at:=public.auction_comment_timestamp(v->>'created_time');
+  if source_at is null or source_at<a.created_at
+   or (a.closed_at is not null and source_at>a.closed_at) then
+   return jsonb_build_object('status','stale');
+  end if;
+ end if;
+ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
+  perform public.close_due_live_auction(a.id,a.tenant_id);
+  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
+ end if;
+ if a.session_automation is distinct from settings then
+  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
+ end if;
+ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
+  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
+  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
+  return r;
+ end if;
+ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
+  update public.auctions set host_count=p_control where id=a.id;
+  r:=jsonb_build_object('status','count');
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
+  return r;
+ end if;
+ if host then return jsonb_build_object('status','ignored');end if;
+ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
+ if not confirming then
+  numeric_price:=public.auction_numeric_price(v->>'message');
+  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
+ end if;
+ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
+ else
+  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
+  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
+  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
+  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+ end if;
+ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
+ return r;
+end $$;
+
+-- Source statement 12
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 122. live-auction-manual-host-close.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare result jsonb;duration integer;replay boolean;
+begin
+ if p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb then
+  duration:=null;
+ else
+  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
+  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
+ end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
+ replay:=exists(select 1 from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request);
+ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,p_input);
+ if replay then return result;end if;
+ -- The insert trigger may initialize a timer; clear it inside this same transaction.
+ -- Existing timed rounds switch to manual only on an authorized, non-replayed save.
+ if duration is null then
+  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null
+   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
+ else
+  update public.auctions set duration_seconds=duration,
+   timer_started_at=coalesce(timer_started_at,clock_timestamp()),
+   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
+   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active'
+    and (duration_seconds is distinct from duration or ends_at is null);
+ end if;
+ return result;
+end $$;
+
+-- Source statement 3
+revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated;
+
+-- Source statement 4
+grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 5
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 123. live-auction-auto-cycle.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.live_sessions add column if not exists auction_round_template jsonb;
+
+-- Source statement 3
+alter table public.auctions add column if not exists previous_auction_id uuid references public.auctions(id);
+
+-- Source statement 4
+create unique index if not exists auctions_one_successor on public.auctions(previous_auction_id) where previous_auction_id is not null;
+
+-- Source statement 5
+create index if not exists auction_bids_comment_lookup on public.auction_bids(comment_id);
+
+-- Source statement 6
+create or replace function public.normalize_auction_settings_before_split(settings jsonb) returns jsonb
+language sql immutable returns null on null input set search_path=pg_catalog,public as $$
+ select case when coalesce(settings->>'winnerFlow','on_demand') in ('on_demand','highest_bid') then settings||jsonb_build_object(
+  'winnerFlow',coalesce(settings->>'winnerFlow','on_demand'),
+  'keywords',coalesce(settings->'keywords','[]'::jsonb),
+  'closeKeywords',coalesce(settings->'closeKeywords','[]'::jsonb),
+  'closeKeywordPresetsVersion',1,'countEnabled',coalesce((settings->>'countEnabled')::boolean,false),'heartCloses',false,'closeEnabled',coalesce((settings->>'closeEnabled')::boolean,true),
+  'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
+  'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end) else null end
+$$;
+
+-- Source statement 7
+create or replace function public.auction_host_command(message text,settings jsonb)
+returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
+declare line text;count_value text;last_count text;closing text[];
+begin
+ closing:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
+ for line in select public.normalize_auction_tag(v) from regexp_split_to_table(coalesce(message,''),E'[\r\n]+') v loop
+  continue when line='';
+  if coalesce((settings->>'closeEnabled')::boolean,true) and line=any(closing) then
+   return jsonb_build_object('action','close');
+  end if;
+  count_value:=null;
+  if coalesce((settings->>'countEnabled')::boolean,false) and jsonb_typeof(settings->'counting_tags')='object' then
+   select btrim(value#>>'{}') into count_value from jsonb_each(settings->'counting_tags')
+    where public.normalize_auction_tag(key)=line and jsonb_typeof(value)='string' limit 1;
+  end if;
+  if coalesce(count_value,'')='' or length(count_value)>40 then return jsonb_build_object('action','ignore');end if;
+  last_count:=count_value;
+ end loop;
+ return case when last_count is null then jsonb_build_object('action','ignore') else jsonb_build_object('action','count','count',last_count) end;
+end $$;
+
+-- Source statement 8
+create or replace function public.advance_live_auction(p_auction uuid,p_tenant uuid,p_event uuid)
+returns uuid language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;s public.live_sessions;e public.facebook_webhook_events;t jsonb;settings jsonb;next_id uuid;started timestamptz;bank uuid;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ select id into next_id from public.auctions where previous_auction_id=a.id and tenant_id=p_tenant;
+ if found then return next_id;end if;
+ if a.status<>'closed' or a.close_event_id is distinct from p_event or p_event is null then return null;end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id and kind='change';
+ if not found or not coalesce(e.payload->'value'->'from'->>'id'=a.page_id or e.payload->'value'->'from'->>'id'=any(a.host_ids),false) then
+  raise exception 'AUCTION_HOST_REQUIRED' using errcode='42501';end if;
+ select * into s from public.live_sessions where tenant_id=a.tenant_id and page_id=a.page_id and live_post_id=a.live_post_id and ended_at is null for update;
+ if not found or s.auction_round_template is null or not coalesce((s.auction_settings->>'autoCycleRounds')::boolean,false) then return null;end if;
+ settings:=public.resolve_facebook_comment_settings(to_jsonb(s),a.session_automation);
+ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode' is distinct from 'auction' then return null;end if;
+ t:=s.auction_round_template;bank:=(settings->>'bankAccountId')::uuid;
+ if not exists(select 1 from public.bank_accounts where id=bank and tenant_id=a.tenant_id and is_active) then raise exception 'BANK_SCOPE' using errcode='42501';end if;
+ -- Source-time floor preserves comments already queued after the close in the same poll cycle.
+ started:=least(e.created_at,coalesce(public.auction_comment_timestamp(e.payload->'value'->>'created_time'),e.created_at));
+ insert into public.auctions(tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,
+  bank_account_id,host_ids,session_automation,private_reply_enabled,public_reply_enabled,
+  private_reply_template,bid_reply_template,close_reply_template,previous_auction_id,created_at)
+ values(a.tenant_id,a.page_id,a.live_post_id,a.live_post_aliases,t->>'itemName',(t->>'startPrice')::numeric,
+  (t->>'minStep')::numeric,(t->>'shippingFee')::numeric,bank,a.host_ids,settings,
+  coalesce((settings->>'privateReply')::boolean,false),coalesce((settings->>'publicReply')::boolean,false),
+  coalesce(settings->>'private_reply_template',settings->>'privateText',a.private_reply_template),
+  coalesce(settings->>'public_reply_template',settings->>'bidText',a.bid_reply_template),
+  coalesce(settings->>'closeText',a.close_reply_template),a.id,started) returning id into next_id;
+ update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=next_id;
+ return next_id;
+end $$;
+
+-- Source statement 9
+create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
+begin
+ if p_request is null or p_actor is null then raise exception 'INVALID_REQUEST';end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
+ select * into prior from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request;
+ if found then
+  if prior.actor_id<>p_actor or prior.input<>p_input then raise exception 'REQUEST_REUSED' using errcode='40001';end if;
+  return prior.result;
+ end if;
+ if jsonb_typeof(p_input->'settings'->'autoCycleRounds') is not null and jsonb_typeof(p_input->'settings'->'autoCycleRounds')<>'boolean' then raise exception 'INVALID_SETTINGS';end if;
+ if p_input->'settings' ? 'counting_tags' then
+  if jsonb_typeof(p_input->'settings'->'counting_tags')<>'object' then raise exception 'INVALID_SETTINGS';end if;
+  if exists(select 1 from jsonb_each(p_input->'settings'->'counting_tags') where length(key)>40 or public.normalize_auction_tag(key)='' or key~E'[\r\n{}]'
+   or jsonb_typeof(value)<>'string' or length(btrim(value#>>'{}')) not between 1 and 40 or (value#>>'{}')~E'[\r\n{}]') then raise exception 'INVALID_SETTINGS';end if;
+ end if;
+ cycling:=coalesce((p_input->'settings'->>'autoCycleRounds')::boolean,false);
+ effective:=p_input;
+ if cycling then
+  if coalesce(length(btrim(p_input->>'itemName')),0) not between 1 and 200
+   or coalesce((p_input->>'startPrice')::numeric,0) not between 0.01 and 999999999
+   or coalesce((p_input->>'minStep')::numeric,0) not between 0.01 and 999999999
+   or coalesce((p_input->>'shippingFee')::numeric,-1) not between 0 and 999999 then raise exception 'INVALID_ROUND';end if;
+  select * into a from public.auctions where tenant_id=p_tenant and page_id=p_input->>'pageId' and live_post_id=p_input->>'livePostId' and status='active' for update;
+  if a.leading_bidder_id is not null then
+   if a.bank_account_id is distinct from (p_input->'settings'->>'bankAccountId')::uuid then raise exception 'BIDS_ALREADY_ACCEPTED';end if;
+   effective:=p_input||jsonb_build_object('itemName',a.item_name,'startPrice',a.start_price,'minStep',a.min_step,'shippingFee',a.shipping_fee);
+  end if;
+ end if;
+ if cycling or (p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb) then duration:=null;
+ else
+  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
+  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
+ end if;
+ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,effective);
+ if duration is null then
+  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
+ else
+  update public.auctions set duration_seconds=duration,timer_started_at=coalesce(timer_started_at,clock_timestamp()),
+   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
+   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active' and (duration_seconds is distinct from duration or ends_at is null);
+ end if;
+ update public.live_sessions set comment_settings=coalesce(comment_settings,'{}')||(p_input->'settings')||
+  jsonb_build_object('public_reply_template',p_input->'settings'->>'bidText','private_reply_template',p_input->'settings'->>'privateText'),
+  auction_round_template=jsonb_build_object('itemName',btrim(p_input->>'itemName'),
+  'startPrice',(p_input->>'startPrice')::numeric,'minStep',(p_input->>'minStep')::numeric,'shippingFee',(p_input->>'shippingFee')::numeric)
+  where id=(result->>'sessionId')::uuid and tenant_id=p_tenant;
+ -- Preserve original request identity when the active round's bid prices were protected.
+ update public.auction_workspace_requests set input=p_input where tenant_id=p_tenant and request_id=p_request;
+ return result;
+end $$;
+
+-- Source statement 10
+create or replace function public.process_live_auction_comment(
+ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
+) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
+ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;command jsonb;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+ select b.result into prior from public.auction_bids b join public.auctions old on old.id=b.auction_id
+  where old.tenant_id=a.tenant_id and old.page_id=a.page_id and old.live_post_id=a.live_post_id
+   and (b.event_id=e.id or b.comment_id=cid) limit 1;
+ if found then return prior;end if;
+ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
+ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
+ host:=sender=a.page_id or sender=any(a.host_ids);
+ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
+ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
+ message:=public.normalize_auction_tag(v->>'message');
+ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
+ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
+ confirming:=not host and message=any(keywords);
+ if host then
+  p_kind:='IGNORE';p_control:=null;
+  command:=public.auction_host_command(v->>'message',settings);
+  if command->>'action'='close' then p_kind:='HOST_CONTROL';p_control:='close';
+  elsif command->>'action'='count' then p_kind:='HOST_CONTROL';p_control:=command->>'count';counting:=true;
+  end if;
+ end if;
+ if confirming then
+  confirmation_floor:=a.winner_locked_at;
+  if a.close_event_id is not null then
+   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
+   if found and close_event.payload->'value'->>'verb'='add'
+    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
+    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
+   end if;
+  end if;
+  source_at:=public.auction_comment_timestamp(v->>'created_time');
+  if source_at is null or source_at<a.created_at
+   or (confirmation_floor is not null and source_at<confirmation_floor) then
+   return jsonb_build_object('status','stale');
+  end if;
+ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+  source_at:=public.auction_comment_timestamp(v->>'created_time');
+  if source_at is null or source_at<a.created_at
+   or (a.closed_at is not null and source_at>a.closed_at) then
+   return jsonb_build_object('status','stale');
+  end if;
+ end if;
+ if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
+  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
+  return r;
+ end if;
+ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
+  perform public.close_due_live_auction(a.id,a.tenant_id);
+  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
+ end if;
+ if a.session_automation is distinct from settings then
+  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
+ end if;
+ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
+  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
+  r:=r||jsonb_build_object('nextAuctionId',public.advance_live_auction(a.id,a.tenant_id,e.id));
+  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
+  return r;
+ end if;
+ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
+  update public.auctions set host_count=p_control where id=a.id;
+  r:=jsonb_build_object('status','count');
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
+  return r;
+ end if;
+ if host then return jsonb_build_object('status','ignored');end if;
+ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
+ if not confirming then
+  numeric_price:=public.auction_numeric_price(v->>'message');
+  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
+ end if;
+ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
+ else
+  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
+  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
+  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
+  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+ end if;
+ r:=r||jsonb_build_object('auctionId',a.id);
+ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
+ return r;
+end $$;
+
+-- Source statement 11
+revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated;
+
+-- Source statement 12
+grant execute on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role;
+
+-- Source statement 13
+revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
+ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated;
+
+-- Source statement 14
+grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
+ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
+
+-- Source statement 15
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 124. live-auction-confirmation-preservation.sql | Latest delivery safety, reporting and index patches
+-- SHA256: f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.winner_confirmation_comment_id is not null and a.order_id is null) then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
+ if not p_cancel and a.leading_bidder_id is not null then
+  insert into public.customers(platform,platform_user_id,tenant_id,display_name)
+   values('facebook',a.leading_bidder_id,a.tenant_id,a.leading_bidder_name)
+   on conflict(platform,platform_user_id) do update set tenant_id=coalesce(customers.tenant_id,excluded.tenant_id)
+   returning * into c;
+  if c.tenant_id is distinct from a.tenant_id then raise exception 'AUCTION_CUSTOMER_TENANT' using errcode='42501';end if;
+  -- The existing order trigger attaches CF/auction items to the same tab under its row lock.
+  insert into public.orders(tenant_id,customer_id,product_name,amount,source,source_id,live_bank_account_id)
+   values(a.tenant_id,c.id,a.item_name,a.current_price+a.shipping_fee,'live_auction',a.id::text,a.bank_account_id)
+   returning id into oid;
+  select t.* into strict tab from public.customer_tabs t join public.orders o on o.customer_tab_id=t.id where o.id=oid;
+  update public.customers set conversation_status='open',
+    conversation_version=conversation_version+1,
+    order_status=case when tab.remaining_amount>0 then 'pending_review' else 'paid' end
+   where id=c.id;
+  -- This is a local activity note, never an invented Messenger send or inbound message.
+  -- Do not extend last_message_at/window_expires_at/inbound_seq from an auction.
+  insert into public.messages(customer_id,external_id,sender,body,delivery_status)
+   values(c.id,'auction-event:'||a.id::text,'bot',
+    'บันทึกระบบ: ชนะประมูล '||a.item_name||' - '||case when tab.remaining_amount>0 then 'รอชำระเงิน' else 'ชำระครบแล้ว' end||
+    ' • ยอดคงเหลือสุทธิ '||tab.remaining_amount::text||' บาท',null)
+   on conflict(external_id) do nothing;
+  if a.private_reply_enabled then
+   insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'private',a.leading_comment_id);
+   insert into public.messages(customer_id,external_id,sender,body,delivery_status)
+    values(c.id,'auction-bill:'||a.id::text,'bot','รอส่งสรุปยอดประมูล '||a.item_name||' เข้า Messenger','pending')
+    on conflict(external_id) do nothing;
+  end if;
+ end if;
+ update public.auctions set status=case when p_cancel then 'cancelled' else 'closed' end,
+  closed_at=coalesce(a.closed_at,clock_timestamp()),close_event_id=coalesce(a.close_event_id,p_event),order_id=oid where id=a.id;
+ if not p_cancel and a.public_reply_enabled and a.leading_bidder_id is not null and a.session_automation ? 'closeKeywords' then
+  insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'public',a.leading_comment_id) on conflict(auction_id,channel) where claim_id is null do nothing;
+ elsif p_event is not null and not p_cancel and a.public_reply_enabled then
+  insert into public.auction_deliveries(auction_id,channel,comment_id)
+   select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
+ end if;
+ return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
+end $$;
+
+-- Source statement 3
+revoke execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated;
+
+-- Source statement 4
+grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
+
+-- Source statement 5
+notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 125. rpc-execution-hardening.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+set local lock_timeout = '2s';
+
+-- Source statement 3
+set local statement_timeout = '60s';
+
+-- Source statement 4
+alter default privileges for role postgres
+  revoke execute on functions from public, anon, authenticated;
+
+-- Source statement 5
+alter default privileges for role postgres in schema public
+  revoke execute on functions from public, anon, authenticated;
+
+-- Source statement 6
+revoke all on function public.act_follow_up_job(uuid,uuid,uuid,text,text) from public, anon, authenticated;
+
+-- Source statement 7
+grant execute on function public.act_follow_up_job(uuid,uuid,uuid,text,text) to service_role;
+
+-- Source statement 8
+revoke all on function public.act_payment_pro(uuid,uuid,uuid,text,text) from public, anon, authenticated;
+
+-- Source statement 9
+grant execute on function public.act_payment_pro(uuid,uuid,uuid,text,text) to service_role;
+
+-- Source statement 10
+revoke all on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) from public, anon, authenticated;
+
+-- Source statement 11
+grant execute on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) to service_role;
+
+-- Source statement 12
+revoke all on function public.advance_live_auction(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 13
+grant execute on function public.advance_live_auction(uuid,uuid,uuid) to service_role;
+
+-- Source statement 14
+revoke all on function public.agent_control_overview(uuid) from public, anon, authenticated;
+
+-- Source statement 15
+grant execute on function public.agent_control_overview(uuid) to service_role;
+
+-- Source statement 16
+revoke all on function public.agent_overview_stats(uuid,integer,timestamp with time zone) from public, anon, authenticated;
+
+-- Source statement 17
+grant execute on function public.agent_overview_stats(uuid,integer,timestamp with time zone) to service_role;
+
+-- Source statement 18
+revoke all on function public.apply_payment_pro(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 19
+grant execute on function public.apply_payment_pro(uuid,uuid) to service_role;
+
+-- Source statement 20
+revoke all on function public.approve_auction_payment_proof(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 21
+grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) to service_role;
+
+-- Source statement 22
+revoke all on function public.auction_inbox_status(uuid,uuid[]) from public, anon, authenticated;
+
+-- Source statement 23
+grant execute on function public.auction_inbox_status(uuid,uuid[]) to service_role;
+
+-- Source statement 24
+revoke all on function public.basic_overview_stats(uuid,timestamp with time zone) from public, anon, authenticated;
+
+-- Source statement 25
+grant execute on function public.basic_overview_stats(uuid,timestamp with time zone) to service_role;
+
+-- Source statement 26
+revoke all on function public.begin_broadcast_transport(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 27
+grant execute on function public.begin_broadcast_transport(uuid,uuid,uuid) to service_role;
+
+-- Source statement 28
+revoke all on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public, anon, authenticated;
+
+-- Source statement 29
+grant execute on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role;
+
+-- Source statement 30
+revoke all on function public.broadcast_recipient_reason(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 31
+grant execute on function public.broadcast_recipient_reason(uuid,uuid) to service_role;
+
+-- Source statement 32
+revoke all on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 33
+grant execute on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 34
+revoke all on function public.claim_agent_message(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 35
+grant execute on function public.claim_agent_message(uuid,uuid,uuid) to service_role;
+
+-- Source statement 36
+revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public, anon, authenticated;
+
+-- Source statement 37
+grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role;
+
+-- Source statement 38
+revoke all on function public.claim_broadcast_recipient(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 39
+grant execute on function public.claim_broadcast_recipient(uuid,uuid,uuid) to service_role;
+
+-- Source statement 40
+revoke all on function public.claim_broadcast_run(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 41
+grant execute on function public.claim_broadcast_run(uuid,uuid) to service_role;
+
+-- Source statement 42
+revoke all on function public.claim_follow_up_jobs(uuid,integer) from public, anon, authenticated;
+
+-- Source statement 43
+grant execute on function public.claim_follow_up_jobs(uuid,integer) to service_role;
+
+-- Source statement 44
+revoke all on function public.claim_payment_image(text,text,uuid) from public, anon, authenticated;
+
+-- Source statement 45
+grant execute on function public.claim_payment_image(text,text,uuid) to service_role;
+
+-- Source statement 46
+revoke all on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) from public, anon, authenticated;
+
+-- Source statement 47
+grant execute on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) to service_role;
+
+-- Source statement 48
+revoke all on function public.claim_payment_transfer(text,text,uuid) from public, anon, authenticated;
+
+-- Source statement 49
+grant execute on function public.claim_payment_transfer(text,text,uuid) to service_role;
+
+-- Source statement 50
+revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean) from public, anon, authenticated;
+
+-- Source statement 51
+grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role;
+
+-- Source statement 52
+revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]) from public, anon, authenticated;
+
+-- Source statement 53
+grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role;
+
+-- Source statement 54
+revoke all on function public.commerce_access(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 55
+grant execute on function public.commerce_access(uuid,uuid) to service_role;
+
+-- Source statement 56
+revoke all on function public.commerce_checkout(text,jsonb) from public, anon, authenticated;
+
+-- Source statement 57
+grant execute on function public.commerce_checkout(text,jsonb) to service_role;
+
+-- Source statement 58
+revoke all on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) from public, anon, authenticated;
+
+-- Source statement 59
+grant execute on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) to service_role;
+
+-- Source statement 60
+revoke all on function public.commerce_dashboard_stats(uuid) from public, anon, authenticated;
+
+-- Source statement 61
+grant execute on function public.commerce_dashboard_stats(uuid) to service_role;
+
+-- Source statement 62
+revoke all on function public.commerce_manage(uuid,uuid,text,jsonb) from public, anon, authenticated;
+
+-- Source statement 63
+grant execute on function public.commerce_manage(uuid,uuid,text,jsonb) to service_role;
+
+-- Source statement 64
+revoke all on function public.commerce_move_order(uuid,uuid,uuid,text,text) from public, anon, authenticated;
+
+-- Source statement 65
+grant execute on function public.commerce_move_order(uuid,uuid,uuid,text,text) to service_role;
+
+-- Source statement 66
+revoke all on function public.commerce_plan(uuid) from public, anon, authenticated;
+
+-- Source statement 67
+grant execute on function public.commerce_plan(uuid) to service_role;
+
+-- Source statement 68
+revoke all on function public.commerce_rate_limit(text,integer) from public, anon, authenticated;
+
+-- Source statement 69
+grant execute on function public.commerce_rate_limit(text,integer) to service_role;
+
+-- Source statement 70
+revoke all on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) from public, anon, authenticated;
+
+-- Source statement 71
+grant execute on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) to service_role;
+
+-- Source statement 72
+revoke all on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated;
+
+-- Source statement 73
+grant execute on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role;
+
+-- Source statement 74
+revoke all on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated;
+
+-- Source statement 75
+grant execute on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role;
+
+-- Source statement 76
+revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 77
+grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 78
+revoke all on function public.confirm_follow_up_order(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 79
+grant execute on function public.confirm_follow_up_order(uuid,uuid,uuid) to service_role;
+
+-- Source statement 80
+revoke all on function public.confirm_live_auction_winner(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 81
+grant execute on function public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role;
+
+-- Source statement 82
+revoke all on function public.confirm_live_cf_variant(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 83
+grant execute on function public.confirm_live_cf_variant(uuid,uuid) to service_role;
+
+-- Source statement 84
+revoke all on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 85
+grant execute on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) to service_role;
+
+-- Source statement 86
+revoke all on function public.consume_slip_credit_metered(uuid) from public, anon, authenticated;
+
+-- Source statement 87
+grant execute on function public.consume_slip_credit_metered(uuid) to service_role;
+
+-- Source statement 88
+revoke all on function public.consume_slip_credit(uuid) from public, anon, authenticated;
+
+-- Source statement 89
+grant execute on function public.consume_slip_credit(uuid) to service_role;
+
+-- Source statement 90
+revoke all on function public.customer_directory(uuid,integer,text,text,text) from public, anon, authenticated;
+
+-- Source statement 91
+grant execute on function public.customer_directory(uuid,integer,text,text,text) to service_role;
+
+-- Source statement 92
+revoke all on function public.end_customer_tab_live(uuid,uuid,boolean) from public, anon, authenticated;
+
+-- Source statement 93
+grant execute on function public.end_customer_tab_live(uuid,uuid,boolean) to service_role;
+
+-- Source statement 94
+revoke all on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 95
+grant execute on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) to service_role;
+
+-- Source statement 96
+revoke all on function public.expire_live_auctions_report(uuid) from public, anon, authenticated;
+
+-- Source statement 97
+grant execute on function public.expire_live_auctions_report(uuid) to service_role;
+
+-- Source statement 98
+revoke all on function public.expire_live_auctions(uuid) from public, anon, authenticated;
+
+-- Source statement 99
+grant execute on function public.expire_live_auctions(uuid) to service_role;
+
+-- Source statement 100
+revoke all on function public.facebook_comment_context(uuid,text,text[]) from public, anon, authenticated;
+
+-- Source statement 101
+grant execute on function public.facebook_comment_context(uuid,text,text[]) to service_role;
+
+-- Source statement 102
+revoke all on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public, anon, authenticated;
+
+-- Source statement 103
+grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
+
+-- Source statement 104
+revoke all on function public.finalize_live_auction(uuid,uuid,uuid,boolean) from public, anon, authenticated;
+
+-- Source statement 105
+grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean) to service_role;
+
+-- Source statement 106
+revoke all on function public.follow_up_overview(uuid) from public, anon, authenticated;
+
+-- Source statement 107
+grant execute on function public.follow_up_overview(uuid) to service_role;
+
+-- Source statement 108
+revoke all on function public.follow_up_window_expires_at(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 109
+grant execute on function public.follow_up_window_expires_at(uuid,uuid) to service_role;
+
+-- Source statement 110
+revoke all on function public.follow_up_window_open(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 111
+grant execute on function public.follow_up_window_open(uuid,uuid) to service_role;
+
+-- Source statement 112
+revoke all on function public.handover_tenant_ai_quota(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 113
+grant execute on function public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role;
+
+-- Source statement 114
+revoke all on function public.inbox_automation_window_open(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 115
+grant execute on function public.inbox_automation_window_open(uuid,uuid) to service_role;
+
+-- Source statement 116
+revoke all on function public.inbox_pro_overview(uuid) from public, anon, authenticated;
+
+-- Source statement 117
+grant execute on function public.inbox_pro_overview(uuid) to service_role;
+
+-- Source statement 118
+revoke all on function public.inbox_verified_inbound_at(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 119
+grant execute on function public.inbox_verified_inbound_at(uuid,uuid) to service_role;
+
+-- Source statement 120
+revoke all on function public.live_auction_customer_dashboard(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 121
+grant execute on function public.live_auction_customer_dashboard(uuid,uuid) to service_role;
+
+-- Source statement 122
+revoke all on function public.live_auction_dashboard(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 123
+grant execute on function public.live_auction_dashboard(uuid,uuid) to service_role;
+
+-- Source statement 124
+revoke all on function public.live_auction_matched_customers(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 125
+grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role;
+
+-- Source statement 126
+revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 127
+grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role;
+
+-- Source statement 128
+revoke all on function public.live_session_dashboard(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 129
+grant execute on function public.live_session_dashboard(uuid,uuid) to service_role;
+
+-- Source statement 130
+revoke all on function public.live_session_tab_proof(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 131
+grant execute on function public.live_session_tab_proof(uuid,uuid,uuid) to service_role;
+
+-- Source statement 132
+revoke all on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 133
+grant execute on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) to service_role;
+
+-- Source statement 134
+revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public, anon, authenticated;
+
+-- Source statement 135
+grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role;
+
+-- Source statement 136
+revoke all on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) from public, anon, authenticated;
+
+-- Source statement 137
+grant execute on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) to service_role;
+
+-- Source statement 138
+revoke all on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) from public, anon, authenticated;
+
+-- Source statement 139
+grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) to service_role;
+
+-- Source statement 140
+revoke all on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 141
+grant execute on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 142
+revoke all on function public.manage_shipping(uuid,uuid,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 143
+grant execute on function public.manage_shipping(uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 144
+revoke all on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) from public, anon, authenticated;
+
+-- Source statement 145
+grant execute on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) to service_role;
+
+-- Source statement 146
+revoke all on function public.mark_inbox_read(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 147
+grant execute on function public.mark_inbox_read(uuid,uuid,uuid) to service_role;
+
+-- Source statement 148
+revoke all on function public.messenger_product_lookup(uuid,text) from public, anon, authenticated;
+
+-- Source statement 149
+grant execute on function public.messenger_product_lookup(uuid,text) to service_role;
+
+-- Source statement 150
+revoke all on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated;
+
+-- Source statement 151
+grant execute on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role;
+
+-- Source statement 152
+revoke all on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) from public, anon, authenticated;
+
+-- Source statement 153
+grant execute on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) to service_role;
+
+-- Source statement 154
+revoke all on function public.payment_pro_overview(uuid) from public, anon, authenticated;
+
+-- Source statement 155
+grant execute on function public.payment_pro_overview(uuid) to service_role;
+
+-- Source statement 156
+revoke all on function public.payment_pro_receiver(uuid,text,text,text) from public, anon, authenticated;
+
+-- Source statement 157
+grant execute on function public.payment_pro_receiver(uuid,text,text,text) to service_role;
+
+-- Source statement 158
+revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public, anon, authenticated;
+
+-- Source statement 159
+grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role;
+
+-- Source statement 160
+revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 161
+grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role;
+
+-- Source statement 162
+revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) from public, anon, authenticated;
+
+-- Source statement 163
+grant execute on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) to service_role;
+
+-- Source statement 164
+revoke all on function public.place_cf_order(uuid,text,text,text,text) from public, anon, authenticated;
+
+-- Source statement 165
+grant execute on function public.place_cf_order(uuid,text,text,text,text) to service_role;
+
+-- Source statement 166
+revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated;
+
+-- Source statement 167
+grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role;
+
+-- Source statement 168
+revoke all on function public.place_cf_order(uuid,uuid,uuid,text) from public, anon, authenticated;
+
+-- Source statement 169
+grant execute on function public.place_cf_order(uuid,uuid,uuid,text) to service_role;
+
+-- Source statement 170
+revoke all on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) from public, anon, authenticated;
+
+-- Source statement 171
+grant execute on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role;
+
+-- Source statement 172
+revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated;
+
+-- Source statement 173
+grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role;
+
+-- Source statement 174
+revoke all on function public.platform_update_tenant(uuid,uuid,text,boolean) from public, anon, authenticated;
+
+-- Source statement 175
+grant execute on function public.platform_update_tenant(uuid,uuid,text,boolean) to service_role;
+
+-- Source statement 176
+revoke all on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated;
+
+-- Source statement 177
+grant execute on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role;
+
+-- Source statement 178
+revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated;
+
+-- Source statement 179
+grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) to service_role;
+
+-- Source statement 180
+revoke all on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated;
+
+-- Source statement 181
+grant execute on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) to service_role;
+
+-- Source statement 182
+revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated;
+
+-- Source statement 183
+grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role;
+
+-- Source statement 184
+revoke all on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated;
+
+-- Source statement 185
+grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) to service_role;
+
+-- Source statement 186
+revoke all on function public.queue_customer_tab_reminders(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 187
+grant execute on function public.queue_customer_tab_reminders(uuid,uuid,uuid) to service_role;
+
+-- Source statement 188
+revoke all on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) from public, anon, authenticated;
+
+-- Source statement 189
+grant execute on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) to service_role;
+
+-- Source statement 190
+revoke all on function public.refresh_broadcast_credits(uuid) from public, anon, authenticated;
+
+-- Source statement 191
+grant execute on function public.refresh_broadcast_credits(uuid) to service_role;
+
+-- Source statement 192
+revoke all on function public.refund_broadcast_credits_metered(uuid,integer,integer) from public, anon, authenticated;
+
+-- Source statement 193
+grant execute on function public.refund_broadcast_credits_metered(uuid,integer,integer) to service_role;
+
+-- Source statement 194
+revoke all on function public.refund_broadcast_credits(uuid,integer,integer) from public, anon, authenticated;
+
+-- Source statement 195
+grant execute on function public.refund_broadcast_credits(uuid,integer,integer) to service_role;
+
+-- Source statement 196
+revoke all on function public.refund_slip_credit_metered(uuid) from public, anon, authenticated;
+
+-- Source statement 197
+grant execute on function public.refund_slip_credit_metered(uuid) to service_role;
+
+-- Source statement 198
+revoke all on function public.refund_slip_credit(uuid) from public, anon, authenticated;
+
+-- Source statement 199
+grant execute on function public.refund_slip_credit(uuid) to service_role;
+
+-- Source statement 200
+revoke all on function public.reserve_broadcast_credits_metered(uuid,integer) from public, anon, authenticated;
+
+-- Source statement 201
+grant execute on function public.reserve_broadcast_credits_metered(uuid,integer) to service_role;
+
+-- Source statement 202
+revoke all on function public.reserve_broadcast_credits(uuid,integer) from public, anon, authenticated;
+
+-- Source statement 203
+grant execute on function public.reserve_broadcast_credits(uuid,integer) to service_role;
+
+-- Source statement 204
+revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 205
+grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) to service_role;
+
+-- Source statement 206
+revoke all on function public.restore_agent_prompt(uuid,uuid,integer) from public, anon, authenticated;
+
+-- Source statement 207
+grant execute on function public.restore_agent_prompt(uuid,uuid,integer) to service_role;
+
+-- Source statement 208
+revoke all on function public.retry_rejected_follow_up(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 209
+grant execute on function public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role;
+
+-- Source statement 210
+revoke all on function public.retry_unstarted_vision(uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 211
+grant execute on function public.retry_unstarted_vision(uuid,uuid,uuid) to service_role;
+
+-- Source statement 212
+revoke all on function public.save_agent_prompt(uuid,uuid,text) from public, anon, authenticated;
+
+-- Source statement 213
+grant execute on function public.save_agent_prompt(uuid,uuid,text) to service_role;
+
+-- Source statement 214
+revoke all on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public, anon, authenticated;
+
+-- Source statement 215
+grant execute on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role;
+
+-- Source statement 216
+revoke all on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 217
+grant execute on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 218
+revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 219
+grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 220
+revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public, anon, authenticated;
+
+-- Source statement 221
+grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role;
+
+-- Source statement 222
+revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public, anon, authenticated;
+
+-- Source statement 223
+grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role;
+
+-- Source statement 224
+revoke all on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) from public, anon, authenticated;
+
+-- Source statement 225
+grant execute on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) to service_role;
+
+-- Source statement 226
+revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public, anon, authenticated;
+
+-- Source statement 227
+grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role;
+
+-- Source statement 228
+revoke all on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 229
+grant execute on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) to service_role;
+
+-- Source statement 230
+revoke all on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) from public, anon, authenticated;
+
+-- Source statement 231
+grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) to service_role;
+
+-- Source statement 232
+revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) from public, anon, authenticated;
+
+-- Source statement 233
+grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) to service_role;
+
+-- Source statement 234
+revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) from public, anon, authenticated;
+
+-- Source statement 235
+grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to service_role;
+
+-- Source statement 236
+revoke all on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) from public, anon, authenticated;
+
+-- Source statement 237
+grant execute on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) to service_role;
+
+-- Source statement 238
+revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) from public, anon, authenticated;
+
+-- Source statement 239
+grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) to service_role;
+
+-- Source statement 240
+revoke all on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) from public, anon, authenticated;
+
+-- Source statement 241
+grant execute on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) to service_role;
+
+-- Source statement 242
+revoke all on function public.save_store_rule_items(uuid,uuid,text,text) from public, anon, authenticated;
+
+-- Source statement 243
+grant execute on function public.save_store_rule_items(uuid,uuid,text,text) to service_role;
+
+-- Source statement 244
+revoke all on function public.save_validated_store_rules(uuid,uuid,text,text) from public, anon, authenticated;
+
+-- Source statement 245
+grant execute on function public.save_validated_store_rules(uuid,uuid,text,text) to service_role;
+
+-- Source statement 246
+revoke all on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public, anon, authenticated;
+
+-- Source statement 247
+grant execute on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role;
+
+-- Source statement 248
+revoke all on function public.set_agent_overview_capability(uuid,uuid,text,boolean) from public, anon, authenticated;
+
+-- Source statement 249
+grant execute on function public.set_agent_overview_capability(uuid,uuid,text,boolean) to service_role;
+
+-- Source statement 250
+revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text) from public, anon, authenticated;
+
+-- Source statement 251
+grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text) to service_role;
+
+-- Source statement 252
+revoke all on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) from public, anon, authenticated;
+
+-- Source statement 253
+grant execute on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) to service_role;
+
+-- Source statement 254
+revoke all on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) from public, anon, authenticated;
+
+-- Source statement 255
+grant execute on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) to service_role;
+
+-- Source statement 256
+revoke all on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) from public, anon, authenticated;
+
+-- Source statement 257
+grant execute on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) to service_role;
+
+-- Source statement 258
+revoke all on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) from public, anon, authenticated;
+
+-- Source statement 259
+grant execute on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) to service_role;
+
+-- Source statement 260
+revoke all on function public.shipping_snapshot(uuid,uuid[],uuid) from public, anon, authenticated;
+
+-- Source statement 261
+grant execute on function public.shipping_snapshot(uuid,uuid[],uuid) to service_role;
+
+-- Source statement 262
+revoke all on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 263
+grant execute on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) to service_role;
+
+-- Source statement 264
+revoke all on function public.start_inbox_delivery(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 265
+grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role;
+
+-- Source statement 266
+revoke all on function public.start_legacy_auction_timer(uuid,uuid) from public, anon, authenticated;
+
+-- Source statement 267
+grant execute on function public.start_legacy_auction_timer(uuid,uuid) to service_role;
+
+-- Source statement 268
+revoke all on function public.sync_facebook_tenants(uuid,jsonb) from public, anon, authenticated;
+
+-- Source statement 269
+grant execute on function public.sync_facebook_tenants(uuid,jsonb) to service_role;
+
+-- Source statement 270
+revoke all on function public.tenant_has_feature_bypass(uuid) from public, anon, authenticated;
+
+-- Source statement 271
+grant execute on function public.tenant_has_feature_bypass(uuid) to service_role;
+
+-- Source statement 272
+revoke all on function public.tenant_has_paid_ai_access(uuid) from public, anon, authenticated;
+
+-- Source statement 273
+grant execute on function public.tenant_has_paid_ai_access(uuid) to service_role;
+
+-- Source statement 274
+revoke all on function public.cancel_paid_follow_ups() from public, anon, authenticated;
+
+-- Source statement 275
+grant execute on function public.cancel_paid_follow_ups() to service_role;
+
+-- Source statement 276
+revoke all on function public.commerce_product_quota() from public, anon, authenticated;
+
+-- Source statement 277
+grant execute on function public.commerce_product_quota() to service_role;
+
+-- Source statement 278
+revoke all on function public.on_order_status() from public, anon, authenticated;
+
+-- Source statement 279
+grant execute on function public.on_order_status() to service_role;
+
+-- Source statement 280
+revoke all on function public.schedule_follow_ups() from public, anon, authenticated;
+
+-- Source statement 281
+grant execute on function public.schedule_follow_ups() to service_role;
+
+-- Source statement 282
+revoke all on function public.can_access_tenant(uuid) from public, anon;
+
+-- Source statement 283
+grant execute on function public.can_access_tenant(uuid) to authenticated, service_role;
+
+-- Source statement 284
+revoke all on function public.can_manage_bank_accounts(uuid) from public, anon;
+
+-- Source statement 285
+grant execute on function public.can_manage_bank_accounts(uuid) to authenticated, service_role;
+
+-- Source statement 286
+revoke all on function public.can_manage_image_rules(uuid) from public, anon;
+
+-- Source statement 287
+grant execute on function public.can_manage_image_rules(uuid) to authenticated, service_role;
+
+-- Source statement 288
+revoke all on function public.has_tenant_feature(uuid, text) from public, anon;
+
+-- Source statement 289
+grant execute on function public.has_tenant_feature(uuid, text) to authenticated, service_role;
+
+-- Source statement 290
+revoke all on function public.is_platform_admin() from public, anon;
+
+-- Source statement 291
+grant execute on function public.is_platform_admin() to authenticated, service_role;
+
+commit;
+-- ============================================================================
+-- 126. inbox-owner-takeover.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.manage_inbox_conversation(
+  p_customer uuid,
+  p_actor uuid,
+  p_action text,
+  p_version integer,
+  p_assignee uuid default null
+) returns jsonb
+language plpgsql set search_path=pg_catalog,public as $$
+declare
+  c public.customers;
+  previous uuid;
+  mode text;
+  manager boolean;
+begin
+  select * into c from public.customers where id=p_customer for update;
+  if not found or not (
+    exists(select 1 from public.tenant_members where tenant_id=c.tenant_id and user_id=p_actor)
+    or exists(select 1 from public.platform_admins where user_id=p_actor)
+  ) then
+    raise exception 'Forbidden' using errcode='42501';
+  end if;
+  if not public.has_tenant_feature(c.tenant_id,'customer_management') then
+    raise exception 'FEATURE_LOCKED' using errcode='42501';
+  end if;
+  if p_version is null or c.conversation_version<>p_version then
+    raise exception 'Conversation changed; reload and retry' using errcode='40001';
+  end if;
+  if c.outbound_lock_until>clock_timestamp() then
+    raise exception 'A message is being sent; retry shortly' using errcode='55P03';
+  end if;
+
+  manager := exists(
+    select 1 from public.tenant_members
+    where tenant_id=c.tenant_id and user_id=p_actor and role='owner'
+  ) or exists(select 1 from public.platform_admins where user_id=p_actor);
+  previous := c.assigned_user_id;
+
+  if p_action in ('close','reopen','pause','bot')
+     and c.assigned_user_id is not null and c.assigned_user_id<>p_actor and not manager then
+    raise exception 'Conversation belongs to another agent' using errcode='42501';
+  end if;
+
+  if p_action='claim' then
+    if c.assigned_user_id is not null and c.assigned_user_id<>p_actor and not manager then
+      raise exception 'Already assigned' using errcode='40001';
+    end if;
+    c.assigned_user_id:=p_actor;
+    c.bot_enabled:=false;
+    c.conversation_status:='open';
+  elsif p_action='transfer' then
+    if c.assigned_user_id is distinct from p_actor and not manager then
+      raise exception 'Forbidden' using errcode='42501';
+    end if;
+    if not exists(select 1 from public.tenant_members where tenant_id=c.tenant_id and user_id=p_assignee) then
+      raise exception 'Assignee is not a shop member' using errcode='22023';
+    end if;
+    c.assigned_user_id:=p_assignee;
+    c.bot_enabled:=false;
+    c.conversation_status:='open';
+  elsif p_action='close' then
+    c.conversation_status:='closed';
+    c.bot_enabled:=false;
+  elsif p_action='reopen' then
+    c.conversation_status:='open';
+    c.bot_enabled:=false;
+  elsif p_action='pause' then
+    c.bot_enabled:=false;
+  elsif p_action='bot' then
+    select reply_mode into mode from public.bot_settings where tenant_id=c.tenant_id;
+    if mode is null or not exists(select 1 from public.tenants where id=c.tenant_id and auto_reply_enabled) then
+      raise exception 'Bot is not configured or enabled' using errcode='22023';
+    end if;
+    if mode='ai' and not public.has_tenant_feature(c.tenant_id,'ai_agent') then
+      raise exception 'FEATURE_LOCKED: ai_agent' using errcode='42501';
+    end if;
+    c.bot_enabled:=true;
+    c.assigned_user_id:=null;
+    c.conversation_status:='open';
+  else
+    raise exception 'Unknown action' using errcode='22023';
+  end if;
+
+  update public.customers
+  set assigned_user_id=c.assigned_user_id,
+      bot_enabled=c.bot_enabled,
+      conversation_status=c.conversation_status,
+      conversation_version=conversation_version+1,
+      handover_at=case when c.bot_enabled then null else now() end
+  where id=c.id;
+  insert into public.conversation_events(tenant_id,customer_id,actor_id,action,previous_assignee,next_assignee)
+  values(c.tenant_id,c.id,p_actor,p_action,previous,c.assigned_user_id);
+  return jsonb_build_object('ok',true,'customer',(
+    select jsonb_build_object(
+      'id',id,'tenant_id',tenant_id,'assigned_user_id',assigned_user_id,
+      'bot_enabled',bot_enabled,'conversation_status',conversation_status,
+      'conversation_version',conversation_version,'inbound_seq',inbound_seq
+    )
+    from public.customers where id=c.id and tenant_id=c.tenant_id
+  ));
+end $$;
+
+-- Source statement 3
+create or replace function public.claim_and_start_inbox_reply(
+  p_customer uuid,
+  p_actor uuid,
+  p_version integer
+) returns uuid
+language plpgsql set search_path=pg_catalog,public as $$
+declare
+  c public.customers;
+  manager boolean;
+begin
+  select * into c from public.customers where id=p_customer for update;
+  if not found then raise exception 'Conversation unavailable' using errcode='40001';end if;
+  if not public.has_tenant_feature(c.tenant_id,'customer_management') or not (
+    exists(select 1 from public.tenant_members where tenant_id=c.tenant_id and user_id=p_actor)
+    or exists(select 1 from public.platform_admins where user_id=p_actor)
+  ) then
+    raise exception 'Forbidden' using errcode='42501';
+  end if;
+  manager := exists(
+    select 1 from public.tenant_members
+    where tenant_id=c.tenant_id and user_id=p_actor and role='owner'
+  ) or exists(select 1 from public.platform_admins where user_id=p_actor);
+  if c.conversation_version is distinct from p_version
+     or c.conversation_status='closed'
+     or (c.assigned_user_id is not null and c.assigned_user_id<>p_actor and not manager) then
+    raise exception 'Conversation changed' using errcode='40001';
+  end if;
+  if c.bot_enabled or c.assigned_user_id is distinct from p_actor then
+    perform public.manage_inbox_conversation(p_customer,p_actor,'claim',p_version);
+  end if;
+  return public.start_inbox_delivery(p_customer,p_actor);
+end $$;
+
+-- Source statement 4
+create or replace function public.start_inbox_delivery(
+  p_customer uuid,
+  p_actor uuid default null
+) returns uuid
+language plpgsql set search_path=pg_catalog,public as $$
+declare
+  c public.customers;
+  lease uuid:=gen_random_uuid();
+  inbound_at timestamptz;
+  manager boolean:=false;
+begin
+  select * into c from public.customers where id=p_customer for update;
+  if not found or c.conversation_status='closed'
+     or not exists(select 1 from public.tenants where id=c.tenant_id and is_active) then
+    raise exception 'Conversation unavailable' using errcode='40001';
+  end if;
+
+  if p_actor is null then
+    if not c.bot_enabled or c.assigned_user_id is not null then
+      raise exception 'Automation paused for human handoff' using errcode='40001';
+    end if;
+  else
+    if not public.has_tenant_feature(c.tenant_id,'customer_management') or not (
+      exists(select 1 from public.tenant_members where tenant_id=c.tenant_id and user_id=p_actor)
+      or exists(select 1 from public.platform_admins where user_id=p_actor)
+    ) then
+      raise exception 'Forbidden' using errcode='42501';
+    end if;
+    manager := exists(
+      select 1 from public.tenant_members
+      where tenant_id=c.tenant_id and user_id=p_actor and role='owner'
+    ) or exists(select 1 from public.platform_admins where user_id=p_actor);
+    if manager then
+      if c.assigned_user_id is distinct from p_actor or c.bot_enabled then
+        update public.customers
+        set assigned_user_id=p_actor,
+            bot_enabled=false,
+            conversation_status='open',
+            conversation_version=conversation_version+1,
+            handover_at=coalesce(handover_at,clock_timestamp())
+        where id=c.id;
+        insert into public.conversation_events(
+          tenant_id,customer_id,actor_id,action,previous_assignee,next_assignee
+        ) values(c.tenant_id,c.id,p_actor,'claim',c.assigned_user_id,p_actor);
+        c.assigned_user_id:=p_actor;
+        c.bot_enabled:=false;
+      end if;
+    elsif c.assigned_user_id is distinct from p_actor or c.bot_enabled then
+      raise exception 'Claim the conversation first' using errcode='42501';
+    end if;
+  end if;
+
+  if c.platform='facebook' then
+    inbound_at:=public.inbox_verified_inbound_at(c.tenant_id,c.id);
+    if inbound_at is null or inbound_at<=clock_timestamp()-(
+      case when p_actor is null then interval '24 hours' else interval '7 days' end
+    ) then
+      raise exception 'Messaging window closed' using errcode='P0424';
+    end if;
+  end if;
+  if c.outbound_lock_until>clock_timestamp() then
+    raise exception 'Delivery busy' using errcode='55P03';
+  end if;
+  update public.customers
+  set outbound_lock=lease,outbound_lock_until=clock_timestamp()+interval '2 minutes'
+  where id=p_customer;
+  return lease;
+end $$;
+
+-- Source statement 5
+revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public,anon,authenticated;
+
+-- Source statement 6
+grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role;
+
+-- Source statement 7
+revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public,anon,authenticated;
+
+-- Source statement 8
+grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role;
+
+-- Source statement 9
+revoke all on function public.start_inbox_delivery(uuid,uuid) from public,anon,authenticated;
+
+-- Source statement 10
+grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role;
 
 -- Source statement 11
 notify pgrst,'reload schema';

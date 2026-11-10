@@ -22,7 +22,7 @@ export function getFacebookWebhook(req: NextRequest) {
   const mode = query.get('hub.mode')
   const verifyToken = query.get('hub.verify_token')
   if (process.env.FB_DEBUG === 'true') {
-    console.log('[facebook-webhook/verify] verification request', {
+    console.debug('[facebook-webhook/verify] verification request', {
       mode,
       verifyTokenMatches: Boolean(token && verifyToken === token),
       hasChallenge: Boolean(challenge),
@@ -31,7 +31,7 @@ export function getFacebookWebhook(req: NextRequest) {
   if (token && challenge && mode === 'subscribe' && verifyToken === token) {
     return new NextResponse(challenge, { headers: { 'Content-Type': 'text/plain' } })
   }
-  console.log('[WEBHOOK DROP] เหตุผล:', {
+  console.debug('[WEBHOOK DROP] เหตุผล:', {
     reason: 'VERIFY_TOKEN_OR_CHALLENGE_INVALID',
     status: 403,
   })
@@ -40,7 +40,7 @@ export function getFacebookWebhook(req: NextRequest) {
 
 export async function postFacebookWebhook(req: NextRequest) {
   // Log arrival even if body reading/signature validation fails. Never log headers or unsigned bodies.
-  console.log('[facebook-webhook/request] received', {
+  console.debug('[facebook-webhook/request] received', {
     method: req.method,
     path: new URL(req.url).pathname,
     hasSignature: Boolean(req.headers.get('x-hub-signature-256')),
@@ -51,8 +51,7 @@ export async function postFacebookWebhook(req: NextRequest) {
     const bytes = await readWebhookBody(req)
     const secret = process.env.FB_APP_SECRET?.trim()
     if (!secret) {
-      console.log('[WEBHOOK DROP] เหตุผล:', { reason: 'MISSING_APP_SECRET', status: 503 })
-      console.error('[facebook-webhook/ingress] missing FB_APP_SECRET')
+      console.debug('[WEBHOOK DROP] เหตุผล:', { reason: 'MISSING_APP_SECRET', status: 503 })
       return new NextResponse('Webhook unavailable', {
         status: 503,
         headers: { 'Retry-After': '30' },
@@ -60,12 +59,12 @@ export async function postFacebookWebhook(req: NextRequest) {
     }
     const signature = req.headers.get('x-hub-signature-256')
     if (!verifyWebhookSignature(bytes, signature, secret)) {
-      console.log('[WEBHOOK DROP] เหตุผล:', {
+      console.debug('[WEBHOOK DROP] เหตุผล:', {
         reason: 'SIGNATURE_INVALID',
         status: 401,
         hasSignature: Boolean(signature),
       })
-      console.warn('[facebook-webhook/ingress] signature verification failed', {
+      console.debug('[facebook-webhook/ingress] signature verification failed', {
         hasSignature: Boolean(signature),
       })
       return new NextResponse('Invalid signature', { status: 401 })

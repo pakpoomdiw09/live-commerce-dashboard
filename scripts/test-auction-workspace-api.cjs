@@ -17,6 +17,8 @@ test('workspace API restores scoped saved values and commits a single normalized
   const calls = []
   let denied = false
   let failedTable = null
+  let failedCode = '42501'
+  let rpcError = null
   const settings = {
     ...automation.defaultSessionAutomation(bankId),
     keywords: ['raise'],
@@ -55,7 +57,7 @@ test('workspace API restores scoped saved values and commits a single normalized
       const query = {
         select: () => query,
         in: () => query,
-        then(resolve) { return Promise.resolve({ data: rows[table] ?? [], error: table === failedTable ? { code: '42501' } : null }).then(resolve) },
+        then(resolve) { return Promise.resolve({ data: rows[table] ?? [], error: table === failedTable ? { code: failedCode } : null }).then(resolve) },
         order: () => query,
         limit: () => query,
         eq(key, value) {
@@ -63,7 +65,7 @@ test('workspace API restores scoped saved values and commits a single normalized
           return query
         },
         async maybeSingle() {
-          if (table === failedTable) return { data: null, error: { code: '42501' } }
+          if (table === failedTable) return { data: null, error: { code: failedCode } }
           return {
             data: rows[table].find((row) => filters.every((predicate) => predicate(row))) ?? null,
             error: null,
@@ -74,7 +76,7 @@ test('workspace API restores scoped saved values and commits a single normalized
     },
     async rpc(name, args) {
       calls.push({ name, args })
-      return { data: { sessionId }, error: null }
+      return rpcError ? { data: null, error: rpcError } : { data: { sessionId }, error: null }
     },
   }
   const api = load(
@@ -170,7 +172,25 @@ test('workspace API restores scoped saved values and commits a single normalized
     assert.equal(body.degraded, true)
     assert.equal(body.auction, undefined)
   }
+  failedTable = 'live_sessions'
+  failedCode = 'PGRST205'
+  const missingSchema = await api.GET(
+    new NextRequest(
+      `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
+    ),
+  )
+  assert.equal(missingSchema.status, 503)
+  assert.equal((await missingSchema.json()).reason, 'DATABASE_SCHEMA_INCOMPLETE')
+  failedCode = 'XX000'
+  const internalReadFailure = await api.GET(
+    new NextRequest(
+      `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
+    ),
+  )
+  assert.equal(internalReadFailure.status, 503)
+  assert.match((await internalReadFailure.json()).error, /check the database setup/)
   failedTable = null
+  failedCode = '42501'
   const foreign = await (
     await api.GET(
       new NextRequest(
@@ -227,6 +247,14 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.equal(calls[0].args.p_input.finance.fees, 3.25)
   assert.equal('paid_amount' in calls[0].args.p_input, false)
   assert.deepEqual(Array.from(calls[0].args.p_input.hostIds), ['100', '999'])
+
+  rpcError = { code: 'PGRST202', message: 'private database details are not returned to the client' }
+  const missingRpc = await post({ ...input, requestId: randomUUID() })
+  assert.equal(missingRpc.status, 503)
+  const missingRpcBody = await missingRpc.json()
+  assert.match(missingRpcBody.error, /required database function is missing/)
+  assert.doesNotMatch(JSON.stringify(missingRpcBody), /private database details/)
+  rpcError = null
 
   const emptySettings = {
     ...settings,

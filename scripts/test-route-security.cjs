@@ -133,6 +133,32 @@ test('staff cannot approve even an already approved slip', async () => {
   const api = load('app/api/slips/[id]/approve/route.ts', f.mocks)
   assert.equal((await api.POST({}, { params: Promise.resolve({ id }) })).status, 403)
 })
+test('cross-tenant caller cannot approve an auction slip or reach its RPC', async () => {
+  const f = fixture({
+    member: false,
+    scope: { id, tenant_id: 'shop', status: 'valid', approved_at: null },
+    auctionProof: { order_id: 'auction-order' },
+  })
+  const api = load('app/api/slips/[id]/approve/route.ts', f.mocks)
+  assert.equal((await api.POST({}, { params: Promise.resolve({ id }) })).status, 404)
+  assert.equal(f.calls.includes('approve_auction_payment_proof'), false)
+})
+test('legacy auction route rejects a rejected replaced slip without reaching approval', async () => {
+  const f = fixture({
+    scope: {
+      id,
+      tenant_id: 'shop',
+      status: 'valid',
+      approved_at: null,
+      image_path: 'auction/shop/old-proof.jpg',
+    },
+    auctionProof: null,
+  })
+  const api = load('app/api/slips/[id]/approve/route.ts', f.mocks)
+  assert.equal((await api.POST({}, { params: Promise.resolve({ id }) })).status, 409)
+  assert.equal(f.calls.includes('approve_auction_payment_proof'), false)
+  assert.equal(f.calls.includes('scope'), true)
+})
 test('owner can approve idempotently', async () => {
   const f = fixture({
     scope: { tenant_id: 'shop', status: 'valid', approved_at: 'existing', customer_id: null },

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { Building2, Clock3, LoaderCircle, LockKeyhole, PackageCheck } from 'lucide-react'
+import type { CfOrderStatus } from '@/lib/types'
 
 export type LiveCfPaymentVariant = { id: string; label: string; price: number; stock: number }
 type Selection = {
@@ -26,7 +27,7 @@ export function LiveCfVariantPayment({
 }: {
   token: string
   productName: string
-  status: string
+  status: CfOrderStatus
   initialSelection: Selection
   variants: LiveCfPaymentVariant[]
   bank: { name: string; account_name: string; account_number: string } | null
@@ -99,7 +100,12 @@ export function LiveCfVariantPayment({
               )}
             </div>
           </div>
-          {status !== 'pending_payment' ? (
+          {status === 'cancelled' ? (
+            <p role="status" className="rounded-lg bg-rose-50 p-4 text-sm text-rose-800">
+              คำสั่งซื้อนี้ถูกยกเลิกแล้ว จึงไม่สามารถชำระเงินหรือส่งสลิปผ่านลิงก์นี้ได้
+              หากชำระเงินไปแล้ว กรุณาติดต่อร้านค้า
+            </p>
+          ) : status !== 'pending_payment' ? (
             <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
               รายการนี้ได้รับการชำระหรือดำเนินการแล้ว
             </p>

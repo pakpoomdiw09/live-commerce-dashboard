@@ -1,15 +1,12 @@
-import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { runCustomerTabReminders } from '@/lib/features/commerce/customer-tab-reminders'
+import { verifyCronAuth } from '@/lib/security/cron-auth'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 async function run(req: NextRequest) {
-  const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
-  const expected = Buffer.from(`Bearer ${secret}`),
-    supplied = Buffer.from(req.headers.get('authorization') ?? '')
-  if (!secret || expected.length !== supplied.length || !timingSafeEqual(expected, supplied))
+  if (!verifyCronAuth(req))
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   try {
     return NextResponse.json(await runCustomerTabReminders(supabaseAdmin({ timeoutMs: 10000 })), {

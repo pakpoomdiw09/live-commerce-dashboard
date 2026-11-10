@@ -12,6 +12,7 @@ import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
 import type { ProcessedSlip, SlipInput } from '@/lib/features/slips/process'
 import { validateVisionFile } from '@/lib/features/vision/vision-image'
 import { assertSlipOrderTimestamp, SlipTimestampError } from '@/lib/features/slips/slip-timestamp'
+import type { PaymentImageMimeType } from '@/lib/features/payments/payment-validation'
 type ClaimedPayment = {
   id: string
   slip_id: string
@@ -25,6 +26,7 @@ type ClaimedPayment = {
 export async function processPaymentPro(
   db: SupabaseClient,
   input: SlipInput,
+  fileMimeType: PaymentImageMimeType | null,
 ): Promise<ProcessedSlip | null> {
   if (!input.tenant) return null
   const tenantId = input.tenant.id,
@@ -49,7 +51,7 @@ export async function processPaymentPro(
   if (imagePath) {
     const upload = await db.storage
       .from('slips')
-      .upload(imagePath, input.file!, { contentType: input.file!.type })
+      .upload(imagePath, input.file!, { contentType: fileMimeType! })
     if (upload.error) throw new Error('จัดเก็บหลักฐานไม่สำเร็จ')
   }
   const claim = await db.rpc('claim_payment_pro', {

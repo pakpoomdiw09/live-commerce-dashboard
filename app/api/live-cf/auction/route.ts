@@ -24,7 +24,12 @@ export async function GET(req: NextRequest) {
     const pageId = req.nextUrl.searchParams.get('pageId')
     if ((livePostId && !/^\d{1,64}$/.test(livePostId)) || (pageId && !/^\d{1,64}$/.test(pageId)))
       return auctionReply({ error: 'รหัสไลฟ์ไม่ถูกต้อง' }, 400)
-    let query = db.from('auctions').select('*').eq('tenant_id', tenantId!)
+    let query = db
+      .from('auctions')
+      .select(
+        'id,tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,current_price,leading_bidder_id,leading_bidder_name,leading_comment_id,host_ids,host_count,bank_account_id,status,closed_at,close_event_id,order_id,created_at,private_reply_enabled,public_reply_enabled,private_reply_template,bid_reply_template,close_reply_template,session_automation,duration_seconds,timer_started_at,ends_at,winner_locked_at,previous_auction_id,winner_confirmation_comment_id,winner_confirmation_event_id,winner_confirmed_at',
+      )
+      .eq('tenant_id', tenantId!)
     if (livePostId) query = query.eq('live_post_id', livePostId)
     if (pageId) query = query.eq('page_id', pageId)
     const auctions = await query.order('created_at', { ascending: false }).limit(10)

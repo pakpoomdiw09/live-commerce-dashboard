@@ -159,12 +159,6 @@ begin
   elsif command->>'action'='count' then p_kind:='HOST_CONTROL';p_control:=command->>'count';counting:=true;
   end if;
  end if;
- if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
-  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
-  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
-   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
-  return r;
- end if;
  if confirming then
   confirmation_floor:=a.winner_locked_at;
   if a.close_event_id is not null then
@@ -185,6 +179,12 @@ begin
    or (a.closed_at is not null and source_at>a.closed_at) then
    return jsonb_build_object('status','stale');
   end if;
+ end if;
+ if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
+  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
+  return r;
  end if;
  if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
   perform public.close_due_live_auction(a.id,a.tenant_id);
@@ -225,9 +225,13 @@ begin
  return r;
 end $$;
 
-revoke all on function public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
  public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated;
-grant execute on function public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+grant execute on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
  public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role;
+revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
+ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated;
+grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
+ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
 notify pgrst,'reload schema';
 commit;

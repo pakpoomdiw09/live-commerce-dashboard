@@ -60,6 +60,8 @@ function facebook(fetch) {
       },
       fetch,
       require(name) {
+        if (name === '@/lib/features/commerce/comment-config')
+          return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
         assert.equal(name, '@/lib/safe-logging')
         return log.logger
       },
@@ -192,7 +194,7 @@ test('Facebook send diagnostics preserve errors while masking credentials and re
     const diagnostics = f.calls.filter((args) =>
       String(args[0]).startsWith('[facebook/send] Graph API request failed '),
     )
-    assert.equal(diagnostics.length, 2)
+    assert.equal(diagnostics.length, 3)
     for (const [entry] of diagnostics) {
       assert.equal(typeof entry, 'string')
       const details = JSON.parse(entry.slice('[facebook/send] Graph API request failed '.length))

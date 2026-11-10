@@ -13,6 +13,7 @@ import {
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Auction } from '@/lib/features/commerce/auction-types'
+import { auctionSettingsStatus } from '@/lib/features/commerce/auction-settings-status'
 import type { LiveSession, SessionSnapshot } from '@/lib/features/commerce/live-session-types'
 import {
   inputMoney,
@@ -165,10 +166,14 @@ export function AuctionUnifiedForm({
             savedCallback.current(config.session.id)
         }
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (!controller.signal.aborted) {
           setDegraded(true)
-          setError('โหลดข้อมูลไม่สำเร็จ กรุณาโหลดใหม่ก่อนบันทึก')
+          setError(
+            cause instanceof Error && cause.message
+              ? cause.message
+              : 'Could not load auction settings. Please retry before saving.',
+          )
         }
       })
     return () => controller.abort()
@@ -259,6 +264,7 @@ export function AuctionUnifiedForm({
     }
   }
   const disabled = busy || degraded || !!base?.session?.ended_at
+  const workspaceStatus = auctionSettingsStatus(degraded, !!error)
   const locked =
     disabled ||
     (!base?.preferencesOnly && base?.round?.status === 'active' && !!base.round.leading_bidder_id)
@@ -324,9 +330,9 @@ export function AuctionUnifiedForm({
             </p>
           </div>
         </div>
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-semibold shadow-sm w-fit">
-          <span className="h-2 w-2 rounded-full bg-white animate-pulse" aria-hidden="true" />
-          กำลังทำงาน
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${workspaceStatus.badgeClass} text-xs font-semibold shadow-sm w-fit`}>
+          <span className={`h-2 w-2 rounded-full ${workspaceStatus.dotClass}`} aria-hidden="true" />
+          {workspaceStatus.label}
         </span>
       </header>
       {degraded && <button type="button" className={orange} disabled={busy} onClick={() => setReload(n => n + 1)}>โหลดข้อมูลใหม่</button>}

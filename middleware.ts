@@ -2,10 +2,17 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
 
 export async function middleware(request: NextRequest) {
+  const securePublicPaymentHeaders = (response: NextResponse) => {
+    if (request.nextUrl.pathname.startsWith('/pay/live/')) {
+      response.headers.set('Referrer-Policy', 'no-referrer')
+      response.headers.set('Cache-Control', 'no-store')
+    }
+    return response
+  }
   // Meta has no browser session. The route verifies its own challenge/signature.
   if (request.nextUrl.pathname === '/webhook') return NextResponse.next({ request })
   try {
-    return await updateSession(request)
+    return securePublicPaymentHeaders(await updateSession(request))
   } catch (e) {
     // middleware ต้องไม่ทำให้ทั้งแอปล่ม: หน้า public ผ่านได้ หน้าอื่นกลับไป /login
     console.error('[middleware] unexpected error', e)
@@ -17,7 +24,7 @@ export async function middleware(request: NextRequest) {
       pathname.startsWith('/s/') ||
       pathname.startsWith('/pay/live/')
     )
-      return NextResponse.next({ request })
+      return securePublicPaymentHeaders(NextResponse.next({ request }))
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.search = ''

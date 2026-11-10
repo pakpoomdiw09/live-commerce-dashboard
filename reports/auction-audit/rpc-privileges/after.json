@@ -1,0 +1,2200 @@
+[
+  {
+    "function_signature": "account_tenant_ai_reply()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "act_follow_up_job(uuid,uuid,uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "act_payment_pro(uuid,uuid,uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "activate_billing_payment(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "activate_payment(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "add_manual_follow_up(uuid,uuid,uuid,text,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "advance_live_auction(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "agent_control_overview(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "agent_customer_consent()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "agent_job_audit()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "agent_overview_stats(uuid,integer,timestamp with time zone)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "apply_follow_up_approval_mode()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "apply_payment_pro(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "approve_auction_payment_proof(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "approve_billing_request(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "armor(bytea)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "armor(bytea,text[],text[])",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "assert_valid_store_rules(text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "attach_customer_tab_order()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "auction_close_keyword_matches(text,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "auction_comment_ordering()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "auction_comment_tags(jsonb,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "auction_comment_timestamp(text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "auction_host_command(text,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "auction_inbox_status(uuid,uuid[])",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "auction_numeric_price(text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "audit_image_rule_change()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "authorize_follow_up_dispatch(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "authorize_tenant_ai_reply(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "bank_registry_code_valid(text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "basic_overview_stats(uuid,timestamp with time zone)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "begin_agent_dispatch(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "begin_broadcast_transport(uuid,uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "begin_facebook_webhook_step(uuid,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "begin_shipping_provider_job(uuid,uuid,uuid,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "begin_vision_dispatch(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "broadcast_recipient_reason(uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "bump_chat_rule(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "can_access_tenant(uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "can_manage_bank_accounts(uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "can_manage_image_rules(uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "cancel_paid_follow_ups()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "capture_shipping_address(uuid,uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_agent_message(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_and_start_inbox_reply(uuid,uuid,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_auction_bill_delivery(uuid,bigint)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_broadcast_recipient(uuid,uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_broadcast_run(uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_customer_tab_reminder()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_customer_tab_slip(uuid,uuid,text,text,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_facebook_webhook(integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_follow_up_jobs(uuid,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_payment_image(text,text,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_payment_pro(uuid,uuid,uuid,text,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_payment_transfer(text,text,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "claim_vision_job(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "clear_handover()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "close_due_live_auction(uuid,uuid,boolean,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "collect_auction_session_customers(uuid,uuid,text[])",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_access(uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_checkout(text,jsonb)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_dashboard_stats(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_manage(uuid,uuid,text,jsonb)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_move_order(uuid,uuid,uuid,text,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_plan(uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_product_quota()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_product_version()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_rate_limit(text,integer)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "commerce_save_product(uuid,uuid,uuid,jsonb,integer)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "complete_facebook_webhook_step(uuid,uuid,text,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "complete_follow_up(uuid,uuid,text,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "complete_payment_pro(uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "complete_shipping_provider_job(uuid,text,text,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "configure_auction_session(uuid,uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "confirm_cf_order()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "confirm_follow_up_order(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "confirm_live_auction_winner(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "confirm_live_cf_variant(uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "confirm_shipping_address(uuid,uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "consume_slip_credit(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "consume_slip_credit_metered(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "crypt(text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "customer_directory(uuid,integer,text,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "dearmor(text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "decrypt(bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "decrypt_iv(bytea,bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "default_auction_close_keywords()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "digest(text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "digest(bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "encrypt(bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "encrypt_iv(bytea,bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "end_customer_tab_live(uuid,uuid,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "end_inbox_delivery(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "enforce_auction_bid_deadline()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "enqueue_facebook_webhook(text,text,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "ensure_auction_live_session()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "ensure_facebook_customer_fallback_name()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "expire_follow_up_if_outside_window(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "expire_inbox_automation(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "expire_inbox_automation_windows(integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "expire_live_auctions(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "expire_live_auctions_report(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "facebook_comment_context(uuid,text,text[])",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "facebook_inbound_message_at(jsonb,text,timestamp with time zone)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "finalize_live_auction(uuid,uuid,uuid,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "finish_facebook_webhook(uuid,uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "finish_live_reminder_slot()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "finish_shipping_provider_job(uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "fips_mode()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "first_configured_facebook_comment_tags(jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "follow_up_overview(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "follow_up_window_expires_at(uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "follow_up_window_open(uuid,uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "freeze_broadcast_content()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "gen_random_bytes(integer)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "public.gen_random_uuid()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "gen_salt(text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "gen_salt(text,integer)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "guard_agent_consent()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "guard_agent_dispatch_window()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_ai_agent_plan()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_billing_approved_image()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_billing_payment_receipt()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_broadcast_selection()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "guard_customer_tab_slip()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_followup_plan()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_inbox_automation_window()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_keyword_reply_limit()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_live_cf_variant_payment()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_live_cf_variant_slip()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_package_payment_image()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_payment_pro_order()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "guard_payment_pro_slip()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "guard_payment_receipt()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_sale_payment_transfer()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_standalone_slip()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_store_rules_validation()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "guard_tenant_ai_quota()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "handover_tenant_ai_quota(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "handover_vision_job(uuid,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "has_tenant_feature(uuid,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "heartbeat_facebook_webhook(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "hmac(text,text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "hmac(bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "hold_payment_follow_up_for_slip()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "inbox_automation_window_open(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "inbox_incoming_message()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "inbox_pro_message_progress()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "inbox_pro_overview(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "inbox_verified_inbound_at(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "inherit_auction_session_settings()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "initialize_auction_deadline()",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "is_platform_admin()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "live_auction_customer_dashboard(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "live_auction_dashboard(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "live_auction_matched_customers(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "live_auction_thai_dashboard(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "live_comment_time(jsonb,timestamp with time zone)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "live_session_dashboard(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "live_session_tab_proof(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "log_follow_up_state()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "manage_agent_knowledge(uuid,uuid,text,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "manage_inbox_conversation(uuid,uuid,text,integer,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "manage_inbox_workspace(uuid,uuid,text,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "manage_live_session(uuid,uuid,uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "manage_shipping(uuid,uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "mark_inbox_read(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "mark_shipping_tracking_notification(uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "messenger_product_lookup(uuid,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "normalize_auction_settings_before_split(jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "normalize_auction_tag(text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "normalize_auction_thai_settings(jsonb)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "normalize_paid_ai_settings()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "on_follow_up_customer()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "on_follow_up_delivery()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "on_follow_up_message()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "on_order_status()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "payment_legacy_credit_mode()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "payment_pro_account(text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "payment_pro_audit_state()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "payment_pro_bank(text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "payment_pro_overview(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "payment_pro_receiver(uuid,text,text,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "payment_pro_state_guard()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "persist_facebook_message_echo(uuid,uuid,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "persist_facebook_webhook_record(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_armor_headers(text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_key_id(bytea)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_decrypt(bytea,bytea)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_decrypt(bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_decrypt(bytea,bytea,text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_decrypt_bytea(bytea,bytea)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_decrypt_bytea(bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_decrypt_bytea(bytea,bytea,text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_encrypt(text,bytea)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_encrypt(text,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_encrypt_bytea(bytea,bytea)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_pub_encrypt_bytea(bytea,bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_decrypt(bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_decrypt(bytea,text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_decrypt_bytea(bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_decrypt_bytea(bytea,text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_encrypt(text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_encrypt(text,text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_encrypt_bytea(bytea,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "pgp_sym_encrypt_bytea(bytea,text,text)",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "place_cf_order(uuid,uuid,uuid,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "place_cf_order(uuid,text,text,text,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "place_cf_order(uuid,uuid,uuid,text,text,text,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "place_cf_order_core(uuid,uuid,uuid,text,text,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "place_facebook_catalog_order(uuid,uuid,text,text,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "place_live_cf_order(uuid,uuid,uuid,text,text,text,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "platform_dashboard_overview()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "platform_update_tenant(uuid,uuid,text,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "prepare_follow_up(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "prepare_paid_ai_purchase()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "preserve_message_receipt_status()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "queue_customer_tab_reminders(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "queue_shipping_tracking_delivery()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "reconcile_shipping(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "record_agent_prompt()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "recover_agent_jobs()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "recover_payment_pro()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "refresh_broadcast_credits(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "refresh_customer_tab(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "refund_broadcast_credits(uuid,integer,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "refund_broadcast_credits_metered(uuid,integer,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "refund_slip_credit(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "refund_slip_credit_metered(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "refund_unstarted_vision(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "render_smart_follow_up(text,text,text,numeric)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "reserve_broadcast_credits(uuid,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "reserve_broadcast_credits_metered(uuid,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "reserve_tenant_ai_reply(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "resolve_facebook_comment_settings(jsonb,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "restore_agent_prompt(uuid,uuid,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "retry_rejected_follow_up(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "retry_unstarted_vision(uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "review_payment_pro_failure(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_agent_prompt(uuid,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_auction_workspace(uuid,uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_facebook_comment_config(uuid,uuid,uuid,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_inbox_quick_reply(uuid,uuid,uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_inbox_quick_reply(uuid,uuid,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_smart_follow_up(uuid,uuid,jsonb,jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_store_rule_items(uuid,uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_validated_store_rules(uuid,uuid,text,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "save_vision_settings(uuid,uuid,boolean,text,numeric,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "schedule_follow_ups()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "seed_tenant_bank_account()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "set_agent_overview_capability(uuid,uuid,text,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "set_follow_up_approval_mode(uuid,uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "set_inbox_follow_up_flag(uuid,uuid,boolean,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "set_payment_receiving_code_active(uuid,uuid,uuid,boolean)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "set_tenant_automation_stop(uuid,uuid,boolean,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "settle_broadcast_recipient(uuid,uuid,uuid,text,text,text)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "settle_tenant_ai_reply(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "shipping_address_valid(jsonb)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "shipping_balance_changed()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "shipping_guard_dispatched()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "shipping_mirror_fields()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "shipping_order_changed()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "shipping_payment_ready(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "shipping_snapshot(uuid,uuid[],uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "stamp_customer_tab_proof()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "stamp_facebook_catalog_post()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "stamp_live_item_type()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "start_agent_ai_call(uuid,uuid,uuid,uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "start_inbox_delivery(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "start_inbox_handover(uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "start_legacy_auction_timer(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "start_payment_pro_provider(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "start_vision_analysis(uuid,uuid)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "submit_auction_payment_proof(uuid,text)",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "sync_broadcast_inbound_message()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "sync_customer_tab_order()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "sync_facebook_customer_window()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "sync_facebook_evidence_window()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "sync_facebook_tenants(uuid,jsonb)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "sync_inbox_pro_stage()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "sync_payment_follow_up_switch()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "sync_primary_bank_account()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "tenant_has_feature_bypass(uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "tenant_has_paid_ai_access(uuid)",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "touch_image_response_rule()",
+    "is_security_definer": false,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "valid_fallback_messages(text[])",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "valid_handover_messages(text[])",
+    "is_security_definer": false,
+    "anon_exec": true,
+    "auth_exec": true,
+    "service_role_exec": true
+  },
+  {
+    "function_signature": "validate_live_cf_rule()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "validate_live_cf_setup_rule()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  },
+  {
+    "function_signature": "vision_job_audit()",
+    "is_security_definer": true,
+    "anon_exec": false,
+    "auth_exec": false,
+    "service_role_exec": false
+  }
+]

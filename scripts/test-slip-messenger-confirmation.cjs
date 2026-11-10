@@ -12,6 +12,8 @@ function load(file, dependencies, globals = {}) {
     AbortSignal,
     require(name) {
       if (name === 'server-only') return {}
+      if (name === '@/lib/features/commerce/comment-config')
+        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
       if (name === '@/lib/safe-logging')
         return require('./helpers/load-safe-logging.cjs')({ info() {}, warn() {}, error() {} })
       if (Object.hasOwn(dependencies, name)) return dependencies[name]
@@ -222,7 +224,10 @@ test('plain-text receipts use each Page token/PSID and exactly match the stored 
     assert.equal(request.body.recipient.id, psid)
     assert.equal(request.body.messaging_type, 'RESPONSE')
     assert.equal(Object.hasOwn(request.body, 'tag'), false)
-    assert.deepEqual(request.body.message, { text: expectedReceipt(pageName, '123.45') })
+    assert.deepEqual(request.body.message, {
+      text: expectedReceipt(pageName, '123.45'),
+      metadata: `snapbot:slip-confirm:slip-${tenant}`,
+    })
     assert.equal(f.rows.at(-1).body, request.body.message.text)
     assert.equal(request.body.message.text.includes('mock-transfer'), false)
     assert.equal(request.body.message.text.includes('อ้างอิง'), false)
@@ -463,7 +468,10 @@ test('manual confirmation uses the same exact three-line text with two-decimal a
       'เพจตัวอย่าง',
     )
     const message = f.requests[0].body.message
-    assert.deepEqual(message, { text: expectedReceipt('เพจตัวอย่าง', formatted) })
+    assert.deepEqual(message, {
+      text: expectedReceipt('เพจตัวอย่าง', formatted),
+      metadata: 'snapbot:slip-confirm:manual-slip',
+    })
     assert.equal(message.text.split('\n').length, 3)
     assert.equal(f.rows[0].body, message.text)
     assert.equal(message.text.includes('DO_NOT_INCLUDE_REFERENCE'), false)

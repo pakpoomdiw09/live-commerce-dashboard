@@ -5,6 +5,10 @@ import { requireFeature } from '@/lib/feature-access'
 import { pendingOrders } from '@/lib/features/commerce/orders'
 import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
 import { assertSlipOrderTimestamp, SlipTimestampError } from '@/lib/features/slips/slip-timestamp'
+import {
+  isPaymentImage,
+  type PaymentImageMimeType,
+} from '@/lib/features/payments/payment-validation'
 export { SlipTimestampError } from '@/lib/features/slips/slip-timestamp'
 export {
   accountMatches,
@@ -73,6 +77,19 @@ export async function processSlip(
   }: Input,
 ): Promise<ProcessedSlip> {
   if (!tenant) throw new Error('FEATURE_LOCKED: tenant required')
+  let fileMimeType: PaymentImageMimeType | null = null
+  if (file) {
+    const image = await isPaymentImage(file)
+    if (!image.isValid)
+      return {
+        status: 'error',
+        amount: null,
+        transRef: null,
+        note: 'กรุณาเลือก JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB',
+        failure: 'upload failed',
+      }
+    fileMimeType = image.mimeType
+  }
   await requireFeature(db, tenant.id, 'slip_auto_pilot')
   if (
     requireExactAmount &&
@@ -102,6 +119,7 @@ export async function processSlip(
           auctionSenderId,
         },
         tabIds,
+        fileMimeType,
       )
     }
   }
@@ -115,7 +133,7 @@ export async function processSlip(
       expectedAmount,
       tenant,
       orderIds,
-    })
+    }, fileMimeType)
     if (result) return result
   }
   let accounts: { bank_code: string; account_number: string; is_active: boolean }[] = []
@@ -145,7 +163,9 @@ export async function processSlip(
   let imagePath: string | null = null
   if (file) {
     imagePath = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}`
-    const up = await db.storage.from('slips').upload(imagePath, file, { contentType: file.type })
+    const up = await db.storage
+      .from('slips')
+      .upload(imagePath, file, { contentType: fileMimeType! })
     if (up.error) {
       console.error('slip upload failed', imagePath, up.error)
       return { status: 'error', amount: null, transRef: null, note: null, failure: 'upload failed' }

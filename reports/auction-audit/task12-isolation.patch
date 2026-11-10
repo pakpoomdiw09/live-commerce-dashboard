@@ -1,0 +1,879 @@
+diff --git a/package.json b/package.json
+index 6af27dd..a7a06d8 100644
+--- a/package.json
++++ b/package.json
+@@ -3,25 +3,25 @@
+   "version": "0.1.0",
+   "private": true,
+   "scripts": {
+-    "test:vision": "node --test --test-concurrency=1 scripts/test-ai-vision.cjs scripts/test-llm-vision.cjs scripts/test-vision-product-catalog.cjs scripts/test-ai-vision-sql.cjs",
+-    "test:live-auction-dashboard": "node --test scripts/test-live-auction-dashboard-api.cjs scripts/test-live-session-dashboard.cjs scripts/test-auction-workspace.cjs scripts/test-auction-workspace-api.cjs",
++    "test:vision": "node --require ./scripts/test-network-guard.cjs --test --test-concurrency=1 scripts/test-ai-vision.cjs scripts/test-llm-vision.cjs scripts/test-vision-product-catalog.cjs scripts/test-ai-vision-sql.cjs",
++    "test:live-auction-dashboard": "node --require ./scripts/test-network-guard.cjs --test scripts/test-live-auction-dashboard-api.cjs scripts/test-live-session-dashboard.cjs scripts/test-auction-workspace.cjs scripts/test-auction-workspace-api.cjs",
+     "test:live-auction-dashboard:ui": "node scripts/check-live-session-browser.cjs --all-in-one",
+-    "test:shipping": "node --test scripts/test-shipping.cjs scripts/test-shipping-provider.cjs scripts/test-shipping-notifications.cjs scripts/test-shipping-dispatch-api.cjs",
++    "test:shipping": "node --require ./scripts/test-network-guard.cjs --test scripts/test-shipping.cjs scripts/test-shipping-provider.cjs scripts/test-shipping-notifications.cjs scripts/test-shipping-dispatch-api.cjs",
+     "test:shipping:ui": "node scripts/check-shipping-browser.cjs",
+-    "test:live-sessions": "node --test scripts/test-live-session-dashboard.cjs",
++    "test:live-sessions": "node --require ./scripts/test-network-guard.cjs --test scripts/test-live-session-dashboard.cjs",
+     "test:live-sessions:ui": "node scripts/check-live-session-browser.cjs",
+-    "test:auctions": "node --test scripts/test-live-auctions.cjs scripts/test-auction-on-demand.cjs scripts/test-auction-customer-tab-slip.cjs scripts/test-slip-automatic-gate.cjs scripts/test-auction-server.cjs scripts/test-auction-host-actions.cjs scripts/test-auction-hosts.cjs scripts/test-auction-cron.cjs",
++    "test:auctions": "node --require ./scripts/test-network-guard.cjs --test scripts/test-live-auctions.cjs scripts/test-auction-on-demand.cjs scripts/test-auction-customer-tab-slip.cjs scripts/test-slip-automatic-gate.cjs scripts/test-auction-server.cjs scripts/test-auction-host-actions.cjs scripts/test-auction-hosts.cjs scripts/test-auction-cron.cjs",
+     "test:auctions:ui": "node scripts/check-auction-browser.cjs",
+-    "test:customer-tabs": "node --test scripts/test-customer-tabs.cjs scripts/test-customer-tab-services.cjs",
++    "test:customer-tabs": "node --require ./scripts/test-network-guard.cjs --test scripts/test-customer-tabs.cjs scripts/test-customer-tab-services.cjs",
+     "db:schema:build": "node scripts/build-full-database-setup.cjs",
+     "db:schema:check": "node scripts/build-full-database-setup.cjs --check",
+-    "test:schema": "node --test --test-concurrency=1 scripts/test-full-database-setup.cjs scripts/test-complete-schema.cjs",
++    "test:schema": "node --require ./scripts/test-network-guard.cjs --test --test-concurrency=1 scripts/test-full-database-setup.cjs scripts/test-complete-schema.cjs",
+     "db:migrate:safe": "node scripts/run-safe-db-migration.cjs",
+     "db:migrate:sql": "node scripts/run-safe-db-migration.cjs --write-sql",
+     "facebook:diagnose": "node scripts/diagnose-facebook-send.cjs",
+     "facebook:profiles:backfill": "node scripts/backfill-facebook-profiles.cjs",
+     "facebook:update-page-token": "node scripts/update-facebook-page-token.cjs",
+-    "test:db-migration": "node --test --test-concurrency=1 scripts/test-safe-db-migration.cjs scripts/test-platform-migration.cjs",
++    "test:db-migration": "node --require ./scripts/test-network-guard.cjs --test --test-concurrency=1 scripts/test-safe-db-migration.cjs scripts/test-platform-migration.cjs",
+     "clean:preview": "node scripts/clean-cache.cjs --dry-run",
+     "clean:cache": "node scripts/clean-cache.cjs --apply",
+     "format": "prettier --write \"{app,components,hooks,lib,scripts,tests}/**/*.{ts,tsx,js,cjs,mjs}\" \"*.{ts,js,cjs,mjs,json}\"",
+@@ -30,8 +30,8 @@
+     "build": "next build",
+     "lint": "eslint app components lib middleware.ts",
+     "start": "next start",
+-    "test": "tsx --test tests/*.test.ts tests/features/commerce/*.test.ts",
+-    "test:performance": "node --test --test-concurrency=2 scripts/test-payment-api.cjs scripts/test-payment-checkout.cjs scripts/test-payment-pro.cjs scripts/test-payment-validation.cjs scripts/test-premium-overview.cjs scripts/test-dashboard-performance.cjs scripts/test-dashboard-read-models.cjs scripts/test-agent-overview.cjs scripts/test-dashboard-recovery.cjs scripts/test-platform-dashboard-api.cjs scripts/test-dashboard-page-scope.cjs"
++    "test": "node --require ./scripts/test-network-guard.cjs --import tsx --test tests/*.test.ts tests/features/commerce/*.test.ts",
++    "test:performance": "node --require ./scripts/test-network-guard.cjs --test --test-concurrency=2 scripts/test-payment-api.cjs scripts/test-payment-checkout.cjs scripts/test-payment-pro.cjs scripts/test-payment-validation.cjs scripts/test-premium-overview.cjs scripts/test-dashboard-performance.cjs scripts/test-dashboard-read-models.cjs scripts/test-agent-overview.cjs scripts/test-dashboard-recovery.cjs scripts/test-platform-dashboard-api.cjs scripts/test-dashboard-page-scope.cjs"
+   },
+   "engines": {
+     "node": ">=20.0.0"
+diff --git a/reports/auction-audit/run-suite.cjs b/reports/auction-audit/run-suite.cjs
+index 4d9c2d8..fcb56de 100644
+--- a/reports/auction-audit/run-suite.cjs
++++ b/reports/auction-audit/run-suite.cjs
+@@ -5,10 +5,13 @@ const { spawn } = require('node:child_process')
+ const root = path.resolve(process.argv[2])
+ const label = process.argv[3]
+ if (!/^[a-z-]+$/.test(label ?? '')) throw new Error('Invalid run label')
++// These are operator-facing CLI tools, not unattended test suites. Keep them
++// withdrawn from this auto-discovering runner even though their filenames match.
++const withdrawn = new Set(['test-overview-fetch.cjs', 'test-followup-and-broadcast.cjs'])
+ const files = [
+   ...fs
+     .readdirSync(path.join(root, 'scripts'))
+-    .filter((f) => /^test-.*\.cjs$/.test(f))
++    .filter((f) => /^test-.*\.cjs$/.test(f) && !withdrawn.has(f))
+     .map((f) => `scripts/${f}`),
+   ...fs
+     .readdirSync(path.join(root, 'tests'))
+@@ -19,7 +22,8 @@ const files = [
+     .filter((f) => /\.test\.ts$/.test(f))
+     .map((f) => `tests/features/commerce/${f}`),
+ ].sort()
+-const args = ['--import', 'tsx', '--test', '--test-concurrency=1', '--test-reporter=tap', ...files]
++const networkGuard = path.resolve(__dirname, '../../scripts/test-network-guard.cjs')
++const args = ['--require', networkGuard, '--import', 'tsx', '--test', '--test-concurrency=1', '--test-reporter=tap', ...files]
+ const log = fs.openSync(path.join(__dirname, `${label}.log`), 'w')
+ const started = new Date().toISOString()
+ fs.writeSync(log, `Command: node ${args.join(' ')}\n`)
+diff --git a/scripts/test-followup-and-broadcast.cjs b/scripts/test-followup-and-broadcast.cjs
+deleted file mode 100644
+index d13c593..0000000
+--- a/scripts/test-followup-and-broadcast.cjs
++++ /dev/null
+@@ -1,126 +0,0 @@
+-// Read-only diagnostics for the follow-up queue and the latest Facebook inbound contact.
+-// This script never claims a follow-up or sends a Facebook message.
+-const path = require('node:path')
+-const { loadEnvConfig } = require('@next/env')
+-loadEnvConfig(path.resolve(__dirname, '..'), true, { info() {}, error() {} })
+-
+-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+-
+-async function main() {
+-  const [tenantId, baseArg] = process.argv.slice(2)
+-  if (!tenantId || !UUID.test(tenantId))
+-    throw new Error(
+-      'Usage: node scripts/test-followup-and-broadcast.cjs <tenant-uuid> [app-origin]',
+-    )
+-
+-  const base = new URL(baseArg || process.env.CRON_BASE_URL || 'http://localhost:3000')
+-  if (
+-    base.username ||
+-    base.password ||
+-    base.search ||
+-    base.hash ||
+-    !['http:', 'https:'].includes(base.protocol) ||
+-    (base.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname))
+-  )
+-    throw new Error('Use an HTTPS origin, or localhost for development')
+-
+-  const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
+-  if (!secret) throw new Error('Set CRON_SECRET or INTERNAL_API_SECRET before running diagnostics')
+-
+-  const cronUrl = new URL('/api/cron/follow-ups?dryRun=1', base)
+-  const response = await fetch(cronUrl, {
+-    method: 'POST',
+-    headers: { Authorization: `Bearer ${secret}` },
+-    redirect: 'error',
+-    signal: AbortSignal.timeout(55000),
+-  })
+-  if (!response.ok)
+-    throw new Error(`Follow-up diagnostic returned HTTP ${response.status}; check server logs`)
+-  const queue = await response.json()
+-  if (queue.dryRun !== true || !Array.isArray(queue.dueJobs))
+-    throw new Error('Unexpected follow-up dry-run response')
+-
+-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+-  if (!supabaseUrl || !serviceKey)
+-    throw new Error(
+-      'Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for read-only checks',
+-    )
+-  const { createClient } = require('@supabase/supabase-js')
+-  const db = createClient(supabaseUrl, serviceKey, {
+-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+-  })
+-
+-  const tenant = await db.from('tenants').select('page_id').eq('id', tenantId).maybeSingle()
+-  if (tenant.error || !tenant.data) throw new Error('Could not read the selected tenant')
+-  const customer = await db
+-    .from('customers')
+-    .select('id,platform_user_id,last_message_at,last_interaction_at,agent_opted_out')
+-    .eq('tenant_id', tenantId)
+-    .eq('platform', 'facebook')
+-    .not('last_interaction_at', 'is', null)
+-    .order('last_interaction_at', { ascending: false })
+-    .limit(1)
+-    .maybeSingle()
+-  if (customer.error) throw new Error('Could not read the latest Facebook customer')
+-
+-  const now = Date.now()
+-  let broadcastReason = 'no_recent_facebook_customer'
+-  let latestInteractionAt = null
+-  if (customer.data) {
+-    const latest = customer.data
+-    latestInteractionAt = latest.last_interaction_at
+-    const event = await db
+-      .from('broadcast_messaging_events')
+-      .select('kind,page_id,interacted_at')
+-      .eq('tenant_id', tenantId)
+-      .eq('customer_id', latest.id)
+-      .eq('page_id', tenant.data.page_id)
+-      .eq('kind', 'inbound_message')
+-      .order('interacted_at', { ascending: false })
+-      .limit(1)
+-      .maybeSingle()
+-    if (event.error) throw new Error('Could not read signed inbound-message evidence')
+-
+-    const eventAt = Date.parse(event.data?.interacted_at ?? '')
+-    if (!latest.platform_user_id?.trim()) broadcastReason = 'missing_psid'
+-    else if (latest.agent_opted_out !== false)
+-      broadcastReason = latest.agent_opted_out ? 'opted_out' : 'consent_unknown'
+-    else if (!event.data) broadcastReason = 'missing_interaction'
+-    else if (event.data.kind !== 'inbound_message' || event.data.page_id !== tenant.data.page_id)
+-      broadcastReason = 'invalid_interaction'
+-    else if (!Number.isFinite(eventAt) || eventAt > now) broadcastReason = 'invalid_interaction'
+-    else if (now - eventAt >= 24 * 60 * 60 * 1000) broadcastReason = 'outside_window'
+-    else broadcastReason = 'within_24h_window'
+-  }
+-
+-  console.log(
+-    JSON.stringify(
+-      {
+-        sendsPerformed: 0,
+-        followUps: {
+-          dryRun: true,
+-          dueCount: queue.dueCount,
+-          jobs: queue.dueJobs.map((job) => ({
+-            scheduledAtUTC: job.run_at,
+-            dueAtOrBeforeUTC: queue.nowUTC,
+-          })),
+-        },
+-        latestFacebookCustomer: {
+-          found: Boolean(customer.data),
+-          hasPsid: Boolean(customer.data?.platform_user_id?.trim()),
+-          lastMessageAt: customer.data?.last_message_at ?? null,
+-          lastInteractionAt: latestInteractionAt,
+-          broadcastWindowCheck: broadcastReason,
+-        },
+-      },
+-      null,
+-      2,
+-    ),
+-  )
+-}
+-
+-main().catch((error) => {
+-  console.error(error instanceof Error ? error.message : 'Diagnostics failed')
+-  process.exitCode = 1
+-})
+diff --git a/scripts/test-overview-fetch.cjs b/scripts/test-overview-fetch.cjs
+deleted file mode 100644
+index 8214f4b..0000000
+--- a/scripts/test-overview-fetch.cjs
++++ /dev/null
+@@ -1,151 +0,0 @@
+-// Read-only diagnostics. Never prints keys, messages, customer names or slip contents.
+-const fs = require('node:fs')
+-const { createClient } = require('@supabase/supabase-js')
+-
+-async function main() {
+-  if (fs.existsSync('.env.local')) process.loadEnvFile('.env.local')
+-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+-  if (!url || !key) throw Error('Missing Supabase URL or service-role key')
+-  const redact = (value) =>
+-    String(value ?? '')
+-      .split(key)
+-      .join('[REDACTED]')
+-  const db = createClient(url, key, {
+-    auth: { persistSession: false, autoRefreshToken: false },
+-    global: {
+-      fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(15000) }),
+-    },
+-  })
+-  console.log('Project:', new URL(url).hostname, '(service role; bypasses RLS)')
+-  let tenant = process.argv.find((arg) => arg.startsWith('--tenant='))?.slice(9)
+-  if (!tenant) {
+-    const shops = await db.from('tenants').select('id').eq('is_active', true).limit(2)
+-    if (shops.error) throw Error('Tenant lookup: ' + redact(shops.error.message))
+-    if (
+-      !shops.data?.length ||
+-      (shops.data.length !== 1 && !process.argv.includes('--first-active'))
+-    )
+-      throw Error('Specify --tenant=<UUID> or --first-active; expected exactly one active shop')
+-    tenant = shops.data[0].id
+-  }
+-  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(tenant))
+-    throw Error('Invalid tenant UUID')
+-  const to = new Date(),
+-    bangkokDate = new Date(to.getTime() + 7 * 3600000).toISOString().slice(0, 10)
+-  const from = new Date(new Date(bangkokDate + 'T00:00:00+07:00').getTime() - 29 * 86400000)
+-  const previous = new Date(from.getTime() - 30 * 86400000)
+-  console.log('Tenant:', tenant, 'range:', from.toISOString(), '→', to.toISOString())
+-  let failures = 0
+-  async function check(query, action) {
+-    try {
+-      const result = await action()
+-      if (result.error) {
+-        failures++
+-        console.error(
+-          JSON.stringify({
+-            query,
+-            status: result.status,
+-            code: result.error.code,
+-            message: redact(result.error.message),
+-            details: redact(result.error.details),
+-            hint: redact(result.error.hint),
+-          }),
+-        )
+-        return
+-      }
+-      console.log(
+-        JSON.stringify({
+-          query,
+-          status: result.status,
+-          count: result.count ?? undefined,
+-          found:
+-            result.count !== null && result.count !== undefined
+-              ? result.count > 0
+-              : result.data !== null,
+-          allowed: typeof result.data === 'boolean' ? result.data : undefined,
+-          keys: result.data && !Array.isArray(result.data) ? Object.keys(result.data) : undefined,
+-          shape:
+-            query === 'overview_dashboard_stats'
+-              ? {
+-                  access: result.data?.access,
+-                  activityArray: Array.isArray(result.data?.activity),
+-                  hoursArray: Array.isArray(result.data?.hours),
+-                  slipsArray: Array.isArray(result.data?.slips),
+-                  chatsArray: Array.isArray(result.data?.chats),
+-                  totals: result.data?.totals,
+-                  messages: result.data?.messages,
+-                  customers: result.data?.uniqueCustomers,
+-                  activityDates: result.data?.activity?.slice(0, 2).map((point) => point.key),
+-                }
+-              : undefined,
+-        }),
+-      )
+-    } catch (error) {
+-      failures++
+-      console.error(JSON.stringify({ query, message: redact(error.message) }))
+-    }
+-  }
+-  await Promise.all([
+-    check('tenants.active', () =>
+-      db.from('tenants').select('id').eq('id', tenant).eq('is_active', true).maybeSingle(),
+-    ),
+-    check('tenants.credit_columns', () =>
+-      db
+-        .from('tenants')
+-        .select('slip_quota,slip_used,slip_quota_credits')
+-        .eq('id', tenant)
+-        .maybeSingle(),
+-    ),
+-    check('customers.count', () =>
+-      db.from('customers').select('id', { count: 'exact', head: true }).eq('tenant_id', tenant),
+-    ),
+-    check('slips.count', () =>
+-      db
+-        .from('slips')
+-        .select('id', { count: 'exact', head: true })
+-        .eq('tenant_id', tenant)
+-        .gte('created_at', from.toISOString())
+-        .lt('created_at', to.toISOString()),
+-    ),
+-    check('messages.inbound_count', () =>
+-      db
+-        .from('messages')
+-        .select('id,customers!inner(tenant_id)', { count: 'exact', head: true })
+-        .eq('customers.tenant_id', tenant)
+-        .eq('sender', 'customer')
+-        .gte('created_at', from.toISOString())
+-        .lt('created_at', to.toISOString()),
+-    ),
+-    check('agent_message_jobs.count', () =>
+-      db
+-        .from('agent_message_jobs')
+-        .select('id', { count: 'exact', head: true })
+-        .eq('tenant_id', tenant),
+-    ),
+-    check('overview_dashboard_stats', () =>
+-      db.rpc('overview_dashboard_stats', {
+-        p_tenant: tenant,
+-        p_from: from.toISOString(),
+-        p_to: to.toISOString(),
+-        p_previous: previous.toISOString(),
+-        p_page: 1,
+-        p_query: '',
+-      }),
+-    ),
+-    check('has_tenant_feature.customer_management', () =>
+-      db.rpc('has_tenant_feature', { p_tenant: tenant, p_feature: 'customer_management' }),
+-    ),
+-  ])
+-  console.log(
+-    'PGRST202/42883: missing RPC/signature/schema cache; 42501: permission/tenant gate; 42703: missing column; 57014: SQL timeout.',
+-  )
+-  console.log(
+-    'Zero rows alone cannot prove RLS failure. This service-role check does not test browser-session RLS.',
+-  )
+-  process.exitCode = failures ? 1 : 0
+-}
+-main().catch((error) => {
+-  console.error(error.message)
+-  process.exitCode = 1
+-})
+
+diff --git a/scripts/manual/followup-and-broadcast.cjs b/scripts/manual/followup-and-broadcast.cjs
+new file mode 100644
+index 0000000..d13c593
+--- /dev/null
++++ b/scripts/manual/followup-and-broadcast.cjs
+@@ -0,0 +1,126 @@
++// Read-only diagnostics for the follow-up queue and the latest Facebook inbound contact.
++// This script never claims a follow-up or sends a Facebook message.
++const path = require('node:path')
++const { loadEnvConfig } = require('@next/env')
++loadEnvConfig(path.resolve(__dirname, '..'), true, { info() {}, error() {} })
++
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
++
++async function main() {
++  const [tenantId, baseArg] = process.argv.slice(2)
++  if (!tenantId || !UUID.test(tenantId))
++    throw new Error(
++      'Usage: node scripts/test-followup-and-broadcast.cjs <tenant-uuid> [app-origin]',
++    )
++
++  const base = new URL(baseArg || process.env.CRON_BASE_URL || 'http://localhost:3000')
++  if (
++    base.username ||
++    base.password ||
++    base.search ||
++    base.hash ||
++    !['http:', 'https:'].includes(base.protocol) ||
++    (base.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname))
++  )
++    throw new Error('Use an HTTPS origin, or localhost for development')
++
++  const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
++  if (!secret) throw new Error('Set CRON_SECRET or INTERNAL_API_SECRET before running diagnostics')
++
++  const cronUrl = new URL('/api/cron/follow-ups?dryRun=1', base)
++  const response = await fetch(cronUrl, {
++    method: 'POST',
++    headers: { Authorization: `Bearer ${secret}` },
++    redirect: 'error',
++    signal: AbortSignal.timeout(55000),
++  })
++  if (!response.ok)
++    throw new Error(`Follow-up diagnostic returned HTTP ${response.status}; check server logs`)
++  const queue = await response.json()
++  if (queue.dryRun !== true || !Array.isArray(queue.dueJobs))
++    throw new Error('Unexpected follow-up dry-run response')
++
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
++  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
++  if (!supabaseUrl || !serviceKey)
++    throw new Error(
++      'Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for read-only checks',
++    )
++  const { createClient } = require('@supabase/supabase-js')
++  const db = createClient(supabaseUrl, serviceKey, {
++    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
++  })
++
++  const tenant = await db.from('tenants').select('page_id').eq('id', tenantId).maybeSingle()
++  if (tenant.error || !tenant.data) throw new Error('Could not read the selected tenant')
++  const customer = await db
++    .from('customers')
++    .select('id,platform_user_id,last_message_at,last_interaction_at,agent_opted_out')
++    .eq('tenant_id', tenantId)
++    .eq('platform', 'facebook')
++    .not('last_interaction_at', 'is', null)
++    .order('last_interaction_at', { ascending: false })
++    .limit(1)
++    .maybeSingle()
++  if (customer.error) throw new Error('Could not read the latest Facebook customer')
++
++  const now = Date.now()
++  let broadcastReason = 'no_recent_facebook_customer'
++  let latestInteractionAt = null
++  if (customer.data) {
++    const latest = customer.data
++    latestInteractionAt = latest.last_interaction_at
++    const event = await db
++      .from('broadcast_messaging_events')
++      .select('kind,page_id,interacted_at')
++      .eq('tenant_id', tenantId)
++      .eq('customer_id', latest.id)
++      .eq('page_id', tenant.data.page_id)
++      .eq('kind', 'inbound_message')
++      .order('interacted_at', { ascending: false })
++      .limit(1)
++      .maybeSingle()
++    if (event.error) throw new Error('Could not read signed inbound-message evidence')
++
++    const eventAt = Date.parse(event.data?.interacted_at ?? '')
++    if (!latest.platform_user_id?.trim()) broadcastReason = 'missing_psid'
++    else if (latest.agent_opted_out !== false)
++      broadcastReason = latest.agent_opted_out ? 'opted_out' : 'consent_unknown'
++    else if (!event.data) broadcastReason = 'missing_interaction'
++    else if (event.data.kind !== 'inbound_message' || event.data.page_id !== tenant.data.page_id)
++      broadcastReason = 'invalid_interaction'
++    else if (!Number.isFinite(eventAt) || eventAt > now) broadcastReason = 'invalid_interaction'
++    else if (now - eventAt >= 24 * 60 * 60 * 1000) broadcastReason = 'outside_window'
++    else broadcastReason = 'within_24h_window'
++  }
++
++  console.log(
++    JSON.stringify(
++      {
++        sendsPerformed: 0,
++        followUps: {
++          dryRun: true,
++          dueCount: queue.dueCount,
++          jobs: queue.dueJobs.map((job) => ({
++            scheduledAtUTC: job.run_at,
++            dueAtOrBeforeUTC: queue.nowUTC,
++          })),
++        },
++        latestFacebookCustomer: {
++          found: Boolean(customer.data),
++          hasPsid: Boolean(customer.data?.platform_user_id?.trim()),
++          lastMessageAt: customer.data?.last_message_at ?? null,
++          lastInteractionAt: latestInteractionAt,
++          broadcastWindowCheck: broadcastReason,
++        },
++      },
++      null,
++      2,
++    ),
++  )
++}
++
++main().catch((error) => {
++  console.error(error instanceof Error ? error.message : 'Diagnostics failed')
++  process.exitCode = 1
++})
+
+diff --git a/scripts/manual/overview-fetch.cjs b/scripts/manual/overview-fetch.cjs
+new file mode 100644
+index 0000000..8214f4b
+--- /dev/null
++++ b/scripts/manual/overview-fetch.cjs
+@@ -0,0 +1,151 @@
++// Read-only diagnostics. Never prints keys, messages, customer names or slip contents.
++const fs = require('node:fs')
++const { createClient } = require('@supabase/supabase-js')
++
++async function main() {
++  if (fs.existsSync('.env.local')) process.loadEnvFile('.env.local')
++  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
++  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
++  if (!url || !key) throw Error('Missing Supabase URL or service-role key')
++  const redact = (value) =>
++    String(value ?? '')
++      .split(key)
++      .join('[REDACTED]')
++  const db = createClient(url, key, {
++    auth: { persistSession: false, autoRefreshToken: false },
++    global: {
++      fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(15000) }),
++    },
++  })
++  console.log('Project:', new URL(url).hostname, '(service role; bypasses RLS)')
++  let tenant = process.argv.find((arg) => arg.startsWith('--tenant='))?.slice(9)
++  if (!tenant) {
++    const shops = await db.from('tenants').select('id').eq('is_active', true).limit(2)
++    if (shops.error) throw Error('Tenant lookup: ' + redact(shops.error.message))
++    if (
++      !shops.data?.length ||
++      (shops.data.length !== 1 && !process.argv.includes('--first-active'))
++    )
++      throw Error('Specify --tenant=<UUID> or --first-active; expected exactly one active shop')
++    tenant = shops.data[0].id
++  }
++  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(tenant))
++    throw Error('Invalid tenant UUID')
++  const to = new Date(),
++    bangkokDate = new Date(to.getTime() + 7 * 3600000).toISOString().slice(0, 10)
++  const from = new Date(new Date(bangkokDate + 'T00:00:00+07:00').getTime() - 29 * 86400000)
++  const previous = new Date(from.getTime() - 30 * 86400000)
++  console.log('Tenant:', tenant, 'range:', from.toISOString(), '→', to.toISOString())
++  let failures = 0
++  async function check(query, action) {
++    try {
++      const result = await action()
++      if (result.error) {
++        failures++
++        console.error(
++          JSON.stringify({
++            query,
++            status: result.status,
++            code: result.error.code,
++            message: redact(result.error.message),
++            details: redact(result.error.details),
++            hint: redact(result.error.hint),
++          }),
++        )
++        return
++      }
++      console.log(
++        JSON.stringify({
++          query,
++          status: result.status,
++          count: result.count ?? undefined,
++          found:
++            result.count !== null && result.count !== undefined
++              ? result.count > 0
++              : result.data !== null,
++          allowed: typeof result.data === 'boolean' ? result.data : undefined,
++          keys: result.data && !Array.isArray(result.data) ? Object.keys(result.data) : undefined,
++          shape:
++            query === 'overview_dashboard_stats'
++              ? {
++                  access: result.data?.access,
++                  activityArray: Array.isArray(result.data?.activity),
++                  hoursArray: Array.isArray(result.data?.hours),
++                  slipsArray: Array.isArray(result.data?.slips),
++                  chatsArray: Array.isArray(result.data?.chats),
++                  totals: result.data?.totals,
++                  messages: result.data?.messages,
++                  customers: result.data?.uniqueCustomers,
++                  activityDates: result.data?.activity?.slice(0, 2).map((point) => point.key),
++                }
++              : undefined,
++        }),
++      )
++    } catch (error) {
++      failures++
++      console.error(JSON.stringify({ query, message: redact(error.message) }))
++    }
++  }
++  await Promise.all([
++    check('tenants.active', () =>
++      db.from('tenants').select('id').eq('id', tenant).eq('is_active', true).maybeSingle(),
++    ),
++    check('tenants.credit_columns', () =>
++      db
++        .from('tenants')
++        .select('slip_quota,slip_used,slip_quota_credits')
++        .eq('id', tenant)
++        .maybeSingle(),
++    ),
++    check('customers.count', () =>
++      db.from('customers').select('id', { count: 'exact', head: true }).eq('tenant_id', tenant),
++    ),
++    check('slips.count', () =>
++      db
++        .from('slips')
++        .select('id', { count: 'exact', head: true })
++        .eq('tenant_id', tenant)
++        .gte('created_at', from.toISOString())
++        .lt('created_at', to.toISOString()),
++    ),
++    check('messages.inbound_count', () =>
++      db
++        .from('messages')
++        .select('id,customers!inner(tenant_id)', { count: 'exact', head: true })
++        .eq('customers.tenant_id', tenant)
++        .eq('sender', 'customer')
++        .gte('created_at', from.toISOString())
++        .lt('created_at', to.toISOString()),
++    ),
++    check('agent_message_jobs.count', () =>
++      db
++        .from('agent_message_jobs')
++        .select('id', { count: 'exact', head: true })
++        .eq('tenant_id', tenant),
++    ),
++    check('overview_dashboard_stats', () =>
++      db.rpc('overview_dashboard_stats', {
++        p_tenant: tenant,
++        p_from: from.toISOString(),
++        p_to: to.toISOString(),
++        p_previous: previous.toISOString(),
++        p_page: 1,
++        p_query: '',
++      }),
++    ),
++    check('has_tenant_feature.customer_management', () =>
++      db.rpc('has_tenant_feature', { p_tenant: tenant, p_feature: 'customer_management' }),
++    ),
++  ])
++  console.log(
++    'PGRST202/42883: missing RPC/signature/schema cache; 42501: permission/tenant gate; 42703: missing column; 57014: SQL timeout.',
++  )
++  console.log(
++    'Zero rows alone cannot prove RLS failure. This service-role check does not test browser-session RLS.',
++  )
++  process.exitCode = failures ? 1 : 0
++}
++main().catch((error) => {
++  console.error(error.message)
++  process.exitCode = 1
++})
+
+diff --git a/scripts/test-network-guard.cjs b/scripts/test-network-guard.cjs
+new file mode 100644
+index 0000000..0ad2297
+--- /dev/null
++++ b/scripts/test-network-guard.cjs
+@@ -0,0 +1,171 @@
++// Loaded before automated test files. Tests may use loopback services only.
++const fs = require('node:fs')
++const http = require('node:http')
++const https = require('node:https')
++const net = require('node:net')
++const tls = require('node:tls')
++const dgram = require('node:dgram')
++const dns = require('node:dns')
++
++const BLOCKED_NETWORK_CODE = 'ERR_TEST_NETWORK_BLOCKED'
++const BLOCKED_ENV_CODE = 'ERR_TEST_ENV_FILE_ACCESS_BLOCKED'
++
++function envPath(value) {
++  if (value instanceof URL && value.protocol === 'file:') value = require('node:url').fileURLToPath(value)
++  if (typeof value !== 'string' && !Buffer.isBuffer(value)) return false
++  const name = String(value).replaceAll('\\', '/').split('/').at(-1) ?? ''
++  return /^\.env(?:\.|$)/i.test(name)
++}
++
++function assertNotEnvFile(value, operation) {
++  if (!envPath(value)) return
++  const error = new Error(`Automated tests may not access .env files (${operation})`)
++  error.code = BLOCKED_ENV_CODE
++  throw error
++}
++
++for (const method of ['readFile', 'readFileSync', 'open', 'openSync', 'createReadStream']) {
++  const original = fs[method]
++  if (typeof original !== 'function') continue
++  fs[method] = function guardedEnvRead(file, ...args) {
++    assertNotEnvFile(file, `fs.${method}`)
++    return Reflect.apply(original, this, [file, ...args])
++  }
++}
++for (const promiseFs of new Set([fs.promises, require('node:fs/promises')])) {
++  for (const method of ['readFile', 'open']) {
++    const original = promiseFs[method]
++    if (typeof original !== 'function') continue
++    promiseFs[method] = function guardedEnvPromiseRead(file, ...args) {
++      assertNotEnvFile(file, `fs.promises.${method}`)
++      return Reflect.apply(original, this, [file, ...args])
++    }
++  }
++}
++if (typeof process.loadEnvFile === 'function') {
++  process.loadEnvFile = function blockedEnvLoad(file) {
++    assertNotEnvFile(file ?? '.env', 'process.loadEnvFile')
++    const error = new Error('Automated tests may not load .env files')
++    error.code = BLOCKED_ENV_CODE
++    throw error
++  }
++}
++
++function hostFrom(value) {
++  if (value instanceof URL) return value.hostname
++  if (value && typeof value === 'object') {
++    if (value.socketPath || (value.path && !value.host && !value.hostname)) return '__local_socket__'
++    return value.hostname ?? value.host ?? value.servername ?? 'localhost'
++  }
++  if (typeof value === 'number' || value == null) return 'localhost'
++  if (typeof value !== 'string') {
++    if (typeof value.url === 'string') return hostFrom(value.url)
++    return null
++  }
++  const address = value.trim()
++  if (!address) return null
++  try {
++    return new URL(address).hostname
++  } catch {
++    if (address.startsWith('[') && address.includes(']')) return address.slice(1, address.indexOf(']'))
++    if ((address.match(/:/g) ?? []).length === 1) return address.slice(0, address.lastIndexOf(':'))
++    return address
++  }
++}
++
++function assertLocal(host, mechanism) {
++  const normalized = String(host ?? '').toLowerCase().replace(/^\[|\]$/g, '')
++  if (normalized === 'localhost' || normalized === '127.0.0.1') return
++  const error = new Error(`Blocked outbound ${mechanism} to non-localhost address: ${normalized || '(unknown)'}`)
++  error.code = BLOCKED_NETWORK_CODE
++  throw error
++}
++
++function requestTarget(input, options) {
++  let host = hostFrom(input)
++  if (options && typeof options === 'object' && (options.hostname || options.host))
++    host = options.hostname ?? options.host
++  if (input && typeof input === 'object' && input.socketPath) host = '__local_socket__'
++  if (options?.socketPath) host = '__local_socket__'
++  return host
++}
++
++for (const module of [http, https]) {
++  for (const method of ['request', 'get']) {
++    const original = module[method]
++    module[method] = function guardedHttpRequest(input, options, ...args) {
++      assertLocal(requestTarget(input, options), `${module === https ? 'https' : 'http'}.${method}`)
++      return Reflect.apply(original, this, [input, options, ...args])
++    }
++  }
++}
++
++const originalFetch = globalThis.fetch
++if (typeof originalFetch === 'function') {
++  globalThis.fetch = function guardedFetch(input, ...args) {
++    const target = input instanceof URL || typeof input === 'string' ? input : input?.url
++    assertLocal(hostFrom(target), 'fetch')
++    return Reflect.apply(originalFetch, this, [input, ...args])
++  }
++}
++
++function socketHost(args) {
++  const [target, host] = args
++  if (target && typeof target === 'object') return hostFrom(target)
++  if (typeof target === 'number') return typeof host === 'string' ? host : 'localhost'
++  if (typeof target === 'string') return '__local_socket__'
++  return 'localhost'
++}
++
++for (const method of ['connect', 'createConnection']) {
++  const original = net[method]
++  net[method] = function guardedSocket(...args) {
++    assertLocal(socketHost(args), `net.${method}`)
++    return Reflect.apply(original, this, args)
++  }
++}
++const originalSocketConnect = net.Socket.prototype.connect
++net.Socket.prototype.connect = function guardedRawSocket(...args) {
++  assertLocal(socketHost(args), 'net.Socket.connect')
++  return Reflect.apply(originalSocketConnect, this, args)
++}
++
++const originalTlsConnect = tls.connect
++tls.connect = function guardedTlsConnect(first, second, ...args) {
++  const host =
++    typeof first === 'number'
++      ? typeof second === 'string'
++        ? second
++        : second && typeof second === 'object'
++          ? hostFrom(second)
++          : 'localhost'
++      : hostFrom(first)
++  assertLocal(host, 'tls.connect')
++  return Reflect.apply(originalTlsConnect, this, [first, second, ...args])
++}
++
++const originalDgramConnect = dgram.Socket.prototype.connect
++dgram.Socket.prototype.connect = function guardedDatagramConnect(port, address, ...args) {
++  assertLocal(address, 'dgram.connect')
++  return Reflect.apply(originalDgramConnect, this, [port, address, ...args])
++}
++const originalDgramSend = dgram.Socket.prototype.send
++dgram.Socket.prototype.send = function guardedDatagramSend(...args) {
++  const address = [args[2], args[3], args[4]].find((value) => typeof value === 'string')
++  if (address) assertLocal(address, 'dgram.send')
++  return Reflect.apply(originalDgramSend, this, args)
++}
++
++function guardDnsMethod(object, method, hostIndex = 0) {
++  const original = object?.[method]
++  if (typeof original !== 'function') return
++  object[method] = function guardedDnsLookup(...args) {
++    assertLocal(hostFrom(args[hostIndex]), `dns.${method}`)
++    return Reflect.apply(original, this, args)
++  }
++}
++for (const method of ['lookup', 'lookupService', 'resolve', 'resolve4', 'resolve6', 'resolveCname', 'resolveMx', 'resolveNaptr', 'resolveNs', 'resolvePtr', 'resolveSoa', 'resolveSrv', 'resolveTxt', 'reverse']) {
++  guardDnsMethod(dns, method)
++  guardDnsMethod(dns.promises, method)
++  guardDnsMethod(dns.Resolver.prototype, method)
++}
+
+diff --git a/tests/network-guard.test.ts b/tests/network-guard.test.ts
+new file mode 100644
+index 0000000..3307540
+--- /dev/null
++++ b/tests/network-guard.test.ts
+@@ -0,0 +1,36 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++import { readFileSync } from 'node:fs'
++import { request as httpRequest } from 'node:http'
++import { request as httpsRequest } from 'node:https'
++import { connect } from 'node:net'
++import { Socket as DatagramSocket } from 'node:dgram'
++import * as dns from 'node:dns'
++import * as tls from 'node:tls'
++
++test('test network guard immediately blocks external fetch, HTTP, HTTPS, and raw socket attempts', () => {
++  const blocked = (cause: unknown) =>
++    cause instanceof Error && 'code' in cause && cause.code === 'ERR_TEST_NETWORK_BLOCKED'
++
++  assert.throws(() => fetch('https://example.invalid/blocked'), blocked)
++  assert.throws(() => httpRequest({ hostname: 'example.invalid', port: 80 }), blocked)
++  assert.throws(() => httpsRequest({ hostname: 'example.invalid', port: 443 }), blocked)
++  assert.throws(() => connect({ host: 'example.invalid', port: 443 }), blocked)
++  assert.throws(() => connect({ path: 'C:\\not-a-local-network-socket' }), blocked)
++  assert.throws(() => tls.connect({ host: 'example.invalid', port: 443 }), blocked)
++  assert.throws(() => dns.lookup('example.invalid', () => undefined), blocked)
++
++  const socket = Object.create(DatagramSocket.prototype) as DatagramSocket
++  assert.throws(() => socket.connect(53, 'example.invalid'), blocked)
++  assert.throws(() => socket.send('x', 53, 'example.invalid'), blocked)
++})
++
++test('test network guard blocks test attempts to read or load .env files', () => {
++  assert.throws(() => readFileSync('.env.local'), {
++    code: 'ERR_TEST_ENV_FILE_ACCESS_BLOCKED',
++  })
++  const loadEnvFile = (process as NodeJS.Process & { loadEnvFile(path?: string): void }).loadEnvFile
++  assert.throws(() => loadEnvFile('.env.local'), {
++    code: 'ERR_TEST_ENV_FILE_ACCESS_BLOCKED',
++  })
++})

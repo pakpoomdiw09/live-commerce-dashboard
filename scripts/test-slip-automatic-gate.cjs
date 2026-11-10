@@ -311,6 +311,7 @@ function fixture({
       '@/lib/features/broadcast/broadcast-policy': { inboundBroadcastEvidence: () => null },
       '@/lib/integrations/facebook/message-window': {
         facebookInboundMessage: () => ({ senderId }),
+        facebookMessageEcho: () => false,
       },
       '@/lib/features/inbox/inbox-automation-window': {
         InboxAutomationWindowError: class extends Error {},

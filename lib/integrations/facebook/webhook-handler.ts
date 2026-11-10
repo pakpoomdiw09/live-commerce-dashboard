@@ -806,14 +806,16 @@ async function onComment(
   tenant: PageTenant | null,
   execution: WebhookExecution,
 ) {
+  if (!tenant) {
+    console.warn('[live-cf/comment] skipped', { reason: 'NO_TENANT', pageId })
+    return
+  }
   const db = supabaseAdmin({ timeoutMs: 15000 })
-  const context = tenant
-    ? await db.rpc('facebook_comment_context', {
-        p_tenant: tenant.id,
-        p_page: pageId,
-        p_posts: commentPostIds(v),
-      })
-    : { data: null, error: null }
+  const context = await db.rpc('facebook_comment_context', {
+    p_tenant: tenant.id,
+    p_page: pageId,
+    p_posts: commentPostIds(v),
+  })
   if (context.error) throw context.error
   const settings = resolveCommentSettings(context.data?.session ?? {}, context.data?.settings ?? {})
   const mode = context.data?.mode ?? settings.mode
@@ -870,9 +872,9 @@ async function onComment(
     })
     return
   }
-  if (typeof v.message !== 'string' || !tenant) {
+  if (typeof v.message !== 'string') {
     console.warn('[live-cf/comment] skipped', {
-      reason: !tenant ? 'NO_TENANT' : 'NO_TEXT',
+      reason: 'NO_TEXT',
     })
     return
   }

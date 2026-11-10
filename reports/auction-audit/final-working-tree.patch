@@ -1,0 +1,2725 @@
+diff --git a/app/api/live-auction/workspace/route.ts b/app/api/live-auction/workspace/route.ts
+index 2bd9152..8d8dfbe 100644
+--- a/app/api/live-auction/workspace/route.ts
++++ b/app/api/live-auction/workspace/route.ts
+@@ -25,11 +25,39 @@ function failure(error: unknown) {
+       409,
+     )
+   if (issue.code === '42501') return auctionReply({ error: 'ไม่มีสิทธิ์ใช้เพจหรือบัญชีนี้' }, 403)
++  if (['PGRST202', '42883'].includes(issue.code ?? ''))
++    return auctionReply(
++      { error: 'Auction settings cannot be saved because a required database function is missing. Apply the local database setup, then retry.' },
++      503,
++    )
++  if (['PGRST205', '42P01', 'PGRST204', '42703'].includes(issue.code ?? ''))
++    return auctionReply(
++      { error: 'Auction settings cannot be saved because the database schema is incomplete. Apply the local database setup, then retry.' },
++      503,
++    )
+   if (['P0001', '22P02', '23514'].includes(issue.code ?? ''))
+     return auctionReply({ error: 'ตรวจข้อมูลราคาและเงื่อนไข รอบที่รับบิดแล้วแก้ราคาไม่ได้' }, 400)
+   return auctionReply({ error: 'ระบบประมูลยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, 503)
+ }
+ 
++function readFailure(error: unknown) {
++  const issue = (error ?? {}) as { code?: string }
++  const missingFunction = ['PGRST202', '42883'].includes(issue.code ?? '')
++  const missingSchema = ['PGRST205', '42P01', 'PGRST204', '42703'].includes(issue.code ?? '')
++  const reason = missingFunction
++    ? 'RPC_MISSING'
++    : missingSchema
++      ? 'DATABASE_SCHEMA_INCOMPLETE'
++      : 'READ_UNAVAILABLE'
++  const message = missingFunction
++    ? 'Auction settings are unavailable because a required database function is missing. Apply the local database setup, then reload.'
++    : missingSchema
++      ? 'Auction settings are unavailable because the database schema is incomplete. Apply the local database setup, then reload.'
++      : 'Could not load auction settings. Retry; if this continues, check the database setup.'
++  console.error('[live-auction/workspace]', { category: reason, code: issue.code ?? 'UNAVAILABLE' })
++  return auctionReply({ ready: false, degraded: true, reason, error: message }, 503)
++}
++
+ // A failed read must never masquerade as a new, empty workspace.
+ async function workspaceRead<T>(query: PromiseLike<{ data: T; error: unknown }>): Promise<T> {
+   const result = await query
+@@ -116,9 +144,8 @@ export async function GET(req: NextRequest) {
+         null,
+       preferencesOnly: !session,
+     })
+-  } catch {
+-    console.error('[live-auction/workspace]', { category: 'READ_UNAVAILABLE' })
+-    return auctionReply({ ready: false, degraded: true, error: 'Workspace temporarily unavailable. Please retry.' }, 503)
++  } catch (error) {
++    return readFailure(error)
+   }
+ }
+ 
+diff --git a/components/live-cf/AuctionUnifiedForm.tsx b/components/live-cf/AuctionUnifiedForm.tsx
+index 9fda96c..889ea1a 100644
+--- a/components/live-cf/AuctionUnifiedForm.tsx
++++ b/components/live-cf/AuctionUnifiedForm.tsx
+@@ -13,6 +13,7 @@ import {
+ 
+ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+ import type { Auction } from '@/lib/features/commerce/auction-types'
++import { auctionSettingsStatus } from '@/lib/features/commerce/auction-settings-status'
+ import type { LiveSession, SessionSnapshot } from '@/lib/features/commerce/live-session-types'
+ import {
+   inputMoney,
+@@ -165,10 +166,14 @@ export function AuctionUnifiedForm({
+             savedCallback.current(config.session.id)
+         }
+       })
+-      .catch(() => {
++      .catch((cause: unknown) => {
+         if (!controller.signal.aborted) {
+           setDegraded(true)
+-          setError('โหลดข้อมูลไม่สำเร็จ กรุณาโหลดใหม่ก่อนบันทึก')
++          setError(
++            cause instanceof Error && cause.message
++              ? cause.message
++              : 'Could not load auction settings. Please retry before saving.',
++          )
+         }
+       })
+     return () => controller.abort()
+@@ -259,6 +264,7 @@ export function AuctionUnifiedForm({
+     }
+   }
+   const disabled = busy || degraded || !!base?.session?.ended_at
++  const workspaceStatus = auctionSettingsStatus(degraded, !!error)
+   const locked =
+     disabled ||
+     (!base?.preferencesOnly && base?.round?.status === 'active' && !!base.round.leading_bidder_id)
+@@ -324,9 +330,9 @@ export function AuctionUnifiedForm({
+             </p>
+           </div>
+         </div>
+-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-semibold shadow-sm w-fit">
+-          <span className="h-2 w-2 rounded-full bg-white animate-pulse" aria-hidden="true" />
+-          กำลังทำงาน
++        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${workspaceStatus.badgeClass} text-xs font-semibold shadow-sm w-fit`}>
++          <span className={`h-2 w-2 rounded-full ${workspaceStatus.dotClass}`} aria-hidden="true" />
++          {workspaceStatus.label}
+         </span>
+       </header>
+       {degraded && <button type="button" className={orange} disabled={busy} onClick={() => setReload(n => n + 1)}>โหลดข้อมูลใหม่</button>}
+diff --git a/reports/auction-audit/COMPATIBILITY.md b/reports/auction-audit/COMPATIBILITY.md
+index 0e3abb0..6442bed 100644
+--- a/reports/auction-audit/COMPATIBILITY.md
++++ b/reports/auction-audit/COMPATIBILITY.md
+@@ -1,6 +1,6 @@
+ # Application / database compatibility and staging release gates
+ 
+-**Continuous-cycle update:** the current form additionally requires `live-auction-auto-cycle.sql` after the manual-host-close migration. The API preserves dashboard counting settings; the migration updates the inner settings normalizer, saves the next-round template, and atomically creates one successor per host closure. A saved `autoCycleRounds: true` and saved template are required. Early confirmation cannot finalize an active auto-cycled round. Check the new `40_auto_cycle` preflight gates and updated function-body fingerprints, then rehearse the behavior described in [auto-cycle/README.md](auto-cycle/README.md). No live migration or Meta testing has been performed here.
++**Continuous-cycle and confirmation-time update:** the current form requires `live-auction-auto-cycle.sql` after manual host close and `live-auction-confirmation-preservation.sql` after auto-cycle. The chain saves the next-round template, creates one successor per host closure, rejects pre-round confirmations before deferring them, and preserves the host's close timestamp/event when the winner later confirms. A saved `autoCycleRounds: true` and template are required. Check the updated function-body fingerprints and rehearse the behavior in [auto-cycle/README.md](auto-cycle/README.md). No live migration or Meta test has been performed here.
+ 
+ **Manual form update:** `AuctionUnifiedForm` now sends `durationSeconds: null` and has no duration field/timer component. This additionally requires the last-registered `live-auction-manual-host-close.sql` after audit 2. The older duration wrapper silently defaults null to 300 seconds; do not enable the updated form against it. Existing timed rounds switch to manual mode on save, not through a bulk data rewrite. The matrix below records the original hardening capabilities; validate the added manual save behavior in staging as described in [manual-host-close/README.md](manual-host-close/README.md).
+ 
+diff --git a/reports/auction-audit/DEPLOY-PLAN.md b/reports/auction-audit/DEPLOY-PLAN.md
+index 07e2d3b..4055d0d 100644
+--- a/reports/auction-audit/DEPLOY-PLAN.md
++++ b/reports/auction-audit/DEPLOY-PLAN.md
+@@ -2,15 +2,15 @@
+ 
+ ## Configurable counting and continuous-cycle update
+ 
+-The dashboard now saves host counting tags, counting enablement, and an explicit `autoCycleRounds` switch (on for the unified form's new drafts). The new last migration `live-auction-auto-cycle.sql` must follow `live-auction-manual-host-close.sql`. It persists the saved next-round template, preserves the financial normalizer wrapper, and closes/creates the successor atomically. Deploy it before enabling the new application. No existing sessions are automatically opted in by installation: save the form to persist the template/settings. Unsaved browser edits cannot drive server-side rounds. See [auto-cycle/README.md](auto-cycle/README.md) for tests, replay safety, and parallel confirmations. Preflight now includes the cycle schema/helpers and updated reviewed function-body digests; prior reports remain historical evidence.
++The dashboard saves host counting tags, counting enablement, and an explicit `autoCycleRounds` switch. `live-auction-auto-cycle.sql` follows `live-auction-manual-host-close.sql`; the trailing `live-auction-confirmation-preservation.sql` preserves the host's `closed_at` and `close_event_id` when the winner later confirms. The cycle migration stores the next-round template and atomically creates one successor on host closure. Save the form to persist settings and the template. The full staged sequence is listed below.
+ 
+ ## Manual workspace mode update
+ 
+ The unified form now always submits `durationSeconds: null`. Its deployment additionally requires `live-auction-manual-host-close.sql` **after** the deadlines → audit 1 → audit 2 suffix described below. Without this new migration, the older workspace save RPC converts null back into a five-minute deadline. See [manual-host-close/README.md](manual-host-close/README.md) for behavior, compatibility, tests, and the explicit staging-save check. The earlier preflight's original hardening checks do not certify this added workspace behavior.
+ 
+-This task performs no production migration, deployment, real Graph call, or credential inspection. Validation uses local mocks and in-memory PGlite. The committed bootstrap bundles are deliberately unchanged and are **not ready for use as the current auction installer**.
++This task performs no production migration, deployment, real Graph call, or credential inspection. Validation uses local mocks and in-memory PGlite. The generated bootstrap bundles were regenerated from the current migration registry; local parity and schema-build checks pass. This does not establish which migrations are installed in production.
+ 
+-The user's latest active-database audit reports legacy immediate-order comment SQL, absent timer columns/expiry RPCs, an existing migration ledger, and audit 1 never applied. These are user-supplied observations, not database queries performed here. **The current application must not be enabled against that reported schema yet.** Use the read-only [preflight.sql](preflight.sql) and [Compatibility Matrix / staging sequence](COMPATIBILITY.md) before an operator applies migrations. The known required suffix is `live-auction-deadlines.sql` → `live-auction-audit-hardening.sql` → `live-auction-audit-hardening-2.sql`, after any missing prerequisites. Audit 2 alone is insufficient.
++The user's latest active-database audit reports legacy immediate-order comment SQL, absent timer columns/expiry RPCs, an existing migration ledger, and audit 1 never applied. These are user-supplied observations, not database queries performed here. **The current application must not be enabled against that reported schema yet.** Use the read-only [preflight.sql](preflight.sql) and [Compatibility Matrix / staging sequence](COMPATIBILITY.md) before an operator applies migrations. The current required suffix is `live-auction-deadlines.sql` → `live-auction-audit-hardening.sql` → `live-auction-audit-hardening-2.sql` → `live-auction-manual-host-close.sql` → `live-auction-auto-cycle.sql` → `live-auction-confirmation-preservation.sql`, after any missing prerequisites.
+ 
+ ## Supported deployment paths
+ 
+diff --git a/reports/auction-audit/preflight.sql b/reports/auction-audit/preflight.sql
+index fdc7b42..535bc7a 100644
+--- a/reports/auction-audit/preflight.sql
++++ b/reports/auction-audit/preflight.sql
+@@ -45,9 +45,9 @@ column_groups(stage,table_name,names) as (values
+ -- Reviewed source-body digests from local PGlite, not from the active database.
+ -- CRLF is normalized. A formatting-only body change also BLOCKS: investigate, do not bypass.
+ function_bodies(signature,body_md5) as (values
+- ('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','d70e47ba525254e154cacef0d0e6de40'),
++ ('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)','42bc54bfdf9bb74043783ac491895b71'),
+  ('public.finalize_live_auction(uuid,uuid,uuid,boolean)','6560e4c09610a3ed2c9d52623b9f48e5'),
+- ('public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)','928d06341b80641be8511f9e67d583c1'),
++ ('public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)','de77b39b6b846f2d7c7aa6df9d303919'),
+  ('public.close_due_live_auction(uuid,uuid,boolean,boolean)','155def5bb234558e7eeea0df0602fe26'),
+  ('public.save_auction_workspace(uuid,uuid,uuid,jsonb)','4580170e7db655b990704d3e0d8c2982'),
+  ('public.normalize_auction_thai_settings(jsonb)','826503e8104845a20361af538791b3bb'),
+diff --git a/scripts/build-full-database-setup.cjs b/scripts/build-full-database-setup.cjs
+index a783578..56e2844 100644
+--- a/scripts/build-full-database-setup.cjs
++++ b/scripts/build-full-database-setup.cjs
+@@ -147,6 +147,7 @@ const groups = [
+       'live-auction-audit-hardening-2.sql',
+       'live-auction-manual-host-close.sql',
+       'live-auction-auto-cycle.sql',
++      'live-auction-confirmation-preservation.sql',
+     ],
+   ],
+ ]
+@@ -325,6 +326,7 @@ const prerequisites = {
+   'live-auction-audit-hardening-2.sql': ['live-auction-audit-hardening.sql', 'live-auction-deadlines.sql'],
+   'live-auction-manual-host-close.sql': ['live-auction-audit-hardening-2.sql', 'live-auction-deadlines.sql'],
+   'live-auction-auto-cycle.sql': ['live-auction-manual-host-close.sql', 'facebook-comment-configuration.sql'],
++  'live-auction-confirmation-preservation.sql': ['live-auction-auto-cycle.sql'],
+   'inbox-load-indexes.sql': ['inbox-realtime.sql'],
+   'facebook-inbox-recovery.sql': ['facebook-webhook-queue.sql', 'smart-inbox.sql'],
+   'live-cf-variants.sql': ['commerce-v2.sql', 'facebook-webhook-queue.sql'],
+diff --git a/scripts/test-auction-auto-cycle.cjs b/scripts/test-auction-auto-cycle.cjs
+index a61906d..0b303e0 100644
+--- a/scripts/test-auction-auto-cycle.cjs
++++ b/scripts/test-auction-auto-cycle.cjs
+@@ -1,4 +1,6 @@
+ const { test } = require('node:test'), assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
+ const { randomUUID } = require('node:crypto')
+ const { fixture } = require('./helpers/auction-hardening-db.cjs')
+ const { parseAuctionComment } = require('./helpers/load-typescript.cjs')('lib/integrations/facebook/auction-comment-parser.ts')
+@@ -38,6 +40,8 @@ test('host close atomically cycles from the saved template and previous winner c
+   const f = await setup()
+   try {
+     await f.receive(f.a, '900', '200'); await f.receive(f.a, '901', '250')
++    assert.equal((await f.receive(f.a, '901', 'cf')).result.status, 'awaiting_host_close')
++    assert.equal((await f.receive(f.a, '901', 'รับ', new Date(Date.parse(f.a.created_at) - 1000).toISOString())).result.status, 'stale')
+     const event = await f.event(f.a, '999', '3\n2\n1\nปิด')
+     const queuedBid = await f.event(f.a, '902', '200')
+     const parsed = parseAuctionComment('3\n2\n1\nปิด', true, f.settings)
+@@ -47,9 +51,13 @@ test('host close atomically cycles from the saved template and previous winner c
+     const next = await f.one('select * from auctions where id=$1', [close.result.nextAuctionId])
+     assert.equal(next.item_name, 'พระ'); assert.equal(Number(next.start_price), 200)
+     assert.equal(Number(next.min_step), 10); assert.equal(Number(next.shipping_fee), 35)
++    assert.equal(next.status, 'active')
+     assert.equal(next.current_price, '0.00'); assert.equal(next.leading_bidder_id, null)
+     assert.equal(next.ends_at, null); assert.equal(next.previous_auction_id, f.a.id)
+-    assert.equal((await f.one('select order_id from auctions where id=$1', [f.a.id])).order_id, null)
++    const closed = await f.one('select status,winner_locked_at,order_id,closed_at,close_event_id from auctions where id=$1', [f.a.id])
++    assert.equal(closed.status, 'closed'); assert.ok(closed.winner_locked_at); assert.equal(closed.order_id, null)
++    assert.equal(closed.close_event_id, event.id)
++    assert.deepEqual(await f.processEvent(f.a, event, parsed), close.result)
+     // Retry routed to the new active round must not close it or create a third round.
+     assert.deepEqual(await f.processEvent(next, close.event, close.parsed), close.result)
+     assert.equal((await f.one('select count(*)::int n from auctions')).n, 2)
+@@ -58,10 +66,13 @@ test('host close atomically cycles from the saved template and previous winner c
+     const confirmed = await f.receive(f.a, '901', 'รับ')
+     assert.equal(confirmed.result.status, 'confirmed')
+     assert.equal(confirmed.result.auctionId, f.a.id)
++    assert.deepEqual(await f.processEvent(f.a, confirmed.event, confirmed.parsed), confirmed.result)
++    assert.deepEqual(await f.one('select closed_at,close_event_id from auctions where id=$1', [f.a.id]),
++      { closed_at: closed.closed_at, close_event_id: event.id })
+     assert.equal((await f.receive(next, '903', '210')).result.status, 'accepted')
+-    await f.processEvent(next, confirmed.event, confirmed.parsed)
+     assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 1)
+-    assert.equal((await f.one('select order_id from auctions where id=$1', [next.id])).order_id, null)
++    assert.deepEqual(await f.one('select status,current_price,leading_bidder_id,order_id from auctions where id=$1', [next.id]),
++      { status: 'active', current_price: '210.00', leading_bidder_id: '903', order_id: null })
+     const early = await f.receive(next, '903', 'cf')
+     assert.equal(early.result.status, 'awaiting_host_close')
+     const closedNext = await f.receive(next, '999', 'x')
+@@ -73,6 +84,134 @@ test('host close atomically cycles from the saved template and previous winner c
+   } finally { await f.db.close() }
+ })
+ 
++test('auto-cycle finalizer permissions deny anon and authenticated and grant service_role', async () => {
++  const f = await setup()
++  try {
++    await f.db.exec(fs.readFileSync(path.join(process.cwd(), 'supabase/live-auction-auto-cycle.sql'), 'utf8'))
++    const signatures = [
++      'public.finalize_live_auction(uuid,uuid,uuid,boolean)',
++      'public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)',
++      'public.normalize_auction_settings_before_split(jsonb)',
++    ]
++    for (const signature of signatures) {
++      assert.equal((await f.one('select has_function_privilege($1,$2,$3) allowed', ['service_role', signature, 'execute'])).allowed, true)
++      for (const role of ['anon', 'authenticated']) {
++        assert.equal((await f.one('select has_function_privilege($1,$2,$3) allowed', [role, signature, 'execute'])).allowed, false)
++        await f.db.query(`set role ${role}`)
++        try {
++          const call = signature.includes('highest_bid')
++            ? 'select public.finalize_live_auction_highest_bid(null::uuid,null::uuid,null::uuid,false)'
++            : signature.includes('normalize_auction_settings')
++              ? "select public.normalize_auction_settings_before_split('null'::jsonb)"
++              : 'select public.finalize_live_auction(null::uuid,null::uuid,null::uuid,false)'
++          await assert.rejects(f.db.query(call), (error) => error.code === '42501')
++        } finally {
++          await f.db.query('reset role')
++        }
++      }
++    }
++    await f.db.query('set role service_role')
++    try {
++      const highest = await f.one(
++        'select public.finalize_live_auction_highest_bid($1,$2,null,true) result',
++        [f.a.id, f.tenant],
++      )
++      assert.equal(highest.result.status, 'cancelled')
++      const manual = await f.one(
++        'select public.finalize_live_auction($1,$2,null,true) result',
++        [f.a.id, f.tenant],
++      )
++      assert.equal(manual.result.status, 'cancelled')
++      await f.db.query("select public.normalize_auction_settings_before_split('null'::jsonb)")
++    } finally {
++      await f.db.query('reset role')
++    }
++  } finally { await f.db.close() }
++})
++
++test('auto-cycle cancellation closes the round without an order or successor', async () => {
++  const f = await setup()
++  try {
++    await f.receive(f.a, '900', '200')
++    const cancelled = await f.one('select finalize_live_auction($1,$2,null,true) result', [f.a.id, f.tenant])
++    assert.equal(cancelled.result.status, 'cancelled')
++    assert.deepEqual(await f.one('select status,winner_locked_at,order_id from auctions where id=$1', [f.a.id]),
++      { status: 'cancelled', winner_locked_at: null, order_id: null })
++    assert.equal((await f.one('select count(*)::int n from auctions where previous_auction_id=$1', [f.a.id])).n, 0)
++    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
++  } finally { await f.db.close() }
++})
++
++test('author-less comments do not produce bids or orders', async () => {
++  const f = await setup()
++  try {
++    const missing = await f.receive(f.a, null, '200')
++    assert.equal(missing.result.status, 'ignored')
++    assert.equal((await f.one('select count(*)::int n from auction_bids where event_id=$1', [missing.event.id])).n, 0)
++    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
++  } finally { await f.db.close() }
++})
++
++test('null or inactive successor bank account aborts and rolls back host close atomically', async () => {
++  for (const bankState of ['null', 'inactive']) {
++    const f = await setup()
++    try {
++      await f.receive(f.a, '900', '200')
++      if (bankState === 'null')
++        await f.db.query(
++          "update live_sessions set comment_settings=comment_settings || '{\"bankAccountId\":null}'::jsonb where id=$1",
++          [f.saved.sessionId],
++        )
++      else
++        await f.db.query('update bank_accounts set is_active=false where id=$1', [f.settings.bankAccountId])
++      await assert.rejects(f.receive(f.a, '999', 'ปิด'), /BANK_SCOPE/)
++      assert.deepEqual(await f.one('select status,winner_locked_at,order_id from auctions where id=$1', [f.a.id]),
++        { status: 'active', winner_locked_at: null, order_id: null })
++      assert.equal((await f.one('select count(*)::int n from auctions where previous_auction_id=$1', [f.a.id])).n, 0)
++    } finally { await f.db.close() }
++  }
++})
++
++test('parallel confirmation requests generate exactly one order', async () => {
++  const f = await setup()
++  try {
++    await f.receive(f.a, '900', '200')
++    await f.receive(f.a, '901', '250')
++    await f.receive(f.a, '999', 'ปิด')
++    const attempts = await Promise.all([
++      f.receive(f.a, '901', 'cf'),
++      f.receive(f.a, '901', 'รับ'),
++    ])
++    assert.ok(attempts.some((attempt) => attempt.result.status === 'confirmed'))
++    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 1)
++  } finally { await f.db.close() }
++})
++
++test('failed order-to-customer-tab attachment rolls back winner confirmation and order', async () => {
++  const f = await setup()
++  try {
++    await f.receive(f.a, '901', '200')
++    await f.receive(f.a, '999', 'ปิด')
++    await f.db.exec(`create function public.test_remove_auction_customer_tab() returns trigger language plpgsql as $$begin new.customer_tab_id:=null;return new;end$$;
++      create trigger zz_test_remove_auction_customer_tab before insert on public.orders for each row execute function public.test_remove_auction_customer_tab()`)
++    await assert.rejects(f.receive(f.a, '901', 'รับ'))
++    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
++    assert.equal((await f.one('select winner_confirmation_comment_id from auctions where id=$1', [f.a.id])).winner_confirmation_comment_id, null)
++  } finally { await f.db.close() }
++})
++
++test('cross-tenant Facebook customer collision blocks order generation', async () => {
++  const f = await setup()
++  try {
++    const other = await f.one("insert into tenants(name,page_id) values('Foreign fixture','200') returning id")
++    await f.db.query("insert into customers(tenant_id,platform,platform_user_id,display_name) values($1,'facebook','901','Foreign fixture')", [other.id])
++    await f.receive(f.a, '901', '200')
++    await f.receive(f.a, '999', 'ปิด')
++    await assert.rejects(f.receive(f.a, '901', 'รับ'), (error) => error.code === '42501' && /AUCTION_CUSTOMER_TENANT/.test(error.message))
++    assert.equal((await f.one('select count(*)::int n from orders where source_id=$1', [f.a.id])).n, 0)
++  } finally { await f.db.close() }
++})
++
+ test('template edits after accepted bids change only the following round and are replay fenced', async () => {
+   const f = await setup()
+   try {
+diff --git a/scripts/test-auction-degraded-form.cjs b/scripts/test-auction-degraded-form.cjs
+index d23ecef..9acb7c3 100644
+--- a/scripts/test-auction-degraded-form.cjs
++++ b/scripts/test-auction-degraded-form.cjs
+@@ -7,6 +7,7 @@ test('a degraded workspace keeps inputs visible and prevents submitting rounds u
+   const deps = {}, values = [], effects = []
+   let cursor = 0, mounting = true, writes = 0
+   for (const imp of ts.preProcessFile(source).importedFiles) deps[imp.fileName] = new Proxy({}, { get: () => () => null })
++  deps['@/lib/features/commerce/auction-settings-status'] = load('lib/features/commerce/auction-settings-status.ts')
+   deps.react = {
+     useState(init) { const i = cursor++; if (!(i in values)) values[i] = typeof init === 'function' ? init() : init; return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v }] },
+     useRef(init) { const i = cursor++; return values[i] ?? (values[i] = { current: init }) },
+@@ -28,6 +29,10 @@ test('a degraded workspace keeps inputs visible and prevents submitting rounds u
+     function walk(n) { if (!n || typeof n !== 'object') return; if (Array.isArray(n)) return n.forEach(walk); nodes.push(n); walk(n.props?.children) }
+     walk(tree)
+     assert.ok(nodes.some(n => n.type === 'input'), 'draft inputs remain mounted')
++    assert.ok(
++      nodes.some(n => typeof n.props?.className === 'string' && n.props.className.includes('bg-rose-100')),
++      'a failed workspace read shows a degraded status instead of a success badge',
++    )
+     const submit = nodes.find(n => n.type === 'button' && n.props.type === 'submit')
+     assert.equal(submit.props.disabled, true)
+     await nodes.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
+diff --git a/scripts/test-auction-preflight.cjs b/scripts/test-auction-preflight.cjs
+index 9bef94e..3cbb2f1 100644
+--- a/scripts/test-auction-preflight.cjs
++++ b/scripts/test-auction-preflight.cjs
+@@ -21,10 +21,10 @@ test('read-only preflight reports absent prerequisites without crashing on a mis
+   } finally { await db.close() }
+ })
+ 
+-test('staging rehearsal upgrades a legacy comment flow through deadlines, audit 1, then audit 2 without premature orders', async () => {
++test('staging rehearsal upgrades the legacy flow through deadlines, audit hardening, and confirmation preservation', async () => {
+   const result = build()
+   const index = result.sources.indexOf('live-auction-deadlines.sql')
+-  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql', 'live-auction-auto-cycle.sql'])
++  assert.deepEqual(result.sources.slice(index), ['live-auction-deadlines.sql', 'live-auction-audit-hardening.sql', 'live-auction-audit-hardening-2.sql', 'live-auction-manual-host-close.sql', 'live-auction-auto-cycle.sql', 'live-auction-confirmation-preservation.sql'])
+   const prefix = n => completeSchema({ ...result, sections: result.sections.slice(0, n) })
+   const f = await fixture(prefix(index))
+   const captures = {}
+@@ -70,7 +70,7 @@ test('staging rehearsal upgrades a legacy comment flow through deadlines, audit
+     assert.equal(confirmation.result.status, 'stale', 'audit 1 still has the source-seconds race')
+     await f.db.exec(prefix(index + 3))
+     captures.audit2 = await definition()
+-    await f.db.exec(prefix(index + 5))
++    await f.db.exec(prefix(index + 6))
+     captures.cycle = await definition()
+     const final = await inspect(f.db)
+     assert.deepEqual(final.filter(row => row.status !== 'PASS'), [])
+diff --git a/scripts/test-auction-workspace-api.cjs b/scripts/test-auction-workspace-api.cjs
+index c3fab2f..895de37 100644
+--- a/scripts/test-auction-workspace-api.cjs
++++ b/scripts/test-auction-workspace-api.cjs
+@@ -17,6 +17,8 @@ test('workspace API restores scoped saved values and commits a single normalized
+   const calls = []
+   let denied = false
+   let failedTable = null
++  let failedCode = '42501'
++  let rpcError = null
+   const settings = {
+     ...automation.defaultSessionAutomation(bankId),
+     keywords: ['raise'],
+@@ -55,7 +57,7 @@ test('workspace API restores scoped saved values and commits a single normalized
+       const query = {
+         select: () => query,
+         in: () => query,
+-        then(resolve) { return Promise.resolve({ data: rows[table] ?? [], error: table === failedTable ? { code: '42501' } : null }).then(resolve) },
++        then(resolve) { return Promise.resolve({ data: rows[table] ?? [], error: table === failedTable ? { code: failedCode } : null }).then(resolve) },
+         order: () => query,
+         limit: () => query,
+         eq(key, value) {
+@@ -63,7 +65,7 @@ test('workspace API restores scoped saved values and commits a single normalized
+           return query
+         },
+         async maybeSingle() {
+-          if (table === failedTable) return { data: null, error: { code: '42501' } }
++          if (table === failedTable) return { data: null, error: { code: failedCode } }
+           return {
+             data: rows[table].find((row) => filters.every((predicate) => predicate(row))) ?? null,
+             error: null,
+@@ -74,7 +76,7 @@ test('workspace API restores scoped saved values and commits a single normalized
+     },
+     async rpc(name, args) {
+       calls.push({ name, args })
+-      return { data: { sessionId }, error: null }
++      return rpcError ? { data: null, error: rpcError } : { data: { sessionId }, error: null }
+     },
+   }
+   const api = load(
+@@ -170,7 +172,25 @@ test('workspace API restores scoped saved values and commits a single normalized
+     assert.equal(body.degraded, true)
+     assert.equal(body.auction, undefined)
+   }
++  failedTable = 'live_sessions'
++  failedCode = 'PGRST205'
++  const missingSchema = await api.GET(
++    new NextRequest(
++      `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
++    ),
++  )
++  assert.equal(missingSchema.status, 503)
++  assert.equal((await missingSchema.json()).reason, 'DATABASE_SCHEMA_INCOMPLETE')
++  failedCode = 'XX000'
++  const internalReadFailure = await api.GET(
++    new NextRequest(
++      `https://shop.example/api/live-auction/workspace?tenantId=${tenantId}&pageId=100&livePostId=456`,
++    ),
++  )
++  assert.equal(internalReadFailure.status, 503)
++  assert.match((await internalReadFailure.json()).error, /check the database setup/)
+   failedTable = null
++  failedCode = '42501'
+   const foreign = await (
+     await api.GET(
+       new NextRequest(
+@@ -228,6 +248,14 @@ test('workspace API restores scoped saved values and commits a single normalized
+   assert.equal('paid_amount' in calls[0].args.p_input, false)
+   assert.deepEqual(Array.from(calls[0].args.p_input.hostIds), ['100', '999'])
+ 
++  rpcError = { code: 'PGRST202', message: 'private database details are not returned to the client' }
++  const missingRpc = await post({ ...input, requestId: randomUUID() })
++  assert.equal(missingRpc.status, 503)
++  const missingRpcBody = await missingRpc.json()
++  assert.match(missingRpcBody.error, /required database function is missing/)
++  assert.doesNotMatch(JSON.stringify(missingRpcBody), /private database details/)
++  rpcError = null
++
+   const emptySettings = {
+     ...settings,
+     keywords: [],
+diff --git a/scripts/test-facebook-send-diagnostics.cjs b/scripts/test-facebook-send-diagnostics.cjs
+index dccaf61..694e624 100644
+--- a/scripts/test-facebook-send-diagnostics.cjs
++++ b/scripts/test-facebook-send-diagnostics.cjs
+@@ -18,6 +18,8 @@ function fixture(fetch) {
+     fetch,
+     console: { error: (...args) => logs.push(args) },
+     require: (name) => {
++      if (name === '@/lib/features/commerce/comment-config')
++        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
+       assert.equal(name, '@/lib/safe-logging')
+       return { createLogRequestId: () => 'test-request', logSafeEvent() {}, maskErrorCode() {} }
+     },
+diff --git a/scripts/test-restored-exports.cjs b/scripts/test-restored-exports.cjs
+index 70749ea..6651c50 100644
+--- a/scripts/test-restored-exports.cjs
++++ b/scripts/test-restored-exports.cjs
+@@ -14,6 +14,8 @@ function load(file, dependencies = {}, globals = {}) {
+     AbortSignal,
+     require: (name) => {
+       if (name === '@/lib/safe-logging') return require('./helpers/load-safe-logging.cjs')()
++      if (name === '@/lib/features/commerce/comment-config')
++        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
+       if (name in dependencies) return dependencies[name]
+       throw Error('Unexpected dependency: ' + name)
+     },
+diff --git a/scripts/test-sensitive-logging.cjs b/scripts/test-sensitive-logging.cjs
+index 912154d..18d7cdb 100644
+--- a/scripts/test-sensitive-logging.cjs
++++ b/scripts/test-sensitive-logging.cjs
+@@ -60,6 +60,8 @@ function facebook(fetch) {
+       },
+       fetch,
+       require(name) {
++        if (name === '@/lib/features/commerce/comment-config')
++          return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
+         assert.equal(name, '@/lib/safe-logging')
+         return log.logger
+       },
+@@ -192,7 +194,7 @@ test('Facebook send diagnostics preserve errors while masking credentials and re
+     const diagnostics = f.calls.filter((args) =>
+       String(args[0]).startsWith('[facebook/send] Graph API request failed '),
+     )
+-    assert.equal(diagnostics.length, 2)
++    assert.equal(diagnostics.length, 3)
+     for (const [entry] of diagnostics) {
+       assert.equal(typeof entry, 'string')
+       const details = JSON.parse(entry.slice('[facebook/send] Graph API request failed '.length))
+diff --git a/scripts/test-slip-automatic-gate.cjs b/scripts/test-slip-automatic-gate.cjs
+index e98a504..5b4a321 100644
+--- a/scripts/test-slip-automatic-gate.cjs
++++ b/scripts/test-slip-automatic-gate.cjs
+@@ -311,6 +311,7 @@ function fixture({
+       '@/lib/features/broadcast/broadcast-policy': { inboundBroadcastEvidence: () => null },
+       '@/lib/integrations/facebook/message-window': {
+         facebookInboundMessage: () => ({ senderId }),
++        facebookMessageEcho: () => false,
+       },
+       '@/lib/features/inbox/inbox-automation-window': {
+         InboxAutomationWindowError: class extends Error {},
+diff --git a/scripts/test-slip-messenger-confirmation.cjs b/scripts/test-slip-messenger-confirmation.cjs
+index ef02aba..82a50cc 100644
+--- a/scripts/test-slip-messenger-confirmation.cjs
++++ b/scripts/test-slip-messenger-confirmation.cjs
+@@ -12,6 +12,8 @@ function load(file, dependencies, globals = {}) {
+     AbortSignal,
+     require(name) {
+       if (name === 'server-only') return {}
++      if (name === '@/lib/features/commerce/comment-config')
++        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
+       if (name === '@/lib/safe-logging')
+         return require('./helpers/load-safe-logging.cjs')({ info() {}, warn() {}, error() {} })
+       if (Object.hasOwn(dependencies, name)) return dependencies[name]
+@@ -222,7 +224,10 @@ test('plain-text receipts use each Page token/PSID and exactly match the stored
+     assert.equal(request.body.recipient.id, psid)
+     assert.equal(request.body.messaging_type, 'RESPONSE')
+     assert.equal(Object.hasOwn(request.body, 'tag'), false)
+-    assert.deepEqual(request.body.message, { text: expectedReceipt(pageName, '123.45') })
++    assert.deepEqual(request.body.message, {
++      text: expectedReceipt(pageName, '123.45'),
++      metadata: `snapbot:slip-confirm:slip-${tenant}`,
++    })
+     assert.equal(f.rows.at(-1).body, request.body.message.text)
+     assert.equal(request.body.message.text.includes('mock-transfer'), false)
+     assert.equal(request.body.message.text.includes('อ้างอิง'), false)
+@@ -463,7 +468,10 @@ test('manual confirmation uses the same exact three-line text with two-decimal a
+       'เพจตัวอย่าง',
+     )
+     const message = f.requests[0].body.message
+-    assert.deepEqual(message, { text: expectedReceipt('เพจตัวอย่าง', formatted) })
++    assert.deepEqual(message, {
++      text: expectedReceipt('เพจตัวอย่าง', formatted),
++      metadata: 'snapbot:slip-confirm:manual-slip',
++    })
+     assert.equal(message.text.split('\n').length, 3)
+     assert.equal(f.rows[0].body, message.text)
+     assert.equal(message.text.includes('DO_NOT_INCLUDE_REFERENCE'), false)
+diff --git a/supabase/complete_schema.sql b/supabase/complete_schema.sql
+index c540ae9..dcd8fbe 100644
+--- a/supabase/complete_schema.sql
++++ b/supabase/complete_schema.sql
+@@ -16359,6 +16359,7 @@ begin
+ end $$$sql_115_21$;
+ 
+ -- facebook-comment-configuration.sql: source statement 22
++begin
+ execute $sql_115_22$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+ returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+ declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
+@@ -16405,6 +16406,10 @@ begin
+  end if;
+  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
+ end $$$sql_115_22$;
++exception when invalid_function_definition then
++  -- A newer signature of finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
++  null;
++end;
+ 
+ -- facebook-comment-configuration.sql: source statement 23
+ begin
+@@ -16751,6 +16756,7 @@ execute $sql_118_11$create trigger initialize_auction_deadline before insert on
+  for each row execute function public.initialize_auction_deadline()$sql_118_11$;
+ 
+ -- live-auction-deadlines.sql: source statement 12
++begin
+ execute $sql_118_12$create or replace function public.close_due_live_auction(
+  p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
+ ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+@@ -16779,8 +16785,13 @@ begin
+  result:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,null,p_cancel);
+  return result;
+ end $$$sql_118_12$;
++exception when invalid_function_definition then
++  -- A newer signature of close_due_live_auction(uuid,uuid,boolean,boolean) is already installed. Its final definition below is mandatory.
++  null;
++end;
+ 
+ -- live-auction-deadlines.sql: source statement 13
++begin
+ execute $sql_118_13$create or replace function public.expire_live_auctions(p_tenant uuid default null)
+ returns integer language plpgsql set search_path=pg_catalog,public as $$
+ declare a record; result jsonb; count_closed integer:=0;
+@@ -16800,6 +16811,10 @@ begin
+  end loop;
+  return count_closed;
+ end $$$sql_118_13$;
++exception when invalid_function_definition then
++  -- A newer signature of expire_live_auctions(uuid) is already installed. Its final definition below is mandatory.
++  null;
++end;
+ 
+ -- live-auction-deadlines.sql: source statement 14
+ execute $sql_118_14$create or replace function public.enforce_auction_bid_deadline() returns trigger
+@@ -16861,6 +16876,7 @@ execute $sql_118_19$do $$ begin
+ end $$$sql_118_19$;
+ 
+ -- live-auction-deadlines.sql: source statement 20
++begin
+ execute $sql_118_20$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+ returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+ declare result jsonb; duration integer; replay boolean;
+@@ -16878,6 +16894,10 @@ begin
+   and (duration_seconds is distinct from duration or ends_at is null);
+  return result;
+ end $$$sql_118_20$;
++exception when invalid_function_definition then
++  -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
++  null;
++end;
+ 
+ -- live-auction-deadlines.sql: source statement 21
+ execute $sql_118_21$create or replace function public.start_legacy_auction_timer(p_auction uuid,p_tenant uuid)
+@@ -16922,14 +16942,14 @@ declare installed text;
+ begin
+   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-audit-hardening.sql';
+   if found then
+-    if installed <> '6678529f6872698363ab7ac4c156a9e5d2326f55fa7e97ab2512711e080f7e1c' then
++    if installed <> 'ea40b13a6769e540af3014aa0155e8ea01084046d350246118355bd989cefba8' then
+       raise exception 'Applied migration changed: live-auction-audit-hardening.sql. Add a new migration instead of replaying modified history';
+     end if;
+     return;
+   end if;
+ -- live-auction-audit-hardening.sql: source statement 2
+ execute $sql_119_2$create or replace function public.auction_comment_timestamp(value text) returns timestamptz
+-language plpgsql immutable set search_path=pg_catalog,public as $$
++language plpgsql stable set search_path=pg_catalog,public as $$
+ declare n numeric;
+ begin
+  if value is null or btrim(value)='' then return null; end if;
+@@ -16951,51 +16971,124 @@ execute $sql_119_3$create table if not exists public.auction_poll_cursors (
+  live_video_id text not null,
+  high_water_at timestamptz not null,
+  continuation_url text,
++ continuation_anchor_url text,
++ continuation_boundary_at timestamptz,
+  updated_at timestamptz not null default clock_timestamp()
+ )$sql_119_3$;
+ 
+ -- live-auction-audit-hardening.sql: source statement 4
+-execute $sql_119_4$alter table public.auction_poll_cursors enable row level security$sql_119_4$;
++execute $sql_119_4$alter table public.auction_poll_cursors add column if not exists continuation_anchor_url text$sql_119_4$;
+ 
+ -- live-auction-audit-hardening.sql: source statement 5
+-execute $sql_119_5$revoke all on public.auction_poll_cursors from public,anon,authenticated$sql_119_5$;
++execute $sql_119_5$alter table public.auction_poll_cursors add column if not exists continuation_boundary_at timestamptz$sql_119_5$;
+ 
+ -- live-auction-audit-hardening.sql: source statement 6
+-execute $sql_119_6$grant all on public.auction_poll_cursors to service_role$sql_119_6$;
++execute $sql_119_6$alter table public.auction_poll_cursors enable row level security$sql_119_6$;
+ 
+ -- live-auction-audit-hardening.sql: source statement 7
+-execute $sql_119_7$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
++execute $sql_119_7$revoke all on public.auction_poll_cursors from public,anon,authenticated$sql_119_7$;
++
++-- live-auction-audit-hardening.sql: source statement 8
++execute $sql_119_8$grant all on public.auction_poll_cursors to service_role$sql_119_8$;
++
++-- live-auction-audit-hardening.sql: source statement 9
++execute $sql_119_9$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+ returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+-declare a public.auctions; leader record;
++declare a public.auctions;locked_at timestamptz;
+ begin
+  select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+  if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002'; end if;
+- if a.status in ('cancelled','closed') then
+-  return jsonb_build_object('status',case when a.status='closed' and a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else a.status end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
++ if a.status='cancelled' then return jsonb_build_object('status','cancelled','orderId',a.order_id);end if;
++ if a.status='closed' then
++  return jsonb_build_object('status',case when a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else 'closed' end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
+  end if;
++ if a.status<>'active' then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
+  if p_cancel then
+   update public.auctions set status='cancelled',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+   return jsonb_build_object('status','cancelled','orderId',null);
+  end if;
+- if coalesce(a.session_automation->>'winnerFlow','highest_bid')='on_demand' then
+-  select bidder_id,bidder_name,bid_amount,comment_id into leader from public.auction_bids
+-   where auction_id=a.id and bid_amount>0 and status in ('accepted','claimed')
+-   order by bid_amount desc,created_at asc,id asc limit 1;
+-  if found then
+-   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
+-    winner_locked_at=coalesce(winner_locked_at,clock_timestamp()),leading_bidder_id=leader.bidder_id,
+-    leading_bidder_name=leader.bidder_name,current_price=leader.bid_amount,leading_comment_id=leader.comment_id
+-    where id=a.id;
+-   return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',leader.bidder_id,'amount',leader.bid_amount);
++ -- The locked auctions row is the authoritative leader for both winner flows.
++ -- Closing creates no order; the winner's later confirmation creates it atomically.
++ if a.leading_bidder_id ~ '^[0-9]{1,64}$' and coalesce(a.current_price,0)>0 then
++  locked_at:=coalesce(a.winner_locked_at,clock_timestamp());
++  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
++   winner_locked_at=locked_at where id=a.id;
++  if a.public_reply_enabled then
++   if a.session_automation ? 'closeKeywords' then
++    insert into public.auction_deliveries(auction_id,channel,comment_id)
++     values(a.id,'public',a.leading_comment_id)
++     on conflict(auction_id,channel) where claim_id is null do nothing;
++   elsif p_event is not null then
++    insert into public.auction_deliveries(auction_id,channel,comment_id)
++     select a.id,'public',payload->'value'->>'comment_id'
++      from public.facebook_webhook_events where id=p_event
++     on conflict(auction_id,channel) where claim_id is null do nothing;
++   end if;
+   end if;
+-  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+-  return jsonb_build_object('status','closed','orderId',null);
++  return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',a.leading_bidder_id,'amount',a.current_price);
++ end if;
++ update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
++ if p_event is not null and a.public_reply_enabled then
++  insert into public.auction_deliveries(auction_id,channel,comment_id)
++   select a.id,'public',payload->'value'->>'comment_id'
++    from public.facebook_webhook_events where id=p_event
++   on conflict(auction_id,channel) where claim_id is null do nothing;
+  end if;
+- return public.finalize_live_auction_highest_bid(p_auction,p_tenant,p_event,false);
+-end $$$sql_119_7$;
++ return jsonb_build_object('status','closed','orderId',null);
++end $$$sql_119_9$;
+ 
+--- live-auction-audit-hardening.sql: source statement 8
+-execute $sql_119_8$create or replace function public.process_live_auction_comment(
++-- live-auction-audit-hardening.sql: source statement 10
++execute $sql_119_10$create or replace function public.close_due_live_auction(
++ p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if a.status<>'active' then return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);end if;
++ if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then
++  return jsonb_build_object('status','not_due');
++ end if;
++ if not p_cancel and exists(select 1 from public.facebook_webhook_events e
++  where e.page_id=a.page_id and e.kind='change' and e.status in ('pending','processing')
++   and e.created_at>=a.created_at and (a.ends_at is null or e.created_at<a.ends_at)
++   and (a.live_post_id=regexp_replace(e.payload->'value'->>'post_id','^.*_','')
++    or a.live_post_id=e.payload->'value'->>'video_id'
++    or a.live_post_id=e.payload->'value'->>'live_video_id'
++    or e.payload->'value'->>'post_id'=any(a.live_post_aliases))
++ ) then return jsonb_build_object('status','draining');end if;
++ return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);
++end $$$sql_119_10$;
++
++-- live-auction-audit-hardening.sql: source statement 11
++begin
++execute $sql_119_11$create or replace function public.expire_live_auctions(p_tenant uuid default null)
++returns integer language plpgsql set search_path=pg_catalog,public as $$
++declare a record; result jsonb; count_closed integer:=0;
++begin
++ for a in select id,tenant_id from public.auctions
++  where status='active' and ends_at<=clock_timestamp()
++   and (p_tenant is null or tenant_id=p_tenant)
++  order by ends_at limit 100 for update skip locked
++ loop
++  begin
++   result:=public.close_due_live_auction(a.id,a.tenant_id);
++   if result->>'status' in ('closed','awaiting_confirmation') then count_closed:=count_closed+1;end if;
++  exception when others then
++   -- Codes only: exception text can contain customer data.
++   raise warning 'Auction expiry failed [%]',sqlstate;
++  end;
++ end loop;
++ return count_closed;
++end $$$sql_119_11$;
++exception when invalid_function_definition then
++  -- A newer signature of expire_live_auctions(uuid) is already installed. Its final definition below is mandatory.
++  null;
++end;
++
++-- live-auction-audit-hardening.sql: source statement 12
++begin
++execute $sql_119_12$create or replace function public.process_live_auction_comment(
+  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
+ ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+ declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
+@@ -17007,7 +17100,7 @@ begin
+  select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+  if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+  v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+- if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+  if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+  select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+  if found then return prior;end if;
+@@ -17025,12 +17118,23 @@ begin
+   elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
+   end if;
+  end if;
+- if confirming or (p_kind='HOST_CONTROL' and (p_control='close' or counting)) then
++ if confirming then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.winner_locked_at is not null and source_at<a.winner_locked_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+   source_at:=public.auction_comment_timestamp(v->>'created_time');
+-  if source_at is null or source_at<a.created_at-interval '1 second' or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
+    return jsonb_build_object('status','stale');
+   end if;
+  end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
+  if a.session_automation is distinct from settings then
+   update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
+  end if;
+@@ -17056,26 +17160,588 @@ begin
+  if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
+  else
+   update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
+-  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
+   update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
+   r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+  end if;
+  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
+  return r;
+-end $$$sql_119_8$;
++end $$$sql_119_12$;
++exception when invalid_function_definition then
++  -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
++  null;
++end;
+ 
+--- live-auction-audit-hardening.sql: source statement 9
+-execute $sql_119_9$revoke all on function public.auction_comment_timestamp(text) from public,anon,authenticated$sql_119_9$;
++-- live-auction-audit-hardening.sql: source statement 13
++execute $sql_119_13$revoke all on function public.auction_comment_timestamp(text) from public,anon,authenticated$sql_119_13$;
+ 
+--- live-auction-audit-hardening.sql: source statement 10
+-execute $sql_119_10$grant execute on function public.auction_comment_timestamp(text) to service_role$sql_119_10$;
++-- live-auction-audit-hardening.sql: source statement 14
++execute $sql_119_14$grant execute on function public.auction_comment_timestamp(text) to service_role$sql_119_14$;
+ 
+--- live-auction-audit-hardening.sql: source statement 11
+-execute $sql_119_11$notify pgrst,'reload schema'$sql_119_11$;
++-- live-auction-audit-hardening.sql: source statement 15
++execute $sql_119_15$notify pgrst,'reload schema'$sql_119_15$;
+   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+-    values('live-auction-audit-hardening.sql','6678529f6872698363ab7ac4c156a9e5d2326f55fa7e97ab2512711e080f7e1c','960f8300baa2e0e101066a9bf4ec743e48c189d502058f49dd406ab179f1a7f9');
++    values('live-auction-audit-hardening.sql','ea40b13a6769e540af3014aa0155e8ea01084046d350246118355bd989cefba8','2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83');
+ end $migration_119$;
+ 
++-- 121. live-auction-audit-hardening-2.sql
++do $migration_120$
++declare installed text;
++begin
++  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-audit-hardening-2.sql';
++  if found then
++    if installed <> 'daec6b35bf317fafe8c7581132de6d60065f6e8b103fc7c7a2f88b1849d26f6c' then
++      raise exception 'Applied migration changed: live-auction-audit-hardening-2.sql. Add a new migration instead of replaying modified history';
++    end if;
++    return;
++  end if;
++-- live-auction-audit-hardening-2.sql: source statement 2
++execute $sql_120_2$create table if not exists public.auction_expiry_failures (
++ sqlstate text not null check(sqlstate ~ '^[A-Z0-9]{5}$'),
++ auction_id uuid not null references public.auctions(id) on delete cascade,
++ occurred_at timestamptz not null default clock_timestamp()
++)$sql_120_2$;
++
++-- live-auction-audit-hardening-2.sql: source statement 3
++execute $sql_120_3$create index if not exists auction_expiry_failures_recent on public.auction_expiry_failures(occurred_at desc)$sql_120_3$;
++
++-- live-auction-audit-hardening-2.sql: source statement 4
++execute $sql_120_4$alter table public.auction_expiry_failures enable row level security$sql_120_4$;
++
++-- live-auction-audit-hardening-2.sql: source statement 5
++execute $sql_120_5$revoke all on public.auction_expiry_failures from public,anon,authenticated$sql_120_5$;
++
++-- live-auction-audit-hardening-2.sql: source statement 6
++execute $sql_120_6$grant select,insert on public.auction_expiry_failures to service_role$sql_120_6$;
++
++-- live-auction-audit-hardening-2.sql: source statement 7
++execute $sql_120_7$create or replace function public.expire_live_auctions_report(p_tenant uuid default null)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a record;result jsonb;closed integer:=0;failed integer:=0;
++begin
++ for a in select id,tenant_id from public.auctions where status='active' and ends_at<=clock_timestamp()
++  and (p_tenant is null or tenant_id=p_tenant) order by ends_at limit 100 for update skip locked
++ loop
++  begin
++   result:=public.close_due_live_auction(a.id,a.tenant_id);
++   if result->>'status' in ('closed','awaiting_confirmation') then closed:=closed+1;end if;
++  exception when others then
++   insert into public.auction_expiry_failures(sqlstate,auction_id,occurred_at) values(sqlstate,a.id,clock_timestamp());
++   failed:=failed+1;
++  end;
++ end loop;
++ return jsonb_build_object('closed',closed,'failed',failed);
++end $$$sql_120_7$;
++
++-- live-auction-audit-hardening-2.sql: source statement 8
++execute $sql_120_8$create or replace function public.expire_live_auctions(p_tenant uuid default null)
++returns integer language sql set search_path=pg_catalog,public as $$
++ select (public.expire_live_auctions_report(p_tenant)->>'closed')::integer
++$$$sql_120_8$;
++
++-- live-auction-audit-hardening-2.sql: source statement 9
++execute $sql_120_9$revoke all on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) from public,anon,authenticated$sql_120_9$;
++
++-- live-auction-audit-hardening-2.sql: source statement 10
++execute $sql_120_10$grant execute on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) to service_role$sql_120_10$;
++
++-- live-auction-audit-hardening-2.sql: source statement 11
++begin
++execute $sql_120_11$create or replace function public.process_live_auction_comment(
++ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
++ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
++ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
++ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
++ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
++ if found then return prior;end if;
++ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
++ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
++ host:=sender=a.page_id or sender=any(a.host_ids);
++ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
++ message:=public.normalize_auction_tag(v->>'message');
++ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
++ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ confirming:=not host and message=any(keywords);
++ if host then
++  if coalesce((settings->>'closeEnabled')::boolean,true) and message=any(close_keywords) then p_kind:='HOST_CONTROL';p_control:='close';
++  elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
++  end if;
++ end if;
++ if confirming then
++  confirmation_floor:=a.winner_locked_at;
++  if a.close_event_id is not null then
++   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
++   if found and close_event.payload->'value'->>'verb'='add'
++    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
++    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
++   end if;
++  end if;
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (confirmation_floor is not null and source_at<confirmation_floor) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
++ if a.session_automation is distinct from settings then
++  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
++  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
++  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
++  return r;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
++  update public.auctions set host_count=p_control where id=a.id;
++  r:=jsonb_build_object('status','count');
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
++  return r;
++ end if;
++ if host then return jsonb_build_object('status','ignored');end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
++ if not confirming then
++  numeric_price:=public.auction_numeric_price(v->>'message');
++  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
++ end if;
++ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
++ else
++  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
++  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
++  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
++ end if;
++ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
++ return r;
++end $$$sql_120_11$;
++exception when invalid_function_definition then
++  -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
++  null;
++end;
++
++-- live-auction-audit-hardening-2.sql: source statement 12
++execute $sql_120_12$notify pgrst,'reload schema'$sql_120_12$;
++  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
++    values('live-auction-audit-hardening-2.sql','daec6b35bf317fafe8c7581132de6d60065f6e8b103fc7c7a2f88b1849d26f6c','046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6');
++end $migration_120$;
++
++-- 122. live-auction-manual-host-close.sql
++do $migration_121$
++declare installed text;
++begin
++  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-manual-host-close.sql';
++  if found then
++    if installed <> '2408a0343a4fec33b9a45c9543eda6775773f6fdaaa6ff24e40288b3321d84f9' then
++      raise exception 'Applied migration changed: live-auction-manual-host-close.sql. Add a new migration instead of replaying modified history';
++    end if;
++    return;
++  end if;
++-- live-auction-manual-host-close.sql: source statement 2
++begin
++execute $sql_121_2$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare result jsonb;duration integer;replay boolean;
++begin
++ if p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb then
++  duration:=null;
++ else
++  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
++  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
++ end if;
++ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
++ replay:=exists(select 1 from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request);
++ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,p_input);
++ if replay then return result;end if;
++ -- The insert trigger may initialize a timer; clear it inside this same transaction.
++ -- Existing timed rounds switch to manual only on an authorized, non-replayed save.
++ if duration is null then
++  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null
++   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
++ else
++  update public.auctions set duration_seconds=duration,
++   timer_started_at=coalesce(timer_started_at,clock_timestamp()),
++   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
++   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active'
++    and (duration_seconds is distinct from duration or ends_at is null);
++ end if;
++ return result;
++end $$$sql_121_2$;
++exception when invalid_function_definition then
++  -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
++  null;
++end;
++
++-- live-auction-manual-host-close.sql: source statement 3
++execute $sql_121_3$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_121_3$;
++
++-- live-auction-manual-host-close.sql: source statement 4
++execute $sql_121_4$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_121_4$;
++
++-- live-auction-manual-host-close.sql: source statement 5
++execute $sql_121_5$notify pgrst,'reload schema'$sql_121_5$;
++  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
++    values('live-auction-manual-host-close.sql','2408a0343a4fec33b9a45c9543eda6775773f6fdaaa6ff24e40288b3321d84f9','2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02');
++end $migration_121$;
++
++-- 123. live-auction-auto-cycle.sql
++do $migration_122$
++declare installed text;
++begin
++  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-auto-cycle.sql';
++  if found then
++    if installed <> 'c943512359db5c8e9940ad44de248cdd5295afec1893e965df770dffda63dc14' then
++      raise exception 'Applied migration changed: live-auction-auto-cycle.sql. Add a new migration instead of replaying modified history';
++    end if;
++    return;
++  end if;
++-- live-auction-auto-cycle.sql: source statement 2
++execute $sql_122_2$alter table public.live_sessions add column if not exists auction_round_template jsonb$sql_122_2$;
++
++-- live-auction-auto-cycle.sql: source statement 3
++execute $sql_122_3$alter table public.auctions add column if not exists previous_auction_id uuid references public.auctions(id)$sql_122_3$;
++
++-- live-auction-auto-cycle.sql: source statement 4
++execute $sql_122_4$create unique index if not exists auctions_one_successor on public.auctions(previous_auction_id) where previous_auction_id is not null$sql_122_4$;
++
++-- live-auction-auto-cycle.sql: source statement 5
++execute $sql_122_5$create index if not exists auction_bids_comment_lookup on public.auction_bids(comment_id)$sql_122_5$;
++
++-- live-auction-auto-cycle.sql: source statement 6
++execute $sql_122_6$create or replace function public.normalize_auction_settings_before_split(settings jsonb) returns jsonb
++language sql immutable returns null on null input set search_path=pg_catalog,public as $$
++ select case when coalesce(settings->>'winnerFlow','on_demand') in ('on_demand','highest_bid') then settings||jsonb_build_object(
++  'winnerFlow',coalesce(settings->>'winnerFlow','on_demand'),
++  'keywords',coalesce(settings->'keywords','[]'::jsonb),
++  'closeKeywords',coalesce(settings->'closeKeywords','[]'::jsonb),
++  'closeKeywordPresetsVersion',1,'countEnabled',coalesce((settings->>'countEnabled')::boolean,false),'heartCloses',false,'closeEnabled',coalesce((settings->>'closeEnabled')::boolean,true),
++  'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
++  'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end) else null end
++$$$sql_122_6$;
++
++-- live-auction-auto-cycle.sql: source statement 7
++execute $sql_122_7$create or replace function public.auction_host_command(message text,settings jsonb)
++returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
++declare line text;count_value text;last_count text;closing text[];
++begin
++ closing:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ for line in select public.normalize_auction_tag(v) from regexp_split_to_table(coalesce(message,''),E'[\r\n]+') v loop
++  continue when line='';
++  if coalesce((settings->>'closeEnabled')::boolean,true) and line=any(closing) then
++   return jsonb_build_object('action','close');
++  end if;
++  count_value:=null;
++  if coalesce((settings->>'countEnabled')::boolean,false) and jsonb_typeof(settings->'counting_tags')='object' then
++   select btrim(value#>>'{}') into count_value from jsonb_each(settings->'counting_tags')
++    where public.normalize_auction_tag(key)=line and jsonb_typeof(value)='string' limit 1;
++  end if;
++  if coalesce(count_value,'')='' or length(count_value)>40 then return jsonb_build_object('action','ignore');end if;
++  last_count:=count_value;
++ end loop;
++ return case when last_count is null then jsonb_build_object('action','ignore') else jsonb_build_object('action','count','count',last_count) end;
++end $$$sql_122_7$;
++
++-- live-auction-auto-cycle.sql: source statement 8
++execute $sql_122_8$create or replace function public.advance_live_auction(p_auction uuid,p_tenant uuid,p_event uuid)
++returns uuid language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;s public.live_sessions;e public.facebook_webhook_events;t jsonb;settings jsonb;next_id uuid;started timestamptz;bank uuid;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ select id into next_id from public.auctions where previous_auction_id=a.id and tenant_id=p_tenant;
++ if found then return next_id;end if;
++ if a.status<>'closed' or a.close_event_id is distinct from p_event or p_event is null then return null;end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id and kind='change';
++ if not found or not coalesce(e.payload->'value'->'from'->>'id'=a.page_id or e.payload->'value'->'from'->>'id'=any(a.host_ids),false) then
++  raise exception 'AUCTION_HOST_REQUIRED' using errcode='42501';end if;
++ select * into s from public.live_sessions where tenant_id=a.tenant_id and page_id=a.page_id and live_post_id=a.live_post_id and ended_at is null for update;
++ if not found or s.auction_round_template is null or not coalesce((s.auction_settings->>'autoCycleRounds')::boolean,false) then return null;end if;
++ settings:=public.resolve_facebook_comment_settings(to_jsonb(s),a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode' is distinct from 'auction' then return null;end if;
++ t:=s.auction_round_template;bank:=(settings->>'bankAccountId')::uuid;
++ if not exists(select 1 from public.bank_accounts where id=bank and tenant_id=a.tenant_id and is_active) then raise exception 'BANK_SCOPE' using errcode='42501';end if;
++ -- Source-time floor preserves comments already queued after the close in the same poll cycle.
++ started:=least(e.created_at,coalesce(public.auction_comment_timestamp(e.payload->'value'->>'created_time'),e.created_at));
++ insert into public.auctions(tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,
++  bank_account_id,host_ids,session_automation,private_reply_enabled,public_reply_enabled,
++  private_reply_template,bid_reply_template,close_reply_template,previous_auction_id,created_at)
++ values(a.tenant_id,a.page_id,a.live_post_id,a.live_post_aliases,t->>'itemName',(t->>'startPrice')::numeric,
++  (t->>'minStep')::numeric,(t->>'shippingFee')::numeric,bank,a.host_ids,settings,
++  coalesce((settings->>'privateReply')::boolean,false),coalesce((settings->>'publicReply')::boolean,false),
++  coalesce(settings->>'private_reply_template',settings->>'privateText',a.private_reply_template),
++  coalesce(settings->>'public_reply_template',settings->>'bidText',a.bid_reply_template),
++  coalesce(settings->>'closeText',a.close_reply_template),a.id,started) returning id into next_id;
++ update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=next_id;
++ return next_id;
++end $$$sql_122_8$;
++
++-- live-auction-auto-cycle.sql: source statement 9
++execute $sql_122_9$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
++begin
++ if p_request is null or p_actor is null then raise exception 'INVALID_REQUEST';end if;
++ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
++ select * into prior from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request;
++ if found then
++  if prior.actor_id<>p_actor or prior.input<>p_input then raise exception 'REQUEST_REUSED' using errcode='40001';end if;
++  return prior.result;
++ end if;
++ if jsonb_typeof(p_input->'settings'->'autoCycleRounds') is not null and jsonb_typeof(p_input->'settings'->'autoCycleRounds')<>'boolean' then raise exception 'INVALID_SETTINGS';end if;
++ if p_input->'settings' ? 'counting_tags' then
++  if jsonb_typeof(p_input->'settings'->'counting_tags')<>'object' then raise exception 'INVALID_SETTINGS';end if;
++  if exists(select 1 from jsonb_each(p_input->'settings'->'counting_tags') where length(key)>40 or public.normalize_auction_tag(key)='' or key~E'[\r\n{}]'
++   or jsonb_typeof(value)<>'string' or length(btrim(value#>>'{}')) not between 1 and 40 or (value#>>'{}')~E'[\r\n{}]') then raise exception 'INVALID_SETTINGS';end if;
++ end if;
++ cycling:=coalesce((p_input->'settings'->>'autoCycleRounds')::boolean,false);
++ effective:=p_input;
++ if cycling then
++  if coalesce(length(btrim(p_input->>'itemName')),0) not between 1 and 200
++   or coalesce((p_input->>'startPrice')::numeric,0) not between 0.01 and 999999999
++   or coalesce((p_input->>'minStep')::numeric,0) not between 0.01 and 999999999
++   or coalesce((p_input->>'shippingFee')::numeric,-1) not between 0 and 999999 then raise exception 'INVALID_ROUND';end if;
++  select * into a from public.auctions where tenant_id=p_tenant and page_id=p_input->>'pageId' and live_post_id=p_input->>'livePostId' and status='active' for update;
++  if a.leading_bidder_id is not null then
++   if a.bank_account_id is distinct from (p_input->'settings'->>'bankAccountId')::uuid then raise exception 'BIDS_ALREADY_ACCEPTED';end if;
++   effective:=p_input||jsonb_build_object('itemName',a.item_name,'startPrice',a.start_price,'minStep',a.min_step,'shippingFee',a.shipping_fee);
++  end if;
++ end if;
++ if cycling or (p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb) then duration:=null;
++ else
++  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
++  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
++ end if;
++ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,effective);
++ if duration is null then
++  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
++ else
++  update public.auctions set duration_seconds=duration,timer_started_at=coalesce(timer_started_at,clock_timestamp()),
++   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
++   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active' and (duration_seconds is distinct from duration or ends_at is null);
++ end if;
++ update public.live_sessions set comment_settings=coalesce(comment_settings,'{}')||(p_input->'settings')||
++  jsonb_build_object('public_reply_template',p_input->'settings'->>'bidText','private_reply_template',p_input->'settings'->>'privateText'),
++  auction_round_template=jsonb_build_object('itemName',btrim(p_input->>'itemName'),
++  'startPrice',(p_input->>'startPrice')::numeric,'minStep',(p_input->>'minStep')::numeric,'shippingFee',(p_input->>'shippingFee')::numeric)
++  where id=(result->>'sessionId')::uuid and tenant_id=p_tenant;
++ -- Preserve original request identity when the active round's bid prices were protected.
++ update public.auction_workspace_requests set input=p_input where tenant_id=p_tenant and request_id=p_request;
++ return result;
++end $$$sql_122_9$;
++
++-- live-auction-auto-cycle.sql: source statement 10
++execute $sql_122_10$create or replace function public.process_live_auction_comment(
++ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
++ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;command jsonb;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
++ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
++ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
++ select b.result into prior from public.auction_bids b join public.auctions old on old.id=b.auction_id
++  where old.tenant_id=a.tenant_id and old.page_id=a.page_id and old.live_post_id=a.live_post_id
++   and (b.event_id=e.id or b.comment_id=cid) limit 1;
++ if found then return prior;end if;
++ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
++ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
++ host:=sender=a.page_id or sender=any(a.host_ids);
++ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
++ message:=public.normalize_auction_tag(v->>'message');
++ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
++ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ confirming:=not host and message=any(keywords);
++ if host then
++  p_kind:='IGNORE';p_control:=null;
++  command:=public.auction_host_command(v->>'message',settings);
++  if command->>'action'='close' then p_kind:='HOST_CONTROL';p_control:='close';
++  elsif command->>'action'='count' then p_kind:='HOST_CONTROL';p_control:=command->>'count';counting:=true;
++  end if;
++ end if;
++ if confirming then
++  confirmation_floor:=a.winner_locked_at;
++  if a.close_event_id is not null then
++   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
++   if found and close_event.payload->'value'->>'verb'='add'
++    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
++    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
++   end if;
++  end if;
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (confirmation_floor is not null and source_at<confirmation_floor) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ end if;
++ if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
++  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
++  return r;
++ end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
++ if a.session_automation is distinct from settings then
++  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
++  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
++  r:=r||jsonb_build_object('nextAuctionId',public.advance_live_auction(a.id,a.tenant_id,e.id));
++  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
++  return r;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
++  update public.auctions set host_count=p_control where id=a.id;
++  r:=jsonb_build_object('status','count');
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
++  return r;
++ end if;
++ if host then return jsonb_build_object('status','ignored');end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
++ if not confirming then
++  numeric_price:=public.auction_numeric_price(v->>'message');
++  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
++ end if;
++ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
++ else
++  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
++  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
++  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
++ end if;
++ r:=r||jsonb_build_object('auctionId',a.id);
++ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
++ return r;
++end $$$sql_122_10$;
++
++-- live-auction-auto-cycle.sql: source statement 11
++execute $sql_122_11$revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_122_11$;
++
++-- live-auction-auto-cycle.sql: source statement 12
++execute $sql_122_12$grant execute on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_122_12$;
++
++-- live-auction-auto-cycle.sql: source statement 13
++execute $sql_122_13$revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
++ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_122_13$;
++
++-- live-auction-auto-cycle.sql: source statement 14
++execute $sql_122_14$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
++ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_122_14$;
++
++-- live-auction-auto-cycle.sql: source statement 15
++execute $sql_122_15$notify pgrst,'reload schema'$sql_122_15$;
++  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
++    values('live-auction-auto-cycle.sql','c943512359db5c8e9940ad44de248cdd5295afec1893e965df770dffda63dc14','036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e');
++end $migration_122$;
++
++-- 124. live-auction-confirmation-preservation.sql
++do $migration_123$
++declare installed text;
++begin
++  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-confirmation-preservation.sql';
++  if found then
++    if installed <> '4cb447fb8d25ea35932e398701e60ef4a183496382b7e37dba6bfd5025b66f16' then
++      raise exception 'Applied migration changed: live-auction-confirmation-preservation.sql. Add a new migration instead of replaying modified history';
++    end if;
++    return;
++  end if;
++-- live-auction-confirmation-preservation.sql: source statement 2
++execute $sql_123_2$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.winner_confirmation_comment_id is not null and a.order_id is null) then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
++ if not p_cancel and a.leading_bidder_id is not null then
++  insert into public.customers(platform,platform_user_id,tenant_id,display_name)
++   values('facebook',a.leading_bidder_id,a.tenant_id,a.leading_bidder_name)
++   on conflict(platform,platform_user_id) do update set tenant_id=coalesce(customers.tenant_id,excluded.tenant_id)
++   returning * into c;
++  if c.tenant_id is distinct from a.tenant_id then raise exception 'AUCTION_CUSTOMER_TENANT' using errcode='42501';end if;
++  -- The existing order trigger attaches CF/auction items to the same tab under its row lock.
++  insert into public.orders(tenant_id,customer_id,product_name,amount,source,source_id,live_bank_account_id)
++   values(a.tenant_id,c.id,a.item_name,a.current_price+a.shipping_fee,'live_auction',a.id::text,a.bank_account_id)
++   returning id into oid;
++  select t.* into strict tab from public.customer_tabs t join public.orders o on o.customer_tab_id=t.id where o.id=oid;
++  update public.customers set conversation_status='open',
++    conversation_version=conversation_version+1,
++    order_status=case when tab.remaining_amount>0 then 'pending_review' else 'paid' end
++   where id=c.id;
++  -- This is a local activity note, never an invented Messenger send or inbound message.
++  -- Do not extend last_message_at/window_expires_at/inbound_seq from an auction.
++  insert into public.messages(customer_id,external_id,sender,body,delivery_status)
++   values(c.id,'auction-event:'||a.id::text,'bot',
++    'บันทึกระบบ: ชนะประมูล '||a.item_name||' - '||case when tab.remaining_amount>0 then 'รอชำระเงิน' else 'ชำระครบแล้ว' end||
++    ' • ยอดคงเหลือสุทธิ '||tab.remaining_amount::text||' บาท',null)
++   on conflict(external_id) do nothing;
++  if a.private_reply_enabled then
++   insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'private',a.leading_comment_id);
++   insert into public.messages(customer_id,external_id,sender,body,delivery_status)
++    values(c.id,'auction-bill:'||a.id::text,'bot','รอส่งสรุปยอดประมูล '||a.item_name||' เข้า Messenger','pending')
++    on conflict(external_id) do nothing;
++  end if;
++ end if;
++ update public.auctions set status=case when p_cancel then 'cancelled' else 'closed' end,
++  closed_at=coalesce(a.closed_at,clock_timestamp()),close_event_id=coalesce(a.close_event_id,p_event),order_id=oid where id=a.id;
++ if not p_cancel and a.public_reply_enabled and a.leading_bidder_id is not null and a.session_automation ? 'closeKeywords' then
++  insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'public',a.leading_comment_id) on conflict(auction_id,channel) where claim_id is null do nothing;
++ elsif p_event is not null and not p_cancel and a.public_reply_enabled then
++  insert into public.auction_deliveries(auction_id,channel,comment_id)
++   select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
++ end if;
++ return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
++end $$$sql_123_2$;
++
++-- live-auction-confirmation-preservation.sql: source statement 3
++execute $sql_123_3$revoke execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_123_3$;
++
++-- live-auction-confirmation-preservation.sql: source statement 4
++execute $sql_123_4$grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_123_4$;
++
++-- live-auction-confirmation-preservation.sql: source statement 5
++execute $sql_123_5$notify pgrst,'reload schema'$sql_123_5$;
++  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
++    values('live-auction-confirmation-preservation.sql','4cb447fb8d25ea35932e398701e60ef4a183496382b7e37dba6bfd5025b66f16','f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084');
++end $migration_123$;
++
+ notify pgrst,'reload schema';
+ 
+ commit;
+diff --git a/supabase/full_database_setup-manifest.md b/supabase/full_database_setup-manifest.md
+index cc2c231..7ca92af 100644
+--- a/supabase/full_database_setup-manifest.md
++++ b/supabase/full_database_setup-manifest.md
+@@ -1,9 +1,9 @@
+ # Supabase SQL migration registry
+ 
+-พบ SQL ต้นฉบับ 138 ไฟล์: รวมตาม dependencies 120 ไฟล์ และแยกไว้ 18 ไฟล์
+-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 140 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
++พบ SQL ต้นฉบับ 142 ไฟล์: รวมตาม dependencies 124 ไฟล์ และแยกไว้ 18 ไฟล์
++หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 144 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+ 
+-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1146261 bytes)
++ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1193225 bytes)
+ ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
+ ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
+ หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
+@@ -11,7 +11,7 @@
+ 
+ ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
+ 
+-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1000429 bytes, 16072 lines)
++ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1042130 bytes, 16683 lines)
+ ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
+ มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
+ 
+@@ -156,7 +156,11 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ
+ 117. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
+ 118. [inbox-realtime-access.sql](inbox-realtime-access.sql) — 13 statements retained
+ 119. [live-auction-deadlines.sql](live-auction-deadlines.sql) — 24 statements retained
+-120. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 10 statements retained
++120. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 14 statements retained
++121. [live-auction-audit-hardening-2.sql](live-auction-audit-hardening-2.sql) — 11 statements retained
++122. [live-auction-manual-host-close.sql](live-auction-manual-host-close.sql) — 4 statements retained
++123. [live-auction-auto-cycle.sql](live-auction-auto-cycle.sql) — 14 statements retained
++124. [live-auction-confirmation-preservation.sql](live-auction-confirmation-preservation.sql) — 4 statements retained
+ 
+ ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
+ 
+@@ -289,6 +293,10 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ
+ | inbox-realtime-access.sql | facebook-message-echoes.sql, feature-access.sql |
+ | live-auction-deadlines.sql | facebook-comment-configuration.sql, live-auction-production-readiness.sql |
+ | live-auction-audit-hardening.sql | facebook-comment-configuration.sql, live-auction-on-demand.sql, live-auction-deadlines.sql |
++| live-auction-audit-hardening-2.sql | live-auction-audit-hardening.sql, live-auction-deadlines.sql |
++| live-auction-manual-host-close.sql | live-auction-audit-hardening-2.sql, live-auction-deadlines.sql |
++| live-auction-auto-cycle.sql | live-auction-manual-host-close.sql, facebook-comment-configuration.sql |
++| live-auction-confirmation-preservation.sql | live-auction-auto-cycle.sql |
+ | inbox-load-indexes.sql | inbox-realtime.sql |
+ | facebook-inbox-recovery.sql | facebook-webhook-queue.sql, smart-inbox.sql |
+ | live-cf-variants.sql | commerce-v2.sql, facebook-webhook-queue.sql |
+@@ -514,4 +522,8 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
+ - facebook-message-echoes.sql: `b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2`
+ - inbox-realtime-access.sql: `f2c1e283a073b6967c64b37378a09ec179baedca837587b19efc0163a780ab65`
+ - live-auction-deadlines.sql: `ff20250c88520e5d08cf02ae057320554e181632961dc97dcb954829cd2894db`
+-- live-auction-audit-hardening.sql: `960f8300baa2e0e101066a9bf4ec743e48c189d502058f49dd406ab179f1a7f9`
++- live-auction-audit-hardening.sql: `2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83`
++- live-auction-audit-hardening-2.sql: `046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6`
++- live-auction-manual-host-close.sql: `2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02`
++- live-auction-auto-cycle.sql: `036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e`
++- live-auction-confirmation-preservation.sql: `f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084`
+diff --git a/supabase/full_database_setup.sql b/supabase/full_database_setup.sql
+index 735890c..e669996 100644
+--- a/supabase/full_database_setup.sql
++++ b/supabase/full_database_setup.sql
+@@ -128,7 +128,8 @@ begin
+     ('public.shipping_tracking_deliveries'),
+     ('public.auction_winner_claims'),
+     ('public.facebook_comment_defaults'),
+-    ('public.auction_poll_cursors')) expected(name)
++    ('public.auction_poll_cursors'),
++    ('public.auction_expiry_failures')) expected(name)
+   where to_regclass(name) is not null;
+   if existing is not null then
+     raise exception 'Fresh database only. Existing application tables: %', existing
+@@ -15913,7 +15914,7 @@ notify pgrst,'reload schema';
+ commit;
+ -- ============================================================================
+ -- 120. live-auction-audit-hardening.sql | Latest delivery safety, reporting and index patches
+--- SHA256: 960f8300baa2e0e101066a9bf4ec743e48c189d502058f49dd406ab179f1a7f9
++-- SHA256: 2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83
+ -- ============================================================================
+ begin;
+ set local lock_timeout = '2s';
+@@ -15922,7 +15923,7 @@ set local search_path = public, extensions;
+ 
+ -- Source statement 2
+ create or replace function public.auction_comment_timestamp(value text) returns timestamptz
+-language plpgsql immutable set search_path=pg_catalog,public as $$
++language plpgsql stable set search_path=pg_catalog,public as $$
+ declare n numeric;
+ begin
+  if value is null or btrim(value)='' then return null; end if;
+@@ -15944,50 +15945,117 @@ create table if not exists public.auction_poll_cursors (
+  live_video_id text not null,
+  high_water_at timestamptz not null,
+  continuation_url text,
++ continuation_anchor_url text,
++ continuation_boundary_at timestamptz,
+  updated_at timestamptz not null default clock_timestamp()
+ );
+ 
+ -- Source statement 4
+-alter table public.auction_poll_cursors enable row level security;
++alter table public.auction_poll_cursors add column if not exists continuation_anchor_url text;
+ 
+ -- Source statement 5
+-revoke all on public.auction_poll_cursors from public,anon,authenticated;
++alter table public.auction_poll_cursors add column if not exists continuation_boundary_at timestamptz;
+ 
+ -- Source statement 6
+-grant all on public.auction_poll_cursors to service_role;
++alter table public.auction_poll_cursors enable row level security;
+ 
+ -- Source statement 7
++revoke all on public.auction_poll_cursors from public,anon,authenticated;
++
++-- Source statement 8
++grant all on public.auction_poll_cursors to service_role;
++
++-- Source statement 9
+ create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+ returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+-declare a public.auctions; leader record;
++declare a public.auctions;locked_at timestamptz;
+ begin
+  select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+  if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002'; end if;
+- if a.status in ('cancelled','closed') then
+-  return jsonb_build_object('status',case when a.status='closed' and a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else a.status end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
++ if a.status='cancelled' then return jsonb_build_object('status','cancelled','orderId',a.order_id);end if;
++ if a.status='closed' then
++  return jsonb_build_object('status',case when a.winner_locked_at is not null and a.order_id is null then 'awaiting_confirmation' else 'closed' end,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
+  end if;
++ if a.status<>'active' then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
+  if p_cancel then
+   update public.auctions set status='cancelled',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+   return jsonb_build_object('status','cancelled','orderId',null);
+  end if;
+- if coalesce(a.session_automation->>'winnerFlow','highest_bid')='on_demand' then
+-  select bidder_id,bidder_name,bid_amount,comment_id into leader from public.auction_bids
+-   where auction_id=a.id and bid_amount>0 and status in ('accepted','claimed')
+-   order by bid_amount desc,created_at asc,id asc limit 1;
+-  if found then
+-   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
+-    winner_locked_at=coalesce(winner_locked_at,clock_timestamp()),leading_bidder_id=leader.bidder_id,
+-    leading_bidder_name=leader.bidder_name,current_price=leader.bid_amount,leading_comment_id=leader.comment_id
+-    where id=a.id;
+-   return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',leader.bidder_id,'amount',leader.bid_amount);
++ -- The locked auctions row is the authoritative leader for both winner flows.
++ -- Closing creates no order; the winner's later confirmation creates it atomically.
++ if a.leading_bidder_id ~ '^[0-9]{1,64}$' and coalesce(a.current_price,0)>0 then
++  locked_at:=coalesce(a.winner_locked_at,clock_timestamp());
++  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event,
++   winner_locked_at=locked_at where id=a.id;
++  if a.public_reply_enabled then
++   if a.session_automation ? 'closeKeywords' then
++    insert into public.auction_deliveries(auction_id,channel,comment_id)
++     values(a.id,'public',a.leading_comment_id)
++     on conflict(auction_id,channel) where claim_id is null do nothing;
++   elsif p_event is not null then
++    insert into public.auction_deliveries(auction_id,channel,comment_id)
++     select a.id,'public',payload->'value'->>'comment_id'
++      from public.facebook_webhook_events where id=p_event
++     on conflict(auction_id,channel) where claim_id is null do nothing;
++   end if;
+   end if;
+-  update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
+-  return jsonb_build_object('status','closed','orderId',null);
++  return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',a.leading_bidder_id,'amount',a.current_price);
++ end if;
++ update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=p_event where id=a.id;
++ if p_event is not null and a.public_reply_enabled then
++  insert into public.auction_deliveries(auction_id,channel,comment_id)
++   select a.id,'public',payload->'value'->>'comment_id'
++    from public.facebook_webhook_events where id=p_event
++   on conflict(auction_id,channel) where claim_id is null do nothing;
+  end if;
+- return public.finalize_live_auction_highest_bid(p_auction,p_tenant,p_event,false);
++ return jsonb_build_object('status','closed','orderId',null);
+ end $$;
+ 
+--- Source statement 8
++-- Source statement 10
++create or replace function public.close_due_live_auction(
++ p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if a.status<>'active' then return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);end if;
++ if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then
++  return jsonb_build_object('status','not_due');
++ end if;
++ if not p_cancel and exists(select 1 from public.facebook_webhook_events e
++  where e.page_id=a.page_id and e.kind='change' and e.status in ('pending','processing')
++   and e.created_at>=a.created_at and (a.ends_at is null or e.created_at<a.ends_at)
++   and (a.live_post_id=regexp_replace(e.payload->'value'->>'post_id','^.*_','')
++    or a.live_post_id=e.payload->'value'->>'video_id'
++    or a.live_post_id=e.payload->'value'->>'live_video_id'
++    or e.payload->'value'->>'post_id'=any(a.live_post_aliases))
++ ) then return jsonb_build_object('status','draining');end if;
++ return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);
++end $$;
++
++-- Source statement 11
++create or replace function public.expire_live_auctions(p_tenant uuid default null)
++returns integer language plpgsql set search_path=pg_catalog,public as $$
++declare a record; result jsonb; count_closed integer:=0;
++begin
++ for a in select id,tenant_id from public.auctions
++  where status='active' and ends_at<=clock_timestamp()
++   and (p_tenant is null or tenant_id=p_tenant)
++  order by ends_at limit 100 for update skip locked
++ loop
++  begin
++   result:=public.close_due_live_auction(a.id,a.tenant_id);
++   if result->>'status' in ('closed','awaiting_confirmation') then count_closed:=count_closed+1;end if;
++  exception when others then
++   -- Codes only: exception text can contain customer data.
++   raise warning 'Auction expiry failed [%]',sqlstate;
++  end;
++ end loop;
++ return count_closed;
++end $$;
++
++-- Source statement 12
+ create or replace function public.process_live_auction_comment(
+  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
+ ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+@@ -16000,7 +16068,7 @@ begin
+  select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+  if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+  v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
+- if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
+  if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
+  select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+  if found then return prior;end if;
+@@ -16018,12 +16086,23 @@ begin
+   elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
+   end if;
+  end if;
+- if confirming or (p_kind='HOST_CONTROL' and (p_control='close' or counting)) then
++ if confirming then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.winner_locked_at is not null and source_at<a.winner_locked_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
+   source_at:=public.auction_comment_timestamp(v->>'created_time');
+-  if source_at is null or source_at<a.created_at-interval '1 second' or (a.closed_at is not null and source_at>a.closed_at+interval '1 second') then
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
+    return jsonb_build_object('status','stale');
+   end if;
+  end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
+  if a.session_automation is distinct from settings then
+   update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
+  end if;
+@@ -16049,7 +16128,7 @@ begin
+  if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
+  else
+   update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
+-  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id);
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
+   update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
+   r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
+  end if;
+@@ -16057,13 +16136,545 @@ begin
+  return r;
+ end $$;
+ 
+--- Source statement 9
++-- Source statement 13
+ revoke all on function public.auction_comment_timestamp(text) from public,anon,authenticated;
+ 
+--- Source statement 10
++-- Source statement 14
+ grant execute on function public.auction_comment_timestamp(text) to service_role;
+ 
++-- Source statement 15
++notify pgrst,'reload schema';
++
++commit;
++-- ============================================================================
++-- 121. live-auction-audit-hardening-2.sql | Latest delivery safety, reporting and index patches
++-- SHA256: 046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6
++-- ============================================================================
++begin;
++set local lock_timeout = '2s';
++set local statement_timeout = '60s';
++set local search_path = public, extensions;
++
++-- Source statement 2
++create table if not exists public.auction_expiry_failures (
++ sqlstate text not null check(sqlstate ~ '^[A-Z0-9]{5}$'),
++ auction_id uuid not null references public.auctions(id) on delete cascade,
++ occurred_at timestamptz not null default clock_timestamp()
++);
++
++-- Source statement 3
++create index if not exists auction_expiry_failures_recent on public.auction_expiry_failures(occurred_at desc);
++
++-- Source statement 4
++alter table public.auction_expiry_failures enable row level security;
++
++-- Source statement 5
++revoke all on public.auction_expiry_failures from public,anon,authenticated;
++
++-- Source statement 6
++grant select,insert on public.auction_expiry_failures to service_role;
++
++-- Source statement 7
++create or replace function public.expire_live_auctions_report(p_tenant uuid default null)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a record;result jsonb;closed integer:=0;failed integer:=0;
++begin
++ for a in select id,tenant_id from public.auctions where status='active' and ends_at<=clock_timestamp()
++  and (p_tenant is null or tenant_id=p_tenant) order by ends_at limit 100 for update skip locked
++ loop
++  begin
++   result:=public.close_due_live_auction(a.id,a.tenant_id);
++   if result->>'status' in ('closed','awaiting_confirmation') then closed:=closed+1;end if;
++  exception when others then
++   insert into public.auction_expiry_failures(sqlstate,auction_id,occurred_at) values(sqlstate,a.id,clock_timestamp());
++   failed:=failed+1;
++  end;
++ end loop;
++ return jsonb_build_object('closed',closed,'failed',failed);
++end $$;
++
++-- Source statement 8
++create or replace function public.expire_live_auctions(p_tenant uuid default null)
++returns integer language sql set search_path=pg_catalog,public as $$
++ select (public.expire_live_auctions_report(p_tenant)->>'closed')::integer
++$$;
++
++-- Source statement 9
++revoke all on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) from public,anon,authenticated;
++
++-- Source statement 10
++grant execute on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) to service_role;
++
++-- Source statement 11
++create or replace function public.process_live_auction_comment(
++ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
++ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
++ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
++ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
++ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
++ if found then return prior;end if;
++ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
++ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
++ host:=sender=a.page_id or sender=any(a.host_ids);
++ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
++ message:=public.normalize_auction_tag(v->>'message');
++ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
++ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ confirming:=not host and message=any(keywords);
++ if host then
++  if coalesce((settings->>'closeEnabled')::boolean,true) and message=any(close_keywords) then p_kind:='HOST_CONTROL';p_control:='close';
++  elsif coalesce((settings->>'countEnabled')::boolean,false) and settings->'counting_tags' ? message then p_kind:='HOST_CONTROL';p_control:=settings->'counting_tags'->>message;counting:=true;
++  end if;
++ end if;
++ if confirming then
++  confirmation_floor:=a.winner_locked_at;
++  if a.close_event_id is not null then
++   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
++   if found and close_event.payload->'value'->>'verb'='add'
++    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
++    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
++   end if;
++  end if;
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (confirmation_floor is not null and source_at<confirmation_floor) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
++ if a.session_automation is distinct from settings then
++  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
++  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
++  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
++  return r;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
++  update public.auctions set host_count=p_control where id=a.id;
++  r:=jsonb_build_object('status','count');
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
++  return r;
++ end if;
++ if host then return jsonb_build_object('status','ignored');end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
++ if not confirming then
++  numeric_price:=public.auction_numeric_price(v->>'message');
++  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
++ end if;
++ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
++ else
++  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
++  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
++  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
++ end if;
++ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
++ return r;
++end $$;
++
++-- Source statement 12
++notify pgrst,'reload schema';
++
++commit;
++-- ============================================================================
++-- 122. live-auction-manual-host-close.sql | Latest delivery safety, reporting and index patches
++-- SHA256: 2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02
++-- ============================================================================
++begin;
++set local lock_timeout = '2s';
++set local statement_timeout = '60s';
++set local search_path = public, extensions;
++
++-- Source statement 2
++create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare result jsonb;duration integer;replay boolean;
++begin
++ if p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb then
++  duration:=null;
++ else
++  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
++  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
++ end if;
++ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
++ replay:=exists(select 1 from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request);
++ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,p_input);
++ if replay then return result;end if;
++ -- The insert trigger may initialize a timer; clear it inside this same transaction.
++ -- Existing timed rounds switch to manual only on an authorized, non-replayed save.
++ if duration is null then
++  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null
++   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
++ else
++  update public.auctions set duration_seconds=duration,
++   timer_started_at=coalesce(timer_started_at,clock_timestamp()),
++   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
++   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active'
++    and (duration_seconds is distinct from duration or ends_at is null);
++ end if;
++ return result;
++end $$;
++
++-- Source statement 3
++revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated;
++
++-- Source statement 4
++grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role;
++
++-- Source statement 5
++notify pgrst,'reload schema';
++
++commit;
++-- ============================================================================
++-- 123. live-auction-auto-cycle.sql | Latest delivery safety, reporting and index patches
++-- SHA256: 036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e
++-- ============================================================================
++begin;
++set local lock_timeout = '2s';
++set local statement_timeout = '60s';
++set local search_path = public, extensions;
++
++-- Source statement 2
++alter table public.live_sessions add column if not exists auction_round_template jsonb;
++
++-- Source statement 3
++alter table public.auctions add column if not exists previous_auction_id uuid references public.auctions(id);
++
++-- Source statement 4
++create unique index if not exists auctions_one_successor on public.auctions(previous_auction_id) where previous_auction_id is not null;
++
++-- Source statement 5
++create index if not exists auction_bids_comment_lookup on public.auction_bids(comment_id);
++
++-- Source statement 6
++create or replace function public.normalize_auction_settings_before_split(settings jsonb) returns jsonb
++language sql immutable returns null on null input set search_path=pg_catalog,public as $$
++ select case when coalesce(settings->>'winnerFlow','on_demand') in ('on_demand','highest_bid') then settings||jsonb_build_object(
++  'winnerFlow',coalesce(settings->>'winnerFlow','on_demand'),
++  'keywords',coalesce(settings->'keywords','[]'::jsonb),
++  'closeKeywords',coalesce(settings->'closeKeywords','[]'::jsonb),
++  'closeKeywordPresetsVersion',1,'countEnabled',coalesce((settings->>'countEnabled')::boolean,false),'heartCloses',false,'closeEnabled',coalesce((settings->>'closeEnabled')::boolean,true),
++  'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
++  'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end) else null end
++$$;
++
++-- Source statement 7
++create or replace function public.auction_host_command(message text,settings jsonb)
++returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
++declare line text;count_value text;last_count text;closing text[];
++begin
++ closing:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ for line in select public.normalize_auction_tag(v) from regexp_split_to_table(coalesce(message,''),E'[\r\n]+') v loop
++  continue when line='';
++  if coalesce((settings->>'closeEnabled')::boolean,true) and line=any(closing) then
++   return jsonb_build_object('action','close');
++  end if;
++  count_value:=null;
++  if coalesce((settings->>'countEnabled')::boolean,false) and jsonb_typeof(settings->'counting_tags')='object' then
++   select btrim(value#>>'{}') into count_value from jsonb_each(settings->'counting_tags')
++    where public.normalize_auction_tag(key)=line and jsonb_typeof(value)='string' limit 1;
++  end if;
++  if coalesce(count_value,'')='' or length(count_value)>40 then return jsonb_build_object('action','ignore');end if;
++  last_count:=count_value;
++ end loop;
++ return case when last_count is null then jsonb_build_object('action','ignore') else jsonb_build_object('action','count','count',last_count) end;
++end $$;
++
++-- Source statement 8
++create or replace function public.advance_live_auction(p_auction uuid,p_tenant uuid,p_event uuid)
++returns uuid language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;s public.live_sessions;e public.facebook_webhook_events;t jsonb;settings jsonb;next_id uuid;started timestamptz;bank uuid;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ select id into next_id from public.auctions where previous_auction_id=a.id and tenant_id=p_tenant;
++ if found then return next_id;end if;
++ if a.status<>'closed' or a.close_event_id is distinct from p_event or p_event is null then return null;end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id and kind='change';
++ if not found or not coalesce(e.payload->'value'->'from'->>'id'=a.page_id or e.payload->'value'->'from'->>'id'=any(a.host_ids),false) then
++  raise exception 'AUCTION_HOST_REQUIRED' using errcode='42501';end if;
++ select * into s from public.live_sessions where tenant_id=a.tenant_id and page_id=a.page_id and live_post_id=a.live_post_id and ended_at is null for update;
++ if not found or s.auction_round_template is null or not coalesce((s.auction_settings->>'autoCycleRounds')::boolean,false) then return null;end if;
++ settings:=public.resolve_facebook_comment_settings(to_jsonb(s),a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode' is distinct from 'auction' then return null;end if;
++ t:=s.auction_round_template;bank:=(settings->>'bankAccountId')::uuid;
++ if not exists(select 1 from public.bank_accounts where id=bank and tenant_id=a.tenant_id and is_active) then raise exception 'BANK_SCOPE' using errcode='42501';end if;
++ -- Source-time floor preserves comments already queued after the close in the same poll cycle.
++ started:=least(e.created_at,coalesce(public.auction_comment_timestamp(e.payload->'value'->>'created_time'),e.created_at));
++ insert into public.auctions(tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,
++  bank_account_id,host_ids,session_automation,private_reply_enabled,public_reply_enabled,
++  private_reply_template,bid_reply_template,close_reply_template,previous_auction_id,created_at)
++ values(a.tenant_id,a.page_id,a.live_post_id,a.live_post_aliases,t->>'itemName',(t->>'startPrice')::numeric,
++  (t->>'minStep')::numeric,(t->>'shippingFee')::numeric,bank,a.host_ids,settings,
++  coalesce((settings->>'privateReply')::boolean,false),coalesce((settings->>'publicReply')::boolean,false),
++  coalesce(settings->>'private_reply_template',settings->>'privateText',a.private_reply_template),
++  coalesce(settings->>'public_reply_template',settings->>'bidText',a.bid_reply_template),
++  coalesce(settings->>'closeText',a.close_reply_template),a.id,started) returning id into next_id;
++ update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=next_id;
++ return next_id;
++end $$;
++
++-- Source statement 9
++create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
++begin
++ if p_request is null or p_actor is null then raise exception 'INVALID_REQUEST';end if;
++ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
++ select * into prior from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request;
++ if found then
++  if prior.actor_id<>p_actor or prior.input<>p_input then raise exception 'REQUEST_REUSED' using errcode='40001';end if;
++  return prior.result;
++ end if;
++ if jsonb_typeof(p_input->'settings'->'autoCycleRounds') is not null and jsonb_typeof(p_input->'settings'->'autoCycleRounds')<>'boolean' then raise exception 'INVALID_SETTINGS';end if;
++ if p_input->'settings' ? 'counting_tags' then
++  if jsonb_typeof(p_input->'settings'->'counting_tags')<>'object' then raise exception 'INVALID_SETTINGS';end if;
++  if exists(select 1 from jsonb_each(p_input->'settings'->'counting_tags') where length(key)>40 or public.normalize_auction_tag(key)='' or key~E'[\r\n{}]'
++   or jsonb_typeof(value)<>'string' or length(btrim(value#>>'{}')) not between 1 and 40 or (value#>>'{}')~E'[\r\n{}]') then raise exception 'INVALID_SETTINGS';end if;
++ end if;
++ cycling:=coalesce((p_input->'settings'->>'autoCycleRounds')::boolean,false);
++ effective:=p_input;
++ if cycling then
++  if coalesce(length(btrim(p_input->>'itemName')),0) not between 1 and 200
++   or coalesce((p_input->>'startPrice')::numeric,0) not between 0.01 and 999999999
++   or coalesce((p_input->>'minStep')::numeric,0) not between 0.01 and 999999999
++   or coalesce((p_input->>'shippingFee')::numeric,-1) not between 0 and 999999 then raise exception 'INVALID_ROUND';end if;
++  select * into a from public.auctions where tenant_id=p_tenant and page_id=p_input->>'pageId' and live_post_id=p_input->>'livePostId' and status='active' for update;
++  if a.leading_bidder_id is not null then
++   if a.bank_account_id is distinct from (p_input->'settings'->>'bankAccountId')::uuid then raise exception 'BIDS_ALREADY_ACCEPTED';end if;
++   effective:=p_input||jsonb_build_object('itemName',a.item_name,'startPrice',a.start_price,'minStep',a.min_step,'shippingFee',a.shipping_fee);
++  end if;
++ end if;
++ if cycling or (p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb) then duration:=null;
++ else
++  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
++  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
++ end if;
++ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,effective);
++ if duration is null then
++  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
++ else
++  update public.auctions set duration_seconds=duration,timer_started_at=coalesce(timer_started_at,clock_timestamp()),
++   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
++   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active' and (duration_seconds is distinct from duration or ends_at is null);
++ end if;
++ update public.live_sessions set comment_settings=coalesce(comment_settings,'{}')||(p_input->'settings')||
++  jsonb_build_object('public_reply_template',p_input->'settings'->>'bidText','private_reply_template',p_input->'settings'->>'privateText'),
++  auction_round_template=jsonb_build_object('itemName',btrim(p_input->>'itemName'),
++  'startPrice',(p_input->>'startPrice')::numeric,'minStep',(p_input->>'minStep')::numeric,'shippingFee',(p_input->>'shippingFee')::numeric)
++  where id=(result->>'sessionId')::uuid and tenant_id=p_tenant;
++ -- Preserve original request identity when the active round's bid prices were protected.
++ update public.auction_workspace_requests set input=p_input where tenant_id=p_tenant and request_id=p_request;
++ return result;
++end $$;
++
++-- Source statement 10
++create or replace function public.process_live_auction_comment(
++ p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
++) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
++ sender text;cid text;message text;keywords text[];close_keywords text[];settings jsonb;host boolean;confirming boolean;counting boolean:=false;numeric_price numeric;source_at timestamptz;confirmation_floor timestamptz;close_event public.facebook_webhook_events;command jsonb;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if not exists(select 1 from public.tenants where id=p_tenant and page_id=a.page_id and is_active) then raise exception 'AUCTION_TENANT_INVALID' using errcode='42501';end if;
++ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
++ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
++ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';
++ if sender is null or sender !~ '^[0-9]{1,64}$' or nullif(btrim(cid),'') is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then return jsonb_build_object('status','ignored');end if;
++ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id' or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';end if;
++ select b.result into prior from public.auction_bids b join public.auctions old on old.id=b.auction_id
++  where old.tenant_id=a.tenant_id and old.page_id=a.page_id and old.live_post_id=a.live_post_id
++   and (b.event_id=e.id or b.comment_id=cid) limit 1;
++ if found then return prior;end if;
++ if e.created_at<a.created_at then return jsonb_build_object('status','stale');end if;
++ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';end if;
++ host:=sender=a.page_id or sender=any(a.host_ids);
++ settings:=public.resolve_facebook_comment_settings((public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->'session',a.session_automation);
++ if (public.facebook_comment_context(p_tenant,a.page_id,array[a.live_post_id]))->>'mode'<>'auction' then return jsonb_build_object('status','ignored','reason','SESSION_MODE');end if;
++ message:=public.normalize_auction_tag(v->>'message');
++ keywords:=public.auction_comment_tags(settings,'keywords',settings->'confirmation_tags'->>0);
++ close_keywords:=public.auction_comment_tags(settings,'closeKeywords','ปิด');
++ confirming:=not host and message=any(keywords);
++ if host then
++  p_kind:='IGNORE';p_control:=null;
++  command:=public.auction_host_command(v->>'message',settings);
++  if command->>'action'='close' then p_kind:='HOST_CONTROL';p_control:='close';
++  elsif command->>'action'='count' then p_kind:='HOST_CONTROL';p_control:=command->>'count';counting:=true;
++  end if;
++ end if;
++ if confirming then
++  confirmation_floor:=a.winner_locked_at;
++  if a.close_event_id is not null then
++   select * into close_event from public.facebook_webhook_events where id=a.close_event_id and page_id=a.page_id and kind='change';
++   if found and close_event.payload->'value'->>'verb'='add'
++    and (close_event.payload->'value'->'from'->>'id'=a.page_id or close_event.payload->'value'->'from'->>'id'=any(a.host_ids)) then
++    confirmation_floor:=coalesce(public.auction_comment_timestamp(close_event.payload->'value'->>'created_time'),confirmation_floor);
++   end if;
++  end if;
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (confirmation_floor is not null and source_at<confirmation_floor) then
++   return jsonb_build_object('status','stale');
++  end if;
++ elsif p_kind='HOST_CONTROL' and (p_control='close' or counting) then
++  source_at:=public.auction_comment_timestamp(v->>'created_time');
++  if source_at is null or source_at<a.created_at
++   or (a.closed_at is not null and source_at>a.closed_at) then
++   return jsonb_build_object('status','stale');
++  end if;
++ end if;
++ if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
++  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
++  return r;
++ end if;
++ if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
++  perform public.close_due_live_auction(a.id,a.tenant_id);
++  return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
++ end if;
++ if a.session_automation is distinct from settings then
++  update public.auctions set session_automation=settings,private_reply_template=coalesce(settings->>'private_reply_template',settings->>'privateText',private_reply_template),bid_reply_template=coalesce(settings->>'public_reply_template',settings->>'bidText',bid_reply_template),private_reply_enabled=coalesce((settings->>'privateReply')::boolean,private_reply_enabled),public_reply_enabled=coalesce((settings->>'publicReply')::boolean,public_reply_enabled) where id=a.id;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and p_control='close' then
++  r:=public.finalize_live_auction(a.id,a.tenant_id,e.id);
++  r:=r||jsonb_build_object('nextAuctionId',public.advance_live_auction(a.id,a.tenant_id,e.id));
++  r:=r||jsonb_build_object('status',case when r->>'status'='awaiting_confirmation' then 'awaiting_confirmation' else r->>'status' end);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'closed',r);
++  return r;
++ end if;
++ if host and a.status='active' and p_kind='HOST_CONTROL' and counting then
++  update public.auctions set host_count=p_control where id=a.id;
++  r:=jsonb_build_object('status','count');
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,comment_text,status,result) values(a.id,e.id,cid,sender,left(v->>'message',2000),'count',r);
++  return r;
++ end if;
++ if host then return jsonb_build_object('status','ignored');end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.order_id is null and confirming) then return jsonb_build_object('status','closed','orderId',a.order_id);end if;
++ if not confirming then
++  numeric_price:=public.auction_numeric_price(v->>'message');
++  return public.process_live_auction_highest_bid(p_auction,p_tenant,p_event,case when numeric_price is not null then 'NUMERIC_BID' else case when message<>'' and message=any(public.auction_comment_tags(settings,'opening_tags','')) then 'OPENING_BID' else 'IGNORE' end end,numeric_price,p_control);
++ end if;
++ if sender is distinct from a.leading_bidder_id or a.current_price<=0 then r:=jsonb_build_object('status','not_winner');
++ else
++  update public.auctions set winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp() where id=a.id;
++  r:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,e.id,false);
++  update public.auction_deliveries set comment_id=cid where auction_id=a.id and status in ('pending','awaiting_confirmation');
++  r:=r||jsonb_build_object('status','confirmed','amount',a.current_price,'name',a.leading_bidder_name);
++ end if;
++ r:=r||jsonb_build_object('auctionId',a.id);
++ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
++ return r;
++end $$;
++
+ -- Source statement 11
++revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated;
++
++-- Source statement 12
++grant execute on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role;
++
++-- Source statement 13
++revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
++ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated;
++
++-- Source statement 14
++grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
++ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
++
++-- Source statement 15
++notify pgrst,'reload schema';
++
++commit;
++-- ============================================================================
++-- 124. live-auction-confirmation-preservation.sql | Latest delivery safety, reporting and index patches
++-- SHA256: f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084
++-- ============================================================================
++begin;
++set local lock_timeout = '2s';
++set local statement_timeout = '60s';
++set local search_path = public, extensions;
++
++-- Source statement 2
++create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.winner_confirmation_comment_id is not null and a.order_id is null) then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
++ if not p_cancel and a.leading_bidder_id is not null then
++  insert into public.customers(platform,platform_user_id,tenant_id,display_name)
++   values('facebook',a.leading_bidder_id,a.tenant_id,a.leading_bidder_name)
++   on conflict(platform,platform_user_id) do update set tenant_id=coalesce(customers.tenant_id,excluded.tenant_id)
++   returning * into c;
++  if c.tenant_id is distinct from a.tenant_id then raise exception 'AUCTION_CUSTOMER_TENANT' using errcode='42501';end if;
++  -- The existing order trigger attaches CF/auction items to the same tab under its row lock.
++  insert into public.orders(tenant_id,customer_id,product_name,amount,source,source_id,live_bank_account_id)
++   values(a.tenant_id,c.id,a.item_name,a.current_price+a.shipping_fee,'live_auction',a.id::text,a.bank_account_id)
++   returning id into oid;
++  select t.* into strict tab from public.customer_tabs t join public.orders o on o.customer_tab_id=t.id where o.id=oid;
++  update public.customers set conversation_status='open',
++    conversation_version=conversation_version+1,
++    order_status=case when tab.remaining_amount>0 then 'pending_review' else 'paid' end
++   where id=c.id;
++  -- This is a local activity note, never an invented Messenger send or inbound message.
++  -- Do not extend last_message_at/window_expires_at/inbound_seq from an auction.
++  insert into public.messages(customer_id,external_id,sender,body,delivery_status)
++   values(c.id,'auction-event:'||a.id::text,'bot',
++    'บันทึกระบบ: ชนะประมูล '||a.item_name||' - '||case when tab.remaining_amount>0 then 'รอชำระเงิน' else 'ชำระครบแล้ว' end||
++    ' • ยอดคงเหลือสุทธิ '||tab.remaining_amount::text||' บาท',null)
++   on conflict(external_id) do nothing;
++  if a.private_reply_enabled then
++   insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'private',a.leading_comment_id);
++   insert into public.messages(customer_id,external_id,sender,body,delivery_status)
++    values(c.id,'auction-bill:'||a.id::text,'bot','รอส่งสรุปยอดประมูล '||a.item_name||' เข้า Messenger','pending')
++    on conflict(external_id) do nothing;
++  end if;
++ end if;
++ update public.auctions set status=case when p_cancel then 'cancelled' else 'closed' end,
++  closed_at=coalesce(a.closed_at,clock_timestamp()),close_event_id=coalesce(a.close_event_id,p_event),order_id=oid where id=a.id;
++ if not p_cancel and a.public_reply_enabled and a.leading_bidder_id is not null and a.session_automation ? 'closeKeywords' then
++  insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'public',a.leading_comment_id) on conflict(auction_id,channel) where claim_id is null do nothing;
++ elsif p_event is not null and not p_cancel and a.public_reply_enabled then
++  insert into public.auction_deliveries(auction_id,channel,comment_id)
++   select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
++ end if;
++ return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
++end $$;
++
++-- Source statement 3
++revoke execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated;
++
++-- Source statement 4
++grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
++
++-- Source statement 5
+ notify pgrst,'reload schema';
+ 
+ commit;
+diff --git a/supabase/live-auction-auto-cycle.sql b/supabase/live-auction-auto-cycle.sql
+index eff9334..e321d0e 100644
+--- a/supabase/live-auction-auto-cycle.sql
++++ b/supabase/live-auction-auto-cycle.sql
+@@ -159,12 +159,6 @@ begin
+   elsif command->>'action'='count' then p_kind:='HOST_CONTROL';p_control:=command->>'count';counting:=true;
+   end if;
+  end if;
+- if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
+-  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
+-  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+-   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
+-  return r;
+- end if;
+  if confirming then
+   confirmation_floor:=a.winner_locked_at;
+   if a.close_event_id is not null then
+@@ -186,6 +180,12 @@ begin
+    return jsonb_build_object('status','stale');
+   end if;
+  end if;
++ if confirming and a.status='active' and coalesce((settings->>'autoCycleRounds')::boolean,false) then
++  r:=jsonb_build_object('status','awaiting_host_close','auctionId',a.id);
++  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
++   values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,'awaiting_host_close',r);
++  return r;
++ end if;
+  if not confirming and a.status='active' and a.ends_at is not null and e.created_at>=a.ends_at then
+   perform public.close_due_live_auction(a.id,a.tenant_id);
+   return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
+@@ -225,9 +225,13 @@ begin
+  return r;
+ end $$;
+ 
+-revoke all on function public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+  public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated;
+-grant execute on function public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
++grant execute on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+  public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role;
++revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
++ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated;
++grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
++ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
+ notify pgrst,'reload schema';
+ commit;
+diff --git a/lib/features/commerce/auction-settings-status.ts b/lib/features/commerce/auction-settings-status.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/features/commerce/auction-settings-status.ts
+@@ -0,0 +1,27 @@
++export type AuctionSettingsStatus = {
++  label: string
++  badgeClass: string
++  dotClass: string
++}
++
++export function auctionSettingsStatus(degraded: boolean, hasError: boolean): AuctionSettingsStatus {
++  if (!degraded) {
++    return {
++      label: 'โหลดการตั้งค่าแล้ว',
++      badgeClass: 'bg-emerald-500 text-white',
++      dotClass: 'bg-white',
++    }
++  }
++  if (hasError) {
++    return {
++      label: 'ตรวจสอบการตั้งค่าไม่ได้',
++      badgeClass: 'bg-rose-100 text-rose-800',
++      dotClass: 'bg-rose-500',
++    }
++  }
++  return {
++    label: 'กำลังตรวจสอบการตั้งค่า',
++    badgeClass: 'bg-amber-100 text-amber-900',
++    dotClass: 'bg-amber-500',
++  }
++}
+diff --git a/reports/auction-audit/FINAL-LOCAL-AUDIT.md b/reports/auction-audit/FINAL-LOCAL-AUDIT.md
+new file mode 100644
+--- /dev/null
++++ b/reports/auction-audit/FINAL-LOCAL-AUDIT.md
+@@ -0,0 +1,114 @@
++# Live CF and Auction: Final Local Audit
++
++## Scope and execution boundary
++
++All inspection and tests ran against workspace files and isolated PGlite instances. No migration or query was run against Supabase production or staging; no deployment or live Meta request was made. The full TAP logs and JSON summaries are [current-final.log](./current-final.log), [current-final.json](./current-final.json), [baseline-start.log](./baseline-start.log), and [baseline-start.json](./baseline-start.json). The detached clean-HEAD baseline was commit `e6cc3de64b17c0e9cd75a0390128163a230f231d`. The workspace already contained uncommitted auction work when this audit began, so the clean-HEAD comparison measures the total workspace delta against that commit; it cannot attribute every baseline-only pass exclusively to edits made in this audit turn.
++
++## Findings
++
++| Item | Status | Evidence |
++|---|---|---|
++| `npm test` ENOMEM root cause | PASS | Sandboxed `npm.cmd test` stops in `tsx` at `uv_os_get_passwd` before tests start. The same command outside the sandbox exits 0: 131 tests, 131 pass, 0 fail. This is an OS account lookup restriction in the sandbox, not exhausted memory or a project test failure. |
++| Browser RPC leak audit | PASS | Search of `app`, `components`, and `hooks` found no browser call to `finalize_live_auction`, `finalize_live_auction_highest_bid`, `process_live_auction_comment`, `advance_live_auction`, or `expire_live_auctions`. The settings UI reads/writes `/api/live-auction/workspace` in [AuctionUnifiedForm.tsx:157,241](../../components/live-cf/AuctionUnifiedForm.tsx); server processing calls `process_live_auction_comment` in [auction-server.ts:697](../../lib/features/commerce/auction-server.ts). The only matching direct RPC routes are server routes: [close/route.ts:15](../../app/api/live-cf/auction/close/route.ts) and [facebook-webhooks/route.ts:26](../../app/api/cron/facebook-webhooks/route.ts), which calls the reporting wrapper `expire_live_auctions_report`. |
++| Expiry ingress and authorization | PASS | The settings page does not call `expire_live_auctions`. The existing expiry worker is the authenticated cron route: it checks `CRON_SECRET`/`INTERNAL_API_SECRET` at [facebook-webhooks/route.ts:14-20](../../app/api/cron/facebook-webhooks/route.ts), then calls `expire_live_auctions_report` at line 26 through `supabaseAdmin`. `git blame` attributes that call to commit `650ad0c` (`fix(live-auction): harden winner flow, poller security, and add audit-2 migration`). It is pre-existing and out of scope; it was not modified. The reported `live-auctions.sql` string has no match in active app/component/lib source. |
++| Missing RPC/schema/internal error messaging | PASS | [workspace/route.ts:28-38,43-60](../../app/api/live-auction/workspace/route.ts) distinguishes missing RPC, incomplete schema, and generic read errors without returning database internals. The UI displays the safe response message and status at [AuctionUnifiedForm.tsx:157-178,267,333-335](../../components/live-cf/AuctionUnifiedForm.tsx). API coverage is in [test-auction-workspace-api.cjs:12](../../scripts/test-auction-workspace-api.cjs). Against the clean pre-fix route, the new schema assertion failed (`actual undefined`, expected `DATABASE_SCHEMA_INCOMPLETE`); current API test exits 0. |
++| Settings status badge | PASS | [auction-settings-status.ts:6-26](../../lib/features/commerce/auction-settings-status.ts) shows loaded, checking, and failed states; failed reads cannot display an emerald success badge. The baseline-entry test failed on the old component with “a failed workspace read shows a degraded status instead of a success badge”; current [test-auction-degraded-form.cjs:4](../../scripts/test-auction-degraded-form.cjs) passes. |
++| Auction RPC permissions | PASS | [live-auction-auto-cycle.sql:228-234](../../supabase/live-auction-auto-cycle.sql) explicitly revokes every new helper/worker RPC including `normalize_auction_settings_before_split`, `auction_host_command`, `advance_live_auction`, `save_auction_workspace`, `process_live_auction_comment`, and both finalizers from `public`, `anon`, and `authenticated`, then grants `service_role`. Existing expiry RPCs are likewise service-only at [live-auction-audit-hardening-2.sql:35-36](../../supabase/live-auction-audit-hardening-2.sql). The preservation migration repeats the highest-bid finalizer restriction at [live-auction-confirmation-preservation.sql:49-50](../../supabase/live-auction-confirmation-preservation.sql). [test-auction-auto-cycle.cjs:87-128](../../scripts/test-auction-auto-cycle.cjs) uses `SET ROLE`, asserts exact SQLSTATE `42501` for both browser roles across the new helper and finalizers, checks `has_function_privilege`, and successfully executes as `service_role`. Targeted output: 1 test, 1 pass, 0 fail, exit 0. |
++| Normal host close and order timing | PASS | [live-auction-audit-hardening.sql:36-72](../../supabase/live-auction-audit-hardening.sql) closes/locks the winner and returns `orderId: null`; order creation is gated by winner confirmation in the highest-bid finalizer. The local lifecycle test in [test-auction-auto-cycle.cjs:39-84](../../scripts/test-auction-auto-cycle.cjs) confirms closed + `winner_locked_at`, null `order_id`, successor creation, exactly one order after confirmation, and an unaffected active successor. No immediate-order behavior was found, so no stop condition was triggered. |
++| Confirmation timestamp preservation | PASS | The pre-fix finalizer overwrote `closed_at` and `close_event_id` on confirmation. Forward-only [live-auction-confirmation-preservation.sql:40](../../supabase/live-auction-confirmation-preservation.sql) now uses `coalesce(a.closed_at, clock_timestamp())` and `coalesce(a.close_event_id, p_event)`. The lifecycle assertion verifies the original values survive confirmation. |
++| Stale pre-round confirmation | PASS | In [live-auction-auto-cycle.sql:160-175](../../supabase/live-auction-auto-cycle.sql), source-time validation now happens before a confirmation is queued as `awaiting_host_close`. The pre-fix test returned `awaiting_host_close` where `stale` was expected; the current full run passes the regression test. |
++| Dual-round target routing | PASS | [auction-server.ts:599-621](../../lib/features/commerce/auction-server.ts) first searches a closed, winner-locked, unconfirmed round for the sender and only assigns it when the message parses as confirmation. Otherwise [auction-server.ts:580-596,622](../../lib/features/commerce/auction-server.ts) selects the active round. Thus confirmation tags from the locked winner reach the prior round; numeric bids fall through to the active round. Dispatch to `process_live_auction_comment` is at line 697. Routing and replay tests pass in the full run. |
++| Cancellation, missing author, duplicate and non-winner edges | PASS | [test-auction-auto-cycle.cjs:128-149](../../scripts/test-auction-auto-cycle.cjs) covers cancellation, no order/successor, and author-less comments. Lines 39-84 cover early confirmation, non-winner confirmation, duplicate close/confirmation replay, and exactly-one-order behavior. |
++| Bank account scope on auto-cycle | FAIL / DESIGN DECISION REQUIRED | [advance_live_auction](../../supabase/live-auction-auto-cycle.sql:40-58) raises `BANK_SCOPE` when the saved bank account is null or inactive. Both cases are tested at [test-auction-auto-cycle.cjs:151-170](../../scripts/test-auction-auto-cycle.cjs) and roll back the entire host-close transaction: the round remains active/unlocked and no successor exists. No behavior change was made. Options: reject enabling auto-cycle unless a tenant-scoped active bank account is saved, or explicitly choose a prior-round bank fallback. |
++| Customer tab and tenant isolation | PASS | The order finalizer raises `AUCTION_CUSTOMER_TENANT` for a foreign customer at [live-auction-confirmation-preservation.sql:15](../../supabase/live-auction-confirmation-preservation.sql); `SELECT ... INTO STRICT` requires the order’s customer-tab attachment at line 20. Tests at [test-auction-auto-cycle.cjs:178-201](../../scripts/test-auction-auto-cycle.cjs) verify trigger failure rolls back confirmation/order and cross-tenant collisions produce `42501` with no order. |
++| True two-transaction confirmation race | UNVERIFIED | The `Promise.all` test at [test-auction-auto-cycle.cjs:163-175](../../scripts/test-auction-auto-cycle.cjs) produces exactly one order, but its PGlite fixture uses one database connection. It does not prove behavior under two independent PostgreSQL transactions. No local PostgreSQL, Docker, or Podman executable was available; no remote database was used. |
++| Migration order and idempotency | PASS | [build-full-database-setup.cjs:134-150,324-329](../../scripts/build-full-database-setup.cjs) orders the final auction sources through auto-cycle and confirmation preservation. The staging rehearsal and complete-schema tests apply the chain locally; `test-complete-schema.cjs` reruns the complete schema and checks that application data is preserved. `node scripts/build-full-database-setup.cjs --check` exits 0: 142 SQL sources, 124 included, 18 excluded, bundle size 1,193,117 bytes. |
++| Production `pg_get_functiondef` comparison | UNVERIFIED | No production database dump was present in the workspace/reports/supabase tree. The local rehearsal compares the staged final function to a fresh local installation, but no production comparison was attempted. |
++| On-demand winner source | PASS | [live-auction-on-demand.sql:127-135](../../supabase/live-auction-on-demand.sql) uses the locked auction row’s `leading_bidder_id`, `current_price`, and order fields to create the order. `auction_bids` is used for comment/bid history and idempotency, not as the authoritative winner source. `test-auction-on-demand.cjs` passes in the full run. |
++| Counting defaults | PASS | The schema defaults `countEnabled` to false (for example [complete_schema.sql:15237](../../supabase/complete_schema.sql)); the parser only counts when `countEnabled === true` at [auction-comment-parser.ts:48](../../lib/integrations/facebook/auction-comment-parser.ts). SQL/parser parity test passes. |
++| A3 diagnostic mutability | PASS | [a3-stalled-rounds.sql](./a3-stalled-rounds.sql) contains only a read-only `SELECT`, with no DML or repair statements. |
++| Poller and host-action coverage | PASS | [test-auction-poller-hardening.cjs:229-366](../../scripts/test-auction-poller-hardening.cjs) tests 250-comment pagination, overlap boundary, Graph error 100, missing authors, untrusted continuation hosts, and token sanitization. [test-auction-host-actions.cjs:6,187-213](../../scripts/test-auction-host-actions.cjs) imports the real parser and tests session count overrides. [LiveCommentPoller.tsx:49-65](../../components/live-cf/LiveCommentPoller.tsx) reports aggregate skip counts and stops on inaccessible videos; the dashboard shows re-selection guidance at [LiveSessionDashboard.tsx:447-455,502-505](../../components/live-cf/LiveSessionDashboard.tsx). |
++| Secret scan and `.env` handling | REVIEW | `node scripts/audit-credential-shapes.cjs` scans tracked/unignored files plus root `.env*` files and suppresses values. `.env.local` findings (all real-like, validity unverified): line 4 cron secret; 6 Meta App Secret shape; 9 Gemini API key; 10 internal API secret; 19 Meta Page access token shape; 38 Supabase JWT signing secret; 40 Supabase secret key shape; 42 Vercel OIDC token; 43 Live CF payment-link secret; 47 ZWIZ API key. No values were emitted or sent to a network. Test fixtures and a patch snapshot also match credential assignment patterns. `.env.local` exists, is ignored by `.gitignore:26`, and is not tracked (`git ls-files` reports only `.env.example`). |
++
++## API authorization table
++
++| Route | Authentication / scope evidence | Status |
++|---|---|---|
++| `/api/live-cf/setup` | `getActor` and owner `canAccessTenant` at [setup/route.ts:20-28](../../app/api/live-cf/setup/route.ts) | PASS |
++| `/api/live-cf/products` | `getActor` and staff `canAccessTenant` at [products/route.ts:12-19](../../app/api/live-cf/products/route.ts) | PASS |
++| `/api/live-cf/sessions` | `authorizeAuction` at [sessions/route.ts:43,108](../../app/api/live-cf/sessions/route.ts); write also checks actor at line 110 | PASS |
++| `/api/live-cf/auction` | `authorizeAuction` at [auction/route.ts:20,78](../../app/api/live-cf/auction/route.ts) | PASS |
++| `/api/live-cf/auction/timer` | `authorizeAuction` at [timer/route.ts:31,42](../../app/api/live-cf/auction/timer/route.ts) | PASS |
++| `/api/live-cf/auction/host-action` | owner authorization and same-origin write check through `authorizeAuction` at [host-action/route.ts:22](../../app/api/live-cf/auction/host-action/route.ts) | PASS |
++| `/api/live-cf/auction/close` | owner authorization and same-origin write check at [close/route.ts:11](../../app/api/live-cf/auction/close/route.ts); UI uses it for cancellation, while ordinary host close uses `host-action` | PASS |
++| `/api/live-cf/auction/poll-comments` | `getActor` and staff tenant access at [poll-comments/route.ts:56,71](../../app/api/live-cf/auction/poll-comments/route.ts) | PASS |
++| `/api/live-cf/payment-variant` | Signed capability token verified at [payment-variant/route.ts:37](../../app/api/live-cf/payment-variant/route.ts); no login is required by design, and the verified order is passed to the scoped RPC | PASS |
++| `/api/live-auction/workspace` | Owner authorization at [workspace/route.ts:72,156](../../app/api/live-auction/workspace/route.ts); service-role DB client is server-only | PASS |
++| `/api/cron/facebook-webhooks` | Timing-safe cron bearer check at [facebook-webhooks/route.ts:14-20](../../app/api/cron/facebook-webhooks/route.ts) | PASS; pre-existing/out of scope |
++
++## Full-suite comparison
++
++Commands:
++
++```text
++node reports/auction-audit/run-suite.cjs 'C:\Users\Victus\Downloads\chat-dashboard2-with-env (2)' current-final
++node reports/auction-audit/run-suite.cjs 'C:\Users\Victus\AppData\Local\Temp\live-cf-audit-start-e6cc3de' baseline-start
++```
++
++Actual runner summaries:
++
++```text
++current-final: code 1, 1021 tests, 1008 pass, 13 fail
++baseline-start: code 1, 1013 tests, 954 pass, 59 fail
++shared failures: 13; baseline-only: 46; current-only: 0
++```
++
++Current failing tests by suite file:
++
++| Suite file | Failed tests | Category |
++|---|---:|---|
++| `scripts/test-admin-feature-bypass.cjs` | 1 | Admin/feature access |
++| `scripts/test-agent-control.cjs` | 1 | Agent control |
++| `scripts/test-billing-slip-topups.cjs` | 1 | Billing/top-up behavior |
++| `scripts/test-broadcast-policy.cjs` | 2 | Broadcast policy |
++| `scripts/test-feature-restoration.cjs` | 1 | Feature restoration |
++| `scripts/test-followup-and-broadcast.cjs` | 1 | Follow-up/broadcast |
++| `scripts/test-followups-paused.cjs` | 1 | Follow-up navigation fixture |
++| `scripts/test-gemini-ai-agent.cjs` | 1 | Gemini agent routing |
++| `scripts/test-inbox-reply-isolation.cjs` | 1 | Inbox/agent dependency fixture |
++| `scripts/test-overview-fetch.cjs` | 1 | Overview fetching |
++| `scripts/test-slip-settings.cjs` | 1 | Slip settings |
++| `scripts/test-smart-inbox-api.cjs` | 1 | Smart Inbox API |
++| **Total** | **13** | All 13 also fail on baseline |
++
++All 13 remaining failures also occur on baseline. The 46 baseline-only failures include bundle/schema checks and Facebook send/slip tests whose stale mock dependencies were corrected in this work. Current auction lifecycle, poller, webhook, migration, and slip-confirmation tests pass; there are zero current-only failures. The full repository suite still exits 1 on the 13 baseline-shared failures, so the repository as a whole is not green.
++
++## Test output evidence
++
++```text
++npm.cmd test (outside sandbox): tests 131, pass 131, fail 0, exit 0
++node --test --test-name-pattern='auto-cycle finalizer permissions' scripts/test-auction-auto-cycle.cjs:
++  tests 1, pass 1, fail 0, exit 0
++node --test scripts/test-auction-workspace-api.cjs:
++  tests 1, pass 1, fail 0, exit 0
++node --test scripts/test-auction-degraded-form.cjs:
++  tests 1, pass 1, fail 0, exit 0
++node --test --test-name-pattern='null or inactive successor bank' scripts/test-auction-auto-cycle.cjs:
++  tests 1, pass 1, fail 0, exit 0
++node --test --test-concurrency=1 scripts/test-slip-automatic-gate.cjs scripts/test-slip-messenger-confirmation.cjs scripts/test-restored-exports.cjs scripts/test-facebook-send-diagnostics.cjs scripts/test-sensitive-logging.cjs:
++  tests 65, pass 65, fail 0, exit 0
++node --test --test-concurrency=1 scripts/test-auction-*.cjs scripts/test-live-auction*.cjs:
++  tests 136, pass 136, fail 0, exit 0
++```
++
++The complete-suite logs contain the raw TAP output and per-test names. The pre-fix UI and API assertion failures were also run and observed before the green current tests.
++
++The final full-suite TAP run occurred before the bank-account test was expanded to exercise both null and inactive configuration in one test. That expanded final-source test was then run independently and passed (1/1); the application SQL did not change after the full-suite run.
++
++## Scope decisions and limitations
++
++- No cron route was changed; its existing `expire_live_auctions_report` invocation was audited separately.
++- The inactive-bank auto-cycle failure is documented for a product decision; no fallback or save-time restriction was introduced.
++- PGlite `Promise.all` coverage is not evidence of two independent concurrent PostgreSQL transactions.
++- No production database dump was supplied, so production function-definition comparison is unavailable.
++- No Phase 2 identity work, deployment, production migration, or live Meta request was started.
+diff --git a/reports/security-audit-queries.sql b/reports/security-audit-queries.sql
+new file mode 100644
+--- /dev/null
++++ b/reports/security-audit-queries.sql
+@@ -0,0 +1,77 @@
++-- Read-only Supabase security diagnostics. Every statement is SELECT-only.
++
++-- Row-level security status for auction and order-processing tables.
++with core_tables(table_name) as (
++  values
++    ('auctions'),
++    ('auction_bids'),
++    ('auction_deliveries'),
++    ('auction_poll_cursors'),
++    ('auction_winner_claims'),
++    ('customer_tabs'),
++    ('customers'),
++    ('facebook_webhook_events'),
++    ('live_sessions'),
++    ('messages'),
++    ('orders')
++)
++select
++  core_tables.table_name,
++  coalesce(c.relrowsecurity, false) as rls_enabled,
++  coalesce(c.relforcerowsecurity, false) as rls_forced,
++  c.relkind as relation_kind
++from core_tables
++left join pg_catalog.pg_class c on c.relname = core_tables.table_name
++left join pg_catalog.pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
++where c.oid is null or n.oid is not null
++order by core_tables.table_name;
++
++-- Policies, including target roles and both policy predicates.
++select
++  schemaname,
++  tablename,
++  policyname,
++  permissive,
++  roles,
++  cmd,
++  qual,
++  with_check
++from pg_catalog.pg_policies
++where schemaname = 'public'
++  and tablename = any(array[
++    'auctions',
++    'auction_bids',
++    'auction_deliveries',
++    'auction_poll_cursors',
++    'auction_winner_claims',
++    'customer_tabs',
++    'customers',
++    'facebook_webhook_events',
++    'live_sessions',
++    'messages',
++    'orders'
++  ])
++order by tablename, policyname;
++
++-- Effective EXECUTE privileges for auction functions by API role.
++select
++  p.oid::regprocedure as function_signature,
++  has_function_privilege('anon', p.oid, 'EXECUTE') as anon_execute,
++  has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_execute,
++  has_function_privilege('service_role', p.oid, 'EXECUTE') as service_role_execute
++from pg_catalog.pg_proc p
++join pg_catalog.pg_namespace n on n.oid = p.pronamespace
++where n.nspname = 'public'
++  and p.proname = any(array[
++    'finalize_live_auction',
++    'finalize_live_auction_highest_bid',
++    'normalize_auction_settings_before_split',
++    'process_live_auction_comment',
++    'process_live_auction_highest_bid',
++    'advance_live_auction',
++    'expire_live_auctions',
++    'expire_live_auctions_report',
++    'close_due_live_auction',
++    'start_legacy_auction_timer'
++  ])
++order by p.proname, p.oid::regprocedure::text;
+diff --git a/scripts/audit-credential-shapes.cjs b/scripts/audit-credential-shapes.cjs
+new file mode 100644
+--- /dev/null
++++ b/scripts/audit-credential-shapes.cjs
+@@ -0,0 +1,80 @@
++const fs = require('node:fs')
++const path = require('node:path')
++const { execFileSync } = require('node:child_process')
++
++const root = process.cwd()
++const patterns = [
++  ['META_ACCESS_TOKEN', /\bEA[A-Za-z0-9]{50,}\b/g],
++  ['SUPABASE_SECRET_KEY', /\bsb_secret_[A-Za-z0-9_-]{20,}\b/g],
++  ['APP_OR_CLIENT_SECRET', /\b(?:app|client)[_-]?secret\s*[:=]\s*["']?([a-f0-9]{32})/gi],
++  [
++    'CREDENTIAL_ASSIGNMENT_LITERAL',
++    /\b(access[_-]?token|refresh[_-]?token|api[_-]?key|service[_-]?role[_-]?key|password|private[_-]?key|secret)\s*[:=]\s*(["'])([A-Za-z0-9_./+=-]{20,})\2/gi,
++  ],
++  [
++    'ENV_CREDENTIAL_ASSIGNMENT',
++    /^\s*([A-Za-z_][A-Za-z0-9_]*(?:TOKEN|SECRET|API_KEY|PASSWORD|PRIVATE_KEY))\s*=\s*([^\s#]{20,})/i,
++  ],
++]
++const findings = []
++
++function isFixture(relativePath, line) {
++  return (
++    /\/(?:tests?|fixtures?|mocks?|examples?)\//i.test(`/${relativePath}`) ||
++    /(?:^|\/)test-[^/]+\.(?:cjs|mjs|js|ts)$/i.test(relativePath) ||
++    /\.env\.example$/i.test(relativePath) ||
++    /dummy|placeholder|replace[_ -]?me|your[_ -]?(?:key|token|secret)|example[_ -]?(?:key|token|secret)/i.test(line)
++  )
++}
++
++const trackedAndUnignored = execFileSync('git', ['ls-files', '-co', '--exclude-standard'], {
++  cwd: root,
++  encoding: 'utf8',
++})
++  .split(/\r?\n/)
++  .filter(Boolean)
++const environmentFiles = fs
++  .readdirSync(root)
++  .filter((name) => name === '.env' || name.startsWith('.env.'))
++const files = new Set([...trackedAndUnignored, ...environmentFiles])
++
++for (const relativePath of files) {
++  const absolutePath = path.join(root, relativePath)
++  let content
++  try {
++    if (fs.statSync(absolutePath).size > 5_000_000) continue
++    content = fs.readFileSync(absolutePath, 'utf8')
++  } catch {
++    continue
++  }
++  const lines = content.split(/\r?\n/)
++  for (let index = 0; index < lines.length; index++) {
++    for (const [category, pattern] of patterns) {
++      if (category === 'ENV_CREDENTIAL_ASSIGNMENT' && !/^\.env(?:\.|$)/i.test(path.basename(relativePath)))
++        continue
++      pattern.lastIndex = 0
++      const match = pattern.exec(lines[index])
++      if (!match) continue
++      findings.push({
++        path: relativePath.replaceAll('\\', '/'),
++        line: index + 1,
++        category,
++        key:
++          category === 'ENV_CREDENTIAL_ASSIGNMENT'
++            ? match[1]
++            : category === 'CREDENTIAL_ASSIGNMENT_LITERAL'
++              ? match[1]
++              : undefined,
++        classification: isFixture(relativePath, lines[index])
++          ? 'fixture-or-placeholder'
++          : 'real-like-unverified',
++      })
++    }
++  }
++}
++
++console.log(`Sanitized credential-shape scan: ${findings.length} matches`)
++for (const finding of findings)
++  console.log(
++    `${finding.path}:${finding.line} ${finding.category}${finding.key ? ` key=${finding.key}` : ''} ${finding.classification} (value suppressed)`,
++  )
+diff --git a/supabase/live-auction-confirmation-preservation.sql b/supabase/live-auction-confirmation-preservation.sql
+new file mode 100644
+--- /dev/null
++++ b/supabase/live-auction-confirmation-preservation.sql
+@@ -0,0 +1,52 @@
++-- Preserve the host close time and event when the locked winner later confirms.
++begin;
++create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
++returns jsonb language plpgsql set search_path=pg_catalog,public as $$
++declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
++begin
++ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
++ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
++ if a.status<>'active' and not (a.status='closed' and a.winner_locked_at is not null and a.winner_confirmation_comment_id is not null and a.order_id is null) then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
++ if not p_cancel and a.leading_bidder_id is not null then
++  insert into public.customers(platform,platform_user_id,tenant_id,display_name)
++   values('facebook',a.leading_bidder_id,a.tenant_id,a.leading_bidder_name)
++   on conflict(platform,platform_user_id) do update set tenant_id=coalesce(customers.tenant_id,excluded.tenant_id)
++   returning * into c;
++  if c.tenant_id is distinct from a.tenant_id then raise exception 'AUCTION_CUSTOMER_TENANT' using errcode='42501';end if;
++  -- The existing order trigger attaches CF/auction items to the same tab under its row lock.
++  insert into public.orders(tenant_id,customer_id,product_name,amount,source,source_id,live_bank_account_id)
++   values(a.tenant_id,c.id,a.item_name,a.current_price+a.shipping_fee,'live_auction',a.id::text,a.bank_account_id)
++   returning id into oid;
++  select t.* into strict tab from public.customer_tabs t join public.orders o on o.customer_tab_id=t.id where o.id=oid;
++  update public.customers set conversation_status='open',
++    conversation_version=conversation_version+1,
++    order_status=case when tab.remaining_amount>0 then 'pending_review' else 'paid' end
++   where id=c.id;
++  -- This is a local activity note, never an invented Messenger send or inbound message.
++  -- Do not extend last_message_at/window_expires_at/inbound_seq from an auction.
++  insert into public.messages(customer_id,external_id,sender,body,delivery_status)
++   values(c.id,'auction-event:'||a.id::text,'bot',
++    'บันทึกระบบ: ชนะประมูล '||a.item_name||' - '||case when tab.remaining_amount>0 then 'รอชำระเงิน' else 'ชำระครบแล้ว' end||
++    ' • ยอดคงเหลือสุทธิ '||tab.remaining_amount::text||' บาท',null)
++   on conflict(external_id) do nothing;
++  if a.private_reply_enabled then
++   insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'private',a.leading_comment_id);
++   insert into public.messages(customer_id,external_id,sender,body,delivery_status)
++    values(c.id,'auction-bill:'||a.id::text,'bot','รอส่งสรุปยอดประมูล '||a.item_name||' เข้า Messenger','pending')
++    on conflict(external_id) do nothing;
++  end if;
++ end if;
++ update public.auctions set status=case when p_cancel then 'cancelled' else 'closed' end,
++  closed_at=coalesce(a.closed_at,clock_timestamp()),close_event_id=coalesce(a.close_event_id,p_event),order_id=oid where id=a.id;
++ if not p_cancel and a.public_reply_enabled and a.leading_bidder_id is not null and a.session_automation ? 'closeKeywords' then
++  insert into public.auction_deliveries(auction_id,channel,comment_id) values(a.id,'public',a.leading_comment_id) on conflict(auction_id,channel) where claim_id is null do nothing;
++ elsif p_event is not null and not p_cancel and a.public_reply_enabled then
++  insert into public.auction_deliveries(auction_id,channel,comment_id)
++   select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
++ end if;
++ return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
++end $$;
++revoke execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated;
++grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role;
++notify pgrst,'reload schema';
++commit;
+diff --git a/tests/features/commerce/auction-settings-status.test.ts b/tests/features/commerce/auction-settings-status.test.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/features/commerce/auction-settings-status.test.ts
+@@ -0,0 +1,14 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++import { auctionSettingsStatus } from '../../../lib/features/commerce/auction-settings-status.ts'
++
++test('auction settings status reports loaded settings, loading, and failure without claiming auction automation is working', () => {
++  assert.deepEqual(auctionSettingsStatus(false, false), {
++    label: 'โหลดการตั้งค่าแล้ว',
++    badgeClass: 'bg-emerald-500 text-white',
++    dotClass: 'bg-white',
++  })
++  assert.equal(auctionSettingsStatus(true, false).label, 'กำลังตรวจสอบการตั้งค่า')
++  assert.equal(auctionSettingsStatus(true, true).label, 'ตรวจสอบการตั้งค่าไม่ได้')
++  assert.notEqual(auctionSettingsStatus(true, true).badgeClass, 'bg-emerald-500 text-white')
++})

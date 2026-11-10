@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 138 ไฟล์: รวมตาม dependencies 120 ไฟล์ และแยกไว้ 18 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 140 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 144 ไฟล์: รวมตาม dependencies 126 ไฟล์ และแยกไว้ 18 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 146 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1146261 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1260150 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1000429 bytes, 16072 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1089242 bytes, 17802 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -156,7 +156,13 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 117. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
 118. [inbox-realtime-access.sql](inbox-realtime-access.sql) — 13 statements retained
 119. [live-auction-deadlines.sql](live-auction-deadlines.sql) — 24 statements retained
-120. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 10 statements retained
+120. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 14 statements retained
+121. [live-auction-audit-hardening-2.sql](live-auction-audit-hardening-2.sql) — 11 statements retained
+122. [live-auction-manual-host-close.sql](live-auction-manual-host-close.sql) — 4 statements retained
+123. [live-auction-auto-cycle.sql](live-auction-auto-cycle.sql) — 14 statements retained
+124. [live-auction-confirmation-preservation.sql](live-auction-confirmation-preservation.sql) — 4 statements retained
+125. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
+126. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -289,6 +295,12 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | inbox-realtime-access.sql | facebook-message-echoes.sql, feature-access.sql |
 | live-auction-deadlines.sql | facebook-comment-configuration.sql, live-auction-production-readiness.sql |
 | live-auction-audit-hardening.sql | facebook-comment-configuration.sql, live-auction-on-demand.sql, live-auction-deadlines.sql |
+| live-auction-audit-hardening-2.sql | live-auction-audit-hardening.sql, live-auction-deadlines.sql |
+| live-auction-manual-host-close.sql | live-auction-audit-hardening-2.sql, live-auction-deadlines.sql |
+| live-auction-auto-cycle.sql | live-auction-manual-host-close.sql, facebook-comment-configuration.sql |
+| live-auction-confirmation-preservation.sql | live-auction-auto-cycle.sql |
+| rpc-execution-hardening.sql | live-auction-confirmation-preservation.sql |
+| inbox-owner-takeover.sql | rpc-execution-hardening.sql, inbox-actions.sql, automation-safety.sql, inbox-messenger-window.sql |
 | inbox-load-indexes.sql | inbox-realtime.sql |
 | facebook-inbox-recovery.sql | facebook-webhook-queue.sql, smart-inbox.sql |
 | live-cf-variants.sql | commerce-v2.sql, facebook-webhook-queue.sql |
@@ -514,4 +526,10 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - facebook-message-echoes.sql: `b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2`
 - inbox-realtime-access.sql: `f2c1e283a073b6967c64b37378a09ec179baedca837587b19efc0163a780ab65`
 - live-auction-deadlines.sql: `ff20250c88520e5d08cf02ae057320554e181632961dc97dcb954829cd2894db`
-- live-auction-audit-hardening.sql: `960f8300baa2e0e101066a9bf4ec743e48c189d502058f49dd406ab179f1a7f9`
+- live-auction-audit-hardening.sql: `2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83`
+- live-auction-audit-hardening-2.sql: `046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6`
+- live-auction-manual-host-close.sql: `2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02`
+- live-auction-auto-cycle.sql: `036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e`
+- live-auction-confirmation-preservation.sql: `f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084`
+- rpc-execution-hardening.sql: `68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983`
+- inbox-owner-takeover.sql: `464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f`

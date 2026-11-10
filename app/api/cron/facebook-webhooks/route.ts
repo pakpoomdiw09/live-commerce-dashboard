@@ -1,22 +1,18 @@
 import { singleFlight } from '@/lib/single-flight'
-import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { runFacebookWebhookWorker } from '@/lib/integrations/facebook/webhook-worker'
 import { handleFacebookWebhookEvent } from '@/lib/integrations/facebook/webhook-handler'
 import { deliverAuctionNotifications } from '@/lib/features/commerce/auction-server'
 import { deliverShippingTrackingNotifications } from '@/lib/features/shipping/shipping-notifications'
+import { verifyCronAuth } from '@/lib/security/cron-auth'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
 export const dynamic = 'force-dynamic'
 
 async function run(req: NextRequest) {
-  const secret = (process.env.CRON_SECRET || process.env.INTERNAL_API_SECRET || '').trim()
-  const authorization = req.headers.get('authorization') ?? ''
-  const expected = Buffer.from(`Bearer ${secret}`),
-    received = Buffer.from(authorization)
-  if (!secret || expected.length !== received.length || !timingSafeEqual(expected, received)) {
+  if (!verifyCronAuth(req)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   try {

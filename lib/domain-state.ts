@@ -7,6 +7,7 @@ export const LEGACY_SLIP_STATES = [
   'fake',
   'wrong_receiver',
   'error',
+  'rejected',
 ] as const
 export type LegacySlipState = (typeof LEGACY_SLIP_STATES)[number]
 export const LEGACY_CUSTOMER_ORDER_STATES = [

@@ -1,6 +1,6 @@
 import 'server-only'
 import { NextResponse, type NextRequest } from 'next/server'
-import { getActor, canAccessTenant } from '@/lib/auth'
+import { getActor, canAccessTenant, tenantRole, roleAtLeast } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { hasFeature } from '@/lib/feature-access'
 import {
@@ -21,6 +21,16 @@ export class InboxError extends Error {
     super(message)
   }
 }
+
+/** Owners and platform admins may take over any conversation in an authorized tenant. */
+export async function canManageInboxTeam(
+  actor: Awaited<ReturnType<typeof getActor>>,
+  tenantId: string,
+) {
+  if (!actor) return false
+  return roleAtLeast(await tenantRole(actor, tenantId), 'owner')
+}
+
 export function inboxError(error: unknown) {
   if (!(error instanceof InboxError)) {
     logInboxError('request', error)

@@ -18,6 +18,8 @@ function fixture(fetch) {
     fetch,
     console: { error: (...args) => logs.push(args) },
     require: (name) => {
+      if (name === '@/lib/features/commerce/comment-config')
+        return require('./helpers/load-typescript.cjs')('lib/features/commerce/comment-config.ts')
       assert.equal(name, '@/lib/safe-logging')
       return { createLogRequestId: () => 'test-request', logSafeEvent() {}, maskErrorCode() {} }
     },
