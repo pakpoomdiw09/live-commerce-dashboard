@@ -46,8 +46,6 @@ async function fixture(installSql) {
     winnerFlow: 'highest_bid',
     keywords: ['confirm'],
     closeKeywords: ['close'],
-    countEnabled: true,
-    counting_tags: { 'last call': '3' },
     closeEnabled: true,
     privateReply: false,
     publicReply: false,

@@ -61,8 +61,6 @@ const blankSessionAutomation = (bankAccountId = ''): SessionAutomation => ({
   privateText: '',
   closeText: '',
   bankAccountId,
-  countEnabled: false,
-  counting_tags: {},
   autoCycleRounds: true,
   closeEnabled: false,
   heartCloses: false,
@@ -593,23 +591,6 @@ export function AuctionUnifiedForm({
                       normalize={normalizeCloseKeyword}
                       disabled={disabled}
                     />
-                  </div>
-                  <div className="space-y-3 rounded-xl border border-slate-200 p-3">
-                    <LiveSwitch checked={draft.settings.countEnabled}
-                      onChange={(value) => edit({ settings: { ...draft.settings, countEnabled: value } })}
-                      label="เปิดคำสั่งนับของโฮสต์" disabled={disabled} />
-                    <AuctionKeywordEditor label="คำนับของโฮสต์ (เช่น 5, 4, 3, 2, 1 หรือนับ 1)" kind="bid"
-                      keywords={Object.keys(draft.settings.counting_tags ?? {})}
-                      onChange={(value) => {
-                        const previous = draft.settings.counting_tags ?? {}
-                        const tags = typeof value === 'function' ? value(Object.keys(previous)) : value
-                        edit({ settings: { ...draft.settings, counting_tags: Object.fromEntries(tags.map(tag => [tag, previous[tag] ?? tag])) } })
-                      }}
-                      onEdited={() => setNotice('')} normalize={normalizeBidKeyword} disabled={disabled} />
-                    <LiveSwitch checked={draft.settings.autoCycleRounds ?? true}
-                      onChange={(value) => edit({ settings: { ...draft.settings, autoCycleRounds: value } })}
-                      label="เปิดรอบถัดไปอัตโนมัติเมื่อโฮสต์ปิดรอบ" disabled={disabled} />
-                    <p className="text-xs text-slate-500">กดบันทึกเพื่อใช้แม่แบบรอบถัดไป เมื่อมีบิดแล้ว ราคาของรอบปัจจุบันจะไม่เปลี่ยน</p>
                   </div>
                   <p className="text-xs leading-relaxed text-slate-500">
                     ขณะเปิดรอบ คำดักใช้เคาะราคา หลังปิดรอบ ผู้ชนะพิมพ์คำเดิมอีกครั้งเพื่อรับยอด

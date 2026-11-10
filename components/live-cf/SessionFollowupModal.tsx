@@ -44,7 +44,8 @@ export function SessionFollowupModal({
   const [scope, setScope] = useState<'all' | 'selected'>(selected.length ? 'selected' : 'all')
   const [template, setTemplate] = useState(displayFollowup(SESSION_FOLLOWUP_TEMPLATE)),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState('')
+    [error, setError] = useState(''),
+    [queued, setQueued] = useState<number | null>(null)
   const request = useRef(crypto.randomUUID())
   const targets = tabs.filter(
     (tab) => Number(tab.remaining) > 0 && (scope === 'all' || selected.includes(tab.id)),
@@ -69,7 +70,7 @@ export function SessionFollowupModal({
               name="reminder-target"
               value={option.value}
               checked={scope === option.value}
-              disabled={busy}
+              disabled={busy || queued !== null}
               onChange={() => {
                 setScope(option.value)
                 request.current = crypto.randomUUID()
@@ -88,7 +89,7 @@ export function SessionFollowupModal({
             const key = variable.tag.slice(1, -1)
             return { tag: `{${followupLabels[key]}}`, label: followupLabels[key] }
           })}
-          disabled={busy}
+          disabled={busy || queued !== null}
           maxLength={1500}
           rows={6}
           onChange={(value) => {
@@ -176,12 +177,12 @@ export function SessionFollowupModal({
         <button
           type="button"
           className={orange}
-          disabled={busy || !targets.length || !validSessionTemplate(storeFollowup(template))}
+          disabled={busy || queued !== null || !targets.length || !validSessionTemplate(storeFollowup(template))}
           onClick={async () => {
             setBusy(true)
             setError('')
             try {
-              await post(
+              const result = await post(
                 {
                   action: 'remind',
                   tabIds: scope === 'all' ? null : targets.map((tab) => tab.id),
@@ -189,7 +190,11 @@ export function SessionFollowupModal({
                 },
                 request.current,
               )
-              onClose()
+              if (!Number.isSafeInteger(result.queued) || (result.queued ?? 0) < 1) {
+                throw new Error('ไม่มีรายการค้างที่เข้าเงื่อนไขส่ง ระบบยังไม่ได้เพิ่มรายการเข้าคิว')
+              }
+              setQueued(result.queued!)
+              setError('')
             } catch (cause) {
               setError(cause instanceof Error ? cause.message : 'ส่งแจ้งยอดไม่สำเร็จ')
             } finally {
@@ -197,9 +202,14 @@ export function SessionFollowupModal({
             }
           }}
         >
-          {busy ? 'กำลังเข้ารายการรอส่ง…' : 'ส่งแจ้งยอด'}
+          {busy ? 'กำลังเข้าคิว…' : queued !== null ? `เข้าคิวแล้ว ${queued} รายการ` : 'ส่งแจ้งยอด'}
         </button>
       </div>
+      {queued !== null && (
+        <p role="status" className="text-sm text-emerald-700">
+          เข้าคิวแจ้งยอดแล้ว {queued} รายการ ระบบจะตรวจสิทธิ์และส่งข้อความ คุณปิดหน้าต่างนี้ได้ และตรวจผลจากสถานะแจ้งยอด
+        </p>
+      )}
     </SessionDialog>
   )
 }

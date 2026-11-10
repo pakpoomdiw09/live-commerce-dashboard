@@ -27,7 +27,6 @@ function draftFrom(session: LiveSession, bankId?: string): SessionAutomation {
     ...initial,
     keywords: initial.keywords ?? [],
     closeKeywords: initial.closeKeywords ?? [],
-    countEnabled: false,
     heartCloses: false,
     bidText: displaySessionTemplate(initial.closeKeywords ? initial.bidText : initial.closeText),
     privateText: displaySessionTemplate(initial.privateText),

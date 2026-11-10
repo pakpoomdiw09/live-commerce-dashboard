@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     if (
       typeof input.auctionId !== 'string' ||
       !UUID.test(input.auctionId) ||
-      !['3', '2', '1', 'close'].includes(input.action)
+      input.action !== 'close'
     )
       return auctionReply({ error: 'คำสั่งประมูลไม่ถูกต้อง' }, 400)
     const db = supabaseAdmin({ timeoutMs: 15000 })
@@ -54,9 +54,7 @@ export async function POST(req: NextRequest) {
     )
     if (
       automation &&
-      (input.action === 'close'
-        ? automation.closeEnabled === false
-        : automation.countEnabled !== true)
+      automation.closeEnabled === false
     )
       return auctionReply({ error: 'คำสั่งนี้ปิดไว้ในค่าตั้งค่า Session' }, 409)
     const tenant = await db
@@ -73,12 +71,7 @@ export async function POST(req: NextRequest) {
     if (!token)
       return auctionReply({ error: 'กรุณาเชื่อมต่อ Facebook Page ใหม่ก่อนส่งคอมเมนต์' }, 409)
     const tags = automation
-    const command =
-      input.action === 'close'
-        ? (tags.closeKeywords[0] ?? null)
-        : (Object.entries(tags.counting_tags ?? {}).find(
-            ([, count]) => String(count) === input.action,
-          )?.[0] ?? input.action)
+    const command = tags.closeKeywords[0] ?? null
     const parsed =
       typeof command === 'string'
         ? parseAuctionComment(command, true, tags as Parameters<typeof parseAuctionComment>[2])
@@ -86,9 +79,7 @@ export async function POST(req: NextRequest) {
     if (
       typeof command !== 'string' ||
       parsed.type !== 'HOST_CONTROL' ||
-      (input.action === 'close'
-        ? parsed.action !== 'close'
-        : parsed.action !== 'count' || parsed.count !== input.action)
+      parsed.action !== 'close'
     )
       return auctionReply({ error: 'แท็กคำสั่งไม่ตรงกับการตั้งค่า Session' }, 409)
     let receipt: { id?: unknown }

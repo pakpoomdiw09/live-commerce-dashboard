@@ -80,8 +80,6 @@ test('canonical session tags override aliases, normalize Unicode and use central
       closing_tags: ['stop'],
       keywords: ['legacy'],
       opening_tags: [' START '],
-      counting_tags: { ' COUNT ': 'last' },
-      countEnabled: true,
     },
   )
   assert.deepEqual(settings.keywords, ['ready'])
@@ -89,13 +87,11 @@ test('canonical session tags override aliases, normalize Unicode and use central
   assert.equal(
     parseAuctionComment('READY', false, {
       ...settings,
-      countEnabled: true,
       closeEnabled: true,
       heartCloses: false,
     }).type,
     'CONFIRM_BID',
   )
-  assert.deepEqual(settings.counting_tags, { count: 'last' })
   const refreshed = resolveCommentSettings(
     { auction_settings: { keywords: ['NEW'], closeKeywords: ['FINISH'] } },
     { confirmation_tags: ['stale'], closing_tags: ['stale'] },

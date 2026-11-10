@@ -17007,6 +17007,7 @@ execute $sql_119_7$revoke all on public.auction_poll_cursors from public,anon,au
 execute $sql_119_8$grant all on public.auction_poll_cursors to service_role$sql_119_8$;
 
 -- live-auction-audit-hardening.sql: source statement 9
+begin
 execute $sql_119_9$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;locked_at timestamptz;
@@ -17051,8 +17052,13 @@ begin
  end if;
  return jsonb_build_object('status','closed','orderId',null);
 end $$$sql_119_9$;
+exception when invalid_function_definition then
+  -- A newer signature of finalize_live_auction(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-audit-hardening.sql: source statement 10
+begin
 execute $sql_119_10$create or replace function public.close_due_live_auction(
  p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
@@ -17074,6 +17080,10 @@ begin
  ) then return jsonb_build_object('status','draining');end if;
  return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);
 end $$$sql_119_10$;
+exception when invalid_function_definition then
+  -- A newer signature of close_due_live_auction(uuid,uuid,boolean,boolean) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-audit-hardening.sql: source statement 11
 begin
@@ -17249,10 +17259,15 @@ begin
 end $$$sql_120_7$;
 
 -- live-auction-audit-hardening-2.sql: source statement 8
+begin
 execute $sql_120_8$create or replace function public.expire_live_auctions(p_tenant uuid default null)
 returns integer language sql set search_path=pg_catalog,public as $$
  select (public.expire_live_auctions_report(p_tenant)->>'closed')::integer
 $$$sql_120_8$;
+exception when invalid_function_definition then
+  -- A newer signature of expire_live_auctions(uuid) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-audit-hardening-2.sql: source statement 9
 execute $sql_120_9$revoke all on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) from public,anon,authenticated$sql_120_9$;
@@ -17454,6 +17469,7 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
 $$$sql_122_6$;
 
 -- live-auction-auto-cycle.sql: source statement 7
+begin
 execute $sql_122_7$create or replace function public.auction_host_command(message text,settings jsonb)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare line text;count_value text;last_count text;closing text[];
@@ -17474,6 +17490,10 @@ begin
  end loop;
  return case when last_count is null then jsonb_build_object('action','ignore') else jsonb_build_object('action','count','count',last_count) end;
 end $$$sql_122_7$;
+exception when invalid_function_definition then
+  -- A newer signature of auction_host_command(text,jsonb) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-auto-cycle.sql: source statement 8
 execute $sql_122_8$create or replace function public.advance_live_auction(p_auction uuid,p_tenant uuid,p_event uuid)
@@ -17510,6 +17530,7 @@ begin
 end $$$sql_122_8$;
 
 -- live-auction-auto-cycle.sql: source statement 9
+begin
 execute $sql_122_9$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
@@ -17562,8 +17583,13 @@ begin
  update public.auction_workspace_requests set input=p_input where tenant_id=p_tenant and request_id=p_request;
  return result;
 end $$$sql_122_9$;
+exception when invalid_function_definition then
+  -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-auto-cycle.sql: source statement 10
+begin
 execute $sql_122_10$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
@@ -17663,6 +17689,10 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
  return r;
 end $$$sql_122_10$;
+exception when invalid_function_definition then
+  -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- live-auction-auto-cycle.sql: source statement 11
 execute $sql_122_11$revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
@@ -17757,8 +17787,612 @@ execute $sql_123_5$notify pgrst,'reload schema'$sql_123_5$;
     values('live-auction-confirmation-preservation.sql','4cb447fb8d25ea35932e398701e60ef4a183496382b7e37dba6bfd5025b66f16','f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084');
 end $migration_123$;
 
--- 125. rpc-execution-hardening.sql
+-- 125. live-auction-remove-host-countdown.sql
 do $migration_124$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-remove-host-countdown.sql';
+  if found then
+    if installed <> 'b854d87762461a97878bb7037325f791a98c1397481102ff3b89b3000a1e6bd6' then
+      raise exception 'Applied migration changed: live-auction-remove-host-countdown.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-remove-host-countdown.sql: source statement 2
+execute $sql_124_2$alter table public.auctions drop column if exists host_count$sql_124_2$;
+
+-- live-auction-remove-host-countdown.sql: source statement 3
+execute $sql_124_3$alter table public.auctions drop constraint if exists auctions_status_check$sql_124_3$;
+
+-- live-auction-remove-host-countdown.sql: source statement 4
+execute $sql_124_4$alter table public.auctions add constraint auctions_status_check check(status in ('active','closed','cancelled','expired'))$sql_124_4$;
+
+-- live-auction-remove-host-countdown.sql: source statement 7
+execute $sql_124_7$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;locked_at timestamptz;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if a.status in ('closed','expired','cancelled') then
+  return jsonb_build_object('status',a.status,'orderId',a.order_id,'winnerId',a.leading_bidder_id);
+ end if;
+ if p_cancel then
+  update public.auctions set status='cancelled',closed_at=coalesce(closed_at,clock_timestamp()),close_event_id=coalesce(close_event_id,p_event)
+   where id=a.id;
+  return jsonb_build_object('status','cancelled','orderId',null);
+ end if;
+ locked_at:=clock_timestamp();
+ update public.auctions set status='closed',closed_at=locked_at,close_event_id=coalesce(p_event,close_event_id),
+  winner_locked_at=locked_at,winner_confirmation_comment_id=null,winner_confirmation_event_id=null,winner_confirmed_at=null
+  where id=a.id;
+ return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',a.leading_bidder_id,'closedAt',locked_at);
+end $$$sql_124_7$;
+
+-- live-auction-remove-host-countdown.sql: source statement 8
+execute $sql_124_8$create or replace function public.close_due_live_auction(p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if a.status<>'active' then return jsonb_build_object('status',a.status,'orderId',a.order_id);end if;
+ if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then return jsonb_build_object('status','not_due');end if;
+ if p_cancel then return public.finalize_live_auction(a.id,a.tenant_id,null,true);end if;
+ return public.finalize_live_auction(a.id,a.tenant_id,null,false);
+end $$$sql_124_8$;
+
+-- live-auction-remove-host-countdown.sql: source statement 9
+execute $sql_124_9$revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.close_due_live_auction(uuid,uuid,boolean,boolean) from public,anon,authenticated$sql_124_9$;
+
+-- live-auction-remove-host-countdown.sql: source statement 10
+execute $sql_124_10$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role$sql_124_10$;
+
+-- live-auction-remove-host-countdown.sql: source statement 11
+execute $sql_124_11$create or replace function public.auction_host_command(message text,settings jsonb)
+returns jsonb language plpgsql immutable set search_path=pg_catalog,public as $$
+declare line text;closing text[];
+begin
+ closing:=public.auction_comment_tags(settings,'closeKeywords','');
+ for line in select public.normalize_auction_tag(v) from regexp_split_to_table(coalesce(message,''),E'[\r\n]+') v loop
+  continue when line='';
+  if coalesce((settings->>'closeEnabled')::boolean,true) and line=any(closing) then
+   return jsonb_build_object('action','close');
+  end if;
+  return jsonb_build_object('action','ignore');
+ end loop;
+ return jsonb_build_object('action','ignore');
+end $$$sql_124_11$;
+
+-- live-auction-remove-host-countdown.sql: source statement 12
+execute $sql_124_12$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
+begin
+ if p_request is null or p_actor is null then raise exception 'INVALID_REQUEST';end if;
+ p_input:=p_input||jsonb_build_object('settings',coalesce(p_input->'settings','{}'::jsonb)-'countEnabled'-'counting_tags');
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant::text||':auction-workspace',0));
+ select * into prior from public.auction_workspace_requests where tenant_id=p_tenant and request_id=p_request;
+ if found then
+  if prior.actor_id<>p_actor or prior.input<>p_input then raise exception 'REQUEST_REUSED' using errcode='40001';end if;
+  return prior.result;
+ end if;
+ update public.auctions set status='expired' where tenant_id=p_tenant and page_id=p_input->>'pageId'
+  and live_post_id=p_input->>'livePostId' and status='closed' and winner_confirmation_comment_id is null
+  and closed_at<=clock_timestamp()-interval '5 minutes';
+ if p_input->>'roundId' is null and exists(select 1 from public.auctions where tenant_id=p_tenant
+  and page_id=p_input->>'pageId' and live_post_id=p_input->>'livePostId' and status='closed'
+  and winner_confirmation_comment_id is null and closed_at>clock_timestamp()-interval '5 minutes') then
+  raise exception 'AUCTION_CONFIRMATION_WINDOW_ACTIVE' using errcode='55000';
+ end if;
+ if jsonb_typeof(p_input->'settings'->'autoCycleRounds') is not null and jsonb_typeof(p_input->'settings'->'autoCycleRounds')<>'boolean' then raise exception 'INVALID_SETTINGS';end if;
+ cycling:=coalesce((p_input->'settings'->>'autoCycleRounds')::boolean,false);
+ effective:=p_input||jsonb_build_object('settings',coalesce(p_input->'settings','{}'::jsonb)||jsonb_build_object('winnerFlow','on_demand'));
+ if cycling then
+  if coalesce(length(btrim(p_input->>'itemName')),0) not between 1 and 200
+   or coalesce((p_input->>'startPrice')::numeric,0) not between 0.01 and 999999999
+   or coalesce((p_input->>'minStep')::numeric,0) not between 0.01 and 999999999
+   or coalesce((p_input->>'shippingFee')::numeric,-1) not between 0 and 999999 then raise exception 'INVALID_ROUND';end if;
+  select * into a from public.auctions where tenant_id=p_tenant and page_id=p_input->>'pageId' and live_post_id=p_input->>'livePostId' and status='active' for update;
+  if a.leading_bidder_id is not null then
+   if a.bank_account_id is distinct from (p_input->'settings'->>'bankAccountId')::uuid then raise exception 'BIDS_ALREADY_ACCEPTED';end if;
+   effective:=p_input||jsonb_build_object('itemName',a.item_name,'startPrice',a.start_price,'minStep',a.min_step,'shippingFee',a.shipping_fee);
+  end if;
+ end if;
+ if cycling or (p_input ? 'durationSeconds' and p_input->'durationSeconds'='null'::jsonb) then duration:=null;
+ else
+  duration:=coalesce((p_input->>'durationSeconds')::integer,300);
+  if duration not between 30 and 86400 then raise exception 'AUCTION_DURATION_INVALID' using errcode='23514';end if;
+ end if;
+ result:=public.save_auction_workspace_without_deadline(p_tenant,p_actor,p_request,effective);
+ if duration is null then
+  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active';
+ else
+  update public.auctions set duration_seconds=duration,timer_started_at=coalesce(timer_started_at,clock_timestamp()),
+   ends_at=coalesce(timer_started_at,clock_timestamp())+make_interval(secs=>duration)
+   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active' and (duration_seconds is distinct from duration or ends_at is null);
+ end if;
+ update public.live_sessions set comment_settings=coalesce(comment_settings,'{}')||(p_input->'settings')||
+  jsonb_build_object('public_reply_template',p_input->'settings'->>'bidText','private_reply_template',p_input->'settings'->>'privateText'),
+  auction_round_template=jsonb_build_object('itemName',btrim(p_input->>'itemName'),
+  'startPrice',(p_input->>'startPrice')::numeric,'minStep',(p_input->>'minStep')::numeric,'shippingFee',(p_input->>'shippingFee')::numeric)
+  where id=(result->>'sessionId')::uuid and tenant_id=p_tenant;
+ -- Preserve original request identity when the active round's bid prices were protected.
+ update public.auction_workspace_requests set input=p_input where tenant_id=p_tenant and request_id=p_request;
+ update public.live_sessions set auction_settings=coalesce(auction_settings,'{}'::jsonb)-'countEnabled'-'counting_tags',
+  comment_settings=coalesce(comment_settings,'{}'::jsonb)-'countEnabled'-'counting_tags'
+  where id=(result->>'sessionId')::uuid and tenant_id=p_tenant;
+ update public.auctions set session_automation=coalesce(session_automation,'{}'::jsonb)-'countEnabled'-'counting_tags'
+  where id=(result->>'auctionId')::uuid and tenant_id=p_tenant;
+ return result;
+end $$$sql_124_12$;
+
+-- live-auction-remove-host-countdown.sql: source statement 13
+begin
+execute $sql_124_13$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
+ sender text;cid text;bidder text;amount numeric;minimum numeric;outcome text;
+ b public.auction_bids;c public.customers;claim public.auction_winner_claims;o public.orders;
+ oid uuid;confirming boolean;host boolean;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';bidder:=nullif(left(trim(v->'from'->>'name'),200),'');
+ if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then
+  return jsonb_build_object('status','ignored');
+ end if;
+ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id'
+  or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then
+  raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';
+ end if;
+ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+ if found then return prior;end if;
+ -- Ordering is a receipt/lease invariant, never a close-time or winner eligibility cutoff.
+ if exists(select 1 from public.auction_bids receipt_bid join public.auctions processed on processed.id=receipt_bid.auction_id
+  where processed.tenant_id=p_tenant and processed.page_id=a.page_id and processed.live_post_id=a.live_post_id
+   and (receipt_bid.event_id=e.id or receipt_bid.comment_id=cid)) then
+  return jsonb_build_object('status','ignored','reason','COMMENT_ALREADY_PROCESSED');
+ end if;
+ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id
+  and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then
+  raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';
+ end if;
+ host:=sender=a.page_id or sender=any(a.host_ids);
+ confirming:=not host and a.status='closed' and a.winner_locked_at is not null and a.winner_confirmation_comment_id is null
+  and not exists(select 1 from public.auctions newer where newer.tenant_id=a.tenant_id and newer.page_id=a.page_id
+   and newer.live_post_id=a.live_post_id and newer.status='active' and newer.created_at>a.closed_at)
+  and public.normalize_auction_tag(v->>'message')=any(public.auction_comment_tags(coalesce(a.session_automation,'{}'::jsonb),'keywords','1'));
+ outcome:='ignored';
+ if a.status='closed' and a.closed_at is not null and clock_timestamp()>=a.closed_at+interval '5 minutes' and a.winner_confirmation_comment_id is null then
+  update public.auctions set status='expired' where id=a.id;
+  a.status:='expired';r:=jsonb_build_object('status','expired','reason','CONFIRMATION_WINDOW_EXPIRED');outcome:='expired';
+ end if;
+ if a.status='cancelled' then r:=jsonb_build_object('status','ignored','reason','ROUND_CANCELLED');
+ elsif host then
+  if a.status='active' and coalesce((a.session_automation->>'closeEnabled')::boolean,true)
+   and public.auction_close_keyword_matches(v->>'message',a.session_automation->'closeKeywords') then
+   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=e.id,winner_locked_at=clock_timestamp(),
+    winner_confirmation_comment_id=null,winner_confirmation_event_id=null,winner_confirmed_at=null
+    where id=a.id returning * into a;
+   outcome:='closed';r:=jsonb_build_object('status','awaiting_confirmation','auctionId',a.id,'closedAt',a.closed_at);
+  end if;
+ elsif confirming and a.status='closed' and a.winner_confirmation_comment_id is null then
+  if clock_timestamp()>=a.closed_at+interval '5 minutes' then
+   update public.auctions set status='expired' where id=a.id and status='closed' and winner_confirmation_comment_id is null;
+   r:=jsonb_build_object('status','expired','reason','CONFIRMATION_WINDOW_EXPIRED');outcome:='expired';
+  else
+  -- Use only successful numeric bids made by THIS sender in THIS round.
+  select * into b from public.auction_bids where auction_id=a.id and bidder_id=sender and bid_amount>0 and status='accepted'
+   and not is_opening and bid_amount=public.auction_numeric_price(comment_text)
+   order by bid_amount desc,id limit 1;
+  if not found then r:=jsonb_build_object('status','ignored','reason','NO_BID_HISTORY');
+  else
+   select * into claim from public.auction_winner_claims where auction_id=a.id and bidder_id=sender for update;
+   if found and exists(select 1 from public.auction_deliveries where claim_id=claim.id and status in ('sending','requires_review')) then
+    raise exception 'AUCTION_CLAIM_DELIVERY_BUSY' using errcode='40001';
+   end if;
+   if claim.id is not null then
+    select * into o from public.orders where id=claim.order_id and tenant_id=p_tenant and customer_id=claim.customer_id for update;
+    if o.status='cancelled' or (b.bid_amount<>claim.highest_amount and (o.status in ('paid','shipped') or o.paid_amount>0)) then
+     r:=jsonb_build_object('status','settled','reason','BILL_REQUIRES_REVIEW');
+    end if;
+   end if;
+   if r is null then
+    insert into public.customers(platform,platform_user_id,tenant_id,display_name)
+     values('facebook',sender,a.tenant_id,coalesce(bidder,b.bidder_name,sender))
+     on conflict(platform,platform_user_id) do update set tenant_id=coalesce(customers.tenant_id,excluded.tenant_id)
+     returning * into c;
+    if c.tenant_id is distinct from a.tenant_id then raise exception 'AUCTION_CUSTOMER_TENANT' using errcode='42501';end if;
+    if claim.id is null then
+     insert into public.auction_winner_claims(tenant_id,auction_id,customer_id,bidder_id,bidder_name,highest_bid_id,highest_amount)
+      values(p_tenant,a.id,c.id,sender,coalesce(bidder,c.display_name),b.id,b.bid_amount) returning * into claim;
+     insert into public.orders(tenant_id,customer_id,product_name,amount,item_amount,source,source_id,live_bank_account_id,live_auction_id)
+      values(p_tenant,c.id,a.item_name,b.bid_amount+a.shipping_fee,b.bid_amount,'live_auction',a.id::text||':claim:'||sender,a.bank_account_id,a.id)
+      returning id into oid;
+    else
+     oid:=claim.order_id;
+     if b.bid_amount<>claim.highest_amount then
+      update public.orders as target set amount=target.amount+b.bid_amount-target.item_amount,item_amount=b.bid_amount where target.id=oid;
+     end if;
+    end if;
+    update public.customer_tab_items set auction_id=a.id,winning_bid_id=b.id where order_id=oid;
+    update public.messages set delivery_status='failed' where delivery_status='pending'
+     and external_id in (select 'auction-claim:'||claim.id::text||':'||d.claim_revision::text
+      from public.auction_deliveries d where d.claim_id=claim.id and d.channel='private' and d.status='pending');
+    update public.auction_winner_claims set order_id=oid,highest_bid_id=b.id,highest_amount=b.bid_amount,
+     bidder_name=coalesce(bidder,c.display_name),revision=revision+1,updated_at=clock_timestamp() where id=claim.id returning * into claim;
+    -- Supersede only unsent older summaries; delivered or ambiguous sends are never blindly replayed.
+    update public.auction_deliveries set status='superseded' where claim_id=claim.id and status='pending';
+     insert into public.auction_deliveries(auction_id,channel,comment_id,claim_id,claim_revision)
+      values(a.id,'private',cid,claim.id,claim.revision);
+     insert into public.messages(customer_id,external_id,sender,body,delivery_status)
+      values(c.id,'auction-claim:'||claim.id::text||':'||claim.revision::text,'bot','รอส่งสรุปบิลจากยอดเคาะของลูกค้า','pending');
+
+    if a.public_reply_enabled then
+     insert into public.auction_deliveries(auction_id,channel,comment_id,claim_id,claim_revision)
+      values(a.id,'public',cid,claim.id,claim.revision);
+    end if;
+    update public.auctions set leading_bidder_id=sender,leading_bidder_name=claim.bidder_name,leading_comment_id=b.comment_id,
+     winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp(),order_id=oid
+     where id=a.id and status='closed' and winner_confirmation_comment_id is null
+      and closed_at>=clock_timestamp()-interval '5 minutes';
+    if not found then raise exception 'AUCTION_CONFIRMATION_CLOSED' using errcode='40001';end if;
+    outcome:='claimed';
+    r:=jsonb_build_object('status','confirmed','amount',b.bid_amount,'name',claim.bidder_name,'claimId',claim.id,'orderId',oid,'auctionId',a.id);
+   end if;
+  end if;
+  end if;
+ elsif a.status='active' and not host and p_kind in ('NUMERIC_BID','OPENING_BID','STEP_BID') then
+  minimum:=case when a.leading_bidder_id is null then a.start_price else a.current_price+a.min_step end;
+  if p_kind='OPENING_BID' and a.leading_bidder_id is not null then
+   outcome:='already_opened';amount:=a.current_price;
+  else
+   amount:=case when p_kind='OPENING_BID' then a.start_price when p_kind='STEP_BID' then minimum else public.auction_numeric_price(v->>'message') end;
+   outcome:=case when amount is not null and amount>=minimum and amount<=999999999 and amount=round(amount,2) then 'accepted' else 'too_low' end;
+   if outcome='accepted' then
+    update public.auctions set current_price=amount,leading_bidder_id=sender,leading_bidder_name=bidder,leading_comment_id=cid where id=a.id;
+   end if;
+  end if;
+  r:=jsonb_build_object('status',outcome,'amount',coalesce(amount,a.current_price),'minimum',minimum,'name',bidder,'isOpening',p_kind='OPENING_BID');
+ end if;
+ r:=coalesce(r,jsonb_build_object('status',outcome));
+ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+  values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),case when confirming or host then null else amount end,false,outcome,r);
+ return r;
+end $$$sql_124_13$;
+exception when invalid_function_definition then
+  -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
+  null;
+end;
+
+-- live-auction-remove-host-countdown.sql: source statement 14
+execute $sql_124_14$create or replace function public.expire_live_auctions(p_tenant uuid default null)
+returns integer language plpgsql set search_path=pg_catalog,public as $$
+declare a record;result jsonb;expired_count integer:=0;
+begin
+ for a in select id,tenant_id,status from public.auctions
+  where (p_tenant is null or tenant_id=p_tenant) and (
+   (status='active' and ends_at is not null and ends_at<=clock_timestamp()) or
+   (status='closed' and winner_confirmation_comment_id is null and closed_at<=clock_timestamp()-interval '5 minutes'))
+  order by coalesce(ends_at,closed_at) limit 100 for update skip locked
+ loop
+  begin
+   if a.status='closed' then
+    update public.auctions set status='expired' where id=a.id and status='closed' and winner_confirmation_comment_id is null;
+    if found then expired_count:=expired_count+1;end if;
+   else
+    result:=public.close_due_live_auction(a.id,a.tenant_id);
+    if result->>'status'='closed' then expired_count:=expired_count+1;end if;
+   end if;
+  exception when others then
+   raise warning 'Auction % expiry failed [%]: %',a.id,sqlstate,sqlerrm;
+  end;
+ end loop;
+ return expired_count;
+end $$$sql_124_14$;
+
+-- live-auction-remove-host-countdown.sql: source statement 15
+execute $sql_124_15$revoke all on function public.expire_live_auctions(uuid) from public,anon,authenticated$sql_124_15$;
+
+-- live-auction-remove-host-countdown.sql: source statement 16
+execute $sql_124_16$grant execute on function public.expire_live_auctions(uuid) to service_role$sql_124_16$;
+
+-- live-auction-remove-host-countdown.sql: source statement 17
+execute $sql_124_17$notify pgrst,'reload schema'$sql_124_17$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-remove-host-countdown.sql','b854d87762461a97878bb7037325f791a98c1397481102ff3b89b3000a1e6bd6','a3aef979ddeb2e31911ae9c907dc587ba0c8101a49026758a53c3b72bd2f83e7');
+end $migration_124$;
+
+-- 126. live-auction-sync-winner-price.sql
+do $migration_125$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-sync-winner-price.sql';
+  if found then
+    if installed <> '7e9c9f4fa208803799e291aa17d4e8dc36f449bc58205c1e24310fc58cb45699' then
+      raise exception 'Applied migration changed: live-auction-sync-winner-price.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-sync-winner-price.sql: source statement 1
+execute $sql_125_1$create or replace function public.sync_live_auction_confirmed_price()
+returns trigger
+language plpgsql
+set search_path=pg_catalog,public
+as $$
+declare confirmed_amount numeric;
+begin
+ if new.winner_confirmation_comment_id is not null
+  and new.winner_confirmation_comment_id is distinct from old.winner_confirmation_comment_id then
+  select highest_amount into confirmed_amount
+   from public.auction_winner_claims
+   where auction_id=new.id and bidder_id=new.leading_bidder_id;
+  if confirmed_amount is not null then
+   new.current_price:=confirmed_amount;
+  end if;
+ end if;
+ return new;
+end $$$sql_125_1$;
+
+-- live-auction-sync-winner-price.sql: source statement 2
+execute $sql_125_2$drop trigger if exists auctions_sync_confirmed_winner_price on public.auctions$sql_125_2$;
+
+-- live-auction-sync-winner-price.sql: source statement 3
+execute $sql_125_3$create trigger auctions_sync_confirmed_winner_price
+before update of winner_confirmation_comment_id on public.auctions
+for each row execute function public.sync_live_auction_confirmed_price()$sql_125_3$;
+
+-- live-auction-sync-winner-price.sql: source statement 4
+execute $sql_125_4$notify pgrst,'reload schema'$sql_125_4$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-sync-winner-price.sql','7e9c9f4fa208803799e291aa17d4e8dc36f449bc58205c1e24310fc58cb45699','6f88f0e4f8843d0a0d5efa89d66b5b419e8313a3c407581ee0e184a36f601599');
+end $migration_125$;
+
+-- 127. live-auction-designated-winner.sql
+do $migration_126$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-designated-winner.sql';
+  if found then
+    if installed <> '4f18222c1c3cfa2086042c6c0eefa89bb4113f5e4397b3f7b7cfd32bb3058d63' then
+      raise exception 'Applied migration changed: live-auction-designated-winner.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-designated-winner.sql: source statement 1
+execute $sql_126_1$alter table public.auctions add column if not exists winner_designated_bidder_id text, add column if not exists winner_designated_at timestamptz$sql_126_1$;
+
+-- live-auction-designated-winner.sql: source statement 2
+execute $sql_126_2$create or replace function public.designate_live_auction_winner(p_auction uuid,p_tenant uuid,p_bidder text)
+returns jsonb language plpgsql security definer set search_path=pg_catalog,public as $$
+declare a public.auctions;winner_amount numeric;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ if a.status<>'closed' or a.winner_confirmation_comment_id is not null or a.closed_at<=clock_timestamp()-interval '5 minutes' then
+  raise exception 'AUCTION_WINNER_DESIGNATION_CLOSED' using errcode='55000';
+ end if;
+ if a.winner_designated_bidder_id is not null then
+  if a.winner_designated_bidder_id<>p_bidder then raise exception 'AUCTION_WINNER_ALREADY_DESIGNATED' using errcode='55000';end if;
+  select max(bid_amount) into winner_amount from public.auction_bids where auction_id=a.id and bidder_id=p_bidder and status='accepted' and bid_amount>0 and not is_opening and bid_amount=public.auction_numeric_price(comment_text);
+  return jsonb_build_object('status','designated','bidderId',p_bidder,'amount',winner_amount);
+ end if;
+ select max(bid_amount) into winner_amount from public.auction_bids where auction_id=a.id and bidder_id=p_bidder and status='accepted' and bid_amount>0 and not is_opening and bid_amount=public.auction_numeric_price(comment_text);
+ if winner_amount is null then raise exception 'AUCTION_WINNER_HAS_NO_VALID_BID' using errcode='22023';end if;
+ update public.auctions set winner_designated_bidder_id=p_bidder,winner_designated_at=clock_timestamp() where id=a.id;
+ return jsonb_build_object('status','designated','bidderId',p_bidder,'amount',winner_amount);
+end $$$sql_126_2$;
+
+-- live-auction-designated-winner.sql: source statement 3
+execute $sql_126_3$revoke all on function public.designate_live_auction_winner(uuid,uuid,text) from public,anon,authenticated$sql_126_3$;
+
+-- live-auction-designated-winner.sql: source statement 4
+execute $sql_126_4$grant execute on function public.designate_live_auction_winner(uuid,uuid,text) to service_role$sql_126_4$;
+
+-- live-auction-designated-winner.sql: source statement 5
+execute $sql_126_5$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
+ sender text;cid text;bidder text;amount numeric;minimum numeric;outcome text;
+ b public.auction_bids;c public.customers;claim public.auction_winner_claims;o public.orders;
+ oid uuid;confirming boolean;host boolean;
+begin
+ select * into a from public.auctions where id=p_auction and tenant_id=p_tenant for update;
+ if not found then raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';end if;
+ select * into e from public.facebook_webhook_events where id=p_event and page_id=a.page_id;
+ if not found or e.kind<>'change' then raise exception 'AUCTION_EVENT_INVALID' using errcode='42501';end if;
+ v:=e.payload->'value';sender:=v->'from'->>'id';cid:=v->>'comment_id';bidder:=nullif(left(trim(v->'from'->>'name'),200),'');
+ if sender is null or cid is null or v->>'verb' is distinct from 'add' or coalesce(v->>'item','') not in ('comment','live_comment') then
+  return jsonb_build_object('status','ignored');
+ end if;
+ if not coalesce((a.live_post_id=regexp_replace(v->>'post_id','^.*_','') or a.live_post_id=v->>'video_id'
+  or a.live_post_id=v->>'live_video_id' or v->>'post_id'=any(a.live_post_aliases)),false) then
+  raise exception 'AUCTION_POST_MISMATCH' using errcode='42501';
+ end if;
+ select result into prior from public.auction_bids where auction_id=a.id and comment_id=cid;
+ if found then return prior;end if;
+ -- Ordering is a receipt/lease invariant, never a close-time or winner eligibility cutoff.
+ if exists(select 1 from public.auction_bids receipt_bid join public.auctions processed on processed.id=receipt_bid.auction_id
+  where processed.tenant_id=p_tenant and processed.page_id=a.page_id and processed.live_post_id=a.live_post_id
+   and (receipt_bid.event_id=e.id or receipt_bid.comment_id=cid)) then
+  return jsonb_build_object('status','ignored','reason','COMMENT_ALREADY_PROCESSED');
+ end if;
+ if exists(select 1 from public.facebook_webhook_events older where older.page_id=e.page_id
+  and older.ordering_key=e.ordering_key and older.sequence<e.sequence and older.status in ('pending','processing')) then
+  raise exception 'AUCTION_EVENT_OUT_OF_ORDER' using errcode='40001';
+ end if;
+ host:=sender=a.page_id or sender=any(a.host_ids);
+ confirming:=not host and a.status='closed' and a.winner_locked_at is not null and a.winner_confirmation_comment_id is null
+  and not exists(select 1 from public.auctions newer where newer.tenant_id=a.tenant_id and newer.page_id=a.page_id
+   and newer.live_post_id=a.live_post_id and newer.status='active' and newer.created_at>a.closed_at)
+  and a.winner_designated_bidder_id=sender
+   and public.normalize_auction_tag(v->>'message')=any(public.auction_comment_tags(coalesce(a.session_automation,'{}'::jsonb),'keywords','1'));
+ outcome:='ignored';
+ if a.status='closed' and a.closed_at is not null and clock_timestamp()>=a.closed_at+interval '5 minutes' and a.winner_confirmation_comment_id is null then
+  update public.auctions set status='expired' where id=a.id;
+  a.status:='expired';r:=jsonb_build_object('status','expired','reason','CONFIRMATION_WINDOW_EXPIRED');outcome:='expired';
+ end if;
+ if a.status='cancelled' then r:=jsonb_build_object('status','ignored','reason','ROUND_CANCELLED');
+ elsif host then
+  if a.status='active' and coalesce((a.session_automation->>'closeEnabled')::boolean,true)
+   and public.auction_close_keyword_matches(v->>'message',a.session_automation->'closeKeywords') then
+   update public.auctions set status='closed',closed_at=clock_timestamp(),close_event_id=e.id,winner_locked_at=clock_timestamp(),
+    winner_confirmation_comment_id=null,winner_confirmation_event_id=null,winner_confirmed_at=null
+    where id=a.id returning * into a;
+   outcome:='closed';r:=jsonb_build_object('status','awaiting_confirmation','auctionId',a.id,'closedAt',a.closed_at);
+  end if;
+ elsif confirming and a.status='closed' and a.winner_confirmation_comment_id is null then
+  if clock_timestamp()>=a.closed_at+interval '5 minutes' then
+   update public.auctions set status='expired' where id=a.id and status='closed' and winner_confirmation_comment_id is null;
+   r:=jsonb_build_object('status','expired','reason','CONFIRMATION_WINDOW_EXPIRED');outcome:='expired';
+  else
+  -- Use only successful numeric bids made by THIS sender in THIS round.
+  select * into b from public.auction_bids where auction_id=a.id and bidder_id=sender and bid_amount>0 and status='accepted'
+   and not is_opening and bid_amount=public.auction_numeric_price(comment_text)
+   order by bid_amount desc,id limit 1;
+  if not found then r:=jsonb_build_object('status','ignored','reason','NO_BID_HISTORY');
+  else
+   select * into claim from public.auction_winner_claims where auction_id=a.id and bidder_id=sender for update;
+   if found and exists(select 1 from public.auction_deliveries where claim_id=claim.id and status in ('sending','requires_review')) then
+    raise exception 'AUCTION_CLAIM_DELIVERY_BUSY' using errcode='40001';
+   end if;
+   if claim.id is not null then
+    select * into o from public.orders where id=claim.order_id and tenant_id=p_tenant and customer_id=claim.customer_id for update;
+    if o.status='cancelled' or (b.bid_amount<>claim.highest_amount and (o.status in ('paid','shipped') or o.paid_amount>0)) then
+     r:=jsonb_build_object('status','settled','reason','BILL_REQUIRES_REVIEW');
+    end if;
+   end if;
+   if r is null then
+    insert into public.customers(platform,platform_user_id,tenant_id,display_name)
+     values('facebook',sender,a.tenant_id,coalesce(bidder,b.bidder_name,sender))
+     on conflict(platform,platform_user_id) do update set tenant_id=coalesce(customers.tenant_id,excluded.tenant_id)
+     returning * into c;
+    if c.tenant_id is distinct from a.tenant_id then raise exception 'AUCTION_CUSTOMER_TENANT' using errcode='42501';end if;
+    if claim.id is null then
+     insert into public.auction_winner_claims(tenant_id,auction_id,customer_id,bidder_id,bidder_name,highest_bid_id,highest_amount)
+      values(p_tenant,a.id,c.id,sender,coalesce(bidder,c.display_name),b.id,b.bid_amount) returning * into claim;
+     insert into public.orders(tenant_id,customer_id,product_name,amount,item_amount,source,source_id,live_bank_account_id,live_auction_id)
+      values(p_tenant,c.id,a.item_name,b.bid_amount+a.shipping_fee,b.bid_amount,'live_auction',a.id::text||':claim:'||sender,a.bank_account_id,a.id)
+      returning id into oid;
+    else
+     oid:=claim.order_id;
+     if b.bid_amount<>claim.highest_amount then
+      update public.orders as target set amount=target.amount+b.bid_amount-target.item_amount,item_amount=b.bid_amount where target.id=oid;
+     end if;
+    end if;
+    update public.customer_tab_items set auction_id=a.id,winning_bid_id=b.id where order_id=oid;
+    update public.messages set delivery_status='failed' where delivery_status='pending'
+     and external_id in (select 'auction-claim:'||claim.id::text||':'||d.claim_revision::text
+      from public.auction_deliveries d where d.claim_id=claim.id and d.channel='private' and d.status='pending');
+    update public.auction_winner_claims set order_id=oid,highest_bid_id=b.id,highest_amount=b.bid_amount,
+     bidder_name=coalesce(bidder,c.display_name),revision=revision+1,updated_at=clock_timestamp() where id=claim.id returning * into claim;
+    -- Supersede only unsent older summaries; delivered or ambiguous sends are never blindly replayed.
+    update public.auction_deliveries set status='superseded' where claim_id=claim.id and status='pending';
+     insert into public.auction_deliveries(auction_id,channel,comment_id,claim_id,claim_revision)
+      values(a.id,'private',cid,claim.id,claim.revision);
+     insert into public.messages(customer_id,external_id,sender,body,delivery_status)
+      values(c.id,'auction-claim:'||claim.id::text||':'||claim.revision::text,'bot','รอส่งสรุปบิลจากยอดเคาะของลูกค้า','pending');
+
+    if a.public_reply_enabled then
+     insert into public.auction_deliveries(auction_id,channel,comment_id,claim_id,claim_revision)
+      values(a.id,'public',cid,claim.id,claim.revision);
+    end if;
+    update public.auctions set leading_bidder_id=sender,leading_bidder_name=claim.bidder_name,leading_comment_id=b.comment_id,
+     winner_confirmation_comment_id=cid,winner_confirmation_event_id=e.id,winner_confirmed_at=clock_timestamp(),order_id=oid,current_price=b.bid_amount
+     where id=a.id and status='closed' and winner_confirmation_comment_id is null
+      and closed_at>=clock_timestamp()-interval '5 minutes';
+    if not found then raise exception 'AUCTION_CONFIRMATION_CLOSED' using errcode='40001';end if;
+    outcome:='claimed';
+    r:=jsonb_build_object('status','confirmed','amount',b.bid_amount,'name',claim.bidder_name,'claimId',claim.id,'orderId',oid,'auctionId',a.id);
+   end if;
+  end if;
+  end if;
+ elsif a.status='active' and not host and p_kind in ('NUMERIC_BID','OPENING_BID','STEP_BID') then
+  minimum:=case when a.leading_bidder_id is null then a.start_price else a.current_price+a.min_step end;
+  if p_kind='OPENING_BID' and a.leading_bidder_id is not null then
+   outcome:='already_opened';amount:=a.current_price;
+  else
+   amount:=case when p_kind='OPENING_BID' then a.start_price when p_kind='STEP_BID' then minimum else public.auction_numeric_price(v->>'message') end;
+   outcome:=case when amount is not null and amount>=minimum and amount<=999999999 and amount=round(amount,2) then 'accepted' else 'too_low' end;
+   if outcome='accepted' then
+    update public.auctions set current_price=amount,leading_bidder_id=sender,leading_bidder_name=bidder,leading_comment_id=cid where id=a.id;
+   end if;
+  end if;
+  r:=jsonb_build_object('status',outcome,'amount',coalesce(amount,a.current_price),'minimum',minimum,'name',bidder,'isOpening',p_kind='OPENING_BID');
+ end if;
+ r:=coalesce(r,jsonb_build_object('status',outcome));
+ insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
+  values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),case when confirming or host then null else amount end,false,outcome,r);
+ return r;
+end $$$sql_126_5$;
+
+-- live-auction-designated-winner.sql: source statement 6
+execute $sql_126_6$revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_126_6$;
+
+-- live-auction-designated-winner.sql: source statement 7
+execute $sql_126_7$grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_126_7$;
+
+-- live-auction-designated-winner.sql: source statement 8
+execute $sql_126_8$notify pgrst,'reload schema'$sql_126_8$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-designated-winner.sql','4f18222c1c3cfa2086042c6c0eefa89bb4113f5e4397b3f7b7cfd32bb3058d63','b27817aefc5bdb8ae0fcf2b9e8227ea92aac6523c1454b0d1a86fdf772f15673');
+end $migration_126$;
+
+-- 128. live-auction-winner-candidates.sql
+do $migration_127$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='live-auction-winner-candidates.sql';
+  if found then
+    if installed <> 'd3cf7060076756137aa2ce44853da9e53c4d1d3316d6e2718d951b1e215e7dcb' then
+      raise exception 'Applied migration changed: live-auction-winner-candidates.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- live-auction-winner-candidates.sql: source statement 1
+execute $sql_127_1$create or replace function public.list_live_auction_winner_candidates(p_auction uuid,p_tenant uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path=pg_catalog,public
+as $$
+ select coalesce(
+  jsonb_agg(
+   jsonb_build_object('bidder_id',candidate.bidder_id,'bidder_name',candidate.bidder_name,'bid_amount',candidate.bid_amount)
+   order by candidate.bid_amount desc,candidate.bidder_id
+  ),
+  '[]'::jsonb
+ )
+ from (
+  select distinct on (b.bidder_id) b.bidder_id,b.bidder_name,b.bid_amount
+  from public.auction_bids b
+  join public.auctions a on a.id=b.auction_id and a.tenant_id=p_tenant
+  where a.id=p_auction and a.status='closed' and a.winner_confirmation_comment_id is null
+   and a.closed_at>clock_timestamp()-interval '5 minutes'
+   and b.status='accepted' and not b.is_opening and b.bidder_id is not null and b.bid_amount>0
+   and b.bid_amount=public.auction_numeric_price(b.comment_text)
+  order by b.bidder_id,b.bid_amount desc,b.created_at desc,b.id desc
+ ) candidate
+$$$sql_127_1$;
+
+-- live-auction-winner-candidates.sql: source statement 2
+execute $sql_127_2$revoke all on function public.list_live_auction_winner_candidates(uuid,uuid) from public,anon,authenticated$sql_127_2$;
+
+-- live-auction-winner-candidates.sql: source statement 3
+execute $sql_127_3$grant execute on function public.list_live_auction_winner_candidates(uuid,uuid) to service_role$sql_127_3$;
+
+-- live-auction-winner-candidates.sql: source statement 4
+execute $sql_127_4$notify pgrst,'reload schema'$sql_127_4$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('live-auction-winner-candidates.sql','d3cf7060076756137aa2ce44853da9e53c4d1d3316d6e2718d951b1e215e7dcb','3a5c8cbcc6ad4724b41261cdfc780fe82d91687b32136ae699760365c78ec8cb');
+end $migration_127$;
+
+-- 129. rpc-execution-hardening.sql
+do $migration_128$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='rpc-execution-hardening.sql';
@@ -17769,882 +18403,882 @@ begin
     return;
   end if;
 -- rpc-execution-hardening.sql: source statement 2
-execute $sql_124_2$set local lock_timeout = '2s'$sql_124_2$;
+execute $sql_128_2$set local lock_timeout = '2s'$sql_128_2$;
 
 -- rpc-execution-hardening.sql: source statement 3
-execute $sql_124_3$set local statement_timeout = '60s'$sql_124_3$;
+execute $sql_128_3$set local statement_timeout = '60s'$sql_128_3$;
 
 -- rpc-execution-hardening.sql: source statement 4
-execute $sql_124_4$alter default privileges for role postgres
-  revoke execute on functions from public, anon, authenticated$sql_124_4$;
+execute $sql_128_4$alter default privileges for role postgres
+  revoke execute on functions from public, anon, authenticated$sql_128_4$;
 
 -- rpc-execution-hardening.sql: source statement 5
-execute $sql_124_5$alter default privileges for role postgres in schema public
-  revoke execute on functions from public, anon, authenticated$sql_124_5$;
+execute $sql_128_5$alter default privileges for role postgres in schema public
+  revoke execute on functions from public, anon, authenticated$sql_128_5$;
 
 -- rpc-execution-hardening.sql: source statement 6
-execute $sql_124_6$revoke all on function public.act_follow_up_job(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_124_6$;
+execute $sql_128_6$revoke all on function public.act_follow_up_job(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_6$;
 
 -- rpc-execution-hardening.sql: source statement 7
-execute $sql_124_7$grant execute on function public.act_follow_up_job(uuid,uuid,uuid,text,text) to service_role$sql_124_7$;
+execute $sql_128_7$grant execute on function public.act_follow_up_job(uuid,uuid,uuid,text,text) to service_role$sql_128_7$;
 
 -- rpc-execution-hardening.sql: source statement 8
-execute $sql_124_8$revoke all on function public.act_payment_pro(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_124_8$;
+execute $sql_128_8$revoke all on function public.act_payment_pro(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_8$;
 
 -- rpc-execution-hardening.sql: source statement 9
-execute $sql_124_9$grant execute on function public.act_payment_pro(uuid,uuid,uuid,text,text) to service_role$sql_124_9$;
+execute $sql_128_9$grant execute on function public.act_payment_pro(uuid,uuid,uuid,text,text) to service_role$sql_128_9$;
 
 -- rpc-execution-hardening.sql: source statement 10
-execute $sql_124_10$revoke all on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) from public, anon, authenticated$sql_124_10$;
+execute $sql_128_10$revoke all on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) from public, anon, authenticated$sql_128_10$;
 
 -- rpc-execution-hardening.sql: source statement 11
-execute $sql_124_11$grant execute on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) to service_role$sql_124_11$;
+execute $sql_128_11$grant execute on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) to service_role$sql_128_11$;
 
 -- rpc-execution-hardening.sql: source statement 12
-execute $sql_124_12$revoke all on function public.advance_live_auction(uuid,uuid,uuid) from public, anon, authenticated$sql_124_12$;
+execute $sql_128_12$revoke all on function public.advance_live_auction(uuid,uuid,uuid) from public, anon, authenticated$sql_128_12$;
 
 -- rpc-execution-hardening.sql: source statement 13
-execute $sql_124_13$grant execute on function public.advance_live_auction(uuid,uuid,uuid) to service_role$sql_124_13$;
+execute $sql_128_13$grant execute on function public.advance_live_auction(uuid,uuid,uuid) to service_role$sql_128_13$;
 
 -- rpc-execution-hardening.sql: source statement 14
-execute $sql_124_14$revoke all on function public.agent_control_overview(uuid) from public, anon, authenticated$sql_124_14$;
+execute $sql_128_14$revoke all on function public.agent_control_overview(uuid) from public, anon, authenticated$sql_128_14$;
 
 -- rpc-execution-hardening.sql: source statement 15
-execute $sql_124_15$grant execute on function public.agent_control_overview(uuid) to service_role$sql_124_15$;
+execute $sql_128_15$grant execute on function public.agent_control_overview(uuid) to service_role$sql_128_15$;
 
 -- rpc-execution-hardening.sql: source statement 16
-execute $sql_124_16$revoke all on function public.agent_overview_stats(uuid,integer,timestamp with time zone) from public, anon, authenticated$sql_124_16$;
+execute $sql_128_16$revoke all on function public.agent_overview_stats(uuid,integer,timestamp with time zone) from public, anon, authenticated$sql_128_16$;
 
 -- rpc-execution-hardening.sql: source statement 17
-execute $sql_124_17$grant execute on function public.agent_overview_stats(uuid,integer,timestamp with time zone) to service_role$sql_124_17$;
+execute $sql_128_17$grant execute on function public.agent_overview_stats(uuid,integer,timestamp with time zone) to service_role$sql_128_17$;
 
 -- rpc-execution-hardening.sql: source statement 18
-execute $sql_124_18$revoke all on function public.apply_payment_pro(uuid,uuid) from public, anon, authenticated$sql_124_18$;
+execute $sql_128_18$revoke all on function public.apply_payment_pro(uuid,uuid) from public, anon, authenticated$sql_128_18$;
 
 -- rpc-execution-hardening.sql: source statement 19
-execute $sql_124_19$grant execute on function public.apply_payment_pro(uuid,uuid) to service_role$sql_124_19$;
+execute $sql_128_19$grant execute on function public.apply_payment_pro(uuid,uuid) to service_role$sql_128_19$;
 
 -- rpc-execution-hardening.sql: source statement 20
-execute $sql_124_20$revoke all on function public.approve_auction_payment_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_124_20$;
+execute $sql_128_20$revoke all on function public.approve_auction_payment_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_128_20$;
 
 -- rpc-execution-hardening.sql: source statement 21
-execute $sql_124_21$grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) to service_role$sql_124_21$;
+execute $sql_128_21$grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) to service_role$sql_128_21$;
 
 -- rpc-execution-hardening.sql: source statement 22
-execute $sql_124_22$revoke all on function public.auction_inbox_status(uuid,uuid[]) from public, anon, authenticated$sql_124_22$;
+execute $sql_128_22$revoke all on function public.auction_inbox_status(uuid,uuid[]) from public, anon, authenticated$sql_128_22$;
 
 -- rpc-execution-hardening.sql: source statement 23
-execute $sql_124_23$grant execute on function public.auction_inbox_status(uuid,uuid[]) to service_role$sql_124_23$;
+execute $sql_128_23$grant execute on function public.auction_inbox_status(uuid,uuid[]) to service_role$sql_128_23$;
 
 -- rpc-execution-hardening.sql: source statement 24
-execute $sql_124_24$revoke all on function public.basic_overview_stats(uuid,timestamp with time zone) from public, anon, authenticated$sql_124_24$;
+execute $sql_128_24$revoke all on function public.basic_overview_stats(uuid,timestamp with time zone) from public, anon, authenticated$sql_128_24$;
 
 -- rpc-execution-hardening.sql: source statement 25
-execute $sql_124_25$grant execute on function public.basic_overview_stats(uuid,timestamp with time zone) to service_role$sql_124_25$;
+execute $sql_128_25$grant execute on function public.basic_overview_stats(uuid,timestamp with time zone) to service_role$sql_128_25$;
 
 -- rpc-execution-hardening.sql: source statement 26
-execute $sql_124_26$revoke all on function public.begin_broadcast_transport(uuid,uuid,uuid) from public, anon, authenticated$sql_124_26$;
+execute $sql_128_26$revoke all on function public.begin_broadcast_transport(uuid,uuid,uuid) from public, anon, authenticated$sql_128_26$;
 
 -- rpc-execution-hardening.sql: source statement 27
-execute $sql_124_27$grant execute on function public.begin_broadcast_transport(uuid,uuid,uuid) to service_role$sql_124_27$;
+execute $sql_128_27$grant execute on function public.begin_broadcast_transport(uuid,uuid,uuid) to service_role$sql_128_27$;
 
 -- rpc-execution-hardening.sql: source statement 28
-execute $sql_124_28$revoke all on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public, anon, authenticated$sql_124_28$;
+execute $sql_128_28$revoke all on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_28$;
 
 -- rpc-execution-hardening.sql: source statement 29
-execute $sql_124_29$grant execute on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role$sql_124_29$;
+execute $sql_128_29$grant execute on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role$sql_128_29$;
 
 -- rpc-execution-hardening.sql: source statement 30
-execute $sql_124_30$revoke all on function public.broadcast_recipient_reason(uuid,uuid) from public, anon, authenticated$sql_124_30$;
+execute $sql_128_30$revoke all on function public.broadcast_recipient_reason(uuid,uuid) from public, anon, authenticated$sql_128_30$;
 
 -- rpc-execution-hardening.sql: source statement 31
-execute $sql_124_31$grant execute on function public.broadcast_recipient_reason(uuid,uuid) to service_role$sql_124_31$;
+execute $sql_128_31$grant execute on function public.broadcast_recipient_reason(uuid,uuid) to service_role$sql_128_31$;
 
 -- rpc-execution-hardening.sql: source statement 32
-execute $sql_124_32$revoke all on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_124_32$;
+execute $sql_128_32$revoke all on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_32$;
 
 -- rpc-execution-hardening.sql: source statement 33
-execute $sql_124_33$grant execute on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) to service_role$sql_124_33$;
+execute $sql_128_33$grant execute on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) to service_role$sql_128_33$;
 
 -- rpc-execution-hardening.sql: source statement 34
-execute $sql_124_34$revoke all on function public.claim_agent_message(uuid,uuid,uuid) from public, anon, authenticated$sql_124_34$;
+execute $sql_128_34$revoke all on function public.claim_agent_message(uuid,uuid,uuid) from public, anon, authenticated$sql_128_34$;
 
 -- rpc-execution-hardening.sql: source statement 35
-execute $sql_124_35$grant execute on function public.claim_agent_message(uuid,uuid,uuid) to service_role$sql_124_35$;
+execute $sql_128_35$grant execute on function public.claim_agent_message(uuid,uuid,uuid) to service_role$sql_128_35$;
 
 -- rpc-execution-hardening.sql: source statement 36
-execute $sql_124_36$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public, anon, authenticated$sql_124_36$;
+execute $sql_128_36$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public, anon, authenticated$sql_128_36$;
 
 -- rpc-execution-hardening.sql: source statement 37
-execute $sql_124_37$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_124_37$;
+execute $sql_128_37$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_128_37$;
 
 -- rpc-execution-hardening.sql: source statement 38
-execute $sql_124_38$revoke all on function public.claim_broadcast_recipient(uuid,uuid,uuid) from public, anon, authenticated$sql_124_38$;
+execute $sql_128_38$revoke all on function public.claim_broadcast_recipient(uuid,uuid,uuid) from public, anon, authenticated$sql_128_38$;
 
 -- rpc-execution-hardening.sql: source statement 39
-execute $sql_124_39$grant execute on function public.claim_broadcast_recipient(uuid,uuid,uuid) to service_role$sql_124_39$;
+execute $sql_128_39$grant execute on function public.claim_broadcast_recipient(uuid,uuid,uuid) to service_role$sql_128_39$;
 
 -- rpc-execution-hardening.sql: source statement 40
-execute $sql_124_40$revoke all on function public.claim_broadcast_run(uuid,uuid) from public, anon, authenticated$sql_124_40$;
+execute $sql_128_40$revoke all on function public.claim_broadcast_run(uuid,uuid) from public, anon, authenticated$sql_128_40$;
 
 -- rpc-execution-hardening.sql: source statement 41
-execute $sql_124_41$grant execute on function public.claim_broadcast_run(uuid,uuid) to service_role$sql_124_41$;
+execute $sql_128_41$grant execute on function public.claim_broadcast_run(uuid,uuid) to service_role$sql_128_41$;
 
 -- rpc-execution-hardening.sql: source statement 42
-execute $sql_124_42$revoke all on function public.claim_follow_up_jobs(uuid,integer) from public, anon, authenticated$sql_124_42$;
+execute $sql_128_42$revoke all on function public.claim_follow_up_jobs(uuid,integer) from public, anon, authenticated$sql_128_42$;
 
 -- rpc-execution-hardening.sql: source statement 43
-execute $sql_124_43$grant execute on function public.claim_follow_up_jobs(uuid,integer) to service_role$sql_124_43$;
+execute $sql_128_43$grant execute on function public.claim_follow_up_jobs(uuid,integer) to service_role$sql_128_43$;
 
 -- rpc-execution-hardening.sql: source statement 44
-execute $sql_124_44$revoke all on function public.claim_payment_image(text,text,uuid) from public, anon, authenticated$sql_124_44$;
+execute $sql_128_44$revoke all on function public.claim_payment_image(text,text,uuid) from public, anon, authenticated$sql_128_44$;
 
 -- rpc-execution-hardening.sql: source statement 45
-execute $sql_124_45$grant execute on function public.claim_payment_image(text,text,uuid) to service_role$sql_124_45$;
+execute $sql_128_45$grant execute on function public.claim_payment_image(text,text,uuid) to service_role$sql_128_45$;
 
 -- rpc-execution-hardening.sql: source statement 46
-execute $sql_124_46$revoke all on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_124_46$;
+execute $sql_128_46$revoke all on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_128_46$;
 
 -- rpc-execution-hardening.sql: source statement 47
-execute $sql_124_47$grant execute on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) to service_role$sql_124_47$;
+execute $sql_128_47$grant execute on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) to service_role$sql_128_47$;
 
 -- rpc-execution-hardening.sql: source statement 48
-execute $sql_124_48$revoke all on function public.claim_payment_transfer(text,text,uuid) from public, anon, authenticated$sql_124_48$;
+execute $sql_128_48$revoke all on function public.claim_payment_transfer(text,text,uuid) from public, anon, authenticated$sql_128_48$;
 
 -- rpc-execution-hardening.sql: source statement 49
-execute $sql_124_49$grant execute on function public.claim_payment_transfer(text,text,uuid) to service_role$sql_124_49$;
+execute $sql_128_49$grant execute on function public.claim_payment_transfer(text,text,uuid) to service_role$sql_128_49$;
 
 -- rpc-execution-hardening.sql: source statement 50
-execute $sql_124_50$revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean) from public, anon, authenticated$sql_124_50$;
+execute $sql_128_50$revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean) from public, anon, authenticated$sql_128_50$;
 
 -- rpc-execution-hardening.sql: source statement 51
-execute $sql_124_51$grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role$sql_124_51$;
+execute $sql_128_51$grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role$sql_128_51$;
 
 -- rpc-execution-hardening.sql: source statement 52
-execute $sql_124_52$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]) from public, anon, authenticated$sql_124_52$;
+execute $sql_128_52$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]) from public, anon, authenticated$sql_128_52$;
 
 -- rpc-execution-hardening.sql: source statement 53
-execute $sql_124_53$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_124_53$;
+execute $sql_128_53$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_128_53$;
 
 -- rpc-execution-hardening.sql: source statement 54
-execute $sql_124_54$revoke all on function public.commerce_access(uuid,uuid) from public, anon, authenticated$sql_124_54$;
+execute $sql_128_54$revoke all on function public.commerce_access(uuid,uuid) from public, anon, authenticated$sql_128_54$;
 
 -- rpc-execution-hardening.sql: source statement 55
-execute $sql_124_55$grant execute on function public.commerce_access(uuid,uuid) to service_role$sql_124_55$;
+execute $sql_128_55$grant execute on function public.commerce_access(uuid,uuid) to service_role$sql_128_55$;
 
 -- rpc-execution-hardening.sql: source statement 56
-execute $sql_124_56$revoke all on function public.commerce_checkout(text,jsonb) from public, anon, authenticated$sql_124_56$;
+execute $sql_128_56$revoke all on function public.commerce_checkout(text,jsonb) from public, anon, authenticated$sql_128_56$;
 
 -- rpc-execution-hardening.sql: source statement 57
-execute $sql_124_57$grant execute on function public.commerce_checkout(text,jsonb) to service_role$sql_124_57$;
+execute $sql_128_57$grant execute on function public.commerce_checkout(text,jsonb) to service_role$sql_128_57$;
 
 -- rpc-execution-hardening.sql: source statement 58
-execute $sql_124_58$revoke all on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) from public, anon, authenticated$sql_124_58$;
+execute $sql_128_58$revoke all on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) from public, anon, authenticated$sql_128_58$;
 
 -- rpc-execution-hardening.sql: source statement 59
-execute $sql_124_59$grant execute on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) to service_role$sql_124_59$;
+execute $sql_128_59$grant execute on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) to service_role$sql_128_59$;
 
 -- rpc-execution-hardening.sql: source statement 60
-execute $sql_124_60$revoke all on function public.commerce_dashboard_stats(uuid) from public, anon, authenticated$sql_124_60$;
+execute $sql_128_60$revoke all on function public.commerce_dashboard_stats(uuid) from public, anon, authenticated$sql_128_60$;
 
 -- rpc-execution-hardening.sql: source statement 61
-execute $sql_124_61$grant execute on function public.commerce_dashboard_stats(uuid) to service_role$sql_124_61$;
+execute $sql_128_61$grant execute on function public.commerce_dashboard_stats(uuid) to service_role$sql_128_61$;
 
 -- rpc-execution-hardening.sql: source statement 62
-execute $sql_124_62$revoke all on function public.commerce_manage(uuid,uuid,text,jsonb) from public, anon, authenticated$sql_124_62$;
+execute $sql_128_62$revoke all on function public.commerce_manage(uuid,uuid,text,jsonb) from public, anon, authenticated$sql_128_62$;
 
 -- rpc-execution-hardening.sql: source statement 63
-execute $sql_124_63$grant execute on function public.commerce_manage(uuid,uuid,text,jsonb) to service_role$sql_124_63$;
+execute $sql_128_63$grant execute on function public.commerce_manage(uuid,uuid,text,jsonb) to service_role$sql_128_63$;
 
 -- rpc-execution-hardening.sql: source statement 64
-execute $sql_124_64$revoke all on function public.commerce_move_order(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_124_64$;
+execute $sql_128_64$revoke all on function public.commerce_move_order(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_64$;
 
 -- rpc-execution-hardening.sql: source statement 65
-execute $sql_124_65$grant execute on function public.commerce_move_order(uuid,uuid,uuid,text,text) to service_role$sql_124_65$;
+execute $sql_128_65$grant execute on function public.commerce_move_order(uuid,uuid,uuid,text,text) to service_role$sql_128_65$;
 
 -- rpc-execution-hardening.sql: source statement 66
-execute $sql_124_66$revoke all on function public.commerce_plan(uuid) from public, anon, authenticated$sql_124_66$;
+execute $sql_128_66$revoke all on function public.commerce_plan(uuid) from public, anon, authenticated$sql_128_66$;
 
 -- rpc-execution-hardening.sql: source statement 67
-execute $sql_124_67$grant execute on function public.commerce_plan(uuid) to service_role$sql_124_67$;
+execute $sql_128_67$grant execute on function public.commerce_plan(uuid) to service_role$sql_128_67$;
 
 -- rpc-execution-hardening.sql: source statement 68
-execute $sql_124_68$revoke all on function public.commerce_rate_limit(text,integer) from public, anon, authenticated$sql_124_68$;
+execute $sql_128_68$revoke all on function public.commerce_rate_limit(text,integer) from public, anon, authenticated$sql_128_68$;
 
 -- rpc-execution-hardening.sql: source statement 69
-execute $sql_124_69$grant execute on function public.commerce_rate_limit(text,integer) to service_role$sql_124_69$;
+execute $sql_128_69$grant execute on function public.commerce_rate_limit(text,integer) to service_role$sql_128_69$;
 
 -- rpc-execution-hardening.sql: source statement 70
-execute $sql_124_70$revoke all on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) from public, anon, authenticated$sql_124_70$;
+execute $sql_128_70$revoke all on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) from public, anon, authenticated$sql_128_70$;
 
 -- rpc-execution-hardening.sql: source statement 71
-execute $sql_124_71$grant execute on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) to service_role$sql_124_71$;
+execute $sql_128_71$grant execute on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) to service_role$sql_128_71$;
 
 -- rpc-execution-hardening.sql: source statement 72
-execute $sql_124_72$revoke all on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_124_72$;
+execute $sql_128_72$revoke all on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_128_72$;
 
 -- rpc-execution-hardening.sql: source statement 73
-execute $sql_124_73$grant execute on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_124_73$;
+execute $sql_128_73$grant execute on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_128_73$;
 
 -- rpc-execution-hardening.sql: source statement 74
-execute $sql_124_74$revoke all on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_124_74$;
+execute $sql_128_74$revoke all on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_128_74$;
 
 -- rpc-execution-hardening.sql: source statement 75
-execute $sql_124_75$grant execute on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_124_75$;
+execute $sql_128_75$grant execute on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_128_75$;
 
 -- rpc-execution-hardening.sql: source statement 76
-execute $sql_124_76$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_124_76$;
+execute $sql_128_76$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_76$;
 
 -- rpc-execution-hardening.sql: source statement 77
-execute $sql_124_77$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb) to service_role$sql_124_77$;
+execute $sql_128_77$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb) to service_role$sql_128_77$;
 
 -- rpc-execution-hardening.sql: source statement 78
-execute $sql_124_78$revoke all on function public.confirm_follow_up_order(uuid,uuid,uuid) from public, anon, authenticated$sql_124_78$;
+execute $sql_128_78$revoke all on function public.confirm_follow_up_order(uuid,uuid,uuid) from public, anon, authenticated$sql_128_78$;
 
 -- rpc-execution-hardening.sql: source statement 79
-execute $sql_124_79$grant execute on function public.confirm_follow_up_order(uuid,uuid,uuid) to service_role$sql_124_79$;
+execute $sql_128_79$grant execute on function public.confirm_follow_up_order(uuid,uuid,uuid) to service_role$sql_128_79$;
 
 -- rpc-execution-hardening.sql: source statement 80
-execute $sql_124_80$revoke all on function public.confirm_live_auction_winner(uuid,uuid,uuid) from public, anon, authenticated$sql_124_80$;
+execute $sql_128_80$revoke all on function public.confirm_live_auction_winner(uuid,uuid,uuid) from public, anon, authenticated$sql_128_80$;
 
 -- rpc-execution-hardening.sql: source statement 81
-execute $sql_124_81$grant execute on function public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_124_81$;
+execute $sql_128_81$grant execute on function public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_128_81$;
 
 -- rpc-execution-hardening.sql: source statement 82
-execute $sql_124_82$revoke all on function public.confirm_live_cf_variant(uuid,uuid) from public, anon, authenticated$sql_124_82$;
+execute $sql_128_82$revoke all on function public.confirm_live_cf_variant(uuid,uuid) from public, anon, authenticated$sql_128_82$;
 
 -- rpc-execution-hardening.sql: source statement 83
-execute $sql_124_83$grant execute on function public.confirm_live_cf_variant(uuid,uuid) to service_role$sql_124_83$;
+execute $sql_128_83$grant execute on function public.confirm_live_cf_variant(uuid,uuid) to service_role$sql_128_83$;
 
 -- rpc-execution-hardening.sql: source statement 84
-execute $sql_124_84$revoke all on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_124_84$;
+execute $sql_128_84$revoke all on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_128_84$;
 
 -- rpc-execution-hardening.sql: source statement 85
-execute $sql_124_85$grant execute on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) to service_role$sql_124_85$;
+execute $sql_128_85$grant execute on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) to service_role$sql_128_85$;
 
 -- rpc-execution-hardening.sql: source statement 86
-execute $sql_124_86$revoke all on function public.consume_slip_credit_metered(uuid) from public, anon, authenticated$sql_124_86$;
+execute $sql_128_86$revoke all on function public.consume_slip_credit_metered(uuid) from public, anon, authenticated$sql_128_86$;
 
 -- rpc-execution-hardening.sql: source statement 87
-execute $sql_124_87$grant execute on function public.consume_slip_credit_metered(uuid) to service_role$sql_124_87$;
+execute $sql_128_87$grant execute on function public.consume_slip_credit_metered(uuid) to service_role$sql_128_87$;
 
 -- rpc-execution-hardening.sql: source statement 88
-execute $sql_124_88$revoke all on function public.consume_slip_credit(uuid) from public, anon, authenticated$sql_124_88$;
+execute $sql_128_88$revoke all on function public.consume_slip_credit(uuid) from public, anon, authenticated$sql_128_88$;
 
 -- rpc-execution-hardening.sql: source statement 89
-execute $sql_124_89$grant execute on function public.consume_slip_credit(uuid) to service_role$sql_124_89$;
+execute $sql_128_89$grant execute on function public.consume_slip_credit(uuid) to service_role$sql_128_89$;
 
 -- rpc-execution-hardening.sql: source statement 90
-execute $sql_124_90$revoke all on function public.customer_directory(uuid,integer,text,text,text) from public, anon, authenticated$sql_124_90$;
+execute $sql_128_90$revoke all on function public.customer_directory(uuid,integer,text,text,text) from public, anon, authenticated$sql_128_90$;
 
 -- rpc-execution-hardening.sql: source statement 91
-execute $sql_124_91$grant execute on function public.customer_directory(uuid,integer,text,text,text) to service_role$sql_124_91$;
+execute $sql_128_91$grant execute on function public.customer_directory(uuid,integer,text,text,text) to service_role$sql_128_91$;
 
 -- rpc-execution-hardening.sql: source statement 92
-execute $sql_124_92$revoke all on function public.end_customer_tab_live(uuid,uuid,boolean) from public, anon, authenticated$sql_124_92$;
+execute $sql_128_92$revoke all on function public.end_customer_tab_live(uuid,uuid,boolean) from public, anon, authenticated$sql_128_92$;
 
 -- rpc-execution-hardening.sql: source statement 93
-execute $sql_124_93$grant execute on function public.end_customer_tab_live(uuid,uuid,boolean) to service_role$sql_124_93$;
+execute $sql_128_93$grant execute on function public.end_customer_tab_live(uuid,uuid,boolean) to service_role$sql_128_93$;
 
 -- rpc-execution-hardening.sql: source statement 94
-execute $sql_124_94$revoke all on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) from public, anon, authenticated$sql_124_94$;
+execute $sql_128_94$revoke all on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) from public, anon, authenticated$sql_128_94$;
 
 -- rpc-execution-hardening.sql: source statement 95
-execute $sql_124_95$grant execute on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) to service_role$sql_124_95$;
+execute $sql_128_95$grant execute on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) to service_role$sql_128_95$;
 
 -- rpc-execution-hardening.sql: source statement 96
-execute $sql_124_96$revoke all on function public.expire_live_auctions_report(uuid) from public, anon, authenticated$sql_124_96$;
+execute $sql_128_96$revoke all on function public.expire_live_auctions_report(uuid) from public, anon, authenticated$sql_128_96$;
 
 -- rpc-execution-hardening.sql: source statement 97
-execute $sql_124_97$grant execute on function public.expire_live_auctions_report(uuid) to service_role$sql_124_97$;
+execute $sql_128_97$grant execute on function public.expire_live_auctions_report(uuid) to service_role$sql_128_97$;
 
 -- rpc-execution-hardening.sql: source statement 98
-execute $sql_124_98$revoke all on function public.expire_live_auctions(uuid) from public, anon, authenticated$sql_124_98$;
+execute $sql_128_98$revoke all on function public.expire_live_auctions(uuid) from public, anon, authenticated$sql_128_98$;
 
 -- rpc-execution-hardening.sql: source statement 99
-execute $sql_124_99$grant execute on function public.expire_live_auctions(uuid) to service_role$sql_124_99$;
+execute $sql_128_99$grant execute on function public.expire_live_auctions(uuid) to service_role$sql_128_99$;
 
 -- rpc-execution-hardening.sql: source statement 100
-execute $sql_124_100$revoke all on function public.facebook_comment_context(uuid,text,text[]) from public, anon, authenticated$sql_124_100$;
+execute $sql_128_100$revoke all on function public.facebook_comment_context(uuid,text,text[]) from public, anon, authenticated$sql_128_100$;
 
 -- rpc-execution-hardening.sql: source statement 101
-execute $sql_124_101$grant execute on function public.facebook_comment_context(uuid,text,text[]) to service_role$sql_124_101$;
+execute $sql_128_101$grant execute on function public.facebook_comment_context(uuid,text,text[]) to service_role$sql_128_101$;
 
 -- rpc-execution-hardening.sql: source statement 102
-execute $sql_124_102$revoke all on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_124_102$;
+execute $sql_128_102$revoke all on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_128_102$;
 
 -- rpc-execution-hardening.sql: source statement 103
-execute $sql_124_103$grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_124_103$;
+execute $sql_128_103$grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_128_103$;
 
 -- rpc-execution-hardening.sql: source statement 104
-execute $sql_124_104$revoke all on function public.finalize_live_auction(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_124_104$;
+execute $sql_128_104$revoke all on function public.finalize_live_auction(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_128_104$;
 
 -- rpc-execution-hardening.sql: source statement 105
-execute $sql_124_105$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean) to service_role$sql_124_105$;
+execute $sql_128_105$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean) to service_role$sql_128_105$;
 
 -- rpc-execution-hardening.sql: source statement 106
-execute $sql_124_106$revoke all on function public.follow_up_overview(uuid) from public, anon, authenticated$sql_124_106$;
+execute $sql_128_106$revoke all on function public.follow_up_overview(uuid) from public, anon, authenticated$sql_128_106$;
 
 -- rpc-execution-hardening.sql: source statement 107
-execute $sql_124_107$grant execute on function public.follow_up_overview(uuid) to service_role$sql_124_107$;
+execute $sql_128_107$grant execute on function public.follow_up_overview(uuid) to service_role$sql_128_107$;
 
 -- rpc-execution-hardening.sql: source statement 108
-execute $sql_124_108$revoke all on function public.follow_up_window_expires_at(uuid,uuid) from public, anon, authenticated$sql_124_108$;
+execute $sql_128_108$revoke all on function public.follow_up_window_expires_at(uuid,uuid) from public, anon, authenticated$sql_128_108$;
 
 -- rpc-execution-hardening.sql: source statement 109
-execute $sql_124_109$grant execute on function public.follow_up_window_expires_at(uuid,uuid) to service_role$sql_124_109$;
+execute $sql_128_109$grant execute on function public.follow_up_window_expires_at(uuid,uuid) to service_role$sql_128_109$;
 
 -- rpc-execution-hardening.sql: source statement 110
-execute $sql_124_110$revoke all on function public.follow_up_window_open(uuid,uuid) from public, anon, authenticated$sql_124_110$;
+execute $sql_128_110$revoke all on function public.follow_up_window_open(uuid,uuid) from public, anon, authenticated$sql_128_110$;
 
 -- rpc-execution-hardening.sql: source statement 111
-execute $sql_124_111$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_124_111$;
+execute $sql_128_111$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_128_111$;
 
 -- rpc-execution-hardening.sql: source statement 112
-execute $sql_124_112$revoke all on function public.handover_tenant_ai_quota(uuid,uuid,uuid) from public, anon, authenticated$sql_124_112$;
+execute $sql_128_112$revoke all on function public.handover_tenant_ai_quota(uuid,uuid,uuid) from public, anon, authenticated$sql_128_112$;
 
 -- rpc-execution-hardening.sql: source statement 113
-execute $sql_124_113$grant execute on function public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role$sql_124_113$;
+execute $sql_128_113$grant execute on function public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role$sql_128_113$;
 
 -- rpc-execution-hardening.sql: source statement 114
-execute $sql_124_114$revoke all on function public.inbox_automation_window_open(uuid,uuid) from public, anon, authenticated$sql_124_114$;
+execute $sql_128_114$revoke all on function public.inbox_automation_window_open(uuid,uuid) from public, anon, authenticated$sql_128_114$;
 
 -- rpc-execution-hardening.sql: source statement 115
-execute $sql_124_115$grant execute on function public.inbox_automation_window_open(uuid,uuid) to service_role$sql_124_115$;
+execute $sql_128_115$grant execute on function public.inbox_automation_window_open(uuid,uuid) to service_role$sql_128_115$;
 
 -- rpc-execution-hardening.sql: source statement 116
-execute $sql_124_116$revoke all on function public.inbox_pro_overview(uuid) from public, anon, authenticated$sql_124_116$;
+execute $sql_128_116$revoke all on function public.inbox_pro_overview(uuid) from public, anon, authenticated$sql_128_116$;
 
 -- rpc-execution-hardening.sql: source statement 117
-execute $sql_124_117$grant execute on function public.inbox_pro_overview(uuid) to service_role$sql_124_117$;
+execute $sql_128_117$grant execute on function public.inbox_pro_overview(uuid) to service_role$sql_128_117$;
 
 -- rpc-execution-hardening.sql: source statement 118
-execute $sql_124_118$revoke all on function public.inbox_verified_inbound_at(uuid,uuid) from public, anon, authenticated$sql_124_118$;
+execute $sql_128_118$revoke all on function public.inbox_verified_inbound_at(uuid,uuid) from public, anon, authenticated$sql_128_118$;
 
 -- rpc-execution-hardening.sql: source statement 119
-execute $sql_124_119$grant execute on function public.inbox_verified_inbound_at(uuid,uuid) to service_role$sql_124_119$;
+execute $sql_128_119$grant execute on function public.inbox_verified_inbound_at(uuid,uuid) to service_role$sql_128_119$;
 
 -- rpc-execution-hardening.sql: source statement 120
-execute $sql_124_120$revoke all on function public.live_auction_customer_dashboard(uuid,uuid) from public, anon, authenticated$sql_124_120$;
+execute $sql_128_120$revoke all on function public.live_auction_customer_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_120$;
 
 -- rpc-execution-hardening.sql: source statement 121
-execute $sql_124_121$grant execute on function public.live_auction_customer_dashboard(uuid,uuid) to service_role$sql_124_121$;
+execute $sql_128_121$grant execute on function public.live_auction_customer_dashboard(uuid,uuid) to service_role$sql_128_121$;
 
 -- rpc-execution-hardening.sql: source statement 122
-execute $sql_124_122$revoke all on function public.live_auction_dashboard(uuid,uuid) from public, anon, authenticated$sql_124_122$;
+execute $sql_128_122$revoke all on function public.live_auction_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_122$;
 
 -- rpc-execution-hardening.sql: source statement 123
-execute $sql_124_123$grant execute on function public.live_auction_dashboard(uuid,uuid) to service_role$sql_124_123$;
+execute $sql_128_123$grant execute on function public.live_auction_dashboard(uuid,uuid) to service_role$sql_128_123$;
 
 -- rpc-execution-hardening.sql: source statement 124
-execute $sql_124_124$revoke all on function public.live_auction_matched_customers(uuid,uuid) from public, anon, authenticated$sql_124_124$;
+execute $sql_128_124$revoke all on function public.live_auction_matched_customers(uuid,uuid) from public, anon, authenticated$sql_128_124$;
 
 -- rpc-execution-hardening.sql: source statement 125
-execute $sql_124_125$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_124_125$;
+execute $sql_128_125$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_128_125$;
 
 -- rpc-execution-hardening.sql: source statement 126
-execute $sql_124_126$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public, anon, authenticated$sql_124_126$;
+execute $sql_128_126$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_126$;
 
 -- rpc-execution-hardening.sql: source statement 127
-execute $sql_124_127$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_124_127$;
+execute $sql_128_127$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_128_127$;
 
 -- rpc-execution-hardening.sql: source statement 128
-execute $sql_124_128$revoke all on function public.live_session_dashboard(uuid,uuid) from public, anon, authenticated$sql_124_128$;
+execute $sql_128_128$revoke all on function public.live_session_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_128$;
 
 -- rpc-execution-hardening.sql: source statement 129
-execute $sql_124_129$grant execute on function public.live_session_dashboard(uuid,uuid) to service_role$sql_124_129$;
+execute $sql_128_129$grant execute on function public.live_session_dashboard(uuid,uuid) to service_role$sql_128_129$;
 
 -- rpc-execution-hardening.sql: source statement 130
-execute $sql_124_130$revoke all on function public.live_session_tab_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_124_130$;
+execute $sql_128_130$revoke all on function public.live_session_tab_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_128_130$;
 
 -- rpc-execution-hardening.sql: source statement 131
-execute $sql_124_131$grant execute on function public.live_session_tab_proof(uuid,uuid,uuid) to service_role$sql_124_131$;
+execute $sql_128_131$grant execute on function public.live_session_tab_proof(uuid,uuid,uuid) to service_role$sql_128_131$;
 
 -- rpc-execution-hardening.sql: source statement 132
-execute $sql_124_132$revoke all on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) from public, anon, authenticated$sql_124_132$;
+execute $sql_128_132$revoke all on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) from public, anon, authenticated$sql_128_132$;
 
 -- rpc-execution-hardening.sql: source statement 133
-execute $sql_124_133$grant execute on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) to service_role$sql_124_133$;
+execute $sql_128_133$grant execute on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) to service_role$sql_128_133$;
 
 -- rpc-execution-hardening.sql: source statement 134
-execute $sql_124_134$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public, anon, authenticated$sql_124_134$;
+execute $sql_128_134$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public, anon, authenticated$sql_128_134$;
 
 -- rpc-execution-hardening.sql: source statement 135
-execute $sql_124_135$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_124_135$;
+execute $sql_128_135$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_128_135$;
 
 -- rpc-execution-hardening.sql: source statement 136
-execute $sql_124_136$revoke all on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) from public, anon, authenticated$sql_124_136$;
+execute $sql_128_136$revoke all on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) from public, anon, authenticated$sql_128_136$;
 
 -- rpc-execution-hardening.sql: source statement 137
-execute $sql_124_137$grant execute on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) to service_role$sql_124_137$;
+execute $sql_128_137$grant execute on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) to service_role$sql_128_137$;
 
 -- rpc-execution-hardening.sql: source statement 138
-execute $sql_124_138$revoke all on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) from public, anon, authenticated$sql_124_138$;
+execute $sql_128_138$revoke all on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) from public, anon, authenticated$sql_128_138$;
 
 -- rpc-execution-hardening.sql: source statement 139
-execute $sql_124_139$grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) to service_role$sql_124_139$;
+execute $sql_128_139$grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) to service_role$sql_128_139$;
 
 -- rpc-execution-hardening.sql: source statement 140
-execute $sql_124_140$revoke all on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_124_140$;
+execute $sql_128_140$revoke all on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_140$;
 
 -- rpc-execution-hardening.sql: source statement 141
-execute $sql_124_141$grant execute on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) to service_role$sql_124_141$;
+execute $sql_128_141$grant execute on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) to service_role$sql_128_141$;
 
 -- rpc-execution-hardening.sql: source statement 142
-execute $sql_124_142$revoke all on function public.manage_shipping(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_124_142$;
+execute $sql_128_142$revoke all on function public.manage_shipping(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_142$;
 
 -- rpc-execution-hardening.sql: source statement 143
-execute $sql_124_143$grant execute on function public.manage_shipping(uuid,uuid,uuid,jsonb) to service_role$sql_124_143$;
+execute $sql_128_143$grant execute on function public.manage_shipping(uuid,uuid,uuid,jsonb) to service_role$sql_128_143$;
 
 -- rpc-execution-hardening.sql: source statement 144
-execute $sql_124_144$revoke all on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) from public, anon, authenticated$sql_124_144$;
+execute $sql_128_144$revoke all on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) from public, anon, authenticated$sql_128_144$;
 
 -- rpc-execution-hardening.sql: source statement 145
-execute $sql_124_145$grant execute on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) to service_role$sql_124_145$;
+execute $sql_128_145$grant execute on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) to service_role$sql_128_145$;
 
 -- rpc-execution-hardening.sql: source statement 146
-execute $sql_124_146$revoke all on function public.mark_inbox_read(uuid,uuid,uuid) from public, anon, authenticated$sql_124_146$;
+execute $sql_128_146$revoke all on function public.mark_inbox_read(uuid,uuid,uuid) from public, anon, authenticated$sql_128_146$;
 
 -- rpc-execution-hardening.sql: source statement 147
-execute $sql_124_147$grant execute on function public.mark_inbox_read(uuid,uuid,uuid) to service_role$sql_124_147$;
+execute $sql_128_147$grant execute on function public.mark_inbox_read(uuid,uuid,uuid) to service_role$sql_128_147$;
 
 -- rpc-execution-hardening.sql: source statement 148
-execute $sql_124_148$revoke all on function public.messenger_product_lookup(uuid,text) from public, anon, authenticated$sql_124_148$;
+execute $sql_128_148$revoke all on function public.messenger_product_lookup(uuid,text) from public, anon, authenticated$sql_128_148$;
 
 -- rpc-execution-hardening.sql: source statement 149
-execute $sql_124_149$grant execute on function public.messenger_product_lookup(uuid,text) to service_role$sql_124_149$;
+execute $sql_128_149$grant execute on function public.messenger_product_lookup(uuid,text) to service_role$sql_128_149$;
 
 -- rpc-execution-hardening.sql: source statement 150
-execute $sql_124_150$revoke all on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_124_150$;
+execute $sql_128_150$revoke all on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_128_150$;
 
 -- rpc-execution-hardening.sql: source statement 151
-execute $sql_124_151$grant execute on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_124_151$;
+execute $sql_128_151$grant execute on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_128_151$;
 
 -- rpc-execution-hardening.sql: source statement 152
-execute $sql_124_152$revoke all on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) from public, anon, authenticated$sql_124_152$;
+execute $sql_128_152$revoke all on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) from public, anon, authenticated$sql_128_152$;
 
 -- rpc-execution-hardening.sql: source statement 153
-execute $sql_124_153$grant execute on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) to service_role$sql_124_153$;
+execute $sql_128_153$grant execute on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) to service_role$sql_128_153$;
 
 -- rpc-execution-hardening.sql: source statement 154
-execute $sql_124_154$revoke all on function public.payment_pro_overview(uuid) from public, anon, authenticated$sql_124_154$;
+execute $sql_128_154$revoke all on function public.payment_pro_overview(uuid) from public, anon, authenticated$sql_128_154$;
 
 -- rpc-execution-hardening.sql: source statement 155
-execute $sql_124_155$grant execute on function public.payment_pro_overview(uuid) to service_role$sql_124_155$;
+execute $sql_128_155$grant execute on function public.payment_pro_overview(uuid) to service_role$sql_128_155$;
 
 -- rpc-execution-hardening.sql: source statement 156
-execute $sql_124_156$revoke all on function public.payment_pro_receiver(uuid,text,text,text) from public, anon, authenticated$sql_124_156$;
+execute $sql_128_156$revoke all on function public.payment_pro_receiver(uuid,text,text,text) from public, anon, authenticated$sql_128_156$;
 
 -- rpc-execution-hardening.sql: source statement 157
-execute $sql_124_157$grant execute on function public.payment_pro_receiver(uuid,text,text,text) to service_role$sql_124_157$;
+execute $sql_128_157$grant execute on function public.payment_pro_receiver(uuid,text,text,text) to service_role$sql_128_157$;
 
 -- rpc-execution-hardening.sql: source statement 158
-execute $sql_124_158$revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public, anon, authenticated$sql_124_158$;
+execute $sql_128_158$revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_158$;
 
 -- rpc-execution-hardening.sql: source statement 159
-execute $sql_124_159$grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role$sql_124_159$;
+execute $sql_128_159$grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role$sql_128_159$;
 
 -- rpc-execution-hardening.sql: source statement 160
-execute $sql_124_160$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public, anon, authenticated$sql_124_160$;
+execute $sql_128_160$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public, anon, authenticated$sql_128_160$;
 
 -- rpc-execution-hardening.sql: source statement 161
-execute $sql_124_161$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_124_161$;
+execute $sql_128_161$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_128_161$;
 
 -- rpc-execution-hardening.sql: source statement 162
-execute $sql_124_162$revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_124_162$;
+execute $sql_128_162$revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_128_162$;
 
 -- rpc-execution-hardening.sql: source statement 163
-execute $sql_124_163$grant execute on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) to service_role$sql_124_163$;
+execute $sql_128_163$grant execute on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) to service_role$sql_128_163$;
 
 -- rpc-execution-hardening.sql: source statement 164
-execute $sql_124_164$revoke all on function public.place_cf_order(uuid,text,text,text,text) from public, anon, authenticated$sql_124_164$;
+execute $sql_128_164$revoke all on function public.place_cf_order(uuid,text,text,text,text) from public, anon, authenticated$sql_128_164$;
 
 -- rpc-execution-hardening.sql: source statement 165
-execute $sql_124_165$grant execute on function public.place_cf_order(uuid,text,text,text,text) to service_role$sql_124_165$;
+execute $sql_128_165$grant execute on function public.place_cf_order(uuid,text,text,text,text) to service_role$sql_128_165$;
 
 -- rpc-execution-hardening.sql: source statement 166
-execute $sql_124_166$revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_124_166$;
+execute $sql_128_166$revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_128_166$;
 
 -- rpc-execution-hardening.sql: source statement 167
-execute $sql_124_167$grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_124_167$;
+execute $sql_128_167$grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_128_167$;
 
 -- rpc-execution-hardening.sql: source statement 168
-execute $sql_124_168$revoke all on function public.place_cf_order(uuid,uuid,uuid,text) from public, anon, authenticated$sql_124_168$;
+execute $sql_128_168$revoke all on function public.place_cf_order(uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_168$;
 
 -- rpc-execution-hardening.sql: source statement 169
-execute $sql_124_169$grant execute on function public.place_cf_order(uuid,uuid,uuid,text) to service_role$sql_124_169$;
+execute $sql_128_169$grant execute on function public.place_cf_order(uuid,uuid,uuid,text) to service_role$sql_128_169$;
 
 -- rpc-execution-hardening.sql: source statement 170
-execute $sql_124_170$revoke all on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_124_170$;
+execute $sql_128_170$revoke all on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_128_170$;
 
 -- rpc-execution-hardening.sql: source statement 171
-execute $sql_124_171$grant execute on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role$sql_124_171$;
+execute $sql_128_171$grant execute on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role$sql_128_171$;
 
 -- rpc-execution-hardening.sql: source statement 172
-execute $sql_124_172$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_124_172$;
+execute $sql_128_172$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_128_172$;
 
 -- rpc-execution-hardening.sql: source statement 173
-execute $sql_124_173$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_124_173$;
+execute $sql_128_173$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_128_173$;
 
 -- rpc-execution-hardening.sql: source statement 174
-execute $sql_124_174$revoke all on function public.platform_update_tenant(uuid,uuid,text,boolean) from public, anon, authenticated$sql_124_174$;
+execute $sql_128_174$revoke all on function public.platform_update_tenant(uuid,uuid,text,boolean) from public, anon, authenticated$sql_128_174$;
 
 -- rpc-execution-hardening.sql: source statement 175
-execute $sql_124_175$grant execute on function public.platform_update_tenant(uuid,uuid,text,boolean) to service_role$sql_124_175$;
+execute $sql_128_175$grant execute on function public.platform_update_tenant(uuid,uuid,text,boolean) to service_role$sql_128_175$;
 
 -- rpc-execution-hardening.sql: source statement 176
-execute $sql_124_176$revoke all on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_124_176$;
+execute $sql_128_176$revoke all on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_128_176$;
 
 -- rpc-execution-hardening.sql: source statement 177
-execute $sql_124_177$grant execute on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_124_177$;
+execute $sql_128_177$grant execute on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_128_177$;
 
 -- rpc-execution-hardening.sql: source statement 178
-execute $sql_124_178$revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_124_178$;
+execute $sql_128_178$revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_178$;
 
 -- rpc-execution-hardening.sql: source statement 179
-execute $sql_124_179$grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) to service_role$sql_124_179$;
+execute $sql_128_179$grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_179$;
 
 -- rpc-execution-hardening.sql: source statement 180
-execute $sql_124_180$revoke all on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_124_180$;
+execute $sql_128_180$revoke all on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_180$;
 
 -- rpc-execution-hardening.sql: source statement 181
-execute $sql_124_181$grant execute on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) to service_role$sql_124_181$;
+execute $sql_128_181$grant execute on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_181$;
 
 -- rpc-execution-hardening.sql: source statement 182
-execute $sql_124_182$revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_124_182$;
+execute $sql_128_182$revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_182$;
 
 -- rpc-execution-hardening.sql: source statement 183
-execute $sql_124_183$grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_124_183$;
+execute $sql_128_183$grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_183$;
 
 -- rpc-execution-hardening.sql: source statement 184
-execute $sql_124_184$revoke all on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_124_184$;
+execute $sql_128_184$revoke all on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_184$;
 
 -- rpc-execution-hardening.sql: source statement 185
-execute $sql_124_185$grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) to service_role$sql_124_185$;
+execute $sql_128_185$grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_185$;
 
 -- rpc-execution-hardening.sql: source statement 186
-execute $sql_124_186$revoke all on function public.queue_customer_tab_reminders(uuid,uuid,uuid) from public, anon, authenticated$sql_124_186$;
+execute $sql_128_186$revoke all on function public.queue_customer_tab_reminders(uuid,uuid,uuid) from public, anon, authenticated$sql_128_186$;
 
 -- rpc-execution-hardening.sql: source statement 187
-execute $sql_124_187$grant execute on function public.queue_customer_tab_reminders(uuid,uuid,uuid) to service_role$sql_124_187$;
+execute $sql_128_187$grant execute on function public.queue_customer_tab_reminders(uuid,uuid,uuid) to service_role$sql_128_187$;
 
 -- rpc-execution-hardening.sql: source statement 188
-execute $sql_124_188$revoke all on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) from public, anon, authenticated$sql_124_188$;
+execute $sql_128_188$revoke all on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) from public, anon, authenticated$sql_128_188$;
 
 -- rpc-execution-hardening.sql: source statement 189
-execute $sql_124_189$grant execute on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) to service_role$sql_124_189$;
+execute $sql_128_189$grant execute on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) to service_role$sql_128_189$;
 
 -- rpc-execution-hardening.sql: source statement 190
-execute $sql_124_190$revoke all on function public.refresh_broadcast_credits(uuid) from public, anon, authenticated$sql_124_190$;
+execute $sql_128_190$revoke all on function public.refresh_broadcast_credits(uuid) from public, anon, authenticated$sql_128_190$;
 
 -- rpc-execution-hardening.sql: source statement 191
-execute $sql_124_191$grant execute on function public.refresh_broadcast_credits(uuid) to service_role$sql_124_191$;
+execute $sql_128_191$grant execute on function public.refresh_broadcast_credits(uuid) to service_role$sql_128_191$;
 
 -- rpc-execution-hardening.sql: source statement 192
-execute $sql_124_192$revoke all on function public.refund_broadcast_credits_metered(uuid,integer,integer) from public, anon, authenticated$sql_124_192$;
+execute $sql_128_192$revoke all on function public.refund_broadcast_credits_metered(uuid,integer,integer) from public, anon, authenticated$sql_128_192$;
 
 -- rpc-execution-hardening.sql: source statement 193
-execute $sql_124_193$grant execute on function public.refund_broadcast_credits_metered(uuid,integer,integer) to service_role$sql_124_193$;
+execute $sql_128_193$grant execute on function public.refund_broadcast_credits_metered(uuid,integer,integer) to service_role$sql_128_193$;
 
 -- rpc-execution-hardening.sql: source statement 194
-execute $sql_124_194$revoke all on function public.refund_broadcast_credits(uuid,integer,integer) from public, anon, authenticated$sql_124_194$;
+execute $sql_128_194$revoke all on function public.refund_broadcast_credits(uuid,integer,integer) from public, anon, authenticated$sql_128_194$;
 
 -- rpc-execution-hardening.sql: source statement 195
-execute $sql_124_195$grant execute on function public.refund_broadcast_credits(uuid,integer,integer) to service_role$sql_124_195$;
+execute $sql_128_195$grant execute on function public.refund_broadcast_credits(uuid,integer,integer) to service_role$sql_128_195$;
 
 -- rpc-execution-hardening.sql: source statement 196
-execute $sql_124_196$revoke all on function public.refund_slip_credit_metered(uuid) from public, anon, authenticated$sql_124_196$;
+execute $sql_128_196$revoke all on function public.refund_slip_credit_metered(uuid) from public, anon, authenticated$sql_128_196$;
 
 -- rpc-execution-hardening.sql: source statement 197
-execute $sql_124_197$grant execute on function public.refund_slip_credit_metered(uuid) to service_role$sql_124_197$;
+execute $sql_128_197$grant execute on function public.refund_slip_credit_metered(uuid) to service_role$sql_128_197$;
 
 -- rpc-execution-hardening.sql: source statement 198
-execute $sql_124_198$revoke all on function public.refund_slip_credit(uuid) from public, anon, authenticated$sql_124_198$;
+execute $sql_128_198$revoke all on function public.refund_slip_credit(uuid) from public, anon, authenticated$sql_128_198$;
 
 -- rpc-execution-hardening.sql: source statement 199
-execute $sql_124_199$grant execute on function public.refund_slip_credit(uuid) to service_role$sql_124_199$;
+execute $sql_128_199$grant execute on function public.refund_slip_credit(uuid) to service_role$sql_128_199$;
 
 -- rpc-execution-hardening.sql: source statement 200
-execute $sql_124_200$revoke all on function public.reserve_broadcast_credits_metered(uuid,integer) from public, anon, authenticated$sql_124_200$;
+execute $sql_128_200$revoke all on function public.reserve_broadcast_credits_metered(uuid,integer) from public, anon, authenticated$sql_128_200$;
 
 -- rpc-execution-hardening.sql: source statement 201
-execute $sql_124_201$grant execute on function public.reserve_broadcast_credits_metered(uuid,integer) to service_role$sql_124_201$;
+execute $sql_128_201$grant execute on function public.reserve_broadcast_credits_metered(uuid,integer) to service_role$sql_128_201$;
 
 -- rpc-execution-hardening.sql: source statement 202
-execute $sql_124_202$revoke all on function public.reserve_broadcast_credits(uuid,integer) from public, anon, authenticated$sql_124_202$;
+execute $sql_128_202$revoke all on function public.reserve_broadcast_credits(uuid,integer) from public, anon, authenticated$sql_128_202$;
 
 -- rpc-execution-hardening.sql: source statement 203
-execute $sql_124_203$grant execute on function public.reserve_broadcast_credits(uuid,integer) to service_role$sql_124_203$;
+execute $sql_128_203$grant execute on function public.reserve_broadcast_credits(uuid,integer) to service_role$sql_128_203$;
 
 -- rpc-execution-hardening.sql: source statement 204
-execute $sql_124_204$revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) from public, anon, authenticated$sql_124_204$;
+execute $sql_128_204$revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) from public, anon, authenticated$sql_128_204$;
 
 -- rpc-execution-hardening.sql: source statement 205
-execute $sql_124_205$grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) to service_role$sql_124_205$;
+execute $sql_128_205$grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) to service_role$sql_128_205$;
 
 -- rpc-execution-hardening.sql: source statement 206
-execute $sql_124_206$revoke all on function public.restore_agent_prompt(uuid,uuid,integer) from public, anon, authenticated$sql_124_206$;
+execute $sql_128_206$revoke all on function public.restore_agent_prompt(uuid,uuid,integer) from public, anon, authenticated$sql_128_206$;
 
 -- rpc-execution-hardening.sql: source statement 207
-execute $sql_124_207$grant execute on function public.restore_agent_prompt(uuid,uuid,integer) to service_role$sql_124_207$;
+execute $sql_128_207$grant execute on function public.restore_agent_prompt(uuid,uuid,integer) to service_role$sql_128_207$;
 
 -- rpc-execution-hardening.sql: source statement 208
-execute $sql_124_208$revoke all on function public.retry_rejected_follow_up(uuid,uuid,uuid) from public, anon, authenticated$sql_124_208$;
+execute $sql_128_208$revoke all on function public.retry_rejected_follow_up(uuid,uuid,uuid) from public, anon, authenticated$sql_128_208$;
 
 -- rpc-execution-hardening.sql: source statement 209
-execute $sql_124_209$grant execute on function public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role$sql_124_209$;
+execute $sql_128_209$grant execute on function public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role$sql_128_209$;
 
 -- rpc-execution-hardening.sql: source statement 210
-execute $sql_124_210$revoke all on function public.retry_unstarted_vision(uuid,uuid,uuid) from public, anon, authenticated$sql_124_210$;
+execute $sql_128_210$revoke all on function public.retry_unstarted_vision(uuid,uuid,uuid) from public, anon, authenticated$sql_128_210$;
 
 -- rpc-execution-hardening.sql: source statement 211
-execute $sql_124_211$grant execute on function public.retry_unstarted_vision(uuid,uuid,uuid) to service_role$sql_124_211$;
+execute $sql_128_211$grant execute on function public.retry_unstarted_vision(uuid,uuid,uuid) to service_role$sql_128_211$;
 
 -- rpc-execution-hardening.sql: source statement 212
-execute $sql_124_212$revoke all on function public.save_agent_prompt(uuid,uuid,text) from public, anon, authenticated$sql_124_212$;
+execute $sql_128_212$revoke all on function public.save_agent_prompt(uuid,uuid,text) from public, anon, authenticated$sql_128_212$;
 
 -- rpc-execution-hardening.sql: source statement 213
-execute $sql_124_213$grant execute on function public.save_agent_prompt(uuid,uuid,text) to service_role$sql_124_213$;
+execute $sql_128_213$grant execute on function public.save_agent_prompt(uuid,uuid,text) to service_role$sql_128_213$;
 
 -- rpc-execution-hardening.sql: source statement 214
-execute $sql_124_214$revoke all on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public, anon, authenticated$sql_124_214$;
+execute $sql_128_214$revoke all on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public, anon, authenticated$sql_128_214$;
 
 -- rpc-execution-hardening.sql: source statement 215
-execute $sql_124_215$grant execute on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_124_215$;
+execute $sql_128_215$grant execute on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_128_215$;
 
 -- rpc-execution-hardening.sql: source statement 216
-execute $sql_124_216$revoke all on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_124_216$;
+execute $sql_128_216$revoke all on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_216$;
 
 -- rpc-execution-hardening.sql: source statement 217
-execute $sql_124_217$grant execute on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) to service_role$sql_124_217$;
+execute $sql_128_217$grant execute on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) to service_role$sql_128_217$;
 
 -- rpc-execution-hardening.sql: source statement 218
-execute $sql_124_218$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_124_218$;
+execute $sql_128_218$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_218$;
 
 -- rpc-execution-hardening.sql: source statement 219
-execute $sql_124_219$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_124_219$;
+execute $sql_128_219$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_128_219$;
 
 -- rpc-execution-hardening.sql: source statement 220
-execute $sql_124_220$revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public, anon, authenticated$sql_124_220$;
+execute $sql_128_220$revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public, anon, authenticated$sql_128_220$;
 
 -- rpc-execution-hardening.sql: source statement 221
-execute $sql_124_221$grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_124_221$;
+execute $sql_128_221$grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_128_221$;
 
 -- rpc-execution-hardening.sql: source statement 222
-execute $sql_124_222$revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public, anon, authenticated$sql_124_222$;
+execute $sql_128_222$revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public, anon, authenticated$sql_128_222$;
 
 -- rpc-execution-hardening.sql: source statement 223
-execute $sql_124_223$grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role$sql_124_223$;
+execute $sql_128_223$grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role$sql_128_223$;
 
 -- rpc-execution-hardening.sql: source statement 224
-execute $sql_124_224$revoke all on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) from public, anon, authenticated$sql_124_224$;
+execute $sql_128_224$revoke all on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) from public, anon, authenticated$sql_128_224$;
 
 -- rpc-execution-hardening.sql: source statement 225
-execute $sql_124_225$grant execute on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) to service_role$sql_124_225$;
+execute $sql_128_225$grant execute on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) to service_role$sql_128_225$;
 
 -- rpc-execution-hardening.sql: source statement 226
-execute $sql_124_226$revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public, anon, authenticated$sql_124_226$;
+execute $sql_128_226$revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public, anon, authenticated$sql_128_226$;
 
 -- rpc-execution-hardening.sql: source statement 227
-execute $sql_124_227$grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role$sql_124_227$;
+execute $sql_128_227$grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role$sql_128_227$;
 
 -- rpc-execution-hardening.sql: source statement 228
-execute $sql_124_228$revoke all on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_124_228$;
+execute $sql_128_228$revoke all on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_228$;
 
 -- rpc-execution-hardening.sql: source statement 229
-execute $sql_124_229$grant execute on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) to service_role$sql_124_229$;
+execute $sql_128_229$grant execute on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) to service_role$sql_128_229$;
 
 -- rpc-execution-hardening.sql: source statement 230
-execute $sql_124_230$revoke all on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) from public, anon, authenticated$sql_124_230$;
+execute $sql_128_230$revoke all on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) from public, anon, authenticated$sql_128_230$;
 
 -- rpc-execution-hardening.sql: source statement 231
-execute $sql_124_231$grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) to service_role$sql_124_231$;
+execute $sql_128_231$grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) to service_role$sql_128_231$;
 
 -- rpc-execution-hardening.sql: source statement 232
-execute $sql_124_232$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_124_232$;
+execute $sql_128_232$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_232$;
 
 -- rpc-execution-hardening.sql: source statement 233
-execute $sql_124_233$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) to service_role$sql_124_233$;
+execute $sql_128_233$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) to service_role$sql_128_233$;
 
 -- rpc-execution-hardening.sql: source statement 234
-execute $sql_124_234$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) from public, anon, authenticated$sql_124_234$;
+execute $sql_128_234$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_234$;
 
 -- rpc-execution-hardening.sql: source statement 235
-execute $sql_124_235$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to service_role$sql_124_235$;
+execute $sql_128_235$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to service_role$sql_128_235$;
 
 -- rpc-execution-hardening.sql: source statement 236
-execute $sql_124_236$revoke all on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) from public, anon, authenticated$sql_124_236$;
+execute $sql_128_236$revoke all on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) from public, anon, authenticated$sql_128_236$;
 
 -- rpc-execution-hardening.sql: source statement 237
-execute $sql_124_237$grant execute on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) to service_role$sql_124_237$;
+execute $sql_128_237$grant execute on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) to service_role$sql_128_237$;
 
 -- rpc-execution-hardening.sql: source statement 238
-execute $sql_124_238$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) from public, anon, authenticated$sql_124_238$;
+execute $sql_128_238$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) from public, anon, authenticated$sql_128_238$;
 
 -- rpc-execution-hardening.sql: source statement 239
-execute $sql_124_239$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) to service_role$sql_124_239$;
+execute $sql_128_239$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) to service_role$sql_128_239$;
 
 -- rpc-execution-hardening.sql: source statement 240
-execute $sql_124_240$revoke all on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) from public, anon, authenticated$sql_124_240$;
+execute $sql_128_240$revoke all on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) from public, anon, authenticated$sql_128_240$;
 
 -- rpc-execution-hardening.sql: source statement 241
-execute $sql_124_241$grant execute on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) to service_role$sql_124_241$;
+execute $sql_128_241$grant execute on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) to service_role$sql_128_241$;
 
 -- rpc-execution-hardening.sql: source statement 242
-execute $sql_124_242$revoke all on function public.save_store_rule_items(uuid,uuid,text,text) from public, anon, authenticated$sql_124_242$;
+execute $sql_128_242$revoke all on function public.save_store_rule_items(uuid,uuid,text,text) from public, anon, authenticated$sql_128_242$;
 
 -- rpc-execution-hardening.sql: source statement 243
-execute $sql_124_243$grant execute on function public.save_store_rule_items(uuid,uuid,text,text) to service_role$sql_124_243$;
+execute $sql_128_243$grant execute on function public.save_store_rule_items(uuid,uuid,text,text) to service_role$sql_128_243$;
 
 -- rpc-execution-hardening.sql: source statement 244
-execute $sql_124_244$revoke all on function public.save_validated_store_rules(uuid,uuid,text,text) from public, anon, authenticated$sql_124_244$;
+execute $sql_128_244$revoke all on function public.save_validated_store_rules(uuid,uuid,text,text) from public, anon, authenticated$sql_128_244$;
 
 -- rpc-execution-hardening.sql: source statement 245
-execute $sql_124_245$grant execute on function public.save_validated_store_rules(uuid,uuid,text,text) to service_role$sql_124_245$;
+execute $sql_128_245$grant execute on function public.save_validated_store_rules(uuid,uuid,text,text) to service_role$sql_128_245$;
 
 -- rpc-execution-hardening.sql: source statement 246
-execute $sql_124_246$revoke all on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public, anon, authenticated$sql_124_246$;
+execute $sql_128_246$revoke all on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public, anon, authenticated$sql_128_246$;
 
 -- rpc-execution-hardening.sql: source statement 247
-execute $sql_124_247$grant execute on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_124_247$;
+execute $sql_128_247$grant execute on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_128_247$;
 
 -- rpc-execution-hardening.sql: source statement 248
-execute $sql_124_248$revoke all on function public.set_agent_overview_capability(uuid,uuid,text,boolean) from public, anon, authenticated$sql_124_248$;
+execute $sql_128_248$revoke all on function public.set_agent_overview_capability(uuid,uuid,text,boolean) from public, anon, authenticated$sql_128_248$;
 
 -- rpc-execution-hardening.sql: source statement 249
-execute $sql_124_249$grant execute on function public.set_agent_overview_capability(uuid,uuid,text,boolean) to service_role$sql_124_249$;
+execute $sql_128_249$grant execute on function public.set_agent_overview_capability(uuid,uuid,text,boolean) to service_role$sql_128_249$;
 
 -- rpc-execution-hardening.sql: source statement 250
-execute $sql_124_250$revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text) from public, anon, authenticated$sql_124_250$;
+execute $sql_128_250$revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text) from public, anon, authenticated$sql_128_250$;
 
 -- rpc-execution-hardening.sql: source statement 251
-execute $sql_124_251$grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text) to service_role$sql_124_251$;
+execute $sql_128_251$grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text) to service_role$sql_128_251$;
 
 -- rpc-execution-hardening.sql: source statement 252
-execute $sql_124_252$revoke all on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) from public, anon, authenticated$sql_124_252$;
+execute $sql_128_252$revoke all on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) from public, anon, authenticated$sql_128_252$;
 
 -- rpc-execution-hardening.sql: source statement 253
-execute $sql_124_253$grant execute on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) to service_role$sql_124_253$;
+execute $sql_128_253$grant execute on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) to service_role$sql_128_253$;
 
 -- rpc-execution-hardening.sql: source statement 254
-execute $sql_124_254$revoke all on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_124_254$;
+execute $sql_128_254$revoke all on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_128_254$;
 
 -- rpc-execution-hardening.sql: source statement 255
-execute $sql_124_255$grant execute on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) to service_role$sql_124_255$;
+execute $sql_128_255$grant execute on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) to service_role$sql_128_255$;
 
 -- rpc-execution-hardening.sql: source statement 256
-execute $sql_124_256$revoke all on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) from public, anon, authenticated$sql_124_256$;
+execute $sql_128_256$revoke all on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) from public, anon, authenticated$sql_128_256$;
 
 -- rpc-execution-hardening.sql: source statement 257
-execute $sql_124_257$grant execute on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) to service_role$sql_124_257$;
+execute $sql_128_257$grant execute on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) to service_role$sql_128_257$;
 
 -- rpc-execution-hardening.sql: source statement 258
-execute $sql_124_258$revoke all on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_124_258$;
+execute $sql_128_258$revoke all on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_128_258$;
 
 -- rpc-execution-hardening.sql: source statement 259
-execute $sql_124_259$grant execute on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) to service_role$sql_124_259$;
+execute $sql_128_259$grant execute on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) to service_role$sql_128_259$;
 
 -- rpc-execution-hardening.sql: source statement 260
-execute $sql_124_260$revoke all on function public.shipping_snapshot(uuid,uuid[],uuid) from public, anon, authenticated$sql_124_260$;
+execute $sql_128_260$revoke all on function public.shipping_snapshot(uuid,uuid[],uuid) from public, anon, authenticated$sql_128_260$;
 
 -- rpc-execution-hardening.sql: source statement 261
-execute $sql_124_261$grant execute on function public.shipping_snapshot(uuid,uuid[],uuid) to service_role$sql_124_261$;
+execute $sql_128_261$grant execute on function public.shipping_snapshot(uuid,uuid[],uuid) to service_role$sql_128_261$;
 
 -- rpc-execution-hardening.sql: source statement 262
-execute $sql_124_262$revoke all on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_124_262$;
+execute $sql_128_262$revoke all on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_128_262$;
 
 -- rpc-execution-hardening.sql: source statement 263
-execute $sql_124_263$grant execute on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) to service_role$sql_124_263$;
+execute $sql_128_263$grant execute on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) to service_role$sql_128_263$;
 
 -- rpc-execution-hardening.sql: source statement 264
-execute $sql_124_264$revoke all on function public.start_inbox_delivery(uuid,uuid) from public, anon, authenticated$sql_124_264$;
+execute $sql_128_264$revoke all on function public.start_inbox_delivery(uuid,uuid) from public, anon, authenticated$sql_128_264$;
 
 -- rpc-execution-hardening.sql: source statement 265
-execute $sql_124_265$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_124_265$;
+execute $sql_128_265$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_128_265$;
 
 -- rpc-execution-hardening.sql: source statement 266
-execute $sql_124_266$revoke all on function public.start_legacy_auction_timer(uuid,uuid) from public, anon, authenticated$sql_124_266$;
+execute $sql_128_266$revoke all on function public.start_legacy_auction_timer(uuid,uuid) from public, anon, authenticated$sql_128_266$;
 
 -- rpc-execution-hardening.sql: source statement 267
-execute $sql_124_267$grant execute on function public.start_legacy_auction_timer(uuid,uuid) to service_role$sql_124_267$;
+execute $sql_128_267$grant execute on function public.start_legacy_auction_timer(uuid,uuid) to service_role$sql_128_267$;
 
 -- rpc-execution-hardening.sql: source statement 268
-execute $sql_124_268$revoke all on function public.sync_facebook_tenants(uuid,jsonb) from public, anon, authenticated$sql_124_268$;
+execute $sql_128_268$revoke all on function public.sync_facebook_tenants(uuid,jsonb) from public, anon, authenticated$sql_128_268$;
 
 -- rpc-execution-hardening.sql: source statement 269
-execute $sql_124_269$grant execute on function public.sync_facebook_tenants(uuid,jsonb) to service_role$sql_124_269$;
+execute $sql_128_269$grant execute on function public.sync_facebook_tenants(uuid,jsonb) to service_role$sql_128_269$;
 
 -- rpc-execution-hardening.sql: source statement 270
-execute $sql_124_270$revoke all on function public.tenant_has_feature_bypass(uuid) from public, anon, authenticated$sql_124_270$;
+execute $sql_128_270$revoke all on function public.tenant_has_feature_bypass(uuid) from public, anon, authenticated$sql_128_270$;
 
 -- rpc-execution-hardening.sql: source statement 271
-execute $sql_124_271$grant execute on function public.tenant_has_feature_bypass(uuid) to service_role$sql_124_271$;
+execute $sql_128_271$grant execute on function public.tenant_has_feature_bypass(uuid) to service_role$sql_128_271$;
 
 -- rpc-execution-hardening.sql: source statement 272
-execute $sql_124_272$revoke all on function public.tenant_has_paid_ai_access(uuid) from public, anon, authenticated$sql_124_272$;
+execute $sql_128_272$revoke all on function public.tenant_has_paid_ai_access(uuid) from public, anon, authenticated$sql_128_272$;
 
 -- rpc-execution-hardening.sql: source statement 273
-execute $sql_124_273$grant execute on function public.tenant_has_paid_ai_access(uuid) to service_role$sql_124_273$;
+execute $sql_128_273$grant execute on function public.tenant_has_paid_ai_access(uuid) to service_role$sql_128_273$;
 
 -- rpc-execution-hardening.sql: source statement 274
-execute $sql_124_274$revoke all on function public.cancel_paid_follow_ups() from public, anon, authenticated$sql_124_274$;
+execute $sql_128_274$revoke all on function public.cancel_paid_follow_ups() from public, anon, authenticated$sql_128_274$;
 
 -- rpc-execution-hardening.sql: source statement 275
-execute $sql_124_275$grant execute on function public.cancel_paid_follow_ups() to service_role$sql_124_275$;
+execute $sql_128_275$grant execute on function public.cancel_paid_follow_ups() to service_role$sql_128_275$;
 
 -- rpc-execution-hardening.sql: source statement 276
-execute $sql_124_276$revoke all on function public.commerce_product_quota() from public, anon, authenticated$sql_124_276$;
+execute $sql_128_276$revoke all on function public.commerce_product_quota() from public, anon, authenticated$sql_128_276$;
 
 -- rpc-execution-hardening.sql: source statement 277
-execute $sql_124_277$grant execute on function public.commerce_product_quota() to service_role$sql_124_277$;
+execute $sql_128_277$grant execute on function public.commerce_product_quota() to service_role$sql_128_277$;
 
 -- rpc-execution-hardening.sql: source statement 278
-execute $sql_124_278$revoke all on function public.on_order_status() from public, anon, authenticated$sql_124_278$;
+execute $sql_128_278$revoke all on function public.on_order_status() from public, anon, authenticated$sql_128_278$;
 
 -- rpc-execution-hardening.sql: source statement 279
-execute $sql_124_279$grant execute on function public.on_order_status() to service_role$sql_124_279$;
+execute $sql_128_279$grant execute on function public.on_order_status() to service_role$sql_128_279$;
 
 -- rpc-execution-hardening.sql: source statement 280
-execute $sql_124_280$revoke all on function public.schedule_follow_ups() from public, anon, authenticated$sql_124_280$;
+execute $sql_128_280$revoke all on function public.schedule_follow_ups() from public, anon, authenticated$sql_128_280$;
 
 -- rpc-execution-hardening.sql: source statement 281
-execute $sql_124_281$grant execute on function public.schedule_follow_ups() to service_role$sql_124_281$;
+execute $sql_128_281$grant execute on function public.schedule_follow_ups() to service_role$sql_128_281$;
 
 -- rpc-execution-hardening.sql: source statement 282
-execute $sql_124_282$revoke all on function public.can_access_tenant(uuid) from public, anon$sql_124_282$;
+execute $sql_128_282$revoke all on function public.can_access_tenant(uuid) from public, anon$sql_128_282$;
 
 -- rpc-execution-hardening.sql: source statement 283
-execute $sql_124_283$grant execute on function public.can_access_tenant(uuid) to authenticated, service_role$sql_124_283$;
+execute $sql_128_283$grant execute on function public.can_access_tenant(uuid) to authenticated, service_role$sql_128_283$;
 
 -- rpc-execution-hardening.sql: source statement 284
-execute $sql_124_284$revoke all on function public.can_manage_bank_accounts(uuid) from public, anon$sql_124_284$;
+execute $sql_128_284$revoke all on function public.can_manage_bank_accounts(uuid) from public, anon$sql_128_284$;
 
 -- rpc-execution-hardening.sql: source statement 285
-execute $sql_124_285$grant execute on function public.can_manage_bank_accounts(uuid) to authenticated, service_role$sql_124_285$;
+execute $sql_128_285$grant execute on function public.can_manage_bank_accounts(uuid) to authenticated, service_role$sql_128_285$;
 
 -- rpc-execution-hardening.sql: source statement 286
-execute $sql_124_286$revoke all on function public.can_manage_image_rules(uuid) from public, anon$sql_124_286$;
+execute $sql_128_286$revoke all on function public.can_manage_image_rules(uuid) from public, anon$sql_128_286$;
 
 -- rpc-execution-hardening.sql: source statement 287
-execute $sql_124_287$grant execute on function public.can_manage_image_rules(uuid) to authenticated, service_role$sql_124_287$;
+execute $sql_128_287$grant execute on function public.can_manage_image_rules(uuid) to authenticated, service_role$sql_128_287$;
 
 -- rpc-execution-hardening.sql: source statement 288
-execute $sql_124_288$revoke all on function public.has_tenant_feature(uuid, text) from public, anon$sql_124_288$;
+execute $sql_128_288$revoke all on function public.has_tenant_feature(uuid, text) from public, anon$sql_128_288$;
 
 -- rpc-execution-hardening.sql: source statement 289
-execute $sql_124_289$grant execute on function public.has_tenant_feature(uuid, text) to authenticated, service_role$sql_124_289$;
+execute $sql_128_289$grant execute on function public.has_tenant_feature(uuid, text) to authenticated, service_role$sql_128_289$;
 
 -- rpc-execution-hardening.sql: source statement 290
-execute $sql_124_290$revoke all on function public.is_platform_admin() from public, anon$sql_124_290$;
+execute $sql_128_290$revoke all on function public.is_platform_admin() from public, anon$sql_128_290$;
 
 -- rpc-execution-hardening.sql: source statement 291
-execute $sql_124_291$grant execute on function public.is_platform_admin() to authenticated, service_role$sql_124_291$;
+execute $sql_128_291$grant execute on function public.is_platform_admin() to authenticated, service_role$sql_128_291$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('rpc-execution-hardening.sql','d7f401d17404f69bbab5d3003aa168779907df3f952be007466c6c3e2391d83e','68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983');
-end $migration_124$;
+end $migration_128$;
 
--- 126. inbox-owner-takeover.sql
-do $migration_125$
+-- 130. inbox-owner-takeover.sql
+do $migration_129$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-owner-takeover.sql';
@@ -18655,7 +19289,7 @@ begin
     return;
   end if;
 -- inbox-owner-takeover.sql: source statement 2
-execute $sql_125_2$create or replace function public.manage_inbox_conversation(
+execute $sql_129_2$create or replace function public.manage_inbox_conversation(
   p_customer uuid,
   p_actor uuid,
   p_action text,
@@ -18754,10 +19388,10 @@ begin
     )
     from public.customers where id=c.id and tenant_id=c.tenant_id
   ));
-end $$$sql_125_2$;
+end $$$sql_129_2$;
 
 -- inbox-owner-takeover.sql: source statement 3
-execute $sql_125_3$create or replace function public.claim_and_start_inbox_reply(
+execute $sql_129_3$create or replace function public.claim_and_start_inbox_reply(
   p_customer uuid,
   p_actor uuid,
   p_version integer
@@ -18788,10 +19422,10 @@ begin
     perform public.manage_inbox_conversation(p_customer,p_actor,'claim',p_version);
   end if;
   return public.start_inbox_delivery(p_customer,p_actor);
-end $$$sql_125_3$;
+end $$$sql_129_3$;
 
 -- inbox-owner-takeover.sql: source statement 4
-execute $sql_125_4$create or replace function public.start_inbox_delivery(
+execute $sql_129_4$create or replace function public.start_inbox_delivery(
   p_customer uuid,
   p_actor uuid default null
 ) returns uuid
@@ -18858,31 +19492,31 @@ begin
   set outbound_lock=lease,outbound_lock_until=clock_timestamp()+interval '2 minutes'
   where id=p_customer;
   return lease;
-end $$$sql_125_4$;
+end $$$sql_129_4$;
 
 -- inbox-owner-takeover.sql: source statement 5
-execute $sql_125_5$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public,anon,authenticated$sql_125_5$;
+execute $sql_129_5$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public,anon,authenticated$sql_129_5$;
 
 -- inbox-owner-takeover.sql: source statement 6
-execute $sql_125_6$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_125_6$;
+execute $sql_129_6$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_129_6$;
 
 -- inbox-owner-takeover.sql: source statement 7
-execute $sql_125_7$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public,anon,authenticated$sql_125_7$;
+execute $sql_129_7$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public,anon,authenticated$sql_129_7$;
 
 -- inbox-owner-takeover.sql: source statement 8
-execute $sql_125_8$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_125_8$;
+execute $sql_129_8$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_129_8$;
 
 -- inbox-owner-takeover.sql: source statement 9
-execute $sql_125_9$revoke all on function public.start_inbox_delivery(uuid,uuid) from public,anon,authenticated$sql_125_9$;
+execute $sql_129_9$revoke all on function public.start_inbox_delivery(uuid,uuid) from public,anon,authenticated$sql_129_9$;
 
 -- inbox-owner-takeover.sql: source statement 10
-execute $sql_125_10$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_125_10$;
+execute $sql_129_10$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_129_10$;
 
 -- inbox-owner-takeover.sql: source statement 11
-execute $sql_125_11$notify pgrst,'reload schema'$sql_125_11$;
+execute $sql_129_11$notify pgrst,'reload schema'$sql_129_11$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-owner-takeover.sql','9448b60fc9fd163580e148ec97c413ea484ea36b3c92be2b3fd3c9221700ef8a','464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f');
-end $migration_125$;
+end $migration_129$;
 
 notify pgrst,'reload schema';
 

@@ -120,7 +120,6 @@ export async function POST(req: NextRequest) {
       auto_accumulate_summary: input.settings.auto_accumulate_summary ?? true,
       keywords: (input.settings.keywords ?? []).map(normalizeBidKeyword),
       closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
-      countEnabled: false,
       heartCloses: false,
       closeEnabled: true,
       privateText: sessionAuctionTemplate(input.settings.privateText),

@@ -22,8 +22,6 @@ test('workspace API restores scoped saved values and commits a single normalized
   const settings = {
     ...automation.defaultSessionAutomation(bankId),
     keywords: ['raise'],
-    countEnabled: true,
-    counting_tags: { ' LAST CALL ': '5' },
     autoCycleRounds: true,
     privateText: '{bidder_name} {total} {bank_account}',
   }
@@ -236,8 +234,7 @@ test('workspace API restores scoped saved values and commits a single normalized
   assert.equal(calls.length, 1)
   assert.equal(calls[0].name, 'save_auction_workspace')
   assert.equal(calls[0].args.p_input.shippingFee, 47)
-  assert.equal(calls[0].args.p_input.settings.countEnabled, true)
-  assert.equal(calls[0].args.p_input.settings.counting_tags['last call'], '5')
+  assert.equal('counting_tags' in calls[0].args.p_input.settings, false)
   assert.equal(calls[0].args.p_input.settings.autoCycleRounds, true)
   assert.equal(calls[0].args.p_input.durationSeconds, null)
   assert.deepEqual(Array.from(calls[0].args.p_input.settings.keywords), ['raise'])

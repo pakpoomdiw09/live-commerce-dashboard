@@ -82,6 +82,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
     const saved = await db.from('auctions').select('*').eq('id', delivery.auction_id).single()
     if (saved.error) throw saved.error
     let auction = saved.data as Auction
+    let invoiceItemPrice = Number(auction.current_price)
     if (delivery.claim_id) {
       const claim = await db
         .from('auction_winner_claims')
@@ -93,8 +94,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
       if (claim.error) throw claim.error
       if (
         Number(claim.data.revision) !== Number(delivery.claim_revision) ||
-        (delivery.channel === 'public' && auction.public_reply_enabled === false) ||
-        (delivery.channel === 'private' && auction.private_reply_enabled === false)
+        (delivery.channel === 'public' && auction.public_reply_enabled === false)
       ) {
         const superseded = await db
           .from('auction_deliveries')
@@ -104,13 +104,42 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
         if (superseded.error) throw superseded.error
         continue
       }
+      invoiceItemPrice = Number(claim.data.highest_amount)
       auction = {
         ...auction,
         order_id: claim.data.order_id,
-        current_price: Number(claim.data.highest_amount),
+        current_price: invoiceItemPrice,
         leading_bidder_id: claim.data.bidder_id,
         leading_bidder_name: claim.data.bidder_name,
       }
+    } else if (auction.winner_confirmation_comment_id) {
+      if (!auction.order_id) {
+        const held = await db
+          .from('auction_deliveries')
+          .update({ status: 'requires_review', error_code: 'WINNER_ORDER_MISSING' })
+          .eq('id', delivery.id)
+          .eq('status', 'pending')
+        if (held.error) throw held.error
+        continue
+      }
+      const winningOrder = await db
+        .from('orders')
+        .select('item_amount')
+        .eq('id', auction.order_id)
+        .eq('tenant_id', auction.tenant_id)
+        .single()
+      if (winningOrder.error) throw winningOrder.error
+      if (winningOrder.data.item_amount == null) {
+        const held = await db
+          .from('auction_deliveries')
+          .update({ status: 'requires_review', error_code: 'WINNING_PRICE_MISSING' })
+          .eq('id', delivery.id)
+          .eq('status', 'pending')
+        if (held.error) throw held.error
+        continue
+      }
+      invoiceItemPrice = Number(winningOrder.data.item_amount)
+      auction = { ...auction, current_price: invoiceItemPrice }
     }
     const tenant = await db
       .from('tenants')
@@ -158,7 +187,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           {
             product_name: auction.item_name,
             bidder_name: auction.leading_bidder_name || 'ลูกค้า',
-            price: money(auction.current_price),
+            price: money(invoiceItemPrice),
             min_step: money(auction.min_step),
             ...publicValues,
           },
@@ -166,7 +195,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
       : `ปิดประมูล ${auction.item_name} ยังไม่มีผู้เสนอราคา`
     const message =
       delivery.channel === 'private'
-        ? `🎉 ยินดีด้วยครับ! คุณชนะการประมูล\nรายการ: ${auction.item_name}\nยอดประมูล: ${money(auction.current_price)} บาท\nค่าจัดส่ง: ${money(auction.shipping_fee)} บาท\nยอดรวม: ${money(Number(auction.current_price) + Number(auction.shipping_fee))} บาท\nชำระเงิน / แนบสลิป: ${link}`
+        ? `🎉 ยินดีด้วยครับ! คุณชนะการประมูล\nรายการ: ${auction.item_name}\nยอดประมูล: ${money(invoiceItemPrice)} บาท\nค่าจัดส่ง: ${money(auction.shipping_fee)} บาท\nยอดรวม: ${money(Number(invoiceItemPrice) + Number(auction.shipping_fee))} บาท\nชำระเงิน / แนบสลิป: ${link}`
         : summary
     let billMessage = message
     let buttonMessage = message
@@ -190,7 +219,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             : auction.private_reply_template || AUCTION_PRIVATE_TEMPLATE
         const values = {
           product_name: auction.item_name,
-          price: money(auction.current_price),
+          price: money(invoiceItemPrice),
           total: money(auction.session_automation ? tab.total_amount : tab.remaining_amount),
           remaining: money(tab.remaining_amount),
           paid: money(tab.paid_amount),
@@ -207,13 +236,13 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           ? items
               .map((item) => `${customerTabItemLabel(item)} • ${money(item.amount)} บาท`)
               .join('\n')
-          : `[ประมูล] ${auction.item_name} • ${money(auction.current_price)} บาท`
+          : `[ประมูล] ${auction.item_name} • ${money(invoiceItemPrice)} บาท`
         const shipping = `ค่าจัดส่งครั้งเดียว: ${money(tab.shipping_fee ?? 0)} บาท`
         const fullFooter = `${itemLines}\n${shipping}\n${compact}`
         const footer =
           fullFooter.length <= 638
             ? fullFooter
-            : `[ประมูล] ${auction.item_name.slice(0, 80)} • ${money(auction.current_price)} บาท\nดูรายการทั้งหมดในบิล\n${shipping}\n${compact}`
+            : `[ประมูล] ${auction.item_name.slice(0, 80)} • ${money(invoiceItemPrice)} บาท\nดูรายการทั้งหมดในบิล\n${shipping}\n${compact}`
         // Keep ledger totals and the signed link intact when fitting Messenger's button limit.
         const greeting = rendered.replaceAll(bill.link, '').trim()
         buttonMessage = `${greeting.slice(0, Math.max(0, 638 - footer.length))}\n\n${footer}`.trim()
@@ -236,7 +265,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             : 0
           const singleValues = {
             ...values,
-            total: money(Number(auction.current_price) + latestShipping),
+            total: money(Number(invoiceItemPrice) + latestShipping),
             remaining: money(
               latestOrder ? Number(latestOrder.amount) - Number(latestOrder.paid_amount ?? 0) : 0,
             ),
@@ -246,7 +275,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             privateTemplate,
             singleValues,
             '',
-            `ยอดประมูลชิ้นนี้: ${money(auction.current_price)} บาท\n🚚 ค่าจัดส่งชิ้นนี้: ${money(latestShipping)} บาท\n🏦 บัญชีโอนเงิน: ${bill.account}\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${bill.link}`,
+            `ยอดประมูลชิ้นนี้: ${money(invoiceItemPrice)} บาท\n🚚 ค่าจัดส่งชิ้นนี้: ${money(latestShipping)} บาท\n🏦 บัญชีโอนเงิน: ${bill.account}\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${bill.link}`,
           )
           const plan = auctionPrivateMessagePlan({
             enabled:
@@ -258,7 +287,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
               pendingOrders.some((order) => order.id !== auction.order_id),
             name: auction.leading_bidder_name || 'ลูกค้า',
             item: auction.item_name,
-            price: Number(auction.current_price),
+            price: Number(invoiceItemPrice),
             shipping:
               pendingOrders.reduce(
                 (sum, order) =>
@@ -292,7 +321,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           const billingFooter = [
             `ยืนยันผู้ชนะประมูล: ${auction.leading_bidder_name || 'ลูกค้า'}`,
             `รายการ: ${auction.item_name}`,
-            `ราคาประมูลที่ชนะ: ${money(auction.current_price)} บาท`,
+            `ราคาประมูลที่ชนะ: ${money(invoiceItemPrice)} บาท`,
             `ค่าจัดส่งของบิล: ${money(tab.shipping_fee ?? auction.shipping_fee)} บาท`,
             `ยอดค้างชำระรวม: ${money(tab.remaining_amount)} บาท`,
             `บัญชีรับเงิน: ${bill.account}`,
@@ -604,16 +633,16 @@ export async function handleAuctionComment(input: {
       .eq('page_id', pageId)
       .or(postFilter(ids))
       .eq('status', 'closed')
-      .eq('leading_bidder_id', senderId)
       .not('winner_locked_at', 'is', null)
       .is('winner_confirmed_at', null)
+      .gte('closed_at', new Date(Date.now() - 5 * 60_000).toISOString())
       .order('closed_at', { ascending: false })
       .limit(1)
     if (waiting.error && !['42P01', 'PGRST205'].includes(waiting.error.code)) throw waiting.error
     if (waiting.data?.[0]) {
       const candidate = await loadSessionTags(waiting.data[0] as Auction)
       if (
-        parseAuctionComment(value.message, false, candidate.session_automation).type ===
+        parseAuctionComment(value.message, false, candidate.session_automation, true).type ===
         'CONFIRM_BID'
       )
         auction = candidate
@@ -674,7 +703,12 @@ export async function handleAuctionComment(input: {
   auction = await loadSessionTags(auction)
   if (auction.session_automation?.mode === 'cf' || auction.session_automation?.mode === 'auto')
     return false
-  const parsed = parseAuctionComment(value.message, isHost, auction.session_automation)
+  const parsed = parseAuctionComment(
+    value.message,
+    isHost,
+    auction.session_automation,
+    auction.status === 'closed',
+  )
   const awaitingWinner =
     auction.status === 'closed' &&
     auction.winner_locked_at &&
@@ -700,8 +734,7 @@ export async function handleAuctionComment(input: {
     p_event: execution.event.id,
     p_kind: parsed.type,
     p_amount: parsed.type === 'NUMERIC_BID' ? parsed.amount : null,
-    p_control:
-      parsed.type === 'HOST_CONTROL' ? (parsed.action === 'close' ? 'close' : parsed.count) : null,
+    p_control: parsed.type === 'HOST_CONTROL' ? 'close' : null,
   })
   if (processed.error) throw processed.error
   const result = processed.data as AuctionResult
@@ -717,7 +750,7 @@ export async function handleAuctionComment(input: {
     return true
   }
   if (parsed.type === 'CONFIRM_BID') {
-    // Supabase checks sender == current leader under a row lock before creating any invoice.
+    // Supabase accepts the first eligible bidder confirmation and invoices that bidder’s highest bid in this round.
     if (result.status === 'confirmed' || result.status === 'already_confirmed')
       await deliverAuctionNotifications(result.auctionId ?? auction.id)
     return true

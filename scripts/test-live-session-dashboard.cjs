@@ -79,7 +79,7 @@ test('Session bid shortcuts and host switches are deterministic and preserve leg
     'IGNORE',
   )
   assert.equal(
-    auctionParser.parseAuctionComment('3', true, { ...settings, countEnabled: false }).type,
+    auctionParser.parseAuctionComment('3', true, settings).type,
     'IGNORE',
   )
   assert.equal(automation.validSessionAutomation(settings), true)
@@ -686,16 +686,16 @@ test('session financial transactions preserve proofs/payments, fence revisions a
       action: 'settings',
       sessionId: started.id,
       revision: savedSettings.revision,
-      settings: { ...changed, countEnabled: false },
+      settings: changed,
     })
     const updatedRound = await one(
       'select current_price,session_automation from auctions where id=$1',
       [active],
     )
     assert.equal(
-      updatedRound.session_automation.countEnabled,
+      'countEnabled' in updatedRound.session_automation,
       false,
-      'saved settings reach an already active round',
+      'countdown settings are not stored on an active round',
     )
     assert.equal(
       Number(updatedRound.current_price),

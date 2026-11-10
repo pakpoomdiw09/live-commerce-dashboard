@@ -56,7 +56,6 @@ test('unified workspace saves all zones atomically, preserves merchant values an
         publicReply: true,
         privateReply: true,
         bankAccountId: bank,
-        countEnabled: false,
         closeEnabled: true,
         heartCloses: false,
         bidText: '{bidder_name} {price}',

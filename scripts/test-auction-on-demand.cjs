@@ -50,7 +50,6 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
       bidText: '{product_name} {price}',
       closeText: '{product_name} {price}',
       bankAccountId: bank,
-      countEnabled: false,
       heartCloses: false,
     }
     async function round() {
@@ -276,7 +275,7 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
     await db.query(
       `update live_sessions set mode='auction',confirmation_keywords=array['ACCEPT'],closing_keywords=array['FINAL'],
       auction_settings=auction_settings||'{"keywords":["DASHBOARD"],"closeKeywords":["ENDROUND"]}',
-      comment_settings='{"opening_tags":["start"],"counting_tags":{"last":"last"},"countEnabled":true}' where tenant_id=$1`,
+      comment_settings='{"opening_tags":["start"]}' where tenant_id=$1`,
       [tenant],
     )
     assert.equal((await process(modeRound, await event('900', 'start'))).status, 'accepted')

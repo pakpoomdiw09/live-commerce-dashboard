@@ -96,6 +96,7 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
       | undefined
     if (!job) break
     let customerId: string | null = null
+    let recipientAvailable = false
     let deliveryStarted = false
     const finish = async (status: string, errorCode?: string) => {
       const saved = await db
@@ -144,6 +145,10 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
         result.blocked++
         continue
       }
+      const recipientId = customer.data.platform_user_id?.trim()
+      recipientAvailable = Boolean(recipientId)
+      if (!recipientId)
+        throw Object.assign(new Error('RECIPIENT_ID_MISSING'), { code: 'RECIPIENT_ID_MISSING' })
       const token = pageTokenFor(tenant.data)
       if (!token) throw new Error('PAGE_NOT_READY')
       // Automated reminders never use HUMAN_AGENT or another exception outside the normal window.
@@ -198,7 +203,7 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
       deliveryStarted = true
       const sent = await deliverRichOnce(
         db,
-        { id: tab.customer_id, psid: customer.data.platform_user_id, token },
+        { id: tab.customer_id, psid: recipientId, token },
         `tab-reminder:${job.id}`,
         text,
         parts,
@@ -220,15 +225,24 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
       result.sent++
       console.info('[customer-tabs/reminder] sent', { jobId: job.id, tabId: tab.id })
     } catch (error) {
-      const code = (error as { code?: string } | null)?.code
+      const rawCode = (error as { code?: unknown } | null)?.code
+      const code = typeof rawCode === 'string' && /^[A-Z0-9_]{1,80}$/.test(rawCode)
+        ? rawCode
+        : 'TAB_REMINDER_UNAVAILABLE'
       const state = deliveryStarted ? 'requires_review' : 'blocked'
       await finish(
         state,
-        code && /^[A-Z0-9_]{1,80}$/.test(code) ? code : 'TAB_REMINDER_UNAVAILABLE',
+        code,
       )
       if (state === 'requires_review') result.review++
       else result.blocked++
-      console.warn('[customer-tabs/reminder] held', { jobId: job.id, customerId, state })
+      console.warn('[customer-tabs/reminder] held', {
+        jobId: job.id,
+        tabId: job.tab_id,
+        state,
+        code,
+        recipientAvailable,
+      })
     }
   }
   return result

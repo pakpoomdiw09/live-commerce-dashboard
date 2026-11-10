@@ -4,7 +4,6 @@ const { randomUUID } = require('node:crypto')
 const { PGlite } = require('@electric-sql/pglite')
 const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
 const { build } = require('./build-full-database-setup.cjs')
-const fs = require('node:fs')
 
 test('live auctions execute against the complete schema: ordering, steps, close, replay, proof and isolation', async () => {
   const db = new PGlite({ extensions: { pgcrypto } })
@@ -24,8 +23,6 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       alter default privileges in schema public grant all on sequences to anon,authenticated,service_role;
     `)
     await db.exec(build().completeSql)
-    await db.exec(fs.readFileSync('supabase/live-auctions.sql', 'utf8'))
-    await db.exec(fs.readFileSync('supabase/auction-experience.sql', 'utf8'))
     const tenant = (
       await one("insert into tenants(name,page_id) values('Auction shop','100') returning id")
     ).id
@@ -45,13 +42,15 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       )
     ).id
     async function auction(post = '456') {
-      return (
+      const id = (
         await one(
           `insert into auctions(tenant_id,page_id,live_post_id,item_name,start_price,min_step,shipping_fee,bank_account_id,host_ids)
-        values($1,'100',$3,'เหรียญรุ่น 1',200,20,50,$2,array['999']) returning id`,
+        values($1,'100',$3,'เน€เธซเธฃเธตเธขเธเธฃเธธเนเธ 1',200,20,50,$2,array['999']) returning id`,
           [tenant, bank, post],
         )
       ).id
+      await db.query("update auctions set session_automation=coalesce(session_automation,'{}'::jsonb)||'{\"keywords\":[\"1\"],\"winnerFlow\":\"on_demand\",\"closeKeywords\":[\"close\"]}'::jsonb where id=$1", [id])
+      return id
     }
     async function event(sender, text, status = 'completed', post = '456', extra = {}) {
       const value = {
@@ -60,7 +59,7 @@ test('live auctions execute against the complete schema: ordering, steps, close,
         post_id: post,
         comment_id: '456_' + randomUUID(),
         from: { id: sender, name: 'Bidder ' + sender },
-        message: text,
+        message: sender === '100' ? 'close' : text,
         ...extra,
       }
       return await one(
@@ -83,13 +82,13 @@ test('live auctions execute against the complete schema: ordering, steps, close,
     }
     const id = await auction()
     await assert.rejects(auction(), /duplicate key/)
-    const first = await event('900', 'เปิดให้ 10 ลุ้น')
+    const first = await event('900', 'เน€เธเธดเธ”เนเธซเน 10 เธฅเธธเนเธ')
     const accepted = await process(id, first, 'OPENING_BID')
     assert.equal(accepted.status, 'accepted')
     assert.equal(accepted.amount, 200)
     assert.deepEqual(await process(id, first, 'OPENING_BID'), accepted)
     assert.equal(
-      (await process(id, await event('901', 'เปิด'), 'OPENING_BID')).status,
+      (await process(id, await event('901', 'เน€เธเธดเธ”'), 'OPENING_BID')).status,
       'already_opened',
     )
     assert.equal(
@@ -99,28 +98,36 @@ test('live auctions execute against the complete schema: ordering, steps, close,
     assert.equal((await process(id, await event('901', '1'), 'STEP_BID')).amount, 220)
     assert.equal((await process(id, await event('902', '250'), 'NUMERIC_BID', 250)).amount, 250)
     assert.equal(
-      (await process(id, await event('902', 'ปิด'), 'HOST_CONTROL', null, 'close')).status,
+      (await process(id, await event('902', 'เธเธดเธ”'), 'HOST_CONTROL', null, 'close')).status,
       'ignored',
     )
     assert.equal(
-      (await process(id, await event('999', 'เคาะ 3'), 'HOST_CONTROL', null, '3')).status,
-      'count',
+      (await process(id, await event('999', '3'), 'HOST_CONTROL', null, '3')).status,
+      'ignored',
+      'legacy numeric host controls cannot change an active round',
     )
     assert.equal(
-      (await one('select status,host_count from auctions where id=$1', [id])).status,
+      (await one('select status from auctions where id=$1', [id])).status,
       'active',
     )
-    // Accepted bids reset the host count and the next step uses the locked current price.
+    // Numeric customer bids remain separate from host controls.
     assert.equal((await process(id, await event('903', '+1'), 'STEP_BID')).amount, 270)
-    assert.equal((await one('select host_count from auctions where id=$1', [id])).host_count, null)
-    const earlier = await event('904', '300', 'pending')
-    const closing = await event('100', 'ปิด', 'pending')
+    assert.equal((await process(id, await event('905', '300'), 'NUMERIC_BID', 300)).amount, 300)
+    for (let index = 0; index < 35; index++) {
+      const bidAmount = 320 + index * 20
+      assert.equal(
+        (await process(id, await event(String(7000 + index), String(bidAmount)), 'NUMERIC_BID', bidAmount)).status,
+        'accepted',
+      )
+    }
+    const earlier = await event('904', '299', 'pending')
+    const closing = await event('100', 'เธเธดเธ”', 'pending')
     assert.equal(earlier.ordering_key, closing.ordering_key)
     await assert.rejects(
       process(id, closing, 'HOST_CONTROL', null, 'close'),
       /AUCTION_EVENT_OUT_OF_ORDER/,
     )
-    assert.equal((await process(id, earlier, 'NUMERIC_BID', 300)).amount, 300)
+    assert.equal((await process(id, earlier, 'NUMERIC_BID', 299)).status, 'too_low')
     await db.query("update facebook_webhook_events set status='completed' where id=$1", [
       earlier.id,
     ])
@@ -128,74 +135,98 @@ test('live auctions execute against the complete schema: ordering, steps, close,
     await db.query("update facebook_webhook_events set status='completed' where id=$1", [
       closing.id,
     ])
-    assert.equal(closed.status, 'closed')
-    assert.ok(closed.orderId)
+    assert.equal(closed.status, 'awaiting_confirmation')
+    assert.equal(closed.orderId ?? null, null)
     assert.deepEqual(await process(id, closing, 'HOST_CONTROL', null, 'close'), closed)
-    const bill = await one('select amount,source,status from orders where id=$1', [closed.orderId])
-    assert.equal(Number(bill.amount), 350)
+    const candidates = (await one('select list_live_auction_winner_candidates($1,$2) result', [id, tenant])).result
+    assert.ok(candidates.length > 30, 'candidate RPC returns all eligible bidders, not only the latest 30 bids')
+    assert.equal(candidates.find((candidate) => candidate.bidder_id === '902').bid_amount, 250)
+    assert.equal((await process(id, await event('902', '1'), 'CONFIRM_BID')).status, 'ignored')
+    const designated = await one('select designate_live_auction_winner($1,$2,$3) result', [id, tenant, '902'])
+    assert.equal(Number(designated.result.amount), 250)
+    await assert.rejects(
+      one('select designate_live_auction_winner($1,$2,$3)', [id, tenant, '905']),
+      /AUCTION_WINNER_ALREADY_DESIGNATED/,
+    )
+    assert.equal((await process(id, await event('906', '1'), 'CONFIRM_BID')).status, 'ignored')
+    assert.equal((await process(id, await event('905', '1'), 'CONFIRM_BID')).status, 'ignored')
+    const confirmed = await process(id, await event('902', '1'), 'CONFIRM_BID')
+    assert.equal(confirmed.status, 'confirmed')
+    assert.equal(Number(confirmed.amount), 250)
+    assert.equal((await one('select leading_bidder_id from auctions where id=$1', [id])).leading_bidder_id, '902')
+    assert.equal(Number((await one('select current_price from auctions where id=$1', [id])).current_price), 250)
+    const invoiceOutbox = await one(
+      `select d.channel,d.status,c.highest_amount,c.order_id,o.item_amount,o.amount
+       from auction_deliveries d join auction_winner_claims c on c.id=d.claim_id
+       join orders o on o.id=c.order_id where d.auction_id=$1 and d.channel='private'`,
+      [id],
+    )
+    assert.equal(invoiceOutbox.channel, 'private')
+    assert.equal(invoiceOutbox.status, 'pending')
+    assert.equal(Number(invoiceOutbox.highest_amount), 250)
+    assert.equal(Number(invoiceOutbox.item_amount), 250)
+    assert.equal(Number(invoiceOutbox.amount), 300, 'invoice total includes 50 THB shipping')
+    assert.equal((await process(id, await event('905', '1'), 'CONFIRM_BID')).status, 'ignored')
+    const bill = await one('select amount,source,status from orders where id=$1', [confirmed.orderId])
+    assert.equal(Number(bill.amount), 300)
     assert.equal(bill.source, 'live_auction')
     assert.equal(bill.status, 'pending_payment')
     assert.equal(
       (await process(id, await event('905', '999'), 'NUMERIC_BID', 999)).status,
-      'closed',
+      'ignored',
     )
     assert.equal(
       (await one('select leading_bidder_id from auctions where id=$1', [id])).leading_bidder_id,
-      '904',
+      '902',
     )
     assert.equal((await one('select count(*)::int n from orders')).n, 1)
     const quiet = await auction('666')
     await db.query(
-      'update auctions set private_reply_enabled=false,public_reply_enabled=false where id=$1',
+      "update auctions set private_reply_enabled=false,public_reply_enabled=false,session_automation=session_automation||'{\"closeKeywords\":[\"close\"]}'::jsonb where id=$1",
       [quiet],
     )
-    await process(quiet, await event('920', 'เปิด', 'completed', '666'), 'OPENING_BID')
+    await process(quiet, await event('920', '240', 'completed', '666'), 'NUMERIC_BID', 240)
+    await process(quiet, await event('920', 'เน€เธเธดเธ”', 'completed', '666'), 'OPENING_BID')
     await process(
       quiet,
-      await event('100', '❌', 'completed', '666'),
+      await event('100', 'close', 'completed', '666'),
       'HOST_CONTROL',
       null,
       'close',
     )
+    await one('select designate_live_auction_winner($1,$2,$3)', [quiet, tenant, '920'])
+    assert.equal((await process(quiet, await event('920', '1', 'completed', '666'), 'CONFIRM_BID')).status, 'confirmed')
     assert.equal(
       (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [quiet])).n,
-      0,
-    )
-    assert.equal(
-      (
-        await one('select count(*)::int n from messages where external_id=$1', [
-          'auction-event:' + quiet,
-        ])
-      ).n,
       1,
-      'switching off replies preserves the immediate local Inbox event and sale',
     )
+    assert.equal((await one("select count(*)::int n from messages where external_id like 'auction-claim:%' and delivery_status='pending'")).n, 2)
     assert.equal(
       (await one('select count(*)::int n from auction_deliveries where auction_id=$1', [id])).n,
       2,
     )
     assert.equal(
       (await one('select finalize_live_auction($1,$2) r', [id, tenant])).r.orderId,
-      closed.orderId,
+      confirmed.orderId,
     )
     const proof = await one("select submit_auction_payment_proof($1,'auction/proof.png') id", [
-      closed.orderId,
+      confirmed.orderId,
     ])
     assert.ok(proof.id)
     assert.equal(
-      (await one('select status from orders where id=$1', [closed.orderId])).status,
+      (await one('select status from orders where id=$1', [confirmed.orderId])).status,
       'pending_payment',
       'upload alone must not mark paid',
     )
     await assert.rejects(
-      one("select submit_auction_payment_proof($1,'another.png')", [closed.orderId]),
+      one("select submit_auction_payment_proof($1,'another.png')", [confirmed.orderId]),
       /AUCTION_PROOF_EXISTS/,
     )
     const owner = (await one('insert into auth.users default values returning id')).id
     const secondOrder = (
       await one(
         "insert into orders(tenant_id,customer_id,product_name,amount) select tenant_id,customer_id,'Other purchase',500 from orders where id=$1 returning id",
-        [closed.orderId],
+        [confirmed.orderId],
       )
     ).id
     await assert.rejects(
@@ -203,7 +234,7 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       /TAB_PAYMENT_NOT_COVERED/,
     )
     assert.equal(
-      (await one('select status from orders where id=$1', [closed.orderId])).status,
+      (await one('select status from orders where id=$1', [confirmed.orderId])).status,
       'pending_payment',
     )
     assert.equal(
@@ -240,18 +271,36 @@ test('live auctions execute against the complete schema: ordering, steps, close,
       (await one('select finalize_live_auction($1,$2,null,true) r', [cancelled, tenant])).r.status,
       'cancelled',
     )
+    const timed = await auction('700')
+    await db.query("update auctions set session_automation=session_automation||'{\"closeKeywords\":[\"close\"]}'::jsonb where id=$1", [timed])
+    await process(timed, await event('930', 'เน€เธโฌเน€เธยเน€เธเธ”เน€เธโ€', 'completed', '700'), 'OPENING_BID')
+    await process(timed, await event('100', 'close', 'completed', '700'), 'HOST_CONTROL', null, 'close')
+    await db.query("update auctions set closed_at=clock_timestamp()-interval '5 minutes 1 second' where id=$1", [timed])
+    assert.equal((await process(timed, await event('930', '1', 'completed', '700'), 'CONFIRM_BID')).status, 'expired')
+    assert.equal((await one('select status from auctions where id=$1', [timed])).status, 'expired')
+    const oldRound = await auction('701')
+    await db.query("update auctions set session_automation=session_automation||'{\"closeKeywords\":[\"close\"]}'::jsonb where id=$1", [oldRound])
+    await process(oldRound, await event('931', 'เน€เธโฌเน€เธยเน€เธเธ”เน€เธโ€', 'completed', '701'), 'OPENING_BID')
+    await process(oldRound, await event('100', 'close', 'completed', '701'), 'HOST_CONTROL', null, 'close')
+    await auction('701')
+    assert.equal((await process(oldRound, await event('931', '1', 'completed', '701'), 'CONFIRM_BID')).status, 'ignored')
+    assert.equal((await one('select winner_confirmation_comment_id from auctions where id=$1', [oldRound])).winner_confirmation_comment_id, null)
     const payableAuction = await auction('789')
-    await process(payableAuction, await event('911', 'เปิด', 'completed', '789'), 'OPENING_BID')
+    await process(payableAuction, await event('911', '220', 'completed', '789'), 'NUMERIC_BID', 220)
+    await process(payableAuction, await event('911', 'เน€เธเธดเธ”', 'completed', '789'), 'OPENING_BID')
     const payableClose = await process(
       payableAuction,
-      await event('100', 'ปิด', 'completed', '789'),
+      await event('100', 'เธเธดเธ”', 'completed', '789'),
       'HOST_CONTROL',
       null,
       'close',
     )
+    await one('select designate_live_auction_winner($1,$2,$3)', [payableAuction, tenant, '911'])
+    const payableConfirmed = await process(payableAuction, await event('911', '1', 'completed', '789'), 'CONFIRM_BID')
+    assert.equal(payableConfirmed.status, 'confirmed')
     const payableOrder = await one(
       'select id,tenant_id,customer_id,amount,customer_tab_id from orders where id=$1',
-      [payableClose.orderId],
+      [payableConfirmed.orderId],
     )
     const payableTab = await one('select id,remaining_amount from customer_tabs where id=$1', [
       payableOrder.customer_tab_id,
@@ -323,8 +372,8 @@ test('live auctions execute against the complete schema: ordering, steps, close,
     )
     assert.equal((await one('select count(*)::int n from orders')).n, ordersBeforeSettlement)
     // The DB trigger also protects events enqueued by older application instances.
-    const q1 = await event('910', 'เปิด', 'pending', '777')
-    const q2 = await event('100', 'ปิด', 'pending', '777')
+    const q1 = await event('910', 'เน€เธเธดเธ”', 'pending', '777')
+    const q2 = await event('100', 'เธเธดเธ”', 'pending', '777')
     const claimed = await one('select * from claim_facebook_webhook()')
     assert.equal(claimed.id, q1.id)
     assert.equal(

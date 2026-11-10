@@ -148,6 +148,10 @@ function fixture({
           predicates.push((row) => row[key] <= value)
           return q
         },
+        gte(key, value) {
+          predicates.push((row) => row[key] >= value)
+          return q
+        },
         lt(key, value) {
           predicates.push((row) => row[key] < value)
           return q
@@ -294,13 +298,13 @@ test('missing, blank and synthetic authors never reach an auction mutation RPC',
   }
 })
 
-test('highest-bid confirmation dispatches the active winner bill immediately and honors public reply off', async () => {
+test('bidder confirmation invoices that bidder personal highest amount despite a higher round price', async () => {
   for (const keyword of ['1', '11', '+1', '+', 'เปิด']) {
     assert.equal(
       parser.parseAuctionComment(keyword, false, {
         ...automation.defaultSessionAutomation(),
         keywords: [keyword, keyword],
-      }).type,
+      }, true).type,
       'CONFIRM_BID',
     )
   }
@@ -316,10 +320,12 @@ test('highest-bid confirmation dispatches the active winner bill immediately and
     },
   })
   Object.assign(f.tables.auctions[0], {
-    status: 'active',
+    status: 'closed',
+    current_price: 300,
+    winner_locked_at: new Date(Date.now() - 1000).toISOString(),
     leading_bidder_id: '901',
     created_at: '2026-01-01',
-    closed_at: '2026-03-02',
+    closed_at: new Date(Date.now() - 1000).toISOString(),
     session_automation: { ...automation.defaultSessionAutomation(), keywords: ['1', '11', '+1'] },
     public_reply_enabled: false,
     private_reply_enabled: true,
@@ -356,12 +362,43 @@ test('highest-bid confirmation dispatches the active winner bill immediately and
   assert.equal(f.calls.rpc[0].input.p_kind, 'CONFIRM_BID')
   assert.equal(f.calls.private.length, 1)
   assert.equal(f.calls.private[0][1], 'claim-comment')
+  assert.match(f.calls.private[0][2], /Claimant: 250/)
+  assert.doesNotMatch(f.calls.private[0][2], /Claimant: 300/)
   assert.match(f.calls.private[0][2], /ราคาประมูลที่ชนะ: 250/)
   assert.match(f.calls.private[0][2], /KTB 9260337828/)
   assert.equal(f.calls.public.length, 0)
   assert.equal(f.tables.messages[0].delivery_status, 'sent')
   await f.receive('+1', '901')
   assert.equal(f.calls.private.length, 1, 'replayed comment cannot resend a sent claim')
+
+  const fallback = fixture({
+    tab: {
+      total_amount: 300,
+      paid_amount: 0,
+      remaining_amount: 300,
+      shipping_fee: 50,
+      customer_tab_items: [],
+    },
+  })
+  Object.assign(fallback.tables.auctions[0], {
+    status: 'closed',
+    current_price: 300,
+    order_id: orderId,
+    winner_confirmation_comment_id: 'confirmed-comment',
+    private_reply_template: 'price={price}, total={total}',
+  })
+  fallback.tables.orders.push({ id: orderId, tenant_id: tenantId, item_amount: 250 })
+  fallback.tables.auction_deliveries.push({
+    id: 'legacy-confirmed-private',
+    auction_id: auctionId,
+    channel: 'private',
+    comment_id: 'confirmed-comment',
+    status: 'pending',
+  })
+  await fallback.api.deliverAuctionNotifications(auctionId)
+  assert.match(fallback.calls.private[0][2], /price=250/)
+  assert.doesNotMatch(fallback.calls.private[0][2], /price=300/)
+
   const empty = fixture({ result: { status: 'ignored', reason: 'NO_BID_HISTORY' } })
   empty.tables.auctions[0].session_automation = {
     ...automation.defaultSessionAutomation(),
@@ -541,8 +578,6 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   f.tables.auctions[0].session_automation = {
     keywords: ['1'],
     opening_tags: ['เปิดให้ 10 ลุ้น'],
-    counting_tags: { 1: '1', 'เคาะ 3': '3' },
-    countEnabled: true,
     closeEnabled: true,
     heartCloses: false,
   }
@@ -552,23 +587,23 @@ test('auction routing uses scoped rows, separates host/customer commands and che
   assert.equal(f.calls.rpc[0].input.p_tenant, tenantId)
   assert.equal(f.calls.public.length, 1)
   assert.match(f.calls.public[0][2], /200/)
-  await f.receive('1', '100')
-  assert.equal(f.calls.rpc.at(-1).input.p_kind, 'HOST_CONTROL')
-  assert.equal(f.calls.rpc.at(-1).input.p_control, '1')
+  const beforeHostNumber = f.calls.rpc.length
+  await f.receive('3', '100')
+  assert.equal(f.calls.rpc.length, beforeHostNumber, 'host numeric comments do not reach the mutation RPC')
   await f.receive('1', '901')
   assert.equal(f.calls.rpc.at(-1).input.p_kind, 'CONFIRM_BID')
   const before = f.calls.rpc.length
   await f.receive('ปิด', '901')
   assert.equal(f.calls.rpc.length, before, 'an ordinary customer cannot close')
-  await f.receive('เคาะ 3', '999')
-  assert.equal(f.calls.rpc.at(-1).input.p_control, '3')
+  const beforeLegacyHostNumber = f.calls.rpc.length
+  await f.receive('3', '999')
+  assert.equal(f.calls.rpc.length, beforeLegacyHostNumber, 'legacy host numbers are ignored')
 })
 
 test('empty tag lists use the configured fallback keywords', () => {
   const empty = {
     keywords: [],
     closeKeywords: [],
-    countEnabled: false,
     closeEnabled: true,
     heartCloses: false,
   }
@@ -702,7 +737,6 @@ test('seller-defined bid words record silently and only a trusted host can use t
   f.tables.auctions[0].session_automation = {
     keywords: ['เคาะ'],
     closeKeywords: ['จบรายการ'],
-    countEnabled: false,
     closeEnabled: true,
     heartCloses: false,
   }

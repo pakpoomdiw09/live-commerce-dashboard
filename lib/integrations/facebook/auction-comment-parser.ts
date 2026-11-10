@@ -6,7 +6,7 @@ import {
 } from '@/lib/features/commerce/comment-config'
 
 export type AuctionComment =
-  | { type: 'HOST_CONTROL'; action: 'close' | 'count'; count: string | null }
+  | { type: 'HOST_CONTROL'; action: 'close' }
   | { type: 'OPENING_BID' }
   | { type: 'STEP_BID' }
   | { type: 'CONFIRM_BID' }
@@ -32,26 +32,23 @@ export function parseAuctionComment(
         keywords: string[]
         winnerFlow?: 'on_demand' | 'highest_bid'
         closeKeywords?: string[]
-        countEnabled: boolean
         closeEnabled: boolean
         heartCloses: boolean
       })
     | null,
+  roundClosed = false,
 ): AuctionComment {
   const value = normalizeAuctionTag(text)
   const settings = resolveCommentSettings({}, automation ?? {})
   if (isHost) {
-    let count: string | null = null
     for (const line of text.split(/[\r\n]+/u).map(normalizeAuctionTag).filter(Boolean)) {
       if (automation?.closeEnabled !== false && settings.closeKeywords.includes(line))
-        return { type: 'HOST_CONTROL', action: 'close', count: null }
-      if (automation?.countEnabled !== true || typeof settings.counting_tags[line] !== 'string' || !settings.counting_tags[line].trim())
-        return { type: 'IGNORE' }
-      count = settings.counting_tags[line]
+        return { type: 'HOST_CONTROL', action: 'close' }
+      return { type: 'IGNORE' }
     }
-    return count ? { type: 'HOST_CONTROL', action: 'count', count } : { type: 'IGNORE' }
+    return { type: 'IGNORE' }
   }
-  const matchesKeyword = settings.keywords.includes(value)
+  const matchesKeyword = roundClosed && settings.keywords.includes(value)
   if (matchesKeyword) return { type: 'CONFIRM_BID' }
   if (settings.opening_tags.includes(value)) return { type: 'OPENING_BID' }
   // Whole price only; ignore phone numbers, product chatter and malformed grouping.

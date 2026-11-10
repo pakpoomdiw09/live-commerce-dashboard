@@ -46,8 +46,6 @@ async function fixture() {
     winnerFlow: 'highest_bid',
     keywords: ['confirm'],
     closeKeywords: ['close'],
-    countEnabled: true,
-    counting_tags: { 'last call': '3' },
     closeEnabled: true,
     privateReply: false,
     publicReply: false,
@@ -144,41 +142,6 @@ test('normal round lifecycle: real parser, two bidders, close without order, con
     assert.equal(
       (await f.one('select order_id from auctions where id=$1', [cancelled.id])).order_id,
       null,
-    )
-  } finally {
-    await f.db.close()
-  }
-})
-
-test('empty count configuration has identical disabled behavior in SQL and the real TypeScript parser', async () => {
-  const f = await fixture()
-  try {
-    for (const settings of [
-      {},
-      { counting_tags: { count: '3' } },
-      { counting_tags: { count: '3' }, countEnabled: false },
-    ]) {
-      const ts = config.resolveCommentSettings({}, settings)
-      const sql = (
-        await f.one('select resolve_facebook_comment_settings($1,$2) result', [{}, settings])
-      ).result
-      assert.equal(ts.countEnabled === true, sql.countEnabled === true)
-      assert.equal(parseAuctionComment('count', true, ts).type, 'IGNORE')
-    }
-    const signature = 'public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)'
-    const fn = await f.one(
-      'select pronargs,nargdefaults from (select pronargs,pronargdefaults nargdefaults from pg_proc where oid=$1::regprocedure) f',
-      [signature],
-    )
-    assert.equal(fn.pronargs, 4)
-    assert.equal(fn.nargdefaults, 2)
-    assert.equal(
-      (
-        await f.one(
-          "select provolatile from pg_proc where oid='public.auction_comment_timestamp(text)'::regprocedure",
-        )
-      ).provolatile,
-      's',
     )
   } finally {
     await f.db.close()

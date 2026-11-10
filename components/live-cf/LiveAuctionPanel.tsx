@@ -17,11 +17,13 @@ import {
 } from '@/lib/features/commerce/auction-templates'
 
 type Delivery = { channel: string; status: string; error_code: string | null }
+type WinnerCandidate = { bidder_id: string; bidder_name: string | null; bid_amount: number }
 type Snapshot = {
   selectedAuctionId?: string
   auctions: Auction[]
   bids: AuctionBid[]
   deliveries: Delivery[]
+  winnerCandidates: WinnerCandidate[]
 }
 const field =
   'mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100'
@@ -31,7 +33,6 @@ const statusLabel: Record<string, string> = {
   already_opened: 'มีผู้เปิดแล้ว',
   too_low: 'ต่ำกว่าขั้นต่ำ',
   closed: 'ปิดประมูลแล้ว',
-  count: 'ผู้ขายนับเคาะ',
   stale: 'คอมเมนต์ก่อนเปิดรอบ',
 }
 
@@ -50,7 +51,7 @@ export function LiveAuctionPanel({
   onSessionEnded?: () => void
   session?: LiveSession
 }) {
-  const [snapshot, setSnapshot] = useState<Snapshot>({ auctions: [], bids: [], deliveries: [] })
+  const [snapshot, setSnapshot] = useState<Snapshot>({ auctions: [], bids: [], deliveries: [], winnerCandidates: [] })
   const [selectedId, setSelectedId] = useState('')
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
@@ -162,6 +163,7 @@ export function LiveAuctionPanel({
   const auction =
     snapshot.auctions.find((a) => a.id === (selectedId || snapshot.selectedAuctionId)) ??
     (!selectedId ? snapshot.auctions[0] : undefined)
+  const winnerCandidates = snapshot.winnerCandidates
   async function mutate(path: string, input: Record<string, unknown>) {
     setBusy(true)
     setError('')
@@ -178,7 +180,7 @@ export function LiveAuctionPanel({
       if (data.id) {
         ++requestVersion.current
         setLoading(true)
-        setSnapshot((previous) => ({ ...previous, bids: [], deliveries: [] }))
+        setSnapshot((previous) => ({ ...previous, bids: [], deliveries: [], winnerCandidates: [] }))
         setSelectedId(data.id)
         setShowForm(false)
       } else await refresh()
@@ -437,7 +439,7 @@ export function LiveAuctionPanel({
                 onChange={(e) => {
                   ++requestVersion.current
                   setLoading(true)
-                  setSnapshot((previous) => ({ ...previous, bids: [], deliveries: [] }))
+                  setSnapshot((previous) => ({ ...previous, bids: [], deliveries: [], winnerCandidates: [] }))
                   setSelectedId(e.target.value)
                 }}
               >
@@ -485,49 +487,11 @@ export function LiveAuctionPanel({
                   {money(auction.current_price)} <span className="text-sm">บาท</span>
                 </p>
               </div>
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">ผู้ขายนับเคาะ</p>
-                <p className="mt-2 text-6xl font-bold" data-auction-count>
-                  {auction.host_count || '—'}
-                </p>
-                <div className="mt-3 flex gap-2" aria-label="สถานะนับเคาะ 3 2 1">
-                  {['3', '2', '1'].map((count) => (
-                    <span
-                      key={count}
-                      className={`grid h-9 w-9 place-items-center rounded-lg text-sm font-bold ${auction.host_count === count ? 'bg-orange-500 text-white' : 'bg-white text-slate-400 ring-1 ring-slate-200'}`}
-                    >
-                      {count}
-                    </span>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  พิมพ์ 3, 2, 1 หรือ เคาะ 1–3 เพื่อนับ
-                  <br />
-                  พิมพ์ ปิด / x / ❌ เพื่อจบรายการ
-                </p>
-              </div>
             </div>
             {auction.status === 'active' && (
               <div className="space-y-3 rounded-xl border border-slate-200 p-4">
                 <p className="text-sm font-semibold">คำสั่งผู้ขาย • ส่งคอมเมนต์เข้าไลฟ์โดยตรง</p>
                 <div className="flex flex-wrap gap-3">
-                  {(['3', '2', '1'] as const).map((action) => (
-                    <button
-                      key={action}
-                      data-auction-action={action}
-                      type="button"
-                      disabled={busy || auction.session_automation?.countEnabled !== true}
-                      onClick={() =>
-                        void mutate('/api/live-cf/auction/host-action', {
-                          auctionId: auction.id,
-                          action,
-                        })
-                      }
-                      className="min-h-20 flex-1 rounded-xl border border-orange-200 bg-orange-50 px-5 py-3 text-2xl font-bold text-orange-700 disabled:opacity-50"
-                    >
-                      นับ {action}
-                    </button>
-                  ))}
                   <button
                     type="button"
                     data-auction-action="close"
@@ -556,7 +520,7 @@ export function LiveAuctionPanel({
                   </button>
                 </div>
                 <p className="text-xs text-slate-500">
-                  สถานะการนับและผลปิดจะอัปเดตเมื่อระบบประมวลผลคอมเมนต์ตามลำดับในคิว
+                  ผลปิดประมูลจะอัปเดตเมื่อระบบประมวลผลคอมเมนต์ตามลำดับในคิว
                 </p>
               </div>
             )}
@@ -585,6 +549,35 @@ export function LiveAuctionPanel({
               </div>
             )}
             <div data-auction-stream className="max-h-[480px] overflow-auto">
+              {auction.status === 'closed' && !auction.winner_confirmation_comment_id && (
+                <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 p-4">
+                  <p className="font-semibold">Designate the winner for this round</p>
+                  {auction.winner_designated_bidder_id ? (
+                    <p className="mt-2 text-sm text-orange-900">
+                      Winner locked: {winnerCandidates.find((bid) => bid.bidder_id === auction.winner_designated_bidder_id)?.bidder_name ?? auction.winner_designated_bidder_id}
+                    </p>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {winnerCandidates.map((bid) => (
+                        <button
+                          key={bid.bidder_id}
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            void mutate('/api/live-cf/auction/designate-winner', {
+                              auctionId: auction.id,
+                              bidderId: bid.bidder_id,
+                            })
+                          }
+                          className="rounded-lg border border-orange-300 bg-white px-3 py-2 text-sm font-medium text-orange-900 disabled:opacity-50"
+                        >
+                          {bid.bidder_name || bid.bidder_id} · {money(Number(bid.bid_amount))} THB
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <table className="w-full min-w-[560px] text-left text-sm">
                 <caption className="mb-3 text-left font-semibold">
                   Live Bid Stream • {auction.item_name} • เฉพาะรอบนี้

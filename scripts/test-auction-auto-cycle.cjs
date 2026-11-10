@@ -7,8 +7,7 @@ const { parseAuctionComment } = require('./helpers/load-typescript.cjs')('lib/in
 
 async function setup() {
   const f = await fixture()
-  Object.assign(f.settings, { autoCycleRounds: true, countEnabled: true,
-    counting_tags: { '5': '5', '4': '4', '3': '3', '2': '2', '1': '1', 'นับ 1': '1', 'นับ 2': '2', 'นับ 3': '3' },
+  Object.assign(f.settings, { autoCycleRounds: true,
     keywords: ['รับ', 'cf', 'ยืนยัน'], closeKeywords: ['ปิด', 'x', 'กากบาท'] })
   const actor = (await f.one('insert into auth.users default values returning id')).id
   const input = { pageId: '100', livePostId: '456', sessionId: null, roundId: null, revision: 0, financialRevision: 0,
@@ -20,21 +19,6 @@ async function setup() {
   const a = await f.one('select * from auctions where id=$1', [saved.auctionId])
   return { ...f, a, input, save, saved }
 }
-
-test('dashboard counting supports five steps and multiline custom counts without closing or accepting host bids', async () => {
-  const f = await setup()
-  try {
-    for (const count of ['5', '4', '3', '2', '1']) {
-      assert.equal((await f.receive(f.a, '999', count)).result.status, 'count')
-      assert.equal((await f.one('select host_count from auctions where id=$1', [f.a.id])).host_count, count)
-    }
-    assert.equal((await f.receive(f.a, '999', 'นับ 1\nนับ 2\nนับ 3')).result.status, 'count')
-    assert.equal((await f.one('select host_count from auctions where id=$1', [f.a.id])).host_count, '3')
-    assert.equal((await f.receive(f.a, '900', 'ปิด')).result.status, 'ignored')
-    assert.equal((await f.one('select status from auctions where id=$1', [f.a.id])).status, 'active')
-    assert.equal((await f.one('select count(*)::int n from auctions')).n, 1)
-  } finally { await f.db.close() }
-})
 
 test('host close atomically cycles from the saved template and previous winner confirms while new bids continue', async () => {
   const f = await setup()

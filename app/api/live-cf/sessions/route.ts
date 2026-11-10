@@ -212,6 +212,14 @@ export async function POST(req: NextRequest) {
               input.tabIds.some((id: unknown) => typeof id !== 'string' || !UUID.test(id))))
         )
           return auctionReply({ error: 'กรุณาตรวจรายชื่อและตัวแปรข้อความทวงยอด' }, 400)
+        console.info('[live-session/reminders] request', {
+          tenantId: input.tenantId,
+          sessionId: input.sessionId,
+          requestId: input.requestId,
+          selectedTabCount: Array.isArray(input.tabIds) ? input.tabIds.length : null,
+          allTabs: input.tabIds === null,
+          templateLength: input.template.length,
+        })
         const db = supabaseAdmin({ timeoutMs: 15000 })
         const rate = await db.rpc('commerce_rate_limit', {
           p_bucket: `session-reminders:${input.tenantId}`,
@@ -228,11 +236,42 @@ export async function POST(req: NextRequest) {
           p_template: input.template,
         })
         if (queued.error) throw queued.error
+        console.info('[live-session/reminders] queued', {
+          tenantId: input.tenantId,
+          sessionId: input.sessionId,
+          requestId: input.requestId,
+          queued: queued.data,
+        })
+        if (!Number.isSafeInteger(queued.data) || queued.data < 1) {
+          console.warn('[live-session/reminders] no eligible tabs', {
+            tenantId: input.tenantId,
+            sessionId: input.sessionId,
+            requestId: input.requestId,
+            selectedTabCount: Array.isArray(input.tabIds) ? input.tabIds.length : null,
+            reason: 'NO_OUTSTANDING_TABS_OR_ALREADY_QUEUED',
+          })
+          return auctionReply(
+            {
+              error:
+                'ไม่มีรายการค้างที่เข้าเงื่อนไขส่ง อาจไม่มีหนี้คงเหลือ อยู่คนละไลฟ์ หรือมีรายการแจ้งยอดอยู่ในคิวแล้ว',
+              code: 'NO_ELIGIBLE_TABS',
+            },
+            409,
+          )
+        }
         after(async () => {
           try {
-            await runCustomerTabReminders(db)
-          } catch {
-            console.error('[live-session/reminders] deferred worker unavailable')
+            const summary = await runCustomerTabReminders(db)
+            console.info('[live-session/reminders] worker complete', {
+              requestId: input.requestId,
+              ...summary,
+            })
+          } catch (error) {
+            const code = (error as { code?: unknown } | null)?.code
+            console.error('[live-session/reminders] deferred worker unavailable', {
+              requestId: input.requestId,
+              code: typeof code === 'string' && /^[a-z0-9_]{1,80}$/i.test(code) ? code : 'WORKER_FAILED',
+            })
           }
         })
         return auctionReply({

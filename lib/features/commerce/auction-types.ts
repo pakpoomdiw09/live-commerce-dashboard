@@ -14,8 +14,7 @@ export type Auction = {
   leading_bidder_name: string | null
   leading_comment_id: string | null
   host_ids: string[]
-  host_count: string | null
-  status: 'active' | 'closed' | 'cancelled'
+  status: 'active' | 'closed' | 'cancelled' | 'expired'
   closed_at: string | null
   order_id: string | null
   created_at: string
@@ -29,10 +28,13 @@ export type Auction = {
   session_automation?: SessionAutomation | null
   winner_confirmation_comment_id?: string | null
   winner_locked_at?: string | null
+  winner_designated_bidder_id?: string | null
+  winner_designated_at?: string | null
 }
 
 export type AuctionBid = {
   id: string
+  bidder_id: string | null
   bidder_name: string | null
   comment_text: string
   bid_amount: number | null

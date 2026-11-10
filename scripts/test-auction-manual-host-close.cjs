@@ -10,7 +10,7 @@ async function workspace(f, durationSeconds) {
     pageId: '100', livePostId: '456', sessionId: null, roundId: null,
     revision: 0, financialRevision: 0, itemName: 'Manual round', startPrice: 100,
     minStep: 10, shippingFee: 20, durationSeconds,
-    settings: { ...f.settings, countEnabled: false, bidText: '', privateText: '', closeText: '', heartCloses: false },
+    settings: { ...f.settings, bidText: '', privateText: '', closeText: '', heartCloses: false },
     hostIds: ['100', '999'], finance: { cost: 0, ads: 0, shipping: 0, fees: 0 },
   }
   const save = async (value, request = randomUUID()) =>

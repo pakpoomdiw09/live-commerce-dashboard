@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 144 ไฟล์: รวมตาม dependencies 126 ไฟล์ และแยกไว้ 18 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 146 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 148 ไฟล์: รวมตาม dependencies 130 ไฟล์ และแยกไว้ 18 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 150 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1260150 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1302541 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1089242 bytes, 17802 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1126870 bytes, 18385 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -161,8 +161,12 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 122. [live-auction-manual-host-close.sql](live-auction-manual-host-close.sql) — 4 statements retained
 123. [live-auction-auto-cycle.sql](live-auction-auto-cycle.sql) — 14 statements retained
 124. [live-auction-confirmation-preservation.sql](live-auction-confirmation-preservation.sql) — 4 statements retained
-125. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
-126. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
+125. [live-auction-remove-host-countdown.sql](live-auction-remove-host-countdown.sql) — 14 statements retained
+126. [live-auction-sync-winner-price.sql](live-auction-sync-winner-price.sql) — 4 statements retained
+127. [live-auction-designated-winner.sql](live-auction-designated-winner.sql) — 8 statements retained
+128. [live-auction-winner-candidates.sql](live-auction-winner-candidates.sql) — 4 statements retained
+129. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
+130. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -299,7 +303,11 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | live-auction-manual-host-close.sql | live-auction-audit-hardening-2.sql, live-auction-deadlines.sql |
 | live-auction-auto-cycle.sql | live-auction-manual-host-close.sql, facebook-comment-configuration.sql |
 | live-auction-confirmation-preservation.sql | live-auction-auto-cycle.sql |
-| rpc-execution-hardening.sql | live-auction-confirmation-preservation.sql |
+| live-auction-remove-host-countdown.sql | live-auction-confirmation-preservation.sql |
+| live-auction-sync-winner-price.sql | live-auction-remove-host-countdown.sql |
+| live-auction-designated-winner.sql | live-auction-sync-winner-price.sql |
+| live-auction-winner-candidates.sql | live-auction-designated-winner.sql |
+| rpc-execution-hardening.sql | live-auction-winner-candidates.sql |
 | inbox-owner-takeover.sql | rpc-execution-hardening.sql, inbox-actions.sql, automation-safety.sql, inbox-messenger-window.sql |
 | inbox-load-indexes.sql | inbox-realtime.sql |
 | facebook-inbox-recovery.sql | facebook-webhook-queue.sql, smart-inbox.sql |
@@ -384,6 +392,8 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | live-auction-on-demand.sql | 33: `update public.auction_deliveries d set status='superseded' from public.auctions …` | Historical business-data backfill/repair removed. |
 | live-auction-split-summary.sql | 5: `update public.live_sessions set auction_settings=auction_settings//jsonb_build_o…` | Historical business-data backfill/repair removed. |
 | live-auction-split-summary.sql | 6: `update public.auctions set session_automation=session_automation//jsonb_build_ob…` | Historical business-data backfill/repair removed. |
+| live-auction-remove-host-countdown.sql | 5: `update public.auctions set session_automation=(coalesce(session_automation,'{}':…` | Historical business-data backfill/repair removed. |
+| live-auction-remove-host-countdown.sql | 6: `update public.live_sessions set auction_settings=(coalesce(auction_settings,'{}…` | Historical business-data backfill/repair removed. |
 
 ## วิธีใช้ไฟล์ bootstrap เดิม
 
@@ -531,5 +541,9 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-manual-host-close.sql: `2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02`
 - live-auction-auto-cycle.sql: `036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e`
 - live-auction-confirmation-preservation.sql: `f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084`
+- live-auction-remove-host-countdown.sql: `a3aef979ddeb2e31911ae9c907dc587ba0c8101a49026758a53c3b72bd2f83e7`
+- live-auction-sync-winner-price.sql: `6f88f0e4f8843d0a0d5efa89d66b5b419e8313a3c407581ee0e184a36f601599`
+- live-auction-designated-winner.sql: `b27817aefc5bdb8ae0fcf2b9e8227ea92aac6523c1454b0d1a86fdf772f15673`
+- live-auction-winner-candidates.sql: `3a5c8cbcc6ad4724b41261cdfc780fe82d91687b32136ae699760365c78ec8cb`
 - rpc-execution-hardening.sql: `68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983`
 - inbox-owner-takeover.sql: `464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f`

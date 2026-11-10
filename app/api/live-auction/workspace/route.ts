@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
     const SESSION_COLUMNS =
       'id,tenant_id,page_id,live_post_id,ended_at,reminders_enabled,created_at,mode,confirmation_keywords,closing_keywords,cf_patterns,comment_settings,cost_amount,ad_spent,shipping_cost,other_fees,financial_revision,auction_settings,automation_revision,auction_round_template'
     const AUCTION_COLUMNS =
-      'id,tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,current_price,leading_bidder_id,leading_bidder_name,leading_comment_id,host_ids,host_count,bank_account_id,status,closed_at,close_event_id,order_id,created_at,private_reply_enabled,public_reply_enabled,private_reply_template,bid_reply_template,close_reply_template,session_automation,duration_seconds,timer_started_at,ends_at,winner_locked_at,previous_auction_id,winner_confirmation_comment_id,winner_confirmation_event_id,winner_confirmed_at'
+      'id,tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,current_price,leading_bidder_id,leading_bidder_name,leading_comment_id,host_ids,bank_account_id,status,closed_at,close_event_id,order_id,created_at,private_reply_enabled,public_reply_enabled,private_reply_template,bid_reply_template,close_reply_template,session_automation,duration_seconds,timer_started_at,ends_at,winner_locked_at,previous_auction_id,winner_confirmation_comment_id,winner_confirmation_event_id,winner_confirmed_at'
     let query = db.from('live_sessions').select(SESSION_COLUMNS).eq('tenant_id', tenantId!)
     if (sessionId) query = query.eq('id', sessionId)
     if (pageId) query = query.eq('page_id', pageId)
@@ -205,15 +205,11 @@ export async function POST(req: NextRequest) {
       auto_accumulate_summary: input.settings.auto_accumulate_summary ?? true,
       keywords: input.settings.keywords.map(normalizeBidKeyword),
       closeKeywords: (input.settings.closeKeywords ?? []).map(normalizeCloseKeyword),
-      counting_tags: Object.fromEntries(Object.entries<string>(input.settings.counting_tags ?? {}).map(
-        ([tag, count]) => [normalizeBidKeyword(tag), count.trim()],
-      )),
       autoCycleRounds: input.settings.autoCycleRounds ?? true,
       bidText: sessionAuctionTemplate(input.settings.bidText),
       closeText: sessionAuctionTemplate(input.settings.bidText),
       privateText: sessionAuctionTemplate(input.settings.privateText),
       closeEnabled: true,
-      countEnabled: input.settings.countEnabled,
       heartCloses: false,
     }
     const payload = {

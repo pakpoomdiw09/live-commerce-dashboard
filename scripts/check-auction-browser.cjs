@@ -318,12 +318,6 @@ async function checkInterface() {
     await wait(
       "document.querySelector('[data-auction-price]')?.textContent.includes('220') && document.querySelector('[data-auction-leader]')?.textContent.includes('New bidder')",
     )
-    for (const count of ['3', '2', '1']) {
-      await evaluate(`document.querySelector('[data-auction-action="${count}"]').click()`)
-      await wait(`document.querySelector('[data-auction-count]')?.textContent === '${count}'`)
-      assert.equal(await evaluate('window.auctionQA.requests.at(-1).body.action'), count)
-      assert.ok(await evaluate(`document.querySelector('table').textContent.includes('${count}')`))
-    }
     await evaluate('window.auctionQA.loadFailure = true')
     await wait(
       "document.querySelector('[role=alert]')?.textContent.includes('temporarily unavailable')",

@@ -41,8 +41,6 @@ function fixture(options = {}) {
                   session_automation: options.automation ?? {
                     closeKeywords: ['ปิด'],
                     closeEnabled: true,
-                    countEnabled: true,
-                    counting_tags: { 3: '3', 2: '2', 1: '1' },
                   },
                 }
               : table === 'live_sessions'
@@ -109,7 +107,7 @@ function fixture(options = {}) {
   )
   return {
     calls,
-    async send(action = '3', extra = {}) {
+    async send(action = 'close', extra = {}) {
       return route.POST(
         new NextRequest('https://shop.example/api/live-cf/auction/host-action', {
           method: 'POST',
@@ -122,7 +120,7 @@ function fixture(options = {}) {
 }
 
 test('host shortcuts post Page-owned comments to the stored live video and enqueue canonical events', async () => {
-  for (const action of ['3', '2', '1', 'close']) {
+  for (const action of ['close']) {
     const f = fixture()
     const response = await f.send(action, {
       pageId: 'attacker-page',
@@ -162,11 +160,12 @@ test('host shortcuts post Page-owned comments to the stored live video and enque
 
 test('invalid, unauthorized, foreign, closed and disconnected host actions never contact Meta', async () => {
   for (const [options, action, status] of [
-    [{ denied: true }, '3', 403],
+    [{ denied: true }, 'close', 403],
     [{ foreign: true }, 'close', 404],
-    [{ closed: true }, '1', 409],
-    [{ missingToken: true }, '3', 409],
+    [{ closed: true }, 'close', 409],
+    [{ missingToken: true }, 'close', 409],
     [{}, 'arbitrary text', 400],
+    [{}, '3', 400],
   ]) {
     const f = fixture(options)
     assert.equal((await f.send(action)).status, status)
@@ -184,45 +183,13 @@ test('close action uses active session settings and refuses a tag that does not 
   assert.equal(invalid.calls.sends.length, 0)
 })
 
-test('custom count tokens use real comment_settings and session overrides; disabled defaults never post', async () => {
-  const enabled = fixture({
-    automation: { countEnabled: false, counting_tags: { stale: '3' } },
-    sessionSettings: {
-      comment_settings: { countEnabled: true, counting_tags: { ' LAST CALL ': '3' } },
-    },
-  })
-  assert.equal((await enabled.send('3')).status, 202)
-  assert.equal(enabled.calls.sends[0][2], 'last call')
-  assert.equal(
-    parser.parseAuctionComment(
-      'last call extra',
-      true,
-      config.resolveCommentSettings({
-        comment_settings: { countEnabled: true, counting_tags: { 'last call': '3' } },
-      }),
-    ).type,
-    'IGNORE',
-    'count tokens match the whole normalized comment',
-  )
-  for (const options of [
-    { automation: {} },
-    { automation: { counting_tags: { 3: '3' } } },
-    { sessionSettings: { comment_settings: { countEnabled: false } } },
-    {
-      automation: { countEnabled: true, counting_tags: { 3: '3' } },
-      sessionSettings: { comment_settings: { countEnabled: false } },
-    },
-  ]) {
-    const disabled = fixture(options)
-    assert.equal((await disabled.send('3')).status, 409)
-    assert.equal(disabled.calls.sends.length, 0)
-    assert.equal(disabled.calls.queued.length, 0)
-    assert.equal(
-      disabled.calls.scopes.some(([table]) => table === 'tenants'),
-      false,
-      'disabled actions stop before reading Page credentials',
-    )
-  }
+test('host numeric comments are ignored while customer bids and winner confirmation remain parseable', () => {
+  const settings = config.resolveCommentSettings({}, { closeKeywords: ['close'], closeEnabled: true })
+  assert.equal(parser.parseAuctionComment('3', true, settings).type, 'IGNORE')
+  const bid = parser.parseAuctionComment('3', false, settings)
+  assert.equal(bid.type, 'NUMERIC_BID')
+  assert.equal(bid.amount, 3)
+  assert.equal(parser.parseAuctionComment('1', false, settings, true).type, 'CONFIRM_BID')
 })
 
 test('provider uncertainty cannot close locally and enqueue uncertainty never resends the published comment', async () => {

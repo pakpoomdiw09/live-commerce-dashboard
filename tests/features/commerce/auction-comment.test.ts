@@ -19,7 +19,6 @@ test('opening chatter uses opening intent, including incidental numbers', () => 
       parseAuctionComment(text, false, {
         keywords: [],
         opening_tags: [text],
-        countEnabled: false,
         closeEnabled: true,
         heartCloses: false,
       }),
@@ -28,38 +27,16 @@ test('opening chatter uses opening intent, including incidental numbers', () => 
     )
 })
 
-test('host identity determines commands; a customer cannot close or count', () => {
+test('host identity determines close commands; numeric comments are not host controls', () => {
   for (const text of ['ปิด', ' ปิด ']) {
     assert.deepEqual(parseAuctionComment(text, true), {
       type: 'HOST_CONTROL',
       action: 'close',
-      count: null,
     })
     assert.deepEqual(parseAuctionComment(text), { type: 'IGNORE' })
   }
-  const counting = {
-    keywords: [],
-    countEnabled: true,
-    closeEnabled: true,
-    heartCloses: false,
-    counting_tags: {
-      '1': '1',
-      '2': '2',
-      '3': '3',
-      'เคาะ 1': '1',
-      'เคาะ 2': '2',
-      'เคาะ 3': '3',
-      นับขิง: '3',
-    },
-  }
-  for (const text of Object.keys(counting.counting_tags))
-    assert.equal(parseAuctionComment(text, true, counting).type, 'HOST_CONTROL')
-  assert.deepEqual(
-    parseAuctionComment('เคาะ 3', true, counting),
-    { type: 'HOST_CONTROL', action: 'count', count: '3' },
-    'third knock is a count, not an implicit close',
-  )
-  assert.deepEqual(parseAuctionComment('1'), { type: 'CONFIRM_BID' })
+  assert.deepEqual(parseAuctionComment('1', false, null, true), { type: 'CONFIRM_BID' })
+  assert.deepEqual(parseAuctionComment('1'), { type: 'NUMERIC_BID', amount: 1 })
   assert.deepEqual(parseAuctionComment('+1'), { type: 'IGNORE' })
   assert.deepEqual(parseAuctionComment('กด 1'), { type: 'IGNORE' })
   assert.deepEqual(parseAuctionComment('250', true), { type: 'IGNORE' })
@@ -69,7 +46,6 @@ test('empty tags use defaults while configured tags replace defaults and respect
   const automation = {
     keywords: [],
     closeKeywords: [],
-    countEnabled: true,
     closeEnabled: true,
     heartCloses: false,
   }
@@ -78,7 +54,7 @@ test('empty tags use defaults while configured tags replace defaults and respect
     action: 'close',
     count: null,
   })
-  assert.deepEqual(parseAuctionComment('1', false, automation), { type: 'CONFIRM_BID' })
+  assert.deepEqual(parseAuctionComment('1', false, automation, true), { type: 'CONFIRM_BID' })
   assert.deepEqual(
     parseAuctionComment('stop', true, {
       ...automation,
@@ -100,7 +76,6 @@ test('empty tags use defaults while configured tags replace defaults and respect
     assert.deepEqual(parseAuctionComment(tag, true, custom), {
       type: 'HOST_CONTROL',
       action: 'close',
-      count: null,
     })
   assert.deepEqual(parseAuctionComment('prefixXXX', true, custom), { type: 'IGNORE' })
 })
@@ -109,7 +84,6 @@ test('configured closing keywords include composed and repeated emoji text for t
   const automation = {
     keywords: ['1'],
     closeKeywords: ['ปิด🛑', '❌❌❌'],
-    countEnabled: false,
     closeEnabled: true,
     heartCloses: false,
   }

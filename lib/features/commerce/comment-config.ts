@@ -31,7 +31,6 @@ export type CommentSettings = {
   keywords?: string[]
   closeKeywords?: string[]
   opening_tags?: string[]
-  counting_tags?: Record<string, string>
   public_reply_template?: string
   private_reply_template?: string
   publicReply?: boolean
@@ -77,7 +76,6 @@ export function resolveCommentSettings(
   keywords: string[]
   closeKeywords: string[]
   opening_tags: string[]
-  counting_tags: Record<string, string>
 } {
   const current = { ...session.auction_settings, ...session.comment_settings }
   const settings = { ...stored, ...current, ...session }
@@ -103,12 +101,6 @@ export function resolveCommentSettings(
     confirmation_tags: keywords,
     closing_tags: closeKeywords,
     opening_tags: configuredTags(settings.opening_tags),
-    counting_tags: Object.fromEntries(
-      Object.entries(settings.counting_tags ?? {}).map(([tag, count]) => [
-        normalizeCommentText(tag),
-        count,
-      ]),
-    ),
   }
 }
 

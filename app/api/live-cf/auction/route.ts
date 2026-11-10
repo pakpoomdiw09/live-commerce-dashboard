@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     let query = db
       .from('auctions')
       .select(
-        'id,tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,current_price,leading_bidder_id,leading_bidder_name,leading_comment_id,host_ids,host_count,bank_account_id,status,closed_at,close_event_id,order_id,created_at,private_reply_enabled,public_reply_enabled,private_reply_template,bid_reply_template,close_reply_template,session_automation,duration_seconds,timer_started_at,ends_at,winner_locked_at,previous_auction_id,winner_confirmation_comment_id,winner_confirmation_event_id,winner_confirmed_at',
+        'id,tenant_id,page_id,live_post_id,live_post_aliases,item_name,start_price,min_step,shipping_fee,current_price,leading_bidder_id,leading_bidder_name,leading_comment_id,host_ids,bank_account_id,status,closed_at,close_event_id,order_id,created_at,private_reply_enabled,public_reply_enabled,private_reply_template,bid_reply_template,close_reply_template,session_automation,duration_seconds,timer_started_at,ends_at,winner_locked_at,winner_designated_bidder_id,winner_designated_at,previous_auction_id,winner_confirmation_comment_id,winner_confirmation_event_id,winner_confirmed_at',
       )
       .eq('tenant_id', tenantId!)
     if (livePostId) query = query.eq('live_post_id', livePostId)
@@ -40,11 +40,12 @@ export async function GET(req: NextRequest) {
       auctions.data[0]?.id
     if (selected && !auctions.data.some((a) => a.id === selected))
       return auctionReply({ error: 'ไม่พบรายการ' }, 404)
-    const [bids, deliveries] = selected
+    const selectedAuction = auctions.data.find((a) => a.id === selected)
+    const [bids, deliveries, candidates] = selected
       ? await Promise.all([
           db
             .from('auction_bids')
-            .select('id,bidder_name,comment_text,bid_amount,is_opening,status,created_at')
+            .select('id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,created_at')
             .eq('auction_id', selected)
             .order('created_at', { ascending: false })
             .limit(30),
@@ -52,17 +53,26 @@ export async function GET(req: NextRequest) {
             .from('auction_deliveries')
             .select('channel,status,error_code')
             .eq('auction_id', selected),
+          selectedAuction?.status === 'closed'
+            ? db.rpc('list_live_auction_winner_candidates', {
+                p_auction: selected,
+                p_tenant: tenantId,
+              })
+            : Promise.resolve({ data: [], error: null }),
         ])
       : [
           { data: [], error: null },
           { data: [], error: null },
+          { data: [], error: null },
         ]
-    if (bids.error || deliveries.error) throw bids.error || deliveries.error
+    if (bids.error || deliveries.error || candidates.error)
+      throw bids.error || deliveries.error || candidates.error
     return auctionReply({
       selectedAuctionId: selected,
       auctions: auctions.data,
       bids: bids.data,
       deliveries: deliveries.data,
+      winnerCandidates: Array.isArray(candidates.data) ? candidates.data : [],
     })
   } catch (error) {
     return auctionFailure(error)

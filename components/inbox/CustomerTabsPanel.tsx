@@ -11,6 +11,26 @@ type Reminder = {
   run_at: string
   error_code: string | null
 }
+function reminderReason(code: string | null) {
+  switch (code) {
+    case 'RECIPIENT_ID_MISSING':
+      return 'ไม่มี Facebook PSID ของลูกค้า ลูกค้าต้องทักเพจก่อนจึงจะส่งได้'
+    case 'MESSAGING_WINDOW_CLOSED':
+      return 'หมดช่วงเวลาที่ Facebook อนุญาตให้ส่งข้อความอัตโนมัติ รอให้ลูกค้าทักเพจก่อน'
+    case 'AUTOMATION_PAUSED':
+      return 'ระบบตอบอัตโนมัติถูกปิด หรือผู้ใช้ปิดรับข้อความอัตโนมัติ'
+    case 'PAGE_NOT_READY':
+      return 'เพจยังไม่มี Access Token ที่พร้อมส่งข้อความ'
+    case 'TAB_REMINDER_SCOPE':
+      return 'ข้อมูลลูกค้าหรือเพจไม่ตรงกับบิลนี้'
+    case 'TAB_TEMPLATE_INVALID':
+      return 'แม่แบบข้อความแจ้งยอดไม่ถูกต้อง'
+    case 'TAB_SEND_UNCONFIRMED':
+      return 'Facebook ยังยืนยันผลส่งไม่ได้ กรุณาตรวจ Inbox ก่อนส่งซ้ำ'
+    default:
+      return code ? `ส่งไม่ได้ (${code})` : 'ส่งไม่ได้ กรุณาตรวจสิทธิ์และข้อมูลเพจ'
+  }
+}
 export function CustomerTabsPanel({
   customerId,
   onSelectSlip,
@@ -197,9 +217,9 @@ export function CustomerTabsPanel({
                 {job.status === 'sent'
                   ? 'ส่งแล้ว'
                   : job.status === 'blocked'
-                    ? 'ส่งไม่ได้ / รอแอดมินตรวจสิทธิ์'
+                    ? reminderReason(job.error_code)
                     : job.status === 'requires_review'
-                      ? 'ผลส่งไม่ชัดเจน ตรวจ Inbox ก่อนส่งใหม่'
+                      ? reminderReason(job.error_code)
                       : job.status === 'cancelled'
                         ? 'ยกเลิกเพราะไม่มียอดค้าง'
                         : `รอ ${new Date(job.run_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`}

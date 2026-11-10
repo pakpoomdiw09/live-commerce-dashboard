@@ -27,7 +27,6 @@ const initial: Auction = {
   leading_bidder_name: 'สมชาย ใจดี',
   leading_comment_id: '456_789',
   host_ids: [],
-  host_count: '2',
   status: 'active',
   closed_at: null,
   order_id: null,
@@ -133,16 +132,16 @@ window.fetch = async (input, init) => {
     if (path.endsWith('/host-action')) {
       const row = state.auctions.find((a) => a.id === body.auctionId)!
       if (body.action === 'close') row.status = 'closed'
-      else row.host_count = body.action
       const bids = roundBids.get(row.id) ?? []
       roundBids.set(row.id, bids)
       bids.unshift({
         id: `host-${state.requests.length}`,
+        bidder_id: null,
         bidder_name: 'Host',
         comment_text: body.action === 'close' ? '❌' : body.action,
         bid_amount: null,
         is_opening: false,
-        status: body.action === 'close' ? 'closed' : 'count',
+        status: 'closed',
         created_at: new Date().toISOString(),
       })
       return Response.json(
@@ -165,7 +164,6 @@ window.fetch = async (input, init) => {
       current_price: 0,
       leading_bidder_name: null,
       leading_bidder_id: null,
-      host_count: null,
     }
     state.auctions.unshift(row)
     return Response.json({ id: row.id }, { status: 201 })
