@@ -185,9 +185,23 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
     try {
       const products = await loadVisionCatalog(db, job.tenant_id)
       result = await analyzeVision(file, products, job.tenant_id)
+      console.info('[SLIP_AI_TRACE]', {
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        stage: 'image_classification_completed',
+        category: result.category,
+        confidence: result.confidence,
+      })
       decision = await catalogVisionDecision(db, job.tenant_id, result, products)
-    } catch {
+    } catch (error) {
       // A catalog/provider outage must not pause the conversation or invent a match.
+      console.error('[SLIP_AI_ERROR]', {
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        stage: 'image_classification',
+        errorName: error instanceof Error ? error.name : 'UNKNOWN',
+        code: (error as { code?: string } | null)?.code ?? null,
+      })
       console.warn('[vision] catalog matching unavailable', { jobId: job.id })
     }
     if (process.env.SNAPBOT_SAFETY_ENABLED === 'true')
@@ -227,13 +241,23 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
       token: pageTokenFor(tenant.data),
     }
     if (!recipient.token) throw new Error('PAGE_TOKEN_UNAVAILABLE')
-    // Only images classified as slips reach SlipOK; product inquiries never spend slip credits.
-    if (
-      result.category === 'PAYMENT_SLIP' &&
-      result.confidence >= 0.8 &&
-      tenant.data.auto_verify_enabled &&
-      (await hasFeature(db, job.tenant_id, 'slip_auto_pilot'))
-    ) {
+    // Vision classifies images only; it is not proof of payment and does not extract
+    // transaction fields. Only the configured verifier may produce payment evidence.
+    const isSlipCategory = result.category === 'PAYMENT_SLIP'
+    const isSlipImage = isSlipCategory && result.confidence >= 0.8
+    const hasSlipFeature =
+      isSlipImage && tenant.data.auto_verify_enabled
+        ? await hasFeature(db, job.tenant_id, 'slip_auto_pilot')
+        : false
+    if (isSlipImage && tenant.data.auto_verify_enabled && hasSlipFeature) {
+      phase = 'slip_verification'
+      console.info('[SLIP_AI_TRACE]', {
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        stage: 'verification_started',
+        provider: process.env.SLIP_VERIFICATION_PROVIDER?.trim().toLowerCase() || 'slipok',
+        autoVerifyEnabled: tenant.data.auto_verify_enabled,
+      })
       const { processStandaloneSlip } = await import('@/lib/features/slips/standalone-verifier')
       const { standaloneSlipReply } = await import('@/lib/features/slips/standalone-slip')
       const slip = await processStandaloneSlip(db, {
@@ -242,11 +266,32 @@ export async function runVisionJob(db: SupabaseClient, jobId?: string) {
         customerId: customer.data.id,
         messageId: job.message_id!,
       })
+      console.info('[SLIP_AI_TRACE]', {
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        stage: 'verification_completed',
+        success: slip.success,
+        reason: slip.success ? null : slip.reason,
+        amount: slip.success ? slip.data.amount : null,
+        hasReference: slip.success && Boolean(slip.data.transRef),
+      })
       decision = {
         action: 'RULE_REPLY',
         reason: 'STANDALONE_SLIP',
         responseText: standaloneSlipReply(slip),
       }
+    } else if (isSlipCategory) {
+      console.info('[SLIP_AI_TRACE]', {
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        stage: 'verification_skipped',
+        reason: !tenant.data.auto_verify_enabled
+          ? 'AUTO_VERIFY_DISABLED'
+          : result.confidence < 0.8
+            ? 'LOW_CONFIDENCE'
+            : 'SLIP_AUTO_PILOT_FEATURE_UNAVAILABLE',
+        autoVerifyEnabled: tenant.data.auto_verify_enabled,
+      })
     }
     const messages: object[] = []
     if (decision.responseText) messages.push({ text: decision.responseText })

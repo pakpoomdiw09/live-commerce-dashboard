@@ -80,16 +80,36 @@ async function verifyWithZwiz({
   shopName,
 }: Input): Promise<SlipResult> {
   const apiKey = process.env.ZWIZ_API_KEY?.trim()
-  if (!apiKey) return providerFailure('ระบบตรวจสอบสลิปยังไม่พร้อม กรุณาติดต่อผู้ดูแล')
-  if (!file) return providerFailure('ZWIZ API v2 ต้องใช้รูปสลิป กรุณาส่งรูปแทน QR')
+  if (!apiKey) {
+    console.error('[SLIP_AI_ERROR]', {
+      provider: 'zwiz',
+      stage: 'configuration',
+      reason: 'ZWIZ_API_KEY_MISSING',
+    })
+    return providerFailure('ระบบตรวจสอบสลิปยังไม่พร้อม กรุณาติดต่อผู้ดูแล')
+  }
+  if (!file) {
+    console.error('[SLIP_AI_ERROR]', {
+      provider: 'zwiz',
+      stage: 'request_validation',
+      reason: 'IMAGE_FILE_REQUIRED',
+    })
+    return providerFailure('ZWIZ API v2 ต้องใช้รูปสลิป กรุณาส่งรูปแทน QR')
+  }
   const matchAccounts = bankAccounts
     .map(({ accountNo, bankCode }) => ({
       account_no: accountNo.replace(/[\s-]/g, ''),
       code: bankCode.trim().toLowerCase() || 'promptpay',
     }))
     .filter(({ account_no }) => /^\d{3,20}$/.test(account_no))
-  if (!matchAccounts.length)
+  if (!matchAccounts.length) {
+    console.error('[SLIP_AI_ERROR]', {
+      provider: 'zwiz',
+      stage: 'request_validation',
+      reason: 'NO_ACTIVE_RECEIVER_ACCOUNT',
+    })
     return providerFailure('ยังไม่มีบัญชีรับเงินที่ใช้ตรวจสอบสลิป กรุณาติดต่อผู้ดูแล')
+  }
 
   const rawUrl =
     process.env.ZWIZ_API_URL?.trim() || 'https://api-sme-prod.zwiz.app/api/slips/v1/verify'
@@ -97,10 +117,22 @@ async function verifyWithZwiz({
   try {
     url = new URL(rawUrl)
   } catch {
+    console.error('[SLIP_AI_ERROR]', {
+      provider: 'zwiz',
+      stage: 'configuration',
+      reason: 'ZWIZ_API_URL_INVALID',
+    })
     return providerFailure('ตั้งค่า ZWIZ API URL ไม่ถูกต้อง')
   }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    console.error('[SLIP_AI_ERROR]', {
+      provider: 'zwiz',
+      stage: 'configuration',
+      reason: 'ZWIZ_API_URL_UNSAFE',
+      host: url.host,
+    })
     return providerFailure('ตั้งค่า ZWIZ API URL ไม่ถูกต้อง')
+  }
 
   const form = new FormData()
   form.append('image', file, file.name || 'slip')
@@ -109,6 +141,16 @@ async function verifyWithZwiz({
     'requested_by',
     `SnapBot: ${(shopName?.trim() || 'ร้านค้า').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120)}`,
   )
+  console.info('[SLIP_AI_TRACE]', {
+    provider: 'zwiz',
+    stage: 'request_started',
+    host: url.host,
+    hasApiKey: true,
+    imageBytes: file.size,
+    imageType: file.type,
+    receiverAccountCount: matchAccounts.length,
+    expectedAmount: expectedAmount ?? null,
+  })
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -121,13 +163,41 @@ async function verifyWithZwiz({
     try {
       payload = await response.json()
     } catch {
+      console.error('[SLIP_AI_ERROR]', {
+        provider: 'zwiz',
+        stage: 'response_parse',
+        host: url.host,
+        httpStatus: response.status,
+        reason: 'INVALID_JSON_RESPONSE',
+      })
       return providerFailure('ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่อีกครั้ง')
     }
     const envelope = record(payload)
-    if (!response.ok || envelope?.success !== true)
+    const providerResult = record(envelope?.result)
+    console.info('[SLIP_AI_TRACE]', {
+      provider: 'zwiz',
+      stage: 'response_received',
+      host: url.host,
+      httpStatus: response.status,
+      success: envelope?.success === true,
+      verificationResult: text(providerResult?.verification_result) || null,
+      hasResultData: Boolean(record(record(providerResult?.verify)?.data)),
+    })
+    if (!response.ok || envelope?.success !== true) {
+      console.error('[SLIP_AI_ERROR]', {
+        provider: 'zwiz',
+        stage: 'provider_rejected_request',
+        host: url.host,
+        httpStatus: response.status,
+        providerCode:
+          typeof envelope?.code === 'string' || typeof envelope?.code === 'number'
+            ? String(envelope.code).slice(0, 80)
+            : null,
+      })
       return providerFailure('ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่อีกครั้ง')
+    }
 
-    const result = record(envelope.result)
+    const result = providerResult
     const verification = text(result?.verification_result)
     if (verification === 'duplicated')
       return {
@@ -135,16 +205,29 @@ async function verifyWithZwiz({
         note: 'สลิปนี้เคยใช้งานไปแล้ว',
         raw: payload,
       }
-    if (verification !== 'matched')
+    if (verification !== 'matched') {
+      console.warn('[SLIP_AI_TRACE]', {
+        provider: 'zwiz',
+        stage: 'verification_rejected',
+        verificationResult: verification || 'MISSING',
+      })
       return {
         verdict: 'wrong_receiver',
         note: 'บัญชีผู้รับในสลิปไม่ตรงกับบัญชีรับเงินที่ตั้งค่าไว้',
         raw: payload,
       }
+    }
 
     const verify = record(result?.verify)
     const data = record(verify?.data)
-    if (!data) return providerFailure('ระบบตรวจสอบสลิปตอบกลับข้อมูลไม่ครบถ้วน')
+    if (!data) {
+      console.error('[SLIP_AI_ERROR]', {
+        provider: 'zwiz',
+        stage: 'response_validation',
+        reason: 'VERIFIED_RESPONSE_DATA_MISSING',
+      })
+      return providerFailure('ระบบตรวจสอบสลิปตอบกลับข้อมูลไม่ครบถ้วน')
+    }
     const amountValue = data.amount
     const amount =
       typeof amountValue === 'number' || typeof amountValue === 'string'
@@ -153,8 +236,16 @@ async function verifyWithZwiz({
     const transRef = text(data.transRef)
     const transDate = text(data.transDate)
     const transTime = text(data.transTime)
-    if (!Number.isFinite(amount) || amount <= 0 || !transRef)
+    if (!Number.isFinite(amount) || amount <= 0 || !transRef) {
+      console.error('[SLIP_AI_ERROR]', {
+        provider: 'zwiz',
+        stage: 'response_validation',
+        reason: 'AMOUNT_OR_REFERENCE_INVALID',
+        hasAmount: Number.isFinite(amount) && amount > 0,
+        hasReference: Boolean(transRef),
+      })
       return providerFailure('ระบบตรวจสอบสลิปตอบกลับข้อมูลไม่ครบถ้วน')
+    }
     if (expectedAmount && amount + 0.005 < expectedAmount)
       return {
         verdict: 'amount_mismatch',
@@ -183,7 +274,14 @@ async function verifyWithZwiz({
       matchedBankAccount: true,
       raw: { success: true, data: normalizedData, zwiz: payload },
     }
-  } catch {
+  } catch (error) {
+    console.error('[SLIP_AI_ERROR]', {
+      provider: 'zwiz',
+      stage: 'request_failed',
+      host: url.host,
+      errorName: error instanceof Error ? error.name : 'UNKNOWN',
+      code: (error as { code?: string } | null)?.code ?? null,
+    })
     return providerFailure('ตรวจสอบสลิปผ่าน ZWIZ ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
   }
 }
@@ -202,9 +300,27 @@ export async function verifyWithSlipOK({
 }: Input): Promise<SlipResult> {
   const provider = slipVerificationProvider()
   if (provider === 'zwiz') return verifyWithZwiz({ file, expectedAmount, bankAccounts, shopName })
-  if (provider !== 'slipok') return providerFailure('ตั้งค่าผู้ให้บริการตรวจสลิปไม่ถูกต้อง')
-  if (!slipVerificationConfigured())
+  if (provider !== 'slipok') {
+    console.error('[slipok] request blocked: unsupported provider', { provider })
+    return providerFailure('ตั้งค่าผู้ให้บริการตรวจสลิปไม่ถูกต้อง')
+  }
+  const hasApiKey = Boolean(process.env.SLIPOK_API_KEY?.trim())
+  const hasBranchId = Boolean(process.env.SLIPOK_BRANCH_ID?.trim())
+  console.info('[slipok] request prepared', {
+    provider,
+    hasApiKey,
+    hasBranchId,
+    inputType: qr ? 'qr' : file ? 'file' : 'missing',
+    imageBytes: file?.size ?? null,
+    expectedAmount: expectedAmount ?? null,
+  })
+  if (!slipVerificationConfigured()) {
+    console.error('[slipok] request blocked: credentials are not configured', {
+      hasApiKey,
+      hasBranchId,
+    })
     return providerFailure('ระบบตรวจสอบสลิปยังไม่พร้อม กรุณาติดต่อผู้ดูแล')
+  }
 
   const headers: Record<string, string> = { 'x-authorization': process.env.SLIPOK_API_KEY! }
   let body: BodyInit
@@ -234,15 +350,23 @@ export async function verifyWithSlipOK({
       },
     )
     json = await res.json()
-    if (!res.ok)
-      return {
-        verdict: 'error',
-        note: 'ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่ภายหลัง',
-        raw: json,
-        providerFault: true,
-      }
+    console.info('[slipok] response received', {
+      httpStatus: res.status,
+      success: json?.success === true && json?.data?.success === true,
+      providerCode: Number.isFinite(Number(json?.code)) ? Number(json.code) : null,
+      hasSlipData: Boolean(json?.data),
+    })
+    // SlipOK returns valid business verdicts (including 1012/1013/1014) with
+    // HTTP 400. Parse those below; only an HTTP failure without a known API
+    // result is a provider outage and should refund the verification credit.
+    const responseCode = Number(json?.code)
+    if (!res.ok && (!Number.isInteger(responseCode) || responseCode < 1000 || responseCode > 1014))
+      return providerFailure('ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่ภายหลัง')
   } catch (e) {
     // timeout, network error, or a non-JSON answer (gateway error page)
+    console.error('[slipok] request failed', {
+      errorName: e instanceof Error ? e.name : 'UNKNOWN',
+    })
     return {
       verdict: 'error',
       note: 'ตรวจสอบสลิปผ่านระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
@@ -300,7 +424,11 @@ export async function verifyWithSlipOK({
         transRef: slip?.transRef,
       }
     case 1013:
-      return { ...base, verdict: 'amount_mismatch' }
+      return {
+        ...base,
+        verdict: 'amount_mismatch',
+        ...(slip ? slipData(slip) : {}),
+      }
     case 1011:
       return { ...base, verdict: 'fake' } // QR expired or no such transfer
     default:

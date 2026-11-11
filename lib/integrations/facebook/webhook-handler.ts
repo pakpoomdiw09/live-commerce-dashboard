@@ -36,7 +36,12 @@ import { createLiveCfMetaAdapter } from '@/lib/integrations/facebook/live-cf-ada
 import { isFeatureEnabled } from '@/lib/feature-flags'
 import { findBank } from '@/lib/features/banking/banks'
 import { processSlip } from '@/lib/features/slips/process'
-import { deliverOnce, notifySlipResult, type Recipient } from '@/lib/features/slips/notify'
+import {
+  deliverOnce,
+  notifySlipAmountMismatch,
+  notifySlipResult,
+  type Recipient,
+} from '@/lib/features/slips/notify'
 import { downloadSlipImage, slipCandidates } from '@/lib/features/slips/image'
 import { sendWithMessageCredit } from '@/lib/message-quota'
 import { observeFollowUpMessage } from '@/lib/features/follow-ups/followup-ai'
@@ -569,6 +574,23 @@ async function onMessage(
   // With Auto-Pilot off the images stay in the chat and an admin can verify them from the dashboard.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
+  if (Array.isArray(m.attachments) && m.attachments.length) {
+    console.info('[slip/webhook] image candidates inspected', {
+      eventId: execution.event.id,
+      messageId: message.id,
+      tenantId: tenant.id,
+      customerId: customer.id,
+      attachmentCount: m.attachments.length,
+      imageCandidateCount: images.length,
+      attachmentTypes: m.attachments.map((attachment: any) => attachment?.type ?? 'invalid'),
+      autoVerifyEnabled: tenant.auto_verify_enabled,
+      reason: m.sticker_id
+        ? 'STICKER_IGNORED'
+        : images.length
+          ? 'IMAGE_CANDIDATES_FOUND'
+          : 'NO_IMAGE_TYPE_OR_URL',
+    })
+  }
   // Route the entire message once. Completing one order payment must not turn
   // another image from that message into a standalone verification on a retry.
   const slipRoute: AuctionSlipTarget | { kind: 'order' | 'standalone' | 'none' } =
@@ -586,6 +608,20 @@ async function onMessage(
           return autoReply ? ({ kind: 'standalone' } as const) : ({ kind: 'none' } as const)
         })
       : { kind: 'none' }
+  if (images.length) {
+    console.info('[slip/webhook] verification route selected', {
+      messageId: message.id,
+      tenantId: tenant.id,
+      customerId: customer.id,
+      autoVerifyEnabled: tenant.auto_verify_enabled,
+      route: slipRoute.kind,
+      reason: !tenant.auto_verify_enabled
+        ? 'AUTO_VERIFY_DISABLED'
+        : slipRoute.kind === 'none'
+          ? 'NO_PENDING_BILL_OR_STANDALONE_CHAT_AUTOMATION_DISABLED'
+          : slipRoute.kind.toUpperCase(),
+    })
+  }
   const verifyAuctionSlipImages = slipRoute.kind === 'auction'
   const verifySlipImages = slipRoute.kind === 'order'
   const verifyStandaloneImages = slipRoute.kind === 'standalone'
@@ -738,6 +774,12 @@ async function onStandaloneSlipImage(
   tenantId: string,
   execution: WebhookExecution,
 ) {
+  console.info('[slip/standalone] verification started', {
+    messageId: customer.messageId,
+    tenantId,
+    customerId: customer.id,
+    hasImageUrl: Boolean(url),
+  })
   const { processStandaloneSlip } = await import('@/lib/features/slips/standalone-verifier')
   const { standaloneSlipReply } = await import('@/lib/features/slips/standalone-slip')
   const key = (await import('node:crypto')).createHash('sha256').update(url).digest('hex')
@@ -750,6 +792,13 @@ async function onStandaloneSlipImage(
       messageId: customer.messageId,
     }),
   )
+  console.info('[slip/standalone] verification completed', {
+    messageId: customer.messageId,
+    tenantId,
+    customerId: customer.id,
+    verdict: result.success ? 'valid' : result.reason,
+    ledgerRecorded: result.success,
+  })
   await execution.once(`standalone-slip-reply:${key}`, async () => {
     await deliverOnce(
       db,
@@ -771,6 +820,14 @@ async function onAuctionSlipImage(
 ) {
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const key = (await import('node:crypto')).createHash('sha256').update(url).digest('hex')
+  console.info('[slip/auction] verification started', {
+    messageId: customer.messageId,
+    tenantId: tenant.id,
+    customerId: customer.id,
+    auctionId: target.auctionId,
+    expectedAmount: target.amount,
+    hasImageUrl: Boolean(url),
+  })
   const result = await execution.once(`auction-slip-verify:${key}`, async () => {
     const file = await downloadSlipImage(url)
     if (!file) throw new Error('AUCTION_SLIP_DOWNLOAD_UNAVAILABLE')
@@ -794,6 +851,12 @@ async function onAuctionSlipImage(
       slipId: result.id ?? null,
       verdict: result.status,
     })
+    if (result.status === 'amount_mismatch') {
+      await execution.once(`auction-slip-mismatch-notify:${result.id ?? key}`, async () => {
+        await notifySlipAmountMismatch(db, result, customer, target.amount)
+        return null
+      })
+    }
     return
   }
   await execution.once(`auction-slip-settle:${result.id}`, async () => {
@@ -820,15 +883,23 @@ async function onSlipImage(
   execution: WebhookExecution,
 ) {
   const db = supabaseAdmin({ timeoutMs: 15000 })
+  console.info('[slip/automatic] verification started', {
+    messageId: customer.messageId,
+    tenantId: tenant.id,
+    customerId: customer.id,
+    hasImageUrl: Boolean(url),
+  })
   await execution.once(
     `slip:${(await import('node:crypto')).createHash('sha256').update(url).digest('hex')}`,
     async () => {
       // Recheck each image: the previous image in an album may already have paid the order.
       const pending = await pendingOrders(db, customer.id, tenant.id)
       if (!pending.ids.length || !Number.isFinite(pending.total) || pending.total <= 0) {
-        console.info('[slip/automatic] skipped', {
+        console.warn('[slip/automatic] skipped', {
           messageId: customer.messageId,
           reason: 'no_pending_payment',
+          pendingOrderCount: pending.ids.length,
+          expectedAmount: Number.isFinite(pending.total) ? pending.total : null,
         })
         return null
       }
@@ -842,9 +913,27 @@ async function onSlipImage(
         tenant,
       })
       if (r.failure) throw new Error('SLIP_PERSISTENCE_FAILED')
-      if (r.status === 'valid')
+      console.info('[slip/automatic] verification completed', {
+        messageId: customer.messageId,
+        tenantId: tenant.id,
+        customerId: customer.id,
+        slipId: r.id ?? null,
+        verdict: r.status,
+        amount: r.amount,
+        expectedAmount: pending.total,
+      })
+      if (r.status === 'valid') {
         await notifySlipResult(db, r, customer, tenant.page_name?.trim() || tenant.name)
-      else console.info('[slip/automatic] silent result', { slipId: r.id, verdict: r.status })
+      } else if (r.status === 'amount_mismatch') {
+        await notifySlipAmountMismatch(db, r, customer, pending.total)
+      } else {
+        console.warn('[slip/automatic] requires review', {
+          slipId: r.id ?? null,
+          verdict: r.status,
+          hasNote: Boolean(r.note),
+          reason: 'NOT_A_VERIFIED_PAYMENT',
+        })
+      }
       return null
     },
   )

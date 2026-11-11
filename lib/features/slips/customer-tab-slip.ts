@@ -163,6 +163,14 @@ export async function processCustomerTabSlip(
         ? { expectedAmount: Number(selected.data.remaining_amount) }
         : {}),
     })
+    console.info('[customer-tabs/payment] SlipOK returned', {
+      tabId: selected.data.id,
+      slipId,
+      verdict: result.verdict,
+      amount: result.amount ?? null,
+      expectedAmount: input.requireExactAmount ? Number(selected.data.remaining_amount) : null,
+      providerFault: result.providerFault === true,
+    })
     if (result.providerFault && charged) {
       await db.rpc('refund_slip_credit', { p_tenant: tenantId })
       charged = false
@@ -251,7 +259,7 @@ export async function processCustomerTabSlip(
       note,
       tabBalance: saved.data as TabBalance,
     }
-  } catch {
+  } catch (error) {
     // Never downgrade a committed valid slip after a lost database response.
     await db
       .from('slips')
@@ -265,6 +273,8 @@ export async function processCustomerTabSlip(
     console.error('[customer-tabs/payment] review required', {
       slipId,
       code: 'TAB_PAYMENT_UNCONFIRMED',
+      errorName: error instanceof Error ? error.name : 'UNKNOWN',
+      providerCode: (error as { code?: string } | null)?.code ?? null,
     })
     return readResult(slipId)
   }

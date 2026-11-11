@@ -77,6 +77,14 @@ export async function processSlip(
   }: Input,
 ): Promise<ProcessedSlip> {
   if (!tenant) throw new Error('FEATURE_LOCKED: tenant required')
+  console.info('[slip/process] started', {
+    tenantId: tenant.id,
+    customerId,
+    messageId,
+    hasImageFile: Boolean(file),
+    hasQr: Boolean(qr),
+    exactAmountRequired: requireExactAmount,
+  })
   let fileMimeType: PaymentImageMimeType | null = null
   if (file) {
     const image = await isPaymentImage(file)
@@ -90,7 +98,15 @@ export async function processSlip(
       }
     fileMimeType = image.mimeType
   }
-  await requireFeature(db, tenant.id, 'slip_auto_pilot')
+  try {
+    await requireFeature(db, tenant.id, 'slip_auto_pilot')
+  } catch (error) {
+    console.error('[slip/process] feature gate rejected verification', {
+      tenantId: tenant.id,
+      code: (error as { code?: string } | null)?.code ?? 'SLIP_AUTO_PILOT_REQUIRED',
+    })
+    throw error
+  }
   if (
     requireExactAmount &&
     (!customerId ||
@@ -137,21 +153,22 @@ export async function processSlip(
     if (result) return result
   }
   let accounts: { bank_code: string; account_number: string; is_active: boolean }[] = []
+  let receiverSetupMissing = false
   if (tenant) {
     const { data, error } = await db
       .from('bank_accounts')
       .select('bank_code,account_number,is_active')
       .eq('tenant_id', tenant.id)
       .eq('is_active', true)
-    if (error) throw new Error('อ่านบัญชีรับเงินไม่ได้ กรุณาตรวจสอบการติดตั้ง bank-accounts.sql')
+    if (error) {
+      console.error('[slip/process] receiver account lookup failed', {
+        tenantId: tenant.id,
+        code: error.code,
+      })
+      throw new Error('อ่านบัญชีรับเงินไม่ได้ กรุณาตรวจสอบการติดตั้ง bank-accounts.sql')
+    }
     accounts = data ?? []
-    if (!accounts.length)
-      return {
-        status: 'error',
-        amount: null,
-        transRef: null,
-        note: 'กรุณาเพิ่มหรือเปิดใช้งานบัญชีรับเงินของร้านก่อนตรวจสลิป',
-      }
+    receiverSetupMissing = accounts.length === 0
   }
   // The database's outstanding order total always wins over manual/client amounts.
   if (customerId && tenant) {
@@ -185,7 +202,7 @@ export async function processSlip(
     .select('id')
     .single()
   if (error || !slip) {
-    console.error('slip insert failed', error)
+    console.error('[slip/process] slip history insert failed', { code: error?.code ?? 'NO_ROW' })
     if (imagePath) {
       // no row will ever point at this image, so don't leave it in the bucket
       const { error: removeError } = await db.storage.from('slips').remove([imagePath])
@@ -199,10 +216,30 @@ export async function processSlip(
       failure: 'db insert failed',
     }
   }
+  console.info('[slip/process] history recorded', {
+    slipId: slip.id,
+    tenantId: tenant.id,
+    customerId,
+    messageId,
+    expectedAmount: expectedAmount ?? null,
+  })
 
   // 3-4) From here on the row must not stay 'pending', whatever fails.
   let charged = false
   try {
+    if (receiverSetupMissing) {
+      const note = 'กรุณาเพิ่มหรือเปิดใช้งานบัญชีรับเงินของร้านก่อนตรวจสลิป'
+      const saved = await db
+        .from('slips')
+        .update({ status: 'error', note, verified_at: new Date().toISOString() })
+        .eq('id', slip.id)
+      if (saved.error) throw saved.error
+      console.error('[slip/process] verification blocked by missing receiver account', {
+        slipId: slip.id,
+        tenantId: tenant.id,
+      })
+      return { id: slip.id, status: 'error', amount: null, transRef: null, note }
+    }
     // Every provider call costs the tenant one credit, taken atomically before the call.
     if (tenant) {
       const { data: hasCredit, error: creditError } = await db.rpc('consume_slip_credit', {
@@ -227,6 +264,13 @@ export async function processSlip(
         accountNo: account.account_number,
         bankCode: account.bank_code,
       })),
+    })
+    console.info('[slip/process] provider returned', {
+      slipId: slip.id,
+      tenantId: tenant.id,
+      verdict: r.verdict,
+      amount: r.amount ?? null,
+      providerFault: r.providerFault === true,
     })
     // Provider or bank outages are not the slip's fault; refund the tenant's credit.
     if (charged && r.providerFault) await refundCredit(db, tenant!.id)
@@ -337,14 +381,24 @@ export async function processSlip(
       note,
     }
   } catch (e) {
-    console.error('slip verify failed', e)
+    console.error('[slip/process] verification failed', {
+      slipId: slip.id,
+      tenantId: tenant.id,
+      errorName: e instanceof Error ? e.name : 'UNKNOWN',
+      code: (e as { code?: string } | null)?.code ?? null,
+    })
     const note =
       e instanceof SlipTimestampError ? e.message : 'ตรวจสลิปไม่สำเร็จ ลองส่งใหม่อีกครั้ง'
     // minimal update, so it still works if the full one was what failed
-    await db
+    const saved = await db
       .from('slips')
       .update({ status: 'error', note, verified_at: new Date().toISOString() })
       .eq('id', slip.id)
+    if (saved.error)
+      console.error('[slip/process] failed to save error verdict', {
+        slipId: slip.id,
+        code: saved.error.code,
+      })
     // Preserve the explicit validation error for API callers; never hide a
     // rejected timestamp behind the generic technical-failure result.
     if (e instanceof SlipTimestampError) throw e

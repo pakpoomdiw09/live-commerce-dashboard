@@ -16,20 +16,41 @@ export const slipCandidates = (attachments: Attachment[] | null | undefined) =>
 
 /** Download a Messenger attachment (a public, short-lived CDN link). null when it isn't a usable slip image. */
 export async function downloadSlipImage(url: string): Promise<File | null> {
+  let host = 'invalid_url'
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+    const parsed = new URL(url)
+    host = parsed.host
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password)
+      throw new Error('UNSAFE_ATTACHMENT_URL')
+    console.info('[slip/image] download started', { host })
+    const res = await fetch(parsed, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    })
     if (!res.ok) {
-      console.error('could not download slip image', res.status)
+      console.error('[slip/image] download rejected', { host, httpStatus: res.status })
       return null
     }
     const type = (res.headers.get('content-type') ?? '').split(';')[0].trim()
     const blob = await res.blob()
-    if (!SLIP_IMAGE_TYPES.includes(type) || blob.size === 0 || blob.size > SLIP_MAX_BYTES)
+    if (!SLIP_IMAGE_TYPES.includes(type) || blob.size === 0 || blob.size > SLIP_MAX_BYTES) {
+      console.error('[slip/image] downloaded content is not an allowed slip image', {
+        host,
+        contentType: type || null,
+        bytes: blob.size,
+        supportedType: SLIP_IMAGE_TYPES.includes(type),
+        withinSizeLimit: blob.size > 0 && blob.size <= SLIP_MAX_BYTES,
+      })
       return null
+    }
+    console.info('[slip/image] download complete', { host, contentType: type, bytes: blob.size })
     return new File([blob], 'slip', { type })
-  } catch (e) {
+  } catch (error) {
     // timeout or network error: same as an expired link
-    console.error('could not download slip image', e)
+    console.error('[slip/image] download failed', {
+      host,
+      errorName: error instanceof Error ? error.name : 'UNKNOWN',
+    })
     return null
   }
 }

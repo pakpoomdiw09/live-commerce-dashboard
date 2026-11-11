@@ -288,7 +288,7 @@ export async function notifySlipResult(
       }
     }
     const body = slip.tabBalance
-      ? `รับยอดโอน ${Number(slip.amount ?? 0).toLocaleString('th-TH')} บาท ตรวจสอบผ่านแล้วครับ\nยอดรวมสะสม ${Number(slip.tabBalance.totalAmount).toLocaleString('th-TH')} บาท\nโอนแล้ว ${Number(slip.tabBalance.paidAmount).toLocaleString('th-TH')} บาท\nยอดค้างชำระสุทธิ ${Number(slip.tabBalance.remainingAmount).toLocaleString('th-TH')} บาท\n${slip.tabBalance.remainingAmount === 0 ? 'ยอดครบถ้วนแล้ว ทางร้านเตรียมจัดส่งให้ครับ' : 'สามารถโอนส่วนที่เหลือเพิ่มเติมได้ครับ ขอบพระคุณครับ'}`
+      ? `รับยอดโอน ${Number(slip.amount ?? 0).toLocaleString('th-TH')} บาท ตรวจสอบผ่านแล้วครับ\nยอดรวมสะสม ${Number(slip.tabBalance.totalAmount).toLocaleString('th-TH')} บาท\nโอนแล้ว ${Number(slip.tabBalance.paidAmount).toLocaleString('th-TH')} บาท\nยอดค้างชำระสุทธิ ${Number(slip.tabBalance.remainingAmount).toLocaleString('th-TH')} บาท\n${slip.tabBalance.remainingAmount === 0 ? 'ยอดครบถ้วนแล้ว ทางร้านเตรียมจัดส่งให้ครับ' : `ยอดยังไม่ครบ ขาดอีก ${Number(slip.tabBalance.remainingAmount).toLocaleString('th-TH')} บาท สามารถโอนส่วนที่เหลือและส่งสลิปเพิ่มเติมได้ครับ`}`
       : verified
         ? slipConfirmationText(
             slip.amount,
@@ -332,6 +332,42 @@ export async function notifySlipResult(
     })
     // Verification is already persisted. Propagate only delivery failure to the webhook's
     // durable side-effect checkpoint; an ambiguous send must never be automatically retried.
+    throw error
+  }
+}
+
+/** Clearly explain an exact-bill mismatch without treating an unverified transfer as paid. */
+export async function notifySlipAmountMismatch(
+  db: SupabaseClient,
+  slip: Pick<ProcessedSlip, 'id' | 'status' | 'amount'>,
+  customer: Recipient,
+  expectedAmount: number,
+) {
+  if (slip.status !== 'amount_mismatch' || !slip.id || !Number.isFinite(expectedAmount))
+    return false
+  const actual =
+    typeof slip.amount === 'number' && Number.isFinite(slip.amount) ? slip.amount : null
+  const expected = Number(expectedAmount)
+  const body =
+    actual === null
+      ? `ยอดในสลิปไม่ตรงกับยอดที่ต้องชำระ ${expected.toLocaleString('th-TH')} บาท ระบบยังไม่ยืนยันการชำระ กรุณาตรวจสอบยอดและส่งสลิปอีกครั้งครับ`
+      : actual < expected
+        ? `ตรวจพบยอดโอน ${actual.toLocaleString('th-TH')} บาท แต่ยอดที่ต้องชำระคือ ${expected.toLocaleString('th-TH')} บาท ยอดยังขาด ${(expected - actual).toLocaleString('th-TH')} บาท กรุณาโอนส่วนที่เหลือและส่งสลิปอีกครั้งครับ`
+        : `ตรวจพบยอดโอน ${actual.toLocaleString('th-TH')} บาท ซึ่งสูงกว่ายอดที่ต้องชำระ ${expected.toLocaleString('th-TH')} บาท ระบบยังไม่ยืนยันการชำระ กรุณาติดต่อร้านเพื่อตรวจสอบครับ`
+  try {
+    const sent = await deliverOnce(db, customer, `slip-amount-mismatch:${slip.id}`, body)
+    console.info('[slip/confirmation] amount mismatch notification', {
+      slipId: slip.id,
+      expectedAmount: expected,
+      actualAmount: actual,
+      sent,
+    })
+    return sent
+  } catch (error) {
+    console.error('[slip/confirmation] amount mismatch notification failed', {
+      slipId: slip.id,
+      code: (error as { code?: string } | null)?.code ?? 'DELIVERY_FAILED',
+    })
     throw error
   }
 }
