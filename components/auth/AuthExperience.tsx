@@ -95,7 +95,8 @@ const copy = {
     passwordMismatch: 'รหัสผ่านทั้งสองช่องไม่ตรงกัน',
     loginFailure: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองอีกครั้ง',
     authFailure: 'ไม่สามารถดำเนินการได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
-    signupSuccess: 'หากอีเมลนี้สามารถสมัครได้ ระบบจะส่งลิงก์ยืนยันไปให้ โปรดตรวจสอบกล่องจดหมาย',
+    signupSuccess:
+      'หากอีเมลนี้สมัครได้ ระบบจะส่งลิงก์ยืนยันไปให้ เมื่อยืนยันอีเมลแล้ว ระบบจะพาไปยังหน้าที่ร้องขอ',
     resetSuccess: 'ตั้งรหัสผ่านใหม่แล้ว กรุณาเข้าสู่ระบบอีกครั้ง',
     forgotError: 'ส่งคำขอไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่',
     registerError: 'สมัครสมาชิกไม่สำเร็จ กรุณาตรวจสอบข้อมูลแล้วลองใหม่',
@@ -169,7 +170,7 @@ const copy = {
     loginFailure: 'Email or password is incorrect. Please try again.',
     authFailure: 'Unable to complete your request right now. Please try again.',
     signupSuccess:
-      'If this email can be registered, we will send a confirmation link. Please check your inbox.',
+      'If this email can be registered, we will send a confirmation link. After you verify it, we will take you to the requested page.',
     resetSuccess: 'Your password has been updated. Please sign in again.',
     forgotError: 'Could not send the request. Check your connection and try again.',
     registerError: 'Could not create your account. Check your details and try again.',
@@ -446,15 +447,20 @@ export function AuthExperience({
           setError(t.passwordMismatch)
           return
         }
-        const confirmationPath = `/login?lang=${locale}&registered=1&next=${encodedNext}`
+        const confirmationPath = safeAuthNext(next, '/overview')
         const emailRedirectTo = `${location.origin}/auth/callback?next=${encodeURIComponent(confirmationPath)}`
-        const { error: authError } = await supabase.auth.signUp({
+        const { data, error: authError } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
           options: { emailRedirectTo },
         })
         if (authError) throw authError
-        setSuccess(t.signupSuccess)
+        if (data.session) {
+          router.replace(safeAuthNext(next, '/overview'))
+          router.refresh()
+        } else {
+          setSuccess(t.signupSuccess)
+        }
       } else if (mode === 'forgot') {
         const resetPath = `/reset-password?lang=${locale}&next=${encodedNext}`
         const redirectTo = `${location.origin}/auth/callback?next=${encodeURIComponent(resetPath)}`
