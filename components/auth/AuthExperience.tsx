@@ -447,20 +447,22 @@ export function AuthExperience({
           setError(t.passwordMismatch)
           return
         }
-        const confirmationPath = safeAuthNext(next, '/overview')
-        const emailRedirectTo = `${location.origin}/auth/callback?next=${encodeURIComponent(confirmationPath)}`
         const { data, error: authError } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
-          options: { emailRedirectTo },
         })
         if (authError) throw authError
         if (data.session) {
-          router.replace(safeAuthNext(next, '/overview'))
-          router.refresh()
-        } else {
-          setSuccess(t.signupSuccess)
+          window.location.href = '/dashboard'
+          return
         }
+        const { error: loginError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        })
+        if (loginError) throw loginError
+        window.location.href = '/dashboard'
+        return
       } else if (mode === 'forgot') {
         const resetPath = `/reset-password?lang=${locale}&next=${encodedNext}`
         const redirectTo = `${location.origin}/auth/callback?next=${encodeURIComponent(resetPath)}`
