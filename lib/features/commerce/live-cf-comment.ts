@@ -58,6 +58,7 @@ export async function handleLiveCfComment(
     getPayment: () => Promise<LiveCfPayment | null>
     getPendingTotal: () => Promise<number>
     getPaymentLink: (orderId: string) => Promise<string | null> | string | null
+    includePaymentLink?: boolean
     getCumulativeBill?: (orderId: string) => Promise<string | null>
     sendPrivateReply?: (message: string) => Promise<unknown>
     replyToComment?: (message: string) => Promise<unknown>
@@ -124,7 +125,8 @@ export async function handleLiveCfComment(
           dependencies.getPendingTotal(),
           dependencies.getPaymentLink(order.orderId),
         ])
-        if (!paymentLink) throw new Error('LIVE_CF_PAYMENT_LINK_UNAVAILABLE')
+        if (dependencies.includePaymentLink !== false && !paymentLink)
+          throw new Error('LIVE_CF_PAYMENT_LINK_UNAVAILABLE')
         if (!Number.isFinite(total) || total <= 0)
           throw new Error('LIVE_CF_PAYMENT_TOTAL_UNAVAILABLE')
         const variantLabel = order.variantLabel ?? ''
@@ -148,7 +150,7 @@ export async function handleLiveCfComment(
               item_summary: itemLine,
               bidder_name: dependencies.customerName ?? '',
               total: money(total),
-              payment_link: paymentLink,
+              payment_link: paymentLink ?? '',
               bank_account: payment
                 ? `${payment.bankName} ${payment.accountNumber}${payment.accountName ? ` (${payment.accountName})` : ''}`
                 : '',
@@ -160,14 +162,15 @@ export async function handleLiveCfComment(
               payment
                 ? `บัญชี ${payment.bankName} ${payment.accountNumber}${payment.accountName ? ` (${payment.accountName})` : ''}`
                 : null,
-              `ชำระเงินอย่างปลอดภัย: ${paymentLink}`,
+              paymentLink ? `ชำระเงินอย่างปลอดภัย: ${paymentLink}` : null,
             ]
               .filter(Boolean)
               .join('\n')
         if (!message.includes(itemLine)) message = `${itemLine}\n${message}`
         if (order.quantityClamped && !message.includes('ปรับจำนวนตามเพดาน'))
           message = `ระบบปรับจำนวนตามเพดานที่ตั้งไว้ เหลือ ${quantity} ชิ้น\n${message}`
-        if (!message.includes(paymentLink)) message += `\nชำระเงินอย่างปลอดภัย: ${paymentLink}`
+        if (paymentLink && !message.includes(paymentLink))
+          message += `\nชำระเงินอย่างปลอดภัย: ${paymentLink}`
         await dependencies.sendPrivateReply!(message)
       },
     })

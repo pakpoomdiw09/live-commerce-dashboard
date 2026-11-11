@@ -19810,6 +19810,58 @@ end $$$sql_131_2$;
     values('migrations/20261111090000_live_auction_order_scope.sql','a189edc4a98cc0fece659f0d195d3ecb22121f19e44a43f82f688beee39e9b86','7f3c3b9452dd84f295ddac82dc81454f3f6a29c7177f8f22a5c9020aa428ebfa');
 end $migration_131$;
 
+-- 133. migrations/20261111100000_payment_link_toggle.sql
+do $migration_132$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='migrations/20261111100000_payment_link_toggle.sql';
+  if found then
+    if installed <> 'a84ef1dbbdc939045e35411ae94c44814b68b61ea7e430a864e55e2d68732581' then
+      raise exception 'Applied migration changed: migrations/20261111100000_payment_link_toggle.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- migrations/20261111100000_payment_link_toggle.sql: source statement 1
+execute $sql_132_1$alter table public.tenants
+  add column if not exists send_payment_link boolean not null default false$sql_132_1$;
+
+-- migrations/20261111100000_payment_link_toggle.sql: source statement 2
+execute $sql_132_2$grant select (send_payment_link) on public.tenants to authenticated$sql_132_2$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('migrations/20261111100000_payment_link_toggle.sql','a84ef1dbbdc939045e35411ae94c44814b68b61ea7e430a864e55e2d68732581','86bd3d8d31249cfb8efa4e6131c07fde81a483dc345e358763215c0c4859f31a');
+end $migration_132$;
+
+-- 134. migrations/20261111110000_payment_link_default_off.sql
+do $migration_133$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='migrations/20261111110000_payment_link_default_off.sql';
+  if found then
+    if installed <> '68c646eaa0729bec87646f60d2d69a9eaf92e04f1cedbda07e7ac4e144a05240' then
+      raise exception 'Applied migration changed: migrations/20261111110000_payment_link_default_off.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- migrations/20261111110000_payment_link_default_off.sql: source statement 1
+execute $sql_133_1$alter table public.tenants
+  add column if not exists send_payment_link boolean$sql_133_1$;
+
+-- migrations/20261111110000_payment_link_default_off.sql: source statement 2
+execute $sql_133_2$update public.tenants
+set send_payment_link = false
+where send_payment_link is null$sql_133_2$;
+
+-- migrations/20261111110000_payment_link_default_off.sql: source statement 3
+execute $sql_133_3$alter table public.tenants
+  alter column send_payment_link set default false,
+  alter column send_payment_link set not null$sql_133_3$;
+
+-- migrations/20261111110000_payment_link_default_off.sql: source statement 4
+execute $sql_133_4$grant select (send_payment_link) on public.tenants to authenticated$sql_133_4$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('migrations/20261111110000_payment_link_default_off.sql','68c646eaa0729bec87646f60d2d69a9eaf92e04f1cedbda07e7ac4e144a05240','9424d70fa123dc754a265c3b34596a09ca64d50aaccdd7084efd9e8915933e66');
+end $migration_133$;
+
 notify pgrst,'reload schema';
 
 commit;

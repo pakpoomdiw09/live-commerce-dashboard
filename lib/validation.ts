@@ -19,6 +19,7 @@ export type TenantInput = Partial<
     | 'expected_amount'
     | 'auto_reply_enabled'
     | 'auto_verify_enabled'
+    | 'send_payment_link'
     | 'slip_quota'
   > & { page_access_token: string | null }
 >
@@ -79,7 +80,7 @@ export function parseTenantInput(body: unknown, partial: boolean): Result<Tenant
       return fail('ยอดที่คาดหวังต้องเป็นตัวเลขมากกว่า 0')
     out.expected_amount = v ? Math.round(n * 100) / 100 : null
   }
-  for (const k of ['auto_reply_enabled', 'auto_verify_enabled'] as const) {
+  for (const k of ['auto_reply_enabled', 'auto_verify_enabled', 'send_payment_link'] as const) {
     if (!has(b, k)) continue
     if (typeof b[k] !== 'boolean') return fail(`${k} must be true or false`)
     out[k] = b[k] as boolean

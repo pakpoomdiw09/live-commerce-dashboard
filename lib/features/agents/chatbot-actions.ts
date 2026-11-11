@@ -30,6 +30,8 @@ export async function loadBotSettings(
 
 export type Incoming = {
   imageUrls?: readonly string[]
+  pageId?: string
+  sendPaymentLink?: boolean
   tenant: { id: string; name: string }
   customer: { id: string; display_name: string | null }
   recipient: Recipient

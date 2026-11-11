@@ -22,6 +22,7 @@ export type TenantRow = {
   expected_amount: number | null
   auto_reply_enabled: boolean
   auto_verify_enabled: boolean
+  send_payment_link: boolean
   slip_quota: number
   slip_quota_credits: number
   slip_used: number
@@ -32,7 +33,7 @@ export type TenantRow = {
 
 /** Dashboard-safe tenant columns: must match the column grant in supabase/security.sql. */
 export const TENANT_COLUMNS =
-  'id, name, account_name, bank_code, page_id, page_name, expected_amount, auto_reply_enabled, auto_verify_enabled, slip_quota, slip_quota_credits, slip_used, page_token_set, created_at'
+  'id, name, account_name, bank_code, page_id, page_name, expected_amount, auto_reply_enabled, auto_verify_enabled, send_payment_link, slip_quota, slip_quota_credits, slip_used, page_token_set, created_at'
 
 /** What a signed-in user may do in one tenant. 'admin' = platform admin (or a server-to-server call). */
 export type TenantRole = 'admin' | 'owner' | 'staff'

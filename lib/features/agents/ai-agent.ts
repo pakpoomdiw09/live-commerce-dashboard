@@ -60,7 +60,7 @@ export const aiModel = () =>
     .replace(/^models\//, '')
     .trim() || DEFAULT_MODEL
 
-const HISTORY = 12 // recent messages of this chat sent as context
+const HISTORY = 10 // recent messages of this chat sent as context
 
 export const aiConfigured = () => !!process.env.GEMINI_API_KEY?.trim()
 
@@ -90,6 +90,8 @@ export type AiContext = {
   customerName: string | null
   customerId: string
   tenantId: string
+  pageId?: string
+  sendPaymentLink?: boolean
 }
 
 /**
@@ -142,7 +144,7 @@ export async function aiReply(
     // The managed context builder owns the catalog; avoid querying it twice.
     const messages: Content[] = testMessages
       ? testMessages.slice(-HISTORY).map((m) => ({ role: m.role, parts: [{ text: m.text }] }))
-      : await history(db, ctx.customerId)
+      : await history(db, ctx.customerId, ctx.tenantId)
     if (!messages.length)
       throw new AiAgentError('EMPTY_HISTORY', 'ไม่มีข้อความให้ AI ตอบ กรุณาพิมพ์ข้อความใหม่', 400)
     // Every provider call reserves the tenant test quota or the paid monthly allowance.
@@ -419,11 +421,12 @@ export async function aiReply(
 }
 
 /** Gemini history uses user/model roles and text parts, ending with the customer. */
-async function history(db: SupabaseClient, customerId: string): Promise<Content[]> {
+async function history(db: SupabaseClient, customerId: string, tenantId: string): Promise<Content[]> {
   const { data } = await db
     .from('messages')
-    .select('sender, body, attachments')
+    .select('sender, body, attachments, customers!inner(tenant_id)')
     .eq('customer_id', customerId)
+    .eq('customers.tenant_id', tenantId)
     .order('created_at', { ascending: false })
     .limit(HISTORY)
   const turns: Content[] = []

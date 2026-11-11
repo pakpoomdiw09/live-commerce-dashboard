@@ -78,6 +78,7 @@ export function TenantSettingsForm({
   const [autoVerifyDraft, setAutoVerify] = useState(tenant?.auto_verify_enabled ?? false)
   const autoVerify = autoVerifyDraft
   const [autoReply, setAutoReply] = useState(tenant?.auto_reply_enabled ?? true)
+  const [sendPaymentLink, setSendPaymentLink] = useState(tenant?.send_payment_link ?? false)
   const [quota, setQuota] = useState(String(tenant ? tenant.slip_quota : 500))
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string; warnings?: string[] } | null>(
@@ -105,6 +106,8 @@ export function TenantSettingsForm({
       if (autoReply !== (tenant?.auto_reply_enabled ?? true)) body.auto_reply_enabled = autoReply
       if (autoVerify !== (tenant?.auto_verify_enabled ?? false) && (!autoVerify || slipAllowed))
         body.auto_verify_enabled = autoVerify
+      if (isOwner && sendPaymentLink !== (tenant?.send_payment_link ?? false))
+        body.send_payment_link = sendPaymentLink
     }
     if (isOwner) {
       if (showFacebook) {
@@ -499,6 +502,14 @@ export function TenantSettingsForm({
                 description="บอทตอบแชท และส่งการ์ด 'ชำระเงินสำเร็จ' เมื่อสลิปถูกต้อง (ปิดรายแชทได้ในกล่องข้อความ)"
                 checked={autoReply}
                 onChange={setAutoReply}
+              />
+              <ToggleRow
+                icon={MessageSquareReply}
+                title="ส่งลิงก์ชำระเงินและแนบสลิป"
+                description="แนบลิงก์ checkout ที่ผูกกับยอดออเดอร์ปัจจุบันในใบแจ้งยอด Messenger เมื่อปิดไว้ ลูกค้ายังส่งรูปสลิปในแชทเพื่อให้ระบบตรวจสอบตามการตั้งค่าตรวจสลิปได้"
+                checked={sendPaymentLink}
+                disabled={!isOwner}
+                onChange={setSendPaymentLink}
               />
             </div>
           </Card>

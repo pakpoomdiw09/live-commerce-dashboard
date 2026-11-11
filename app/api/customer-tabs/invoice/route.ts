@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     if (!facebookCustomer.data) throw new InboxError('บิลนี้ไม่ได้ผูกกับผู้ใช้ Facebook', 404)
     const page = await db
       .from('tenants')
-      .select('page_id,page_access_token')
+      .select('page_id,page_access_token,send_payment_link')
       .eq('id', tenantId)
       .eq('page_id', tab.page_id)
       .eq('is_active', true)
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
         'SEND_ALREADY_CLAIMED',
       )
     }
-    const summary = await customerTabSummary(db, tab)
+    const summary = await customerTabSummary(db, tab, undefined, page.data.send_payment_link)
     // One private reply must contain the complete payment destination, even for long ledgers.
     const text = [
       'สรุปบิลรายการที่สั่งซื้อ / ประมูล',
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       `ชำระแล้ว ${tabMoney(tab.paid_amount)} บาท`,
       `คงเหลือ ${tabMoney(tab.remaining_amount)} บาท`,
       `บัญชีรับเงิน: ${summary.account}`,
-      `รายการทั้งหมด / QR / แนบสลิป: ${summary.link}`,
+      ...(summary.link ? [`รายการทั้งหมด / QR / แนบสลิป: ${summary.link}`] : []),
     ].join('\n')
     if (text.length > 2000) throw new InboxError('ข้อมูลบิลยาวเกินกำหนด')
     const inserted = await db
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
         sender: 'agent',
         body: text,
         delivery_status: 'pending',
-        attachments: [{ type: 'link', payload: { url: summary.link } }],
+        attachments: summary.link ? [{ type: 'link', payload: { url: summary.link } }] : [],
       })
       .select('id')
       .single()

@@ -129,7 +129,7 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
           .single(),
         db
           .from('tenants')
-          .select('page_id,page_access_token,auto_reply_enabled')
+          .select('page_id,page_access_token,auto_reply_enabled,send_payment_link')
           .eq('id', tab.tenant_id)
           .eq('page_id', tab.page_id)
           .eq('is_active', true)
@@ -162,7 +162,7 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
         result.cancelled++
         continue
       }
-      const summary = await customerTabSummary(db, tab, greeting)
+      const summary = await customerTabSummary(db, tab, greeting, tenant.data.send_payment_link)
       let text = summary.text
       if (job.message_template) {
         if (!validSessionTemplate(job.message_template)) throw new Error('TAB_TEMPLATE_INVALID')
@@ -190,7 +190,7 @@ export async function runCustomerTabReminders(db: SupabaseClient, deadline = Dat
         text = `${renderSessionFollowup(job.message_template, preview)}\n\n${summary.text}`
       }
       const parts: object[] = splitTabMessage(text).map((part) => ({ text: part }))
-      parts.push({
+      if (summary.link) parts.push({
         attachment: {
           type: 'template',
           payload: {

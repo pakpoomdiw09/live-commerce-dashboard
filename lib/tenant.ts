@@ -45,9 +45,10 @@ export async function getTenantsForActor(
     const baseColumns = TENANT_COLUMNS.split(',')
       .map((column) => column.trim())
       .filter((column) => column !== 'slip_quota_credits')
+      .filter((column) => column !== 'send_payment_link')
       .join(',')
     const base = await query(baseColumns)
-    data = base.data?.map((tenant) => ({ ...tenant, slip_quota_credits: 0 })) ?? null
+    data = base.data?.map((tenant) => ({ ...tenant, slip_quota_credits: 0, send_payment_link: false })) ?? null
     error = base.error
     if (!error) console.warn('[tenant] optional slip top-up column unavailable; using base quota')
   }

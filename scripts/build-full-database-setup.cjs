@@ -156,6 +156,8 @@ const groups = [
       'inbox-owner-takeover.sql',
       'live-cf-quantity.sql',
       'migrations/20261111090000_live_auction_order_scope.sql',
+      'migrations/20261111100000_payment_link_toggle.sql',
+      'migrations/20261111110000_payment_link_default_off.sql',
     ],
   ],
 ]
@@ -223,6 +225,10 @@ const prerequisites = {
   'shipping-fulfillment.sql': ['live-session-dashboard.sql'],
   'migrations/20261111080000_shipping_integrations.sql': ['shipping-fulfillment.sql'],
   'migrations/20261111090000_live_auction_order_scope.sql': ['live-cf-quantity.sql'],
+  'migrations/20261111100000_payment_link_toggle.sql': ['tenants.sql'],
+  'migrations/20261111110000_payment_link_default_off.sql': [
+    'migrations/20261111100000_payment_link_toggle.sql',
+  ],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],
   'customer-tabs.sql': ['live-auctions.sql', 'live-cf-customer-variants.sql'],
@@ -404,6 +410,13 @@ const setupTables = new Set([
 ])
 
 function omission(file, sql) {
+  if (
+    file === 'migrations/20261111110000_payment_link_default_off.sql' &&
+    /^update\s+public\.tenants\s+set\s+send_payment_link\s*=\s*false\s+where\s+send_payment_link\s+is\s+null$/i.test(
+      sql,
+    )
+  )
+    return null
   if (/^(begin|commit)$/i.test(sql))
     return 'Transaction boundary replaced by a bounded per-source transaction.'
   if (/^(set|reset)\s+lock_timeout\b/i.test(sql))
@@ -449,7 +462,7 @@ function build(root = path.resolve(__dirname, '..')) {
       (f) =>
         !/^(rollbacks|tests)\//.test(f) &&
         (!f.startsWith('migrations/') ||
-          ['migrations/20261111080000_shipping_integrations.sql', 'migrations/20261111090000_live_auction_order_scope.sql'].includes(f)),
+          ['migrations/20261111080000_shipping_integrations.sql', 'migrations/20261111090000_live_auction_order_scope.sql', 'migrations/20261111100000_payment_link_toggle.sql', 'migrations/20261111110000_payment_link_default_off.sql'].includes(f)),
     )
     .filter((f) => !['full_database_setup.sql', 'complete_schema.sql'].includes(f))
     .sort()

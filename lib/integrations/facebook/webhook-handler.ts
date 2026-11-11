@@ -62,6 +62,7 @@ type PageTenant = {
   page_access_token: string | null
   auto_reply_enabled: boolean
   auto_verify_enabled: boolean
+  send_payment_link: boolean
 }
 type AuctionSlipTarget =
   | { kind: 'none' | 'ambiguous' | 'unmatched' }
@@ -172,7 +173,7 @@ async function tenantForPage(pageId: string): Promise<PageTenant | null> {
   const { data, error } = await supabaseAdmin({ timeoutMs: 15000 })
     .from('tenants')
     .select(
-      'id, name, page_name, account_name, account_number, bank_code, page_id, page_access_token, auto_reply_enabled, auto_verify_enabled',
+      'id, name, page_name, account_name, account_number, bank_code, page_id, page_access_token, auto_reply_enabled, auto_verify_enabled, send_payment_link',
     )
     .eq('page_id', pageId)
     .eq('is_active', true)
@@ -680,6 +681,8 @@ async function onMessage(
   await execution.once('chat-answer', async () => {
     try {
       await answerChat(db, {
+        pageId,
+        sendPaymentLink: tenant.send_payment_link,
         tenant,
         customer,
         recipient,
@@ -1014,7 +1017,9 @@ async function onComment(
           getPayment: () => primaryBankPayment(db, tenant.id, selectedRule.live_bank_account_id),
           getPendingTotal: async () =>
             (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
-          getPaymentLink: (orderId) => createLiveCfPaymentLink(orderId),
+          getPaymentLink: (orderId) =>
+            tenant.send_payment_link ? createLiveCfPaymentLink(orderId) : null,
+          includePaymentLink: tenant.send_payment_link,
           getCumulativeBill: async (orderId) => {
             const { tabForOrder, customerTabSummary } =
               await import('@/lib/features/commerce/customer-tabs-server')
@@ -1025,6 +1030,7 @@ async function onComment(
                 db,
                 tab,
                 'รับรายการ CF ใหม่แล้วครับ สรุปยอดสะสมในไลฟ์นี้ดังนี้',
+                tenant.send_payment_link,
               )
             ).privateText
           },
@@ -1134,7 +1140,9 @@ async function onComment(
           getPayment: () => primaryBankPayment(db, tenant.id),
           getPendingTotal: async () =>
             (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
-          getPaymentLink: createLiveCfPaymentLink,
+          getPaymentLink: (orderId) =>
+            tenant.send_payment_link ? createLiveCfPaymentLink(orderId) : null,
+          includePaymentLink: tenant.send_payment_link,
           privateTemplate: settings.private_reply_template as string | undefined,
           publicTemplate: settings.public_reply_template as string | undefined,
           customerName: v.from?.name ?? '',

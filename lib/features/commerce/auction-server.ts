@@ -143,7 +143,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
     }
     const tenant = await db
       .from('tenants')
-      .select('page_id,page_access_token')
+      .select('page_id,page_access_token,send_payment_link')
       .eq('id', auction.tenant_id)
       .eq('page_id', auction.page_id)
       .eq('is_active', true)
@@ -157,8 +157,11 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
     }
     const token = pageTokenFor(tenant.data)
     // Prepare everything before claiming. Configuration errors remain safe to retry.
-    const link = auction.order_id ? createLiveCfPaymentLink(auction.order_id) : null
-    if (!token || (delivery.channel === 'private' && !link)) {
+    const link =
+      tenant.data.send_payment_link && auction.order_id
+        ? createLiveCfPaymentLink(auction.order_id)
+        : null
+    if (!token || (tenant.data.send_payment_link && delivery.channel === 'private' && !link)) {
       console.warn('[auction/delivery] configuration missing; pending', {
         auctionId: auction.id,
         channel: delivery.channel,
@@ -195,7 +198,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
       : `ปิดประมูล ${auction.item_name} ยังไม่มีผู้เสนอราคา`
     const message =
       delivery.channel === 'private'
-        ? `🎉 ยินดีด้วยครับ! คุณชนะการประมูล\nรายการ: ${auction.item_name}\nยอดประมูล: ${money(invoiceItemPrice)} บาท\nค่าจัดส่ง: ${money(auction.shipping_fee)} บาท\nยอดรวม: ${money(Number(invoiceItemPrice) + Number(auction.shipping_fee))} บาท\nชำระเงิน / แนบสลิป: ${link}`
+        ? `🎉 ยินดีด้วยครับ! คุณชนะการประมูล\nรายการ: ${auction.item_name}\nยอดประมูล: ${money(invoiceItemPrice)} บาท\nค่าจัดส่ง: ${money(auction.shipping_fee)} บาท\nยอดรวม: ${money(Number(invoiceItemPrice) + Number(auction.shipping_fee))} บาท${link ? `\nชำระเงิน / แนบสลิป: ${link}` : ''}`
         : summary
     let billMessage = message
     let buttonMessage = message
@@ -210,7 +213,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
       if (!tab && auction.session_automation) throw new Error('AUCTION_TAB_UNAVAILABLE')
       if (tab) {
         invoiceRecipient = tab.customer_fb_id
-        const bill = await customerTabSummary(db, tab)
+        const bill = await customerTabSummary(db, tab, undefined, tenant.data.send_payment_link)
         const privateTemplate =
           auction.session_automation &&
           (!auction.private_reply_template ||
@@ -228,7 +231,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
           bidder_name: auction.leading_bidder_name || 'ลูกค้า',
           min_step: money(auction.min_step),
         }
-        const compact = `ยอดรวมสะสม ${money(tab.total_amount)} บาท\nโอนแล้ว ${money(tab.paid_amount)} บาท\nยอดค้างสุทธิ ${money(tab.remaining_amount)} บาท\n${bill.account}\nรายการทั้งหมด / QR / แนบสลิป: ${bill.link}`
+        const compact = `ยอดรวมสะสม ${money(tab.total_amount)} บาท\nโอนแล้ว ${money(tab.paid_amount)} บาท\nยอดค้างสุทธิ ${money(tab.remaining_amount)} บาท\n${bill.account}${bill.link ? `\nรายการทั้งหมด / QR / แนบสลิป: ${bill.link}` : ''}`
         billMessage = auctionPrivateMessage(privateTemplate, values, bill.privateText, compact)
         const rendered = renderAuctionTemplate(privateTemplate, values)
         const items = (tab.customer_tab_items ?? []).filter((item) => !item.cancelled)
@@ -275,7 +278,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             privateTemplate,
             singleValues,
             '',
-            `ยอดประมูลชิ้นนี้: ${money(invoiceItemPrice)} บาท\n🚚 ค่าจัดส่งชิ้นนี้: ${money(latestShipping)} บาท\n🏦 บัญชีโอนเงิน: ${bill.account}\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${bill.link}`,
+            `ยอดประมูลชิ้นนี้: ${money(invoiceItemPrice)} บาท\n🚚 ค่าจัดส่งชิ้นนี้: ${money(latestShipping)} บาท\n🏦 บัญชีโอนเงิน: ${bill.account}${bill.link ? `\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${bill.link}` : ''}`,
           )
           const plan = auctionPrivateMessagePlan({
             enabled:
@@ -326,7 +329,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             `ยอดค้างชำระรวม: ${money(tab.remaining_amount)} บาท`,
             `บัญชีรับเงิน: ${bill.account}`,
             `QR / ชำระเงิน / แนบสลิป: ${bill.link}`,
-          ].join('\n')
+          ].filter((line) => link || !line.includes('QR /')).join('\n')
           billMessage = composeBillingMessage(
             renderAuctionTemplate(privateTemplate, values),
             billingFooter,
@@ -455,7 +458,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
               body: splitMessages[1],
               delivery_status: 'sent',
               provider_message_id: messageId,
-              attachments: [{ type: 'link', payload: { url: link! } }],
+              attachments: link ? [{ type: 'link', payload: { url: link } }] : [],
             })
             .eq('external_id', billMessageKey(delivery))
           if (chat.error) throw chat.error
@@ -476,7 +479,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
                 delivery.comment_id,
                 billMessage,
                 buttonMessage,
-                link!,
+                link ?? '',
                 auction.page_id,
               )
           const chat = await db
@@ -484,7 +487,7 @@ export async function deliverAuctionNotifications(auctionId?: string, claimId?: 
             .update({
               body: 'auctionText' in receipt ? receipt.auctionText : billMessage,
               delivery_status: 'sent',
-              attachments: [{ type: 'link', payload: { url: link! } }],
+              attachments: link ? [{ type: 'link', payload: { url: link } }] : [],
               ...(receipt?.message_id ? { provider_message_id: receipt.message_id } : {}),
             })
             .eq('external_id', billMessageKey(delivery))

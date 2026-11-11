@@ -18650,5 +18650,49 @@ begin
 end $$;
 
 commit;
+-- ============================================================================
+-- 133. migrations/20261111100000_payment_link_toggle.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 86bd3d8d31249cfb8efa4e6131c07fde81a483dc345e358763215c0c4859f31a
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 1
+alter table public.tenants
+  add column if not exists send_payment_link boolean not null default false;
+
+-- Source statement 2
+grant select (send_payment_link) on public.tenants to authenticated;
+
+commit;
+-- ============================================================================
+-- 134. migrations/20261111110000_payment_link_default_off.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 9424d70fa123dc754a265c3b34596a09ca64d50aaccdd7084efd9e8915933e66
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 1
+alter table public.tenants
+  add column if not exists send_payment_link boolean;
+
+-- Source statement 2
+update public.tenants
+set send_payment_link = false
+where send_payment_link is null;
+
+-- Source statement 3
+alter table public.tenants
+  alter column send_payment_link set default false,
+  alter column send_payment_link set not null;
+
+-- Source statement 4
+grant select (send_payment_link) on public.tenants to authenticated;
+
+commit;
 
 notify pgrst, 'reload schema';

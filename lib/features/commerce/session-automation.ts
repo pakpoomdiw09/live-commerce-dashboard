@@ -79,13 +79,17 @@ export function auctionPrivateMessagePlan(input: {
   const money = (amount: number) =>
     Number(amount).toLocaleString('th-TH', { maximumFractionDigits: 2 })
   const latest = `🏆 ยินดีด้วยครับคุณ ${input.name.slice(0, 100)} ชนะประมูล ${input.item.slice(0, 200)}\nยอดประมูลชิ้นนี้: ${money(input.price)} บาท`
-  const footer = `🚚 ค่าจัดส่ง: ${money(input.shipping)} บาท\n${input.paid > 0 ? `โอนแล้ว: ${money(input.paid)} บาท\n` : ''}💰 ยอดรวมสุทธิที่ต้องชำระ: ${money(input.remaining)} บาท\n\n🏦 บัญชีโอนเงิน: ${input.account}\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${input.link}`
+  const footer = `🚚 ค่าจัดส่ง: ${money(input.shipping)} บาท\n${input.paid > 0 ? `โอนแล้ว: ${money(input.paid)} บาท\n` : ''}💰 ยอดรวมสุทธิที่ต้องชำระ: ${money(input.remaining)} บาท\n\n🏦 บัญชีโอนเงิน: ${input.account}${input.link ? `\n🔗 ลิงก์ชำระเงิน/แนบสลิป: ${input.link}` : ''}`
   const title = '📊 สรุปบิลยอดรวมสะสมทั้งหมดของคุณ:'
   const lines: string[] = []
   for (const [index, item] of input.items.entries()) {
     const line = `${index + 1}. ${item.name.slice(0, 100)} — ${money(item.amount)} บาท`
     if ([title, ...lines, line, footer].join('\n').length > 1850) {
-      lines.push('ดูรายการสินค้าทั้งหมดในลิงก์บิลด้านล่าง')
+      lines.push(
+        input.link
+          ? 'ดูรายการสินค้าทั้งหมดในลิงก์บิลด้านล่าง'
+          : 'กรุณาติดต่อแอดมินเพื่อขอสรุปรายการเพิ่มเติม',
+      )
       break
     }
     lines.push(line)

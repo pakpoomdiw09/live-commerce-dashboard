@@ -30,7 +30,14 @@ export async function GET(req: NextRequest) {
     if (summaryId) {
       const tab = (tabs.data as CustomerTab[]).find((bill) => bill.id === summaryId)
       if (!tab) throw new InboxError('ไม่พบบิลของลูกค้านี้', 404)
-      return json(await customerTabSummary(db, tab))
+      const page = await db
+        .from('tenants')
+        .select('send_payment_link')
+        .eq('id', tenantId)
+        .eq('page_id', tab.page_id)
+        .single()
+      if (page.error) throw page.error
+      return json(await customerTabSummary(db, tab, undefined, page.data.send_payment_link))
     }
     const ids = tabs.data.map((tab) => tab.id)
     const jobs = ids.length

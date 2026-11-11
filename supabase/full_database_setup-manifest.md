@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 152 ไฟล์: รวมตาม dependencies 132 ไฟล์ และแยกไว้ 20 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 154 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 154 ไฟล์: รวมตาม dependencies 134 ไฟล์ และแยกไว้ 20 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 156 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1322806 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1325686 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1144361 bytes, 18655 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1145990 bytes, 18699 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -169,6 +169,8 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 130. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
 131. [live-cf-quantity.sql](live-cf-quantity.sql) — 21 statements retained
 132. [migrations/20261111090000_live_auction_order_scope.sql](migrations/20261111090000_live_auction_order_scope.sql) — 1 statements retained
+133. [migrations/20261111100000_payment_link_toggle.sql](migrations/20261111100000_payment_link_toggle.sql) — 2 statements retained
+134. [migrations/20261111110000_payment_link_default_off.sql](migrations/20261111110000_payment_link_default_off.sql) — 4 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -218,6 +220,8 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | shipping-fulfillment.sql | live-session-dashboard.sql |
 | migrations/20261111080000_shipping_integrations.sql | shipping-fulfillment.sql |
 | migrations/20261111090000_live_auction_order_scope.sql | live-cf-quantity.sql |
+| migrations/20261111100000_payment_link_toggle.sql | tenants.sql |
+| migrations/20261111110000_payment_link_default_off.sql | migrations/20261111100000_payment_link_toggle.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
@@ -558,3 +562,5 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - inbox-owner-takeover.sql: `464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f`
 - live-cf-quantity.sql: `2a44286ca413f95083ec761b825a95caac9feda67e4ccbf43657a2611abc40a1`
 - migrations/20261111090000_live_auction_order_scope.sql: `7f3c3b9452dd84f295ddac82dc81454f3f6a29c7177f8f22a5c9020aa428ebfa`
+- migrations/20261111100000_payment_link_toggle.sql: `86bd3d8d31249cfb8efa4e6131c07fde81a483dc345e358763215c0c4859f31a`
+- migrations/20261111110000_payment_link_default_off.sql: `9424d70fa123dc754a265c3b34596a09ca64d50aaccdd7084efd9e8915933e66`

@@ -76,19 +76,27 @@ export async function customerTabAccount(db: SupabaseClient, tab: CustomerTab) {
     : 'กรุณาติดต่อร้านค้าเพื่อยืนยันบัญชีรับเงิน'
 }
 
-export async function customerTabSummary(db: SupabaseClient, tab: CustomerTab, greeting?: string) {
+export async function customerTabSummary(
+  db: SupabaseClient,
+  tab: CustomerTab,
+  greeting?: string,
+  includePaymentLink = true,
+) {
   tab.customer_tab_items.sort(
     (a, b) => a.closed_at.localeCompare(b.closed_at) || a.order_id.localeCompare(b.order_id),
   )
   const order = tab.customer_tab_items.find((item) => !item.cancelled)
-  const link = order ? createLiveCfPaymentLink(order.order_id) : null
-  if (!link) throw new Error('TAB_PAYMENT_LINK_UNAVAILABLE')
+  const link = includePaymentLink && order ? createLiveCfPaymentLink(order.order_id) : null
+  if (includePaymentLink && !link) throw new Error('TAB_PAYMENT_LINK_UNAVAILABLE')
   const account = await customerTabAccount(db, tab)
-  const text = customerTabText(tab, link, account, greeting)
+  const text = customerTabText(tab, link ?? '', account, greeting)
+  const linkSafeText = includePaymentLink
+    ? text
+    : text.split('\n').filter((line) => !line.includes('QR /')).join('\n')
   const latest = [...tab.customer_tab_items].reverse().find((item) => !item.cancelled)
   const privateText =
-    text.length <= 1900
-      ? text
+    linkSafeText.length <= 1900
+      ? linkSafeText
       : [
           greeting ?? 'สรุปบิลสะสมพระเครื่องครับ',
           latest
@@ -101,6 +109,7 @@ export async function customerTabSummary(db: SupabaseClient, tab: CustomerTab, g
           `รายการทั้งหมด / QR / แนบสลิป: ${link}`,
         ]
           .filter(Boolean)
+          .filter((line) => includePaymentLink || !line.includes('QR /'))
           .join('\n')
-  return { link, text, privateText, account }
+  return { link: link ?? '', text: linkSafeText, privateText, account }
 }

@@ -4,7 +4,7 @@ import {
   agentControlConfig,
   agentControlAvailable,
 } from '@/lib/features/agents/agent-control-flags'
-import { inputRisk } from '@/lib/features/agents/agent-control-core'
+import { inputRisk, isPaymentQuestion } from '@/lib/features/agents/agent-control-core'
 import {
   loadBotSettings,
   handover,
@@ -55,8 +55,9 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
   let quotaId: string | undefined
   try {
     const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
+    const customerPaymentQuestion = isPaymentQuestion(m.text) && !inputRisk(m.text)
     const rules =
-      settings.reply_mode === 'keyword'
+      settings.reply_mode === 'keyword' && !customerPaymentQuestion
         ? await db
             .from('chat_rules')
             .select(CHAT_RULE_COLUMNS)
@@ -74,6 +75,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
         : null
     if (
       settings.reply_mode === 'keyword' &&
+      !customerPaymentQuestion &&
       !rule &&
       !wantsHuman(settings.handover_keywords, m.text) &&
       !inputRisk(m.text)
@@ -92,7 +94,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       reason: string | null = route === 'ADMIN' ? 'AI_NOT_AVAILABLE' : null
     if (
       route !== 'KEYWORD' &&
-      ((config.capabilities?.handoff !== false && wantsHuman(settings.handover_keywords, m.text)) ||
+      ((config.capabilities?.handoff !== false && !customerPaymentQuestion && wantsHuman(settings.handover_keywords, m.text)) ||
         inputRisk(m.text))
     ) {
       route = 'ADMIN'
@@ -114,6 +116,8 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
           {
             aiQuotaReservation: quota.id,
             tenantId: m.tenant.id,
+            pageId: m.pageId,
+            sendPaymentLink: m.sendPaymentLink,
             shopName: m.tenant.name,
             customerName: m.customer.display_name,
             customerId: m.customer.id,
