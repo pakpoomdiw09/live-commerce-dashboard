@@ -492,16 +492,35 @@ export function AuthExperience({
         }
         router.replace(`${loginHref}&password_reset=1`)
       }
-    } catch {
-      setError(
-        mode === 'register'
-          ? t.registerError
-          : mode === 'forgot'
-            ? t.forgotError
-            : mode === 'reset'
-              ? t.resetError
-              : t.authFailure,
-      )
+    } catch (cause) {
+      if (mode === 'register') {
+        const authError = cause as { code?: unknown; status?: unknown; message?: unknown }
+        const code =
+          typeof authError?.code === 'string' && /^[a-z0-9_]{1,60}$/i.test(authError.code)
+            ? authError.code.toLowerCase()
+            : ''
+        const status = typeof authError?.status === 'number' ? authError.status : 0
+        const message = typeof authError?.message === 'string' ? authError.message : ''
+        if (code === 'weak_password') {
+          setError(t.passwordRule)
+        } else if (
+          code === 'database_error' ||
+          code === 'unexpected_failure' ||
+          status >= 500 ||
+          /database error saving new user/i.test(message)
+        ) {
+          setError(`${t.registerError} (AUTH_SERVER_ERROR)`)
+        } else if (['email_exists', 'user_already_exists'].includes(code)) {
+          // Do not disclose whether an email is already registered.
+          setError(t.registerError)
+        } else {
+          setError(code ? `${t.registerError} (${code})` : t.registerError)
+        }
+      } else {
+        setError(
+          mode === 'forgot' ? t.forgotError : mode === 'reset' ? t.resetError : t.authFailure,
+        )
+      }
     } finally {
       setBusy(false)
     }
