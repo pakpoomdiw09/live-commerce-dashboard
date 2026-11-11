@@ -12148,8 +12148,8 @@ grant execute on function public.shipping_address_valid(jsonb),public.shipping_p
 
 commit;
 -- ============================================================================
--- 94. shipping-integrations.sql | Latest delivery safety, reporting and index patches
--- SHA256: fc4b9961c01fe943eb8eb78e6978b4cf9c9f3d0d7ccbe33cb1257b0801c268ec
+-- 94. migrations/20261111080000_shipping_integrations.sql | Latest delivery safety, reporting and index patches
+-- SHA256: d1f6c7a9fb70f4de09203740d5af6be23ce4a07d11997879f422577e19d294ba
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -12160,7 +12160,7 @@ set local search_path = public, extensions;
 create table if not exists public.shipping_integrations (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id) on delete cascade,
- provider text not null check(provider in ('dmove','flash_express','jnt','thailand_post')),
+ provider text not null check(provider in ('beemove','dmove','flash_express','jnt','thailand_post')),
  api_endpoint text not null,
  credentials_ciphertext text not null,
  weight_kg numeric(8,3) not null default 1.000 check(weight_kg>0 and weight_kg<=100),
@@ -12175,26 +12175,32 @@ create table if not exists public.shipping_integrations (
 );
 
 -- Source statement 3
+alter table public.shipping_integrations drop constraint if exists shipping_integrations_provider_check;
+
+-- Source statement 4
+alter table public.shipping_integrations add constraint shipping_integrations_provider_check check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'));
+
+-- Source statement 5
 create unique index if not exists shipping_one_default_integration
  on public.shipping_integrations(tenant_id) where is_default and is_active;
 
--- Source statement 4
+-- Source statement 6
 alter table public.shipping_shipments
  add column if not exists tracking_url text,
  add column if not exists label_pdf_url text;
 
--- Source statement 5
+-- Source statement 7
 alter table public.orders
  add column if not exists tracking_url text,
  add column if not exists label_pdf_url text;
 
--- Source statement 6
+-- Source statement 8
 create or replace function public.save_shipping_integration(
  p_tenant uuid,p_provider text,p_endpoint text,p_credentials text,p_sender jsonb,
  p_tracking_template text,p_weight numeric,p_active boolean,p_default boolean
 ) returns void language plpgsql set search_path=pg_catalog,public as $$
 begin
- if p_provider not in ('dmove','flash_express','jnt','thailand_post')
+ if p_provider is null or p_provider not in ('beemove','dmove','flash_express','jnt','thailand_post')
   or p_endpoint !~ '^https://[^[:space:]]+$'
   or length(p_endpoint)>500
   or jsonb_typeof(p_sender) is distinct from 'object'
@@ -12226,14 +12232,14 @@ begin
  end if;
 end $$;
 
--- Source statement 7
+-- Source statement 9
 create table if not exists public.shipping_provider_jobs (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  shipment_id uuid not null references public.shipping_shipments(id),
  actor_id uuid not null references auth.users(id),
  request_id uuid not null,
- provider text not null check(provider in ('dmove','flash_express','jnt','thailand_post')),
+ provider text not null check(provider in ('beemove','dmove','flash_express','jnt','thailand_post')),
  idempotency_key uuid not null default gen_random_uuid(),
  status text not null default 'creating' check(status in ('creating','created','failed','uncertain')),
  notification_status text not null default 'pending' check(notification_status in ('pending','sent','failed')),
@@ -12247,35 +12253,41 @@ create table if not exists public.shipping_provider_jobs (
  unique(tenant_id,request_id,shipment_id)
 );
 
--- Source statement 8
+-- Source statement 10
+alter table public.shipping_provider_jobs drop constraint if exists shipping_provider_jobs_provider_check;
+
+-- Source statement 11
+alter table public.shipping_provider_jobs add constraint shipping_provider_jobs_provider_check check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'));
+
+-- Source statement 12
 create index if not exists shipping_provider_jobs_pending
  on public.shipping_provider_jobs(tenant_id,status,created_at desc);
 
--- Source statement 9
+-- Source statement 13
 create unique index if not exists shipping_provider_jobs_tracking
  on public.shipping_provider_jobs(tenant_id,provider,tracking_number)
  where tracking_number is not null;
 
--- Source statement 10
+-- Source statement 14
 alter table public.shipping_integrations enable row level security;
 
--- Source statement 11
+-- Source statement 15
 alter table public.shipping_provider_jobs enable row level security;
 
--- Source statement 12
+-- Source statement 16
 revoke all on public.shipping_integrations,public.shipping_provider_jobs from public,anon,authenticated;
 
--- Source statement 13
+-- Source statement 17
 grant all on public.shipping_integrations,public.shipping_provider_jobs to service_role;
 
--- Source statement 14
+-- Source statement 18
 create or replace function public.begin_shipping_provider_job(
  p_tenant uuid,p_actor uuid,p_request uuid,p_shipment uuid,p_provider text
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.shipping_shipments;j public.shipping_provider_jobs;
 begin
  if p_tenant is null or p_actor is null or p_request is null or p_shipment is null
-  or p_provider not in ('dmove','flash_express','jnt','thailand_post') then
+  or p_provider is null or p_provider not in ('beemove','dmove','flash_express','jnt','thailand_post') then
   raise exception 'SHIPPING_PROVIDER_INPUT_INVALID';
  end if;
  perform 1 from public.tenants where id=p_tenant for update;
@@ -12310,7 +12322,7 @@ begin
  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,'claimed',true);
 end $$;
 
--- Source statement 15
+-- Source statement 19
 create or replace function public.complete_shipping_provider_job(
  p_job uuid,p_tracking text,p_courier text,p_tracking_url text,p_label_url text
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
@@ -12345,7 +12357,7 @@ begin
   'trackingUrl',p_tracking_url,'labelPdfUrl',p_label_url,'courierName',p_courier);
 end $$;
 
--- Source statement 16
+-- Source statement 20
 create or replace function public.finish_shipping_provider_job(
  p_job uuid,p_status text,p_error text default null
 ) returns void language plpgsql set search_path=pg_catalog,public as $$
@@ -12355,7 +12367,7 @@ begin
   updated_at=clock_timestamp() where id=p_job and status='creating';
 end $$;
 
--- Source statement 17
+-- Source statement 21
 create or replace function public.mark_shipping_tracking_notification(p_job uuid,p_status text)
 returns void language plpgsql set search_path=pg_catalog,public as $$
 begin
@@ -12365,14 +12377,14 @@ begin
  if not found then raise exception 'SHIPPING_JOB_NOT_FOUND' using errcode='P0002';end if;
 end $$;
 
--- Source statement 18
+-- Source statement 22
 revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
  public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text),
  public.complete_shipping_provider_job(uuid,text,text,text,text),
  public.finish_shipping_provider_job(uuid,text,text),
  public.mark_shipping_tracking_notification(uuid,text) from public,anon,authenticated;
 
--- Source statement 19
+-- Source statement 23
 grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
  public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text),
  public.complete_shipping_provider_job(uuid,text,text,text,text),
@@ -14703,135 +14715,7 @@ $$;
 
 commit;
 -- ============================================================================
--- 111. shipping-integrations-beemove.sql | Latest delivery safety, reporting and index patches
--- SHA256: d9d57a631be5139cd85320e430030d3791dba88caac9d83602c939bd810a409a
--- ============================================================================
-begin;
-set local lock_timeout = '2s';
-set local statement_timeout = '60s';
-set local search_path = public, extensions;
-
--- Source statement 2
-alter table public.shipping_integrations
- drop constraint if exists shipping_integrations_provider_check;
-
--- Source statement 3
-alter table public.shipping_integrations
- add constraint shipping_integrations_provider_check
- check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'));
-
--- Source statement 4
-alter table public.shipping_provider_jobs
- drop constraint if exists shipping_provider_jobs_provider_check;
-
--- Source statement 5
-alter table public.shipping_provider_jobs
- add constraint shipping_provider_jobs_provider_check
- check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'));
-
--- Source statement 6
-create or replace function public.save_shipping_integration(
- p_tenant uuid,p_provider text,p_endpoint text,p_credentials text,p_sender jsonb,
- p_tracking_template text,p_weight numeric,p_active boolean,p_default boolean
-) returns void language plpgsql set search_path=pg_catalog,public as $$
-begin
- if p_provider is null or p_provider not in ('beemove','dmove','flash_express','jnt','thailand_post')
-  or p_endpoint !~ '^https://[^[:space:]]+$'
-  or length(p_endpoint)>500
-  or jsonb_typeof(p_sender) is distinct from 'object'
-  or length(trim(coalesce(p_sender->>'name',''))) not between 2 and 200
-  or coalesce(p_sender->>'phone','') !~ '^0[1-9][0-9]{7,8}$'
-  or length(trim(coalesce(p_sender->>'address',''))) not between 10 and 1200
-  or p_tracking_template !~ '^https://[^[:space:]]*\{tracking_number\}[^[:space:]]*$'
-  or length(p_tracking_template)>1000
-  or p_weight is null or p_weight<=0 or p_weight>100
-  or p_default and not p_active then
-  raise exception 'SHIPPING_INTEGRATION_INVALID';
- end if;
- perform 1 from public.tenants where id=p_tenant for update;
- if not found then raise exception 'SHIPPING_TENANT_NOT_FOUND' using errcode='P0002';end if;
- if p_default then
-  update public.shipping_integrations set is_default=false,updated_at=clock_timestamp()
-   where tenant_id=p_tenant and is_default and provider<>p_provider;
- end if;
- insert into public.shipping_integrations(
-  tenant_id,provider,api_endpoint,credentials_ciphertext,sender_info,tracking_url_template,weight_kg,is_active,is_default
- ) values(p_tenant,p_provider,p_endpoint,p_credentials,p_sender,p_tracking_template,p_weight,p_active,p_default)
- on conflict(tenant_id,provider) do update set api_endpoint=excluded.api_endpoint,
-  credentials_ciphertext=excluded.credentials_ciphertext,sender_info=excluded.sender_info,
-  tracking_url_template=excluded.tracking_url_template,weight_kg=excluded.weight_kg,is_active=excluded.is_active,
-  is_default=excluded.is_default,updated_at=clock_timestamp();
- if not p_active then
-  update public.shipping_integrations set is_default=false,updated_at=clock_timestamp()
-   where tenant_id=p_tenant and provider=p_provider;
- end if;
-end $$;
-
--- Source statement 7
-create or replace function public.begin_shipping_provider_job(
- p_tenant uuid,p_actor uuid,p_request uuid,p_shipment uuid,p_provider text
-) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
-declare s public.shipping_shipments;j public.shipping_provider_jobs;
-begin
- if p_tenant is null or p_actor is null or p_request is null or p_shipment is null
-  or p_provider is null or p_provider not in ('beemove','dmove','flash_express','jnt','thailand_post') then
-  raise exception 'SHIPPING_PROVIDER_INPUT_INVALID';
- end if;
- perform 1 from public.tenants where id=p_tenant for update;
- if not found then raise exception 'SHIPPING_TENANT_NOT_FOUND' using errcode='P0002';end if;
- select * into s from public.shipping_shipments where id=p_shipment and tenant_id=p_tenant for update;
- if not found then raise exception 'SHIPPING_SCOPE' using errcode='42501';end if;
- select * into j from public.shipping_provider_jobs
-  where tenant_id=p_tenant and request_id=p_request and shipment_id=p_shipment for update;
- if found then
-  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,
-   'trackingNumber',j.tracking_number,'trackingUrl',j.tracking_url,'labelPdfUrl',j.label_pdf_url,
-   'courierName',j.courier_name,'notificationStatus',j.notification_status,'claimed',false);
- end if;
- select * into j from public.shipping_provider_jobs
-  where tenant_id=p_tenant and shipment_id=p_shipment and status in ('creating','created','uncertain')
-  order by created_at desc limit 1 for update;
- if found then
-  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,
-   'trackingNumber',j.tracking_number,'trackingUrl',j.tracking_url,'labelPdfUrl',j.label_pdf_url,
-   'courierName',j.courier_name,'notificationStatus',j.notification_status,'claimed',false);
- end if;
- if s.fulfillment_status<>'ready_to_ship' or not public.shipping_payment_ready(s.id)
-  or s.address_confirmed_at is null or not public.shipping_address_valid(to_jsonb(s)) then
-  raise exception 'SHIPPING_NOT_READY';
- end if;
- if not exists(select 1 from public.shipping_integrations i where i.tenant_id=p_tenant
-  and i.provider=p_provider and i.is_active) then
-  raise exception 'SHIPPING_PROVIDER_NOT_ACTIVE';
- end if;
- insert into public.shipping_provider_jobs(tenant_id,shipment_id,actor_id,request_id,provider)
-  values(p_tenant,p_shipment,p_actor,p_request,p_provider) returning * into j;
- return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,'claimed',true);
-end $$;
-
--- Source statement 8
-alter table public.shipping_integrations enable row level security;
-
--- Source statement 9
-alter table public.shipping_provider_jobs enable row level security;
-
--- Source statement 10
-revoke all on public.shipping_integrations,public.shipping_provider_jobs from public,anon,authenticated;
-
--- Source statement 11
-grant all on public.shipping_integrations,public.shipping_provider_jobs to service_role;
-
--- Source statement 12
-revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
- public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public,anon,authenticated;
-
--- Source statement 13
-grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
- public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role;
-
-commit;
--- ============================================================================
--- 112. vision-product-catalog.sql | Latest delivery safety, reporting and index patches
+-- 111. vision-product-catalog.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a
 -- ============================================================================
 begin;
@@ -14866,7 +14750,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 113. live-customer-item-labels.sql | Latest delivery safety, reporting and index patches
+-- 112. live-customer-item-labels.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de
 -- ============================================================================
 begin;
@@ -14891,7 +14775,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 114. live-cf-order-post.sql | Latest delivery safety, reporting and index patches
+-- 113. live-cf-order-post.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 0cc8add5f89d61723bafe7fbd8cf4d53486e74459bfdd331131d9c4929c82605
 -- ============================================================================
 begin;
@@ -14921,7 +14805,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 115. live-auction-highest-confirmation.sql | Latest delivery safety, reporting and index patches
+-- 114. live-auction-highest-confirmation.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 84447330d4b8d575a6437144bea213d14437c28219d5b2923aca8a5e1ca818f1
 -- ============================================================================
 begin;
@@ -15005,7 +14889,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 116. live-auction-dynamic-tags.sql | Latest delivery safety, reporting and index patches
+-- 115. live-auction-dynamic-tags.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 519739b3173ff89175f57388066e5b73bf2317b8486cfa1e45ff7d3524a935bd
 -- ============================================================================
 begin;
@@ -15131,7 +15015,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 117. facebook-comment-configuration.sql | Latest delivery safety, reporting and index patches
+-- 116. facebook-comment-configuration.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 5bdf7e2cc6cc0f43375e2a9753fd7b02f1a122bf35aaea95871324b9e45ace80
 -- ============================================================================
 begin;
@@ -15582,7 +15466,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 118. facebook-message-echoes.sql | Latest delivery safety, reporting and index patches
+-- 117. facebook-message-echoes.sql | Latest delivery safety, reporting and index patches
 -- SHA256: b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2
 -- ============================================================================
 begin;
@@ -15693,7 +15577,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 119. inbox-realtime-access.sql | Latest delivery safety, reporting and index patches
+-- 118. inbox-realtime-access.sql | Latest delivery safety, reporting and index patches
 -- SHA256: f2c1e283a073b6967c64b37378a09ec179baedca837587b19efc0163a780ab65
 -- ============================================================================
 begin;
@@ -15761,7 +15645,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 120. live-auction-deadlines.sql | Latest delivery safety, reporting and index patches
+-- 119. live-auction-deadlines.sql | Latest delivery safety, reporting and index patches
 -- SHA256: ff20250c88520e5d08cf02ae057320554e181632961dc97dcb954829cd2894db
 -- ============================================================================
 begin;
@@ -15968,7 +15852,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 121. live-auction-audit-hardening.sql | Latest delivery safety, reporting and index patches
+-- 120. live-auction-audit-hardening.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83
 -- ============================================================================
 begin;
@@ -16202,7 +16086,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 122. live-auction-audit-hardening-2.sql | Latest delivery safety, reporting and index patches
+-- 121. live-auction-audit-hardening-2.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6
 -- ============================================================================
 begin;
@@ -16354,7 +16238,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 123. live-auction-manual-host-close.sql | Latest delivery safety, reporting and index patches
+-- 122. live-auction-manual-host-close.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02
 -- ============================================================================
 begin;
@@ -16403,7 +16287,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 124. live-auction-auto-cycle.sql | Latest delivery safety, reporting and index patches
+-- 123. live-auction-auto-cycle.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e
 -- ============================================================================
 begin;
@@ -16667,7 +16551,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 125. live-auction-confirmation-preservation.sql | Latest delivery safety, reporting and index patches
+-- 124. live-auction-confirmation-preservation.sql | Latest delivery safety, reporting and index patches
 -- SHA256: f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084
 -- ============================================================================
 begin;
@@ -16734,7 +16618,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 126. live-auction-remove-host-countdown.sql | Latest delivery safety, reporting and index patches
+-- 125. live-auction-remove-host-countdown.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a3aef979ddeb2e31911ae9c907dc587ba0c8101a49026758a53c3b72bd2f83e7
 -- ============================================================================
 begin;
@@ -17044,7 +16928,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 127. live-auction-sync-winner-price.sql | Latest delivery safety, reporting and index patches
+-- 126. live-auction-sync-winner-price.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 6f88f0e4f8843d0a0d5efa89d66b5b419e8313a3c407581ee0e184a36f601599
 -- ============================================================================
 begin;
@@ -17085,7 +16969,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 128. live-auction-designated-winner.sql | Latest delivery safety, reporting and index patches
+-- 127. live-auction-designated-winner.sql | Latest delivery safety, reporting and index patches
 -- SHA256: b27817aefc5bdb8ae0fcf2b9e8227ea92aac6523c1454b0d1a86fdf772f15673
 -- ============================================================================
 begin;
@@ -17271,7 +17155,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 129. live-auction-winner-candidates.sql | Latest delivery safety, reporting and index patches
+-- 128. live-auction-winner-candidates.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 3a5c8cbcc6ad4724b41261cdfc780fe82d91687b32136ae699760365c78ec8cb
 -- ============================================================================
 begin;
@@ -17317,7 +17201,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 130. rpc-execution-hardening.sql | Latest delivery safety, reporting and index patches
+-- 129. rpc-execution-hardening.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983
 -- ============================================================================
 begin;
@@ -18199,7 +18083,7 @@ grant execute on function public.is_platform_admin() to authenticated, service_r
 
 commit;
 -- ============================================================================
--- 131. inbox-owner-takeover.sql | Latest delivery safety, reporting and index patches
+-- 130. inbox-owner-takeover.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f
 -- ============================================================================
 begin;
@@ -18436,7 +18320,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 132. live-cf-quantity.sql | Latest delivery safety, reporting and index patches
+-- 131. live-cf-quantity.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 2a44286ca413f95083ec761b825a95caac9feda67e4ccbf43657a2611abc40a1
 -- ============================================================================
 begin;
@@ -18677,6 +18561,93 @@ grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,te
 
 -- Source statement 24
 notify pgrst,'reload schema';
+
+commit;
+-- ============================================================================
+-- 132. migrations/20261111090000_live_auction_order_scope.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 7f3c3b9452dd84f295ddac82dc81454f3f6a29c7177f8f22a5c9020aa428ebfa
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+create or replace function public.attach_customer_tab_order() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+declare c public.customers; a public.auctions; r public.comment_rules; sess uuid; bill public.customer_tabs;
+ page text; post text; shipping numeric:=0; bank uuid; unit numeric; subtotal_value numeric;
+begin
+ if current_setting('app.refreshing_customer_tab',true)='1' then return new;end if;
+ if tg_op='UPDATE' then
+  if old.customer_tab_id is null then return new;end if;
+  if new.customer_tab_id is distinct from old.customer_tab_id or new.tenant_id<>old.tenant_id or new.customer_id<>old.customer_id
+   or new.live_session_id is distinct from old.live_session_id then raise exception 'TAB_ORDER_SCOPE_IMMUTABLE';end if;
+  if new.status='cancelled' and old.paid_amount>0 then raise exception 'TAB_REFUND_REQUIRES_REVIEW';end if;
+  if new.status in ('paid','shipped') and new.paid_amount<new.amount then raise exception 'TAB_PAYMENT_NOT_COVERED';end if;
+  if new.paid_amount<>old.paid_amount then raise exception 'TAB_PAYMENT_LEDGER_REQUIRED';end if;
+  if new.amount<>old.amount then
+   if new.variant_id is distinct from old.variant_id then
+    new.subtotal:=new.amount;new.item_amount:=new.subtotal;
+    new.item_price:=round(new.subtotal/new.quantity,2);
+    new.amount:=new.subtotal+(old.amount-old.item_amount);
+   else
+    new.subtotal:=old.subtotal+(new.amount-old.amount);
+    new.item_amount:=new.subtotal;
+    new.item_price:=round(new.subtotal/new.quantity,2);
+   end if;
+  elsif new.quantity is distinct from old.quantity or new.item_price is distinct from old.item_price then
+   new.subtotal:=new.quantity*new.item_price;new.item_amount:=new.subtotal;
+   new.amount:=new.subtotal+(old.amount-old.item_amount);
+  end if;
+  return new;
+ end if;
+ if coalesce(new.source,'') not in ('live_auction','live_comment') or new.status<>'pending_payment' then return new;end if;
+ if new.source='live_comment' then
+  new.quantity:=greatest(1,least(99,coalesce(new.quantity,1)));
+  unit:=coalesce(new.item_price,round(coalesce(new.subtotal,new.amount)/new.quantity,2));
+  subtotal_value:=unit*new.quantity;
+  new.item_price:=unit;new.subtotal:=subtotal_value;new.item_amount:=subtotal_value;
+ end if;
+ select * into c from public.customers where id=new.customer_id and tenant_id=new.tenant_id and platform='facebook';
+ if not found then raise exception 'TAB_CUSTOMER_SCOPE';end if;
+ select page_id into page from public.tenants where id=new.tenant_id and is_active;
+ if page is null then raise exception 'TAB_PAGE_SCOPE';end if;
+ if new.source='live_auction' then
+  select * into a from public.auctions
+   where (id=new.live_auction_id or (new.live_auction_id is null and id::text=new.source_id))
+    and tenant_id=new.tenant_id and page_id=page;
+  if not found then raise exception 'TAB_AUCTION_SCOPE';end if;
+  post:=a.live_post_id;shipping:=a.shipping_fee;bank:=a.bank_account_id;unit:=a.current_price;
+  new.quantity:=greatest(1,coalesce(new.quantity,1));new.item_price:=unit;new.subtotal:=unit*new.quantity;
+ else
+  select * into r from public.comment_rules where id=new.live_rule_id and tenant_id=new.tenant_id and page=any(page_ids);
+  if not found then raise exception 'TAB_CF_SCOPE';end if;
+  post:=coalesce(new.live_post_id,r.live_post_id);bank:=r.live_bank_account_id;unit:=new.item_price;
+  if post is null then return new;end if;
+  select live_post_id into post from public.auctions where tenant_id=new.tenant_id and page_id=page
+   and (live_post_id=regexp_replace(coalesce(new.live_post_id,r.live_post_id),'^.*_','')
+    or coalesce(new.live_post_id,r.live_post_id)=any(live_post_aliases)) order by created_at desc limit 1;
+  post:=coalesce(post,new.live_post_id,r.live_post_id);
+ end if;
+ post:=regexp_replace(post,'^.*_','');
+ insert into public.live_sessions(tenant_id,page_id,live_post_id) values(new.tenant_id,page,post)
+  on conflict(tenant_id,page_id,live_post_id) do update set live_post_id=excluded.live_post_id returning id into sess;
+ if exists(select 1 from public.live_sessions where id=sess and ended_at is not null) then raise exception 'LIVE_SESSION_ENDED';end if;
+ insert into public.customer_tabs(tenant_id,customer_id,customer_fb_id,page_id,live_session_id,bank_account_id,shipping_fee)
+  values(new.tenant_id,c.id,c.platform_user_id,page,sess,bank,shipping)
+  on conflict(live_session_id,customer_id) do update set bank_account_id=coalesce(customer_tabs.bank_account_id,excluded.bank_account_id),
+   shipping_fee=case when customer_tabs.shipping_fee=0 then excluded.shipping_fee else customer_tabs.shipping_fee end returning * into bill;
+ new.customer_tab_id:=bill.id;new.live_session_id:=sess;new.live_post_id:=post;
+ if new.source='live_comment' then
+  new.amount:=new.subtotal+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
+  new.item_amount:=new.subtotal;
+ else
+  new.item_amount:=new.subtotal;
+  new.amount:=new.subtotal+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
+ end if;
+ return new;
+end $$;
 
 commit;
 

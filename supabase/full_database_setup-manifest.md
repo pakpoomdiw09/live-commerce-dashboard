@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 150 ไฟล์: รวมตาม dependencies 132 ไฟล์ และแยกไว้ 18 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 152 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 152 ไฟล์: รวมตาม dependencies 132 ไฟล์ และแยกไว้ 20 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 154 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1323147 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1322806 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1144677 bytes, 18684 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1144361 bytes, 18655 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -130,7 +130,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 91. [auction-experience.sql](auction-experience.sql) — 5 statements retained
 92. [live-session-dashboard.sql](live-session-dashboard.sql) — 31 statements retained
 93. [shipping-fulfillment.sql](shipping-fulfillment.sql) — 35 statements retained
-94. [shipping-integrations.sql](shipping-integrations.sql) — 18 statements retained
+94. [migrations/20261111080000_shipping_integrations.sql](migrations/20261111080000_shipping_integrations.sql) — 22 statements retained
 95. [live-order-types.sql](live-order-types.sql) — 7 statements retained
 96. [live-auction-dashboard.sql](live-auction-dashboard.sql) — 14 statements retained
 97. [live-auction-instant-winners.sql](live-auction-instant-winners.sql) — 1 statements retained
@@ -147,33 +147,35 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 108. [live-auction-production-readiness.sql](live-auction-production-readiness.sql) — 22 statements retained
 109. [live-auction-on-demand.sql](live-auction-on-demand.sql) — 29 statements retained
 110. [live-auction-split-summary.sql](live-auction-split-summary.sql) — 3 statements retained
-111. [shipping-integrations-beemove.sql](shipping-integrations-beemove.sql) — 12 statements retained
-112. [vision-product-catalog.sql](vision-product-catalog.sql) — 2 statements retained
-113. [live-customer-item-labels.sql](live-customer-item-labels.sql) — 2 statements retained
-114. [live-cf-order-post.sql](live-cf-order-post.sql) — 2 statements retained
-115. [live-auction-highest-confirmation.sql](live-auction-highest-confirmation.sql) — 5 statements retained
-116. [live-auction-dynamic-tags.sql](live-auction-dynamic-tags.sql) — 9 statements retained
-117. [facebook-comment-configuration.sql](facebook-comment-configuration.sql) — 25 statements retained
-118. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
-119. [inbox-realtime-access.sql](inbox-realtime-access.sql) — 13 statements retained
-120. [live-auction-deadlines.sql](live-auction-deadlines.sql) — 24 statements retained
-121. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 14 statements retained
-122. [live-auction-audit-hardening-2.sql](live-auction-audit-hardening-2.sql) — 11 statements retained
-123. [live-auction-manual-host-close.sql](live-auction-manual-host-close.sql) — 4 statements retained
-124. [live-auction-auto-cycle.sql](live-auction-auto-cycle.sql) — 14 statements retained
-125. [live-auction-confirmation-preservation.sql](live-auction-confirmation-preservation.sql) — 4 statements retained
-126. [live-auction-remove-host-countdown.sql](live-auction-remove-host-countdown.sql) — 14 statements retained
-127. [live-auction-sync-winner-price.sql](live-auction-sync-winner-price.sql) — 4 statements retained
-128. [live-auction-designated-winner.sql](live-auction-designated-winner.sql) — 8 statements retained
-129. [live-auction-winner-candidates.sql](live-auction-winner-candidates.sql) — 4 statements retained
-130. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
-131. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
-132. [live-cf-quantity.sql](live-cf-quantity.sql) — 21 statements retained
+111. [vision-product-catalog.sql](vision-product-catalog.sql) — 2 statements retained
+112. [live-customer-item-labels.sql](live-customer-item-labels.sql) — 2 statements retained
+113. [live-cf-order-post.sql](live-cf-order-post.sql) — 2 statements retained
+114. [live-auction-highest-confirmation.sql](live-auction-highest-confirmation.sql) — 5 statements retained
+115. [live-auction-dynamic-tags.sql](live-auction-dynamic-tags.sql) — 9 statements retained
+116. [facebook-comment-configuration.sql](facebook-comment-configuration.sql) — 25 statements retained
+117. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
+118. [inbox-realtime-access.sql](inbox-realtime-access.sql) — 13 statements retained
+119. [live-auction-deadlines.sql](live-auction-deadlines.sql) — 24 statements retained
+120. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 14 statements retained
+121. [live-auction-audit-hardening-2.sql](live-auction-audit-hardening-2.sql) — 11 statements retained
+122. [live-auction-manual-host-close.sql](live-auction-manual-host-close.sql) — 4 statements retained
+123. [live-auction-auto-cycle.sql](live-auction-auto-cycle.sql) — 14 statements retained
+124. [live-auction-confirmation-preservation.sql](live-auction-confirmation-preservation.sql) — 4 statements retained
+125. [live-auction-remove-host-countdown.sql](live-auction-remove-host-countdown.sql) — 14 statements retained
+126. [live-auction-sync-winner-price.sql](live-auction-sync-winner-price.sql) — 4 statements retained
+127. [live-auction-designated-winner.sql](live-auction-designated-winner.sql) — 8 statements retained
+128. [live-auction-winner-candidates.sql](live-auction-winner-candidates.sql) — 4 statements retained
+129. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
+130. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
+131. [live-cf-quantity.sql](live-cf-quantity.sql) — 21 statements retained
+132. [migrations/20261111090000_live_auction_order_scope.sql](migrations/20261111090000_live_auction_order_scope.sql) — 1 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
 | File | Reason |
 | --- | --- |
+| [shipping-integrations.sql](shipping-integrations.sql) | Replaced by the consolidated forward-only supabase/migrations/20261111080000_shipping_integrations.sql source. |
+| [shipping-integrations-beemove.sql](shipping-integrations-beemove.sql) | Merged into the consolidated forward-only supabase/migrations/20261111080000_shipping_integrations.sql source. |
 | [live-auction-cron-setup.sql](live-auction-cron-setup.sql) | Optional hosted Supabase Cron extension setup; run after live-auction-deadlines.sql. |
 | [backfill_patch.sql](backfill_patch.sql) | Historical customer/comment ownership backfill; not needed on an empty database. |
 | [migrate-followup-variables.sql](migrate-followup-variables.sql) | Historical message/template rewrite and explicit exclusive lock; current defaults are included separately. |
@@ -207,15 +209,15 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | live-auction-customer-columns.sql | live-auction-thai-workflow.sql |
 | live-auction-close-presets.sql | live-auction-customer-columns.sql |
 | live-auction-empty-keyword-defaults.sql | live-auction-workspace.sql |
-| live-auction-production-readiness.sql | live-auction-empty-keyword-defaults.sql, shipping-integrations.sql, live-session-dashboard.sql |
+| live-auction-production-readiness.sql | live-auction-empty-keyword-defaults.sql, migrations/20261111080000_shipping_integrations.sql, live-session-dashboard.sql |
 | live-auction-unlimited-keywords.sql | live-auction-close-presets.sql |
 | live-auction-winner-confirmation.sql | live-auction-unlimited-keywords.sql |
 | live-auction-payment-auto-verify.sql | live-auction-winner-confirmation.sql, customer-tabs.sql |
 | facebook-webhook-comment-ordering.sql | facebook-webhook-queue.sql |
 | live-auction-workspace.sql | live-auction-winner-confirmation.sql, facebook-webhook-comment-ordering.sql |
 | shipping-fulfillment.sql | live-session-dashboard.sql |
-| shipping-integrations.sql | shipping-fulfillment.sql |
-| shipping-integrations-beemove.sql | shipping-integrations.sql |
+| migrations/20261111080000_shipping_integrations.sql | shipping-fulfillment.sql |
+| migrations/20261111090000_live_auction_order_scope.sql | live-cf-quantity.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
@@ -517,7 +519,7 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - auction-experience.sql: `d63ebe3b3f87fa9678fdc0f92762b65f9a652a0fb15c4e36f06cd0cbe1b318f8`
 - live-session-dashboard.sql: `6df53de0151779b4c1d95751c69cf5beb517456d59721411bd8e24e6d9455b2c`
 - shipping-fulfillment.sql: `abc1f380707a3baf1bb18df305b7e06f1be6dbaf3e7eb148a8e20ecfcac486fe`
-- shipping-integrations.sql: `fc4b9961c01fe943eb8eb78e6978b4cf9c9f3d0d7ccbe33cb1257b0801c268ec`
+- migrations/20261111080000_shipping_integrations.sql: `d1f6c7a9fb70f4de09203740d5af6be23ce4a07d11997879f422577e19d294ba`
 - live-order-types.sql: `eb6171db344172c6b92c8fe04ee96f2a71afb4d15c1af599f59dab0c57a54d01`
 - live-auction-dashboard.sql: `7b17bf54411dc1c84510ecf2a204c12dafe82c56d28b960be0061e4898bb679e`
 - live-auction-instant-winners.sql: `d0788ad3f0cd0a402db298a6fedcdc6c1620e2f2e35a15f580f8153e081e7f65`
@@ -534,7 +536,6 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-production-readiness.sql: `0f984ce2bc41b09e47c5c98359f745afefdb911b76e5a979d86731a84815844b`
 - live-auction-on-demand.sql: `a091f91d7daa0e19c1db6caeff82ae104ae90a6cd27b0a655b54e8b07a76fa49`
 - live-auction-split-summary.sql: `ecebe98f42520036601611179211f30028fd29fd11616b6de93711a51e119ebf`
-- shipping-integrations-beemove.sql: `d9d57a631be5139cd85320e430030d3791dba88caac9d83602c939bd810a409a`
 - vision-product-catalog.sql: `9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a`
 - live-customer-item-labels.sql: `6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de`
 - live-cf-order-post.sql: `0cc8add5f89d61723bafe7fbd8cf4d53486e74459bfdd331131d9c4929c82605`
@@ -556,3 +557,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - rpc-execution-hardening.sql: `68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983`
 - inbox-owner-takeover.sql: `464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f`
 - live-cf-quantity.sql: `2a44286ca413f95083ec761b825a95caac9feda67e4ccbf43657a2611abc40a1`
+- migrations/20261111090000_live_auction_order_scope.sql: `7f3c3b9452dd84f295ddac82dc81454f3f6a29c7177f8f22a5c9020aa428ebfa`

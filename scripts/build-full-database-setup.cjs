@@ -117,7 +117,7 @@ const groups = [
       'auction-experience.sql',
       'live-session-dashboard.sql',
       'shipping-fulfillment.sql',
-      'shipping-integrations.sql',
+      'migrations/20261111080000_shipping_integrations.sql',
       'live-order-types.sql',
       'live-auction-dashboard.sql',
       'live-auction-instant-winners.sql',
@@ -134,7 +134,6 @@ const groups = [
       'live-auction-production-readiness.sql',
       'live-auction-on-demand.sql',
       'live-auction-split-summary.sql',
-      'shipping-integrations-beemove.sql',
       'vision-product-catalog.sql',
       'live-customer-item-labels.sql',
       'live-cf-order-post.sql',
@@ -156,11 +155,16 @@ const groups = [
       'rpc-execution-hardening.sql',
       'inbox-owner-takeover.sql',
       'live-cf-quantity.sql',
+      'migrations/20261111090000_live_auction_order_scope.sql',
     ],
   ],
 ]
 
 const excluded = {
+  'shipping-integrations.sql':
+    'Replaced by the consolidated forward-only supabase/migrations/20261111080000_shipping_integrations.sql source.',
+  'shipping-integrations-beemove.sql':
+    'Merged into the consolidated forward-only supabase/migrations/20261111080000_shipping_integrations.sql source.',
   'live-auction-cron-setup.sql': 'Optional hosted Supabase Cron extension setup; run after live-auction-deadlines.sql.',
   'backfill_patch.sql':
     'Historical customer/comment ownership backfill; not needed on an empty database.',
@@ -202,7 +206,7 @@ const prerequisites = {
   'live-auction-empty-keyword-defaults.sql': ['live-auction-workspace.sql'],
   'live-auction-production-readiness.sql': [
     'live-auction-empty-keyword-defaults.sql',
-    'shipping-integrations.sql',
+    'migrations/20261111080000_shipping_integrations.sql',
     'live-session-dashboard.sql',
   ],
   'live-auction-unlimited-keywords.sql': ['live-auction-close-presets.sql'],
@@ -217,8 +221,8 @@ const prerequisites = {
     'facebook-webhook-comment-ordering.sql',
   ],
   'shipping-fulfillment.sql': ['live-session-dashboard.sql'],
-  'shipping-integrations.sql': ['shipping-fulfillment.sql'],
-  'shipping-integrations-beemove.sql': ['shipping-integrations.sql'],
+  'migrations/20261111080000_shipping_integrations.sql': ['shipping-fulfillment.sql'],
+  'migrations/20261111090000_live_auction_order_scope.sql': ['live-cf-quantity.sql'],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],
   'customer-tabs.sql': ['live-auctions.sql', 'live-cf-customer-variants.sql'],
@@ -441,7 +445,12 @@ function build(root = path.resolve(__dirname, '..')) {
     .map((f) => f.replaceAll('\\', '/'))
     // Supabase CLI migrations, manual rollbacks, and pgTAP tests are managed
     // separately from the local full-schema setup bundle.
-    .filter((f) => !/^(migrations|rollbacks|tests)\//.test(f))
+    .filter(
+      (f) =>
+        !/^(rollbacks|tests)\//.test(f) &&
+        (!f.startsWith('migrations/') ||
+          ['migrations/20261111080000_shipping_integrations.sql', 'migrations/20261111090000_live_auction_order_scope.sql'].includes(f)),
+    )
     .filter((f) => !['full_database_setup.sql', 'complete_schema.sql'].includes(f))
     .sort()
   const unclassified = files.filter((f) => !sources.includes(f) && !(f in excluded))

@@ -6,7 +6,7 @@
     "test:vision": "node --require ./scripts/test-network-guard.cjs --test --test-concurrency=1 scripts/test-ai-vision.cjs scripts/test-llm-vision.cjs scripts/test-vision-product-catalog.cjs scripts/test-ai-vision-sql.cjs",
     "test:live-auction-dashboard": "node --require ./scripts/test-network-guard.cjs --test scripts/test-live-auction-dashboard-api.cjs scripts/test-live-session-dashboard.cjs scripts/test-auction-workspace.cjs scripts/test-auction-workspace-api.cjs",
     "test:live-auction-dashboard:ui": "node scripts/check-live-session-browser.cjs --all-in-one",
-    "test:shipping": "node --require ./scripts/test-network-guard.cjs --test scripts/test-shipping.cjs scripts/test-shipping-provider.cjs scripts/test-shipping-notifications.cjs scripts/test-shipping-dispatch-api.cjs",
+    "test:shipping": "node --require ./scripts/test-network-guard.cjs --test scripts/test-shipping.cjs scripts/test-shipping-provider.cjs scripts/test-shipping-notifications.cjs scripts/test-shipping-dispatch-api.cjs scripts/test-shipping-config-errors.cjs",
     "test:shipping:ui": "node scripts/check-shipping-browser.cjs",
     "test:live-sessions": "node --require ./scripts/test-network-guard.cjs --test scripts/test-live-session-dashboard.cjs",
     "test:live-sessions:ui": "node scripts/check-live-session-browser.cjs",

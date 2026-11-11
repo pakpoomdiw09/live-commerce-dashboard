@@ -37,6 +37,19 @@ export async function shippingScope(
 }
 export function shippingFailure(error: unknown) {
   if (error instanceof ShippingError) return shippingReply({ error: error.message }, error.status)
+  if (
+    error instanceof Error &&
+    ['SHIPPING_CREDENTIALS_ENCRYPTION_KEY_REQUIRED', 'SHIPPING_CREDENTIALS_ENCRYPTION_KEY_INVALID'].includes(
+      error.message,
+    )
+  )
+    return shippingReply(
+      {
+        error:
+          'Shipping settings cannot be saved because the server is missing a valid SHIPPING_CREDENTIALS_ENCRYPTION_KEY. Configure a stable 32-byte key in the server environment, then retry.',
+      },
+      503,
+    )
   if (error instanceof Error && error.message === 'BEEMOVE_CONNECTION_TEST_UNAVAILABLE')
     return shippingReply(
       {
