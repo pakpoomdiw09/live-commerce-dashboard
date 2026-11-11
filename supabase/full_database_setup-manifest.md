@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 148 ไฟล์: รวมตาม dependencies 130 ไฟล์ และแยกไว้ 18 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 150 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 149 ไฟล์: รวมตาม dependencies 131 ไฟล์ และแยกไว้ 18 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 151 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1302541 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1320031 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1126870 bytes, 18385 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1142424 bytes, 18629 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -167,6 +167,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 128. [live-auction-winner-candidates.sql](live-auction-winner-candidates.sql) — 4 statements retained
 129. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
 130. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
+131. [live-cf-quantity.sql](live-cf-quantity.sql) — 21 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -219,6 +220,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
 | live-auctions.sql | live-cf-customer-variants.sql, facebook-webhook-nonblocking.sql |
 | live-cf-customer-variants.sql | live-cf-setup.sql, payments.sql, payment-pro.sql |
+| live-cf-quantity.sql | live-cf-customer-variants.sql, customer-tabs.sql, live-auction-winner-candidates.sql |
 | schema.sql |  |
 | tenants.sql | schema.sql |
 | comment-rules.sql | schema.sql |
@@ -394,6 +396,9 @@ BEGIN/COMMIT และ lock_timeout ของต้นฉบับถูกแ�
 | live-auction-split-summary.sql | 6: `update public.auctions set session_automation=session_automation//jsonb_build_ob…` | Historical business-data backfill/repair removed. |
 | live-auction-remove-host-countdown.sql | 5: `update public.auctions set session_automation=(coalesce(session_automation,'{}':…` | Historical business-data backfill/repair removed. |
 | live-auction-remove-host-countdown.sql | 6: `update public.live_sessions set auction_settings=(coalesce(auction_settings,'{}…` | Historical business-data backfill/repair removed. |
+| live-cf-quantity.sql | 5: `update public.orders set subtotal=coalesce(subtotal,item_amount,amount), ite…` | Historical business-data backfill/repair removed. |
+| live-cf-quantity.sql | 12: `update public.customer_tab_items i set item_price=coalesce(i.item_price,o.item_p…` | Historical business-data backfill/repair removed. |
+| live-cf-quantity.sql | 13: `update public.customer_tab_items set item_price=amount where item_price is null…` | Historical business-data backfill/repair removed. |
 
 ## วิธีใช้ไฟล์ bootstrap เดิม
 
@@ -547,3 +552,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - live-auction-winner-candidates.sql: `3a5c8cbcc6ad4724b41261cdfc780fe82d91687b32136ae699760365c78ec8cb`
 - rpc-execution-hardening.sql: `68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983`
 - inbox-owner-takeover.sql: `464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f`
+- live-cf-quantity.sql: `2a44286ca413f95083ec761b825a95caac9feda67e4ccbf43657a2611abc40a1`

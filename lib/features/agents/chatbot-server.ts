@@ -63,14 +63,25 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
     return
   }
   if (settings.reply_mode === 'keyword') return // Keyword mode never falls through to AI.
-  if (
-    wantsHuman(settings.handover_keywords, m.text) ||
-    inputRisk(m.text) ||
-    !(await hasFeature(db, m.tenant.id, 'ai_agent'))
-  )
+  if (wantsHuman(settings.handover_keywords, m.text) || inputRisk(m.text))
     return handover(db, m, settings, once)
+  if (!(await hasFeature(db, m.tenant.id, 'ai_agent'))) {
+    console.info('[chatbot] AI reply skipped', {
+      tenantId: m.tenant.id,
+      customerId: m.customer.id,
+      reason: 'AI_FEATURE_NOT_ENTITLED',
+    })
+    return handover(db, m, settings, once)
+  }
   const quota = await reserveAiReplyQuota(db, m)
-  if (!quota.id) return
+  if (!quota.id) {
+    console.info('[chatbot] AI reply skipped', {
+      tenantId: m.tenant.id,
+      customerId: m.customer.id,
+      reason: 'AI_QUOTA_UNAVAILABLE',
+    })
+    return
+  }
   try {
     const product = { current: null as AiProductResult | null }
     let reply: string | null = null

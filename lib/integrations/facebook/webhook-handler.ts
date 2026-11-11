@@ -29,6 +29,7 @@ import { answerChat, loadBotSettings } from '@/lib/features/agents/chatbot-serve
 import { pendingOrders, placeCfOrder } from '@/lib/features/commerce/orders'
 import { replyToMessengerProduct } from '@/lib/features/commerce/messenger-product-server'
 import { handleLiveCfComment } from '@/lib/features/commerce/live-cf-comment'
+import { liveCfQuantity } from '@/lib/features/commerce/live-cf-codes'
 import { handleAuctionComment } from '@/lib/features/commerce/auction-server'
 import { createLiveCfPaymentLink } from '@/lib/features/commerce/live-cf-payment-link'
 import { createLiveCfMetaAdapter } from '@/lib/integrations/facebook/live-cf-adapter'
@@ -532,6 +533,13 @@ async function onMessage(
 
   // Auto-reply is on when the tenant allows it and the admin hasn't taken this chat over
   const autoReply = customer.bot_enabled && tenant.auto_reply_enabled
+  if (!autoReply)
+    console.info('[facebook-webhook/ai] auto-reply skipped', {
+      messageId: message.id,
+      reason: !customer.bot_enabled
+        ? 'CUSTOMER_BOT_DISABLED_OR_HUMAN_HANDOVER'
+        : 'TENANT_AUTO_REPLY_DISABLED',
+    })
   const recipient: Recipient = { id: customer.id, psid, token }
 
   // Slip images sent in chat (SlipOK Auto-Pilot): same pipeline as /api/slips/verify.
@@ -650,7 +658,13 @@ async function onMessage(
     .eq('tenant_id', tenant.id)
     .maybeSingle()
   if (currentBot.error) throw currentBot.error
-  if (!currentBot.data?.bot_enabled) return
+  if (!currentBot.data?.bot_enabled) {
+    console.info('[facebook-webhook/ai] auto-reply skipped', {
+      messageId: message.id,
+      reason: 'CUSTOMER_BOT_DISABLED_AFTER_INGEST',
+    })
+    return
+  }
   // Product inquiries answer with a sales-page card; live comments retain their CF order flow.
   if (
     m.text &&
@@ -971,9 +985,9 @@ async function onComment(
         publicText: async (commentId, message) => replyToComment(token, commentId, message),
       })
       const handled = await handleLiveCfComment(
-        { text: v.message, commentId: v.comment_id, code: selection.code },
+        { text: v.message, commentId: v.comment_id, code: selection.code, quantity: liveCfQuantity(v.message) },
         {
-          placeOrder: async (code) => {
+          placeOrder: async (code, quantity) => {
             const order = await execution.once('comment-cf-order', () =>
               placeCfOrder(db, {
                 tenantId: tenant.id,
@@ -984,12 +998,16 @@ async function onComment(
                 pageId,
                 postId: selection.postId ?? liveRulePostId(selectedRule, ids),
                 code,
+                quantity,
               }),
             )
             console.info('[live-cf/order]', {
               ruleId: selection.ruleId,
               postId: selection.postId,
               status: order.status,
+              requestedQuantity: quantity,
+              acceptedQuantity: order.status === 'created' ? order.quantity : null,
+              quantityClamped: order.status === 'created' && order.quantityClamped,
             })
             return order
           },

@@ -154,6 +154,7 @@ const groups = [
       'live-auction-winner-candidates.sql',
       'rpc-execution-hardening.sql',
       'inbox-owner-takeover.sql',
+      'live-cf-quantity.sql',
     ],
   ],
 ]
@@ -222,6 +223,7 @@ const prerequisites = {
   'customer-tabs.sql': ['live-auctions.sql', 'live-cf-customer-variants.sql'],
   'live-auctions.sql': ['live-cf-customer-variants.sql', 'facebook-webhook-nonblocking.sql'],
   'live-cf-customer-variants.sql': ['live-cf-setup.sql', 'payments.sql', 'payment-pro.sql'],
+  'live-cf-quantity.sql': ['live-cf-customer-variants.sql', 'customer-tabs.sql', 'live-auction-winner-candidates.sql'],
   'schema.sql': [],
   'tenants.sql': ['schema.sql'],
   'comment-rules.sql': ['schema.sql'],

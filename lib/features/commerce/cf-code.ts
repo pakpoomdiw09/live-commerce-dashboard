@@ -9,6 +9,15 @@ export function normalizeCfCode(value: string | null | undefined): string | null
   return code.slice(0, 60)
 }
 
+/** Extract an optional trailing Live CF quantity. A plain code always means one item. */
+export function cfQuantity(value: string | null | undefined): number {
+  const text = normalizeCfText(value)
+  const suffix = /(?:\*|x)\s*(\d+)\s*$/iu.exec(text) ?? /\s+(\d+)\s*$/u.exec(text)
+  if (!suffix) return 1
+  const quantity = Number(suffix[1])
+  return Number.isSafeInteger(quantity) && quantity > 0 ? Math.min(quantity, 99) : 1
+}
+
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**

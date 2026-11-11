@@ -33,6 +33,7 @@ function load(file, dependencies = {}, globals = {}) {
       },
     ),
     '@/lib/features/commerce/live-cf-comment': { handleLiveCfComment: async () => false },
+    '@/lib/features/commerce/live-cf-codes': { liveCfQuantity: () => 1 },
     '@/lib/features/commerce/auction-server': {
       handleAuctionComment: async () => false,
       deliverAuctionNotifications: async () => {},
@@ -72,7 +73,7 @@ function load(file, dependencies = {}, globals = {}) {
       Date,
       setInterval,
       clearInterval,
-      console: { error() {}, warn() {}, log() {}, info() {} },
+      console: { error() {}, warn() {}, log() {}, info() {}, debug() {} },
       process: { env: {} },
       ...globals,
       require(name) {
@@ -898,6 +899,10 @@ test('worker authentication fails closed and does not access the database for an
         runFacebookWebhookWorker: async () => ({ completed: 1 }),
       },
       '@/lib/integrations/facebook/webhook-handler': { handleFacebookWebhookEvent: async () => {} },
+      '@/lib/security/cron-auth': {
+        verifyCronAuth: (request) =>
+          request.headers.get('authorization') === 'Bearer private-worker-secret',
+      },
     },
     { process: { env: { CRON_SECRET: 'private-worker-secret' } } },
   )
@@ -1091,7 +1096,12 @@ test('receiver omits raw payload and logs precise drop reasons including queue d
     },
     {
       process: { env: { FB_APP_SECRET: secret } },
-      console: { log: (...args) => logs.push(args), error() {}, warn() {} },
+      console: {
+        log: (...args) => logs.push(args),
+        debug: (...args) => logs.push(args),
+        error() {},
+        warn() {},
+      },
     },
   )
   const send = async (value, signatureValid = true) => {

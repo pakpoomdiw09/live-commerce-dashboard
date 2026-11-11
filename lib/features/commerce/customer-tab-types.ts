@@ -6,6 +6,8 @@ export type CustomerTabItem = {
   order_id: string
   item_name: string
   variant_label: string | null
+  quantity?: number
+  item_price?: number
   amount: number
   closed_at: string
   cancelled: boolean
@@ -42,7 +44,7 @@ export const tabMoney = (value: number) =>
   Number(value).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export function customerTabItemLabel(
-  item: Pick<CustomerTabItem, 'item_name' | 'order_type' | 'source_code'>,
+  item: Pick<CustomerTabItem, 'item_name' | 'order_type' | 'source_code' | 'quantity' | 'item_price'>,
 ) {
   const prefix =
     item.order_type === 'auction'
@@ -50,7 +52,9 @@ export function customerTabItemLabel(
       : item.order_type === 'cf'
         ? `[CF${item.source_code ? `-${item.source_code.toUpperCase()}` : ''}] `
         : ''
-  return `${prefix}${item.item_name}`
+  const quantity = Math.max(1, Number(item.quantity ?? 1))
+  const unitPrice = item.item_price == null ? '' : ` (ชิ้นละ ${tabMoney(item.item_price)} บาท)`
+  return `${prefix}${item.item_name}${quantity > 1 ? ` x ${quantity}` : ''}${unitPrice}`
 }
 
 /** Financial lines are rendered from the ledger, never from model-generated amounts. */

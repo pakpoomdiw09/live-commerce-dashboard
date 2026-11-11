@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       normalizeCfText,
     )
     const stockLimit = Number(input.stockLimit)
+    const maxQtyPerComment = input.maxQtyPerComment == null ? 5 : Number(input.maxQtyPerComment)
     if (
       !pageId ||
       !productId ||
@@ -49,6 +50,9 @@ export async function POST(req: NextRequest) {
       !Number.isSafeInteger(stockLimit) ||
       stockLimit < 1 ||
       stockLimit > 1_000_000 ||
+      !Number.isSafeInteger(maxQtyPerComment) ||
+      maxQtyPerComment < 1 ||
+      maxQtyPerComment > 99 ||
       postId === null
     )
       return NextResponse.json({ error: 'ข้อมูลตั้งค่าไม่ถูกต้อง' }, { status: 400 })
@@ -138,6 +142,7 @@ export async function POST(req: NextRequest) {
       live_bank_account_id: bankAccountId,
       live_deduct_stock: input.deductStock !== false,
       live_customer_select_variant: customerSelectVariant,
+      max_qty_per_comment: maxQtyPerComment,
     }
     const existingId = text(input.id, 36)
     const saved =

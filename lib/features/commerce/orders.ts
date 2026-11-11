@@ -14,10 +14,16 @@ export type CfResult =
       orderId: string
       name: string
       code: string
+      quantity: number
+      unitPrice: number
+      subtotal: number
+      quantityClamped: boolean
+      remainingStock: number | null
       amount: number
       variantLabel: string | null
     }
-  | { status: 'sold_out'; name: string; code: string }
+  | { status: 'sold_out'; name: string; code: string; remainingStock?: number }
+  | { status: 'insufficient_stock'; name: string; code: string; remainingStock?: number }
   | { status: 'require_variant'; name: string; code: string }
   | { status: 'no_match' }
 
@@ -28,6 +34,11 @@ type CfOrderRow = {
   r_code: string | null
   r_amount: number | null
   r_variant_label: string | null
+  r_quantity?: number | null
+  r_unit_price?: number | null
+  r_subtotal?: number | null
+  r_quantity_clamped?: boolean | null
+  r_remaining_stock?: number | null
 }
 
 function cfResult(data: unknown): CfResult {
@@ -38,11 +49,23 @@ function cfResult(data: unknown): CfResult {
       orderId: row.r_order_id!,
       name: row.r_name!,
       code: row.r_code!,
-      amount: Number(row.r_amount),
+      quantity: Number(row.r_quantity ?? 1),
+      unitPrice: Number(row.r_unit_price ?? row.r_amount),
+      subtotal: Number(row.r_subtotal ?? row.r_amount),
+      quantityClamped: row.r_quantity_clamped === true,
+      remainingStock: row.r_remaining_stock == null ? null : Number(row.r_remaining_stock),
+      amount: Number(row.r_subtotal ?? row.r_amount),
       variantLabel: row.r_variant_label ?? null,
     }
   if (row?.r_status === 'sold_out')
     return { status: 'sold_out', name: row.r_name!, code: row.r_code! }
+  if (row?.r_status === 'insufficient_stock')
+    return {
+      status: 'insufficient_stock',
+      name: row.r_name!,
+      code: row.r_code!,
+      ...(row.r_remaining_stock == null ? {} : { remainingStock: Number(row.r_remaining_stock) }),
+    }
   if (row?.r_status === 'require_variant')
     return { status: 'require_variant', name: row.r_name!, code: row.r_code! }
   return { status: 'no_match' }
@@ -91,6 +114,7 @@ export async function placeCfOrder(
     | { messageId: string; source?: undefined }
     | {
         source: 'live_comment'
+        quantity?: number
         commentId: string
         ruleId: string
         postId: string | null
@@ -99,7 +123,7 @@ export async function placeCfOrder(
   ),
 ): Promise<CfResult> {
   if (input.source === 'live_comment')
-    return callCfOrder(db, 'place_cf_order', {
+    return callCfOrder(db, 'place_live_cf_order', {
       p_tenant: input.tenantId,
       p_customer: input.customerId,
       p_rule: input.ruleId,
@@ -107,6 +131,7 @@ export async function placeCfOrder(
       p_comment: input.commentId,
       p_post: input.postId,
       p_page: input.pageId,
+      p_quantity: input.quantity ?? 1,
     })
   return callCfOrder(db, 'place_cf_order', {
     p_tenant: input.tenantId,

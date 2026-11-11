@@ -105,10 +105,10 @@ test('Live aliases use the current Contains matcher, scope posts, and retain Exa
   }
   for (const text of ['159', 'CF A1', 'รับ Z99 ค่ะ', 'สนใจ159ค่ะ'])
     assert.ok(rules.liveRuleCode(rule, text))
-  for (const text of ['1159', 'A12', 'BA1', 'Z99X', '159-1'])
-    assert.ok(rules.liveRuleCode(rule, text))
+  for (const text of ['1159', 'A12', 'BA1', 'AA1', 'Z99X', '159-1'])
+    assert.equal(rules.liveRuleCode(rule, text), null)
   assert.equal(rules.liveRuleCode(rule, 'รูปทั่วไป'), null)
-  assert.equal(rules.liveRuleCode({ ...rule, match_type: 'exact' }, 'CF A1'), null)
+  assert.equal(rules.liveRuleCode({ ...rule, match_type: 'exact' }, 'CF A1'), 'a1')
   assert.equal(routing.liveRuleCandidates([rule], 'A1', [], false).length, 0)
   assert.equal(routing.liveRuleCandidates([rule], 'A1', [], true).length, 1)
   assert.equal(
@@ -313,9 +313,10 @@ test('placeCfOrder routes Live CF through the atomic RPC and keeps chat CF param
     postId: '456',
     pageId: '100',
   })
-  assert.equal(calls[0].name, 'place_cf_order')
+  assert.equal(calls[0].name, 'place_live_cf_order')
   assert.equal(calls[0].args.p_customer, C)
   assert.equal(calls[0].args.p_code, '159')
+  assert.equal(calls[0].args.p_quantity, 1)
   await api.placeCfOrder(db, { tenantId: T, customerId: C, code: 'SKU', messageId: 'm' })
   assert.equal(calls[1].name, 'place_cf_order')
   assert.equal(calls[1].args.p_message, 'm')
@@ -494,6 +495,9 @@ function webhookFixture({
     },
     '@/lib/features/comments/comment-rules': rules,
     '@/lib/features/comments/live-comment-routing': routing,
+    '@/lib/features/commerce/live-cf-codes': load('lib/features/commerce/live-cf-codes.ts', {
+      './cf-code': load('lib/features/commerce/cf-code.ts'),
+    }),
     '@/lib/features/commerce/messenger-product-server': {
       replyToMessengerProduct: async () => false,
     },
@@ -639,10 +643,11 @@ test('webhook Live CF creates one pending order and sends a signed payment link 
     await f.run()
     await f.run()
     assert.equal(f.calls.rpc.length, 1)
-    assert.equal(f.calls.rpc[0].name, 'place_cf_order')
+    assert.equal(f.calls.rpc[0].name, 'place_live_cf_order')
     assert.equal(f.calls.rpc[0].args.p_customer, C)
     assert.equal(f.calls.rpc[0].args.p_page, '100')
     assert.equal(f.calls.rpc[0].args.p_code, 'z99')
+    assert.equal(f.calls.rpc[0].args.p_quantity, 1)
     assert.equal(f.calls.private.length, 1)
     assert.equal(f.calls.private[0][0], 'page-token')
     assert.equal(f.calls.private[0][1], '100_555')

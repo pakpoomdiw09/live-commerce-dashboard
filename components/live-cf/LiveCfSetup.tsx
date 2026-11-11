@@ -127,6 +127,7 @@ export function LiveCfSetup({
       (initialRule?.match_type === 'exact' ? 'strict' : 'flexible'),
   )
   const [stockLimit, setStockLimit] = useState(initialRule?.live_stock_limit ?? 5)
+  const [maxQtyPerComment, setMaxQtyPerComment] = useState(initialRule?.max_qty_per_comment ?? 5)
   const [deductStock, setDeductStock] = useState(initialRule?.live_deduct_stock ?? true)
   const [privateReply, setPrivateReply] = useState(initialRule?.inbox_enabled ?? true)
   const [publicReply, setPublicReply] = useState(initialRule?.reply_enabled ?? true)
@@ -281,6 +282,7 @@ export function LiveCfSetup({
           codes: nextCodes,
           matchMode,
           stockLimit,
+          maxQtyPerComment,
           deductStock,
           privateReply,
           publicReply,
@@ -328,6 +330,7 @@ export function LiveCfSetup({
           codes: nextCodes,
           matchMode,
           stockLimit,
+          maxQtyPerComment,
           deductStock,
           privateReply,
           publicReply,
@@ -755,6 +758,19 @@ export function LiveCfSetup({
               </div>
               <span className="text-sm font-medium text-slate-600">ชิ้น</span>
             </div>
+            <label className="mt-4 block max-w-md text-sm font-semibold text-slate-800" title="จำกัดจำนวนชิ้นสูงสุดต่อคอมเมนต์ (กันลูกค้าพิมพ์เลขผิด)">
+              จำกัดจำนวนชิ้นสูงสุดต่อคอมเมนต์ (กันลูกค้าพิมพ์เลขผิด)
+              <input
+                aria-label="จำกัดจำนวนชิ้นสูงสุดต่อคอมเมนต์ (กันลูกค้าพิมพ์เลขผิด)"
+                type="number"
+                min={1}
+                max={99}
+                step={1}
+                value={maxQtyPerComment}
+                onChange={(event) => setMaxQtyPerComment(Math.min(99, Math.max(1, Number(event.target.value) || 1)))}
+                className="mt-1 block w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold"
+              />
+            </label>
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 transition hover:bg-slate-50">
               <input
                 type="checkbox"
