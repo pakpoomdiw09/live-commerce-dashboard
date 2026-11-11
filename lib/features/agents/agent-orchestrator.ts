@@ -4,7 +4,11 @@ import {
   agentControlConfig,
   agentControlAvailable,
 } from '@/lib/features/agents/agent-control-flags'
-import { inputRisk, isPaymentQuestion } from '@/lib/features/agents/agent-control-core'
+import {
+  inputRisk,
+  isPaymentQuestion,
+  isProductQuestion,
+} from '@/lib/features/agents/agent-control-core'
 import {
   loadBotSettings,
   handover,
@@ -55,9 +59,10 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
   let quotaId: string | undefined
   try {
     const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
-    const customerPaymentQuestion = isPaymentQuestion(m.text) && !inputRisk(m.text)
+    const customerContextQuestion =
+      (isPaymentQuestion(m.text) || isProductQuestion(m.text)) && !inputRisk(m.text)
     const rules =
-      settings.reply_mode === 'keyword' && !customerPaymentQuestion
+      settings.reply_mode === 'keyword' && !customerContextQuestion
         ? await db
             .from('chat_rules')
             .select(CHAT_RULE_COLUMNS)
@@ -71,11 +76,12 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
     if (rules.error) throw rules.error
     const rule =
       settings.reply_mode === 'keyword'
+        && !customerContextQuestion
         ? matchChatRule(((rules.data ?? []) as ChatRule[]).sort(ruleOrder), m.text)
         : null
     if (
       settings.reply_mode === 'keyword' &&
-      !customerPaymentQuestion &&
+      !customerContextQuestion &&
       !rule &&
       !wantsHuman(settings.handover_keywords, m.text) &&
       !inputRisk(m.text)
@@ -88,22 +94,22 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       config.capabilities?.answers !== false &&
       config.capabilities?.intent !== false &&
       (await hasFeature(db, m.tenant.id, 'ai_agent'))
-    let route: string = rule ? 'KEYWORD' : aiEntitled ? 'AI' : 'ADMIN'
+    let route: string = rule ? 'KEYWORD' : aiEntitled ? 'AI' : 'FALLBACK'
     const product = { current: null as AiProductResult | null }
     let text: string | null = null,
-      reason: string | null = route === 'ADMIN' ? 'AI_NOT_AVAILABLE' : null
+      reason: string | null = route === 'FALLBACK' ? 'AI_NOT_AVAILABLE' : null
     if (
       route !== 'KEYWORD' &&
-      ((config.capabilities?.handoff !== false && !customerPaymentQuestion && wantsHuman(settings.handover_keywords, m.text)) ||
+      ((config.capabilities?.handoff !== false && !customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)) ||
         inputRisk(m.text))
     ) {
-      route = 'ADMIN'
+      route = 'FALLBACK'
       reason = inputRisk(m.text) ?? 'CUSTOMER_REQUESTED_HUMAN'
     } else if (route === 'AI') {
       const quota = await reserveAiReplyQuota(db, m)
       if (!quota.id) {
         await save({
-          route: quota.status === 'quota_exceeded' ? 'ADMIN' : 'AI',
+          route: 'AI',
           status: 'review',
           reason: quota.status,
         })
@@ -142,11 +148,11 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
           : null
       }
       if (text === HANDOVER_TOKEN) {
-        route = 'ADMIN'
+        route = 'FALLBACK'
         text = null
         reason = 'AI_HUMAN_REVIEW'
       } else if (!text) {
-        route = 'ADMIN'
+        route = 'FALLBACK'
         reason = reason ?? 'AI_UNAVAILABLE'
       }
     }
@@ -157,18 +163,6 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       return true
     }
     const live = agentControlAvailable()
-    // Handoff is a real ownership transition, even when automatic message sending is disabled.
-    if (route === 'ADMIN' && !live) {
-      const started = await db.rpc('start_inbox_handover', { p_customer: m.customer.id })
-      if (started.error) throw started.error
-      const released = await db.rpc('end_inbox_delivery', {
-        p_customer: m.customer.id,
-        p_lease: started.data,
-      })
-      if (released.error) throw released.error
-      await save({ status: 'review', reason: reason ?? 'WAITING_ADMIN' })
-      return true
-    }
     if (!live) {
       await save({ status: 'draft', reason: reason ?? 'LIVE_SEND_DISABLED' })
       return true
@@ -182,16 +176,16 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       return true
     }
     const once = `reply:${m.messageId}`
-    if (route === 'ADMIN') {
+    if (route === 'FALLBACK') {
       await handover(db, m, settings, once)
-      await save({ status: 'review', reason: reason ?? 'WAITING_ADMIN' })
+      await save({ status: 'review', reason: reason ?? 'FALLBACK_REPLY' })
       return true
     }
     if (route === 'AI' && quotaId) {
       const permission = await authorizeAiReplyQuota(db, m, quotaId)
       if (permission !== 'authorized') {
         await save({
-          route: permission === 'quota_exceeded' ? 'ADMIN' : 'AI',
+          route: 'AI',
           status: 'review',
           reason: permission,
         })

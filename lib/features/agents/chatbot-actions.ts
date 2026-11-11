@@ -61,7 +61,7 @@ export async function sendRule(db: SupabaseClient, to: Recipient, once: string, 
   return await deliverRichOnce(db, to, once, text || '[รูปภาพ]', parts, 'RESPONSE', attachments)
 }
 
-/** Stop the bot for this chat until an admin turns it back on, and tell the customer. */
+/** Send the configured fallback text without changing the customer's bot or ownership state. */
 export async function handover(
   db: SupabaseClient,
   m: Incoming,
@@ -69,14 +69,5 @@ export async function handover(
   once: string,
 ) {
   const text = randomHandover(settings)
-  if (text) await deliverOnce(db, m.recipient, `handover:${once}`, text)
-  else {
-    const started = await db.rpc('start_inbox_handover', { p_customer: m.customer.id })
-    if (started.error) throw started.error
-    const released = await db.rpc('end_inbox_delivery', {
-      p_customer: m.customer.id,
-      p_lease: started.data,
-    })
-    if (released.error) throw released.error
-  }
+  if (text) await deliverOnce(db, m.recipient, once, text)
 }

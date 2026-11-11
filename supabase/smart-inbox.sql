@@ -121,14 +121,9 @@ end $$;
 create or replace function public.end_inbox_delivery(p_customer uuid,p_lease uuid) returns void
 language sql set search_path=pg_catalog,public as $$update public.customers set outbound_lock=null,outbound_lock_until=null where id=p_customer and outbound_lock=p_lease$$;
 create or replace function public.start_inbox_handover(p_customer uuid) returns uuid
-language plpgsql set search_path=pg_catalog,public as $$
-declare lease uuid;target uuid;
-begin
- lease:=public.start_inbox_delivery(p_customer,null);
- update public.customers set bot_enabled=false,handover_at=now(),conversation_version=conversation_version+1 where id=p_customer returning tenant_id into target;
- insert into public.conversation_events(tenant_id,customer_id,action) values(target,p_customer,'handover');
- return lease;
-end $$;
+language sql set search_path=pg_catalog,public as $$
+ select public.start_inbox_delivery(p_customer,null);
+$$;
 
 -- Browser writes cannot bypass versioning, audit or delivery leases through BotToggle.
 revoke update(bot_enabled) on public.customers from authenticated;

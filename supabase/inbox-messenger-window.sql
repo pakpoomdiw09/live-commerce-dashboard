@@ -72,30 +72,17 @@ $$;
 
 create or replace function public.expire_inbox_automation(p_customer uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
-declare c public.customers;inbound_at timestamptz;
 begin
- select * into c from public.customers where id=p_customer for update;
- if not found or c.platform<>'facebook' or not c.bot_enabled then return false;end if;
- inbound_at:=public.inbox_verified_inbound_at(c.tenant_id,c.id);
- -- The message row may commit just before its signed evidence. Never pause a fresh inbound.
- if inbound_at>clock_timestamp()-interval '24 hours' or c.last_message_at>clock_timestamp()-interval '24 hours' then return false;end if;
- update public.customers set bot_enabled=false,conversation_version=conversation_version+1,handover_at=coalesce(handover_at,clock_timestamp()) where id=c.id;
- insert into public.conversation_events(tenant_id,customer_id,action,previous_assignee,next_assignee) values(c.tenant_id,c.id,'pause',c.assigned_user_id,c.assigned_user_id);
- return true;
+ -- The Messenger window blocks delivery; it does not change the merchant's AI setting.
+ return false;
 end $$;
 
 create or replace function public.expire_inbox_automation_windows(p_limit integer default 200) returns integer
 language plpgsql set search_path=pg_catalog,public as $$
-declare customer uuid;changed integer:=0;
 begin
  if p_limit is null or p_limit not between 1 and 1000 then raise exception 'Invalid batch limit' using errcode='22023';end if;
- for customer in select c.id from public.customers c where c.platform='facebook' and c.bot_enabled
- and (c.last_message_at is null or c.last_message_at<=clock_timestamp()-interval '24 hours')
- and not public.inbox_automation_window_open(c.id,c.tenant_id)
- order by c.last_message_at nulls first,c.id limit p_limit for update skip locked loop
-  if public.expire_inbox_automation(customer) then changed:=changed+1;end if;
- end loop;
- return changed;
+ -- Retained for existing schedulers; window expiration no longer pauses AI.
+ return 0;
 end $$;
 revoke all on function public.inbox_automation_window_open(uuid,uuid),public.expire_inbox_automation(uuid),public.expire_inbox_automation_windows(integer) from public,anon,authenticated;
 grant execute on function public.inbox_automation_window_open(uuid,uuid),public.expire_inbox_automation(uuid),public.expire_inbox_automation_windows(integer) to service_role;

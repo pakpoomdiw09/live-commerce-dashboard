@@ -3182,7 +3182,7 @@ alter table public.bot_settings alter column followup_steps set default '[
 commit;
 -- ============================================================================
 -- 33. smart-inbox.sql | Inbox, automation and commerce functions/triggers
--- SHA256: 2ccfb610d36a3a3acce7138038b3197b8e1203128daa627780d82bc5722ad505
+-- SHA256: 39ba599f1ee874d54e008f5e05543b02ac6076b40bd0f32a91ccbe31f377b604
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -3359,14 +3359,9 @@ language sql set search_path=pg_catalog,public as $$update public.customers set 
 
 -- Source statement 33
 create or replace function public.start_inbox_handover(p_customer uuid) returns uuid
-language plpgsql set search_path=pg_catalog,public as $$
-declare lease uuid;target uuid;
-begin
- lease:=public.start_inbox_delivery(p_customer,null);
- update public.customers set bot_enabled=false,handover_at=now(),conversation_version=conversation_version+1 where id=p_customer returning tenant_id into target;
- insert into public.conversation_events(tenant_id,customer_id,action) values(target,p_customer,'handover');
- return lease;
-end $$;
+language sql set search_path=pg_catalog,public as $$
+ select public.start_inbox_delivery(p_customer,null);
+$$;
 
 -- Source statement 34
 revoke update(bot_enabled) on public.customers from authenticated;
@@ -7302,7 +7297,7 @@ for each row execute function public.sync_broadcast_inbound_message();
 commit;
 -- ============================================================================
 -- 66. inbox-messenger-window.sql | Latest delivery safety, reporting and index patches
--- SHA256: 4ebe59d252e016e5d62eb28617e9a08d27847550f925f0273d18cc456c43e77e
+-- SHA256: 91644713e423df3c4a49bd8b06b1a9188d316e480b08e39ded172b76e512315c
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -7402,31 +7397,18 @@ $$;
 -- Source statement 15
 create or replace function public.expire_inbox_automation(p_customer uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
-declare c public.customers;inbound_at timestamptz;
 begin
- select * into c from public.customers where id=p_customer for update;
- if not found or c.platform<>'facebook' or not c.bot_enabled then return false;end if;
- inbound_at:=public.inbox_verified_inbound_at(c.tenant_id,c.id);
- -- The message row may commit just before its signed evidence. Never pause a fresh inbound.
- if inbound_at>clock_timestamp()-interval '24 hours' or c.last_message_at>clock_timestamp()-interval '24 hours' then return false;end if;
- update public.customers set bot_enabled=false,conversation_version=conversation_version+1,handover_at=coalesce(handover_at,clock_timestamp()) where id=c.id;
- insert into public.conversation_events(tenant_id,customer_id,action,previous_assignee,next_assignee) values(c.tenant_id,c.id,'pause',c.assigned_user_id,c.assigned_user_id);
- return true;
+ -- The Messenger window blocks delivery; it does not change the merchant's AI setting.
+ return false;
 end $$;
 
 -- Source statement 16
 create or replace function public.expire_inbox_automation_windows(p_limit integer default 200) returns integer
 language plpgsql set search_path=pg_catalog,public as $$
-declare customer uuid;changed integer:=0;
 begin
  if p_limit is null or p_limit not between 1 and 1000 then raise exception 'Invalid batch limit' using errcode='22023';end if;
- for customer in select c.id from public.customers c where c.platform='facebook' and c.bot_enabled
- and (c.last_message_at is null or c.last_message_at<=clock_timestamp()-interval '24 hours')
- and not public.inbox_automation_window_open(c.id,c.tenant_id)
- order by c.last_message_at nulls first,c.id limit p_limit for update skip locked loop
-  if public.expire_inbox_automation(customer) then changed:=changed+1;end if;
- end loop;
- return changed;
+ -- Retained for existing schedulers; window expiration no longer pauses AI.
+ return 0;
 end $$;
 
 -- Source statement 17
@@ -10039,7 +10021,7 @@ notify pgrst,'reload schema';
 commit;
 -- ============================================================================
 -- 86. tenant-ai-quota.sql | Latest delivery safety, reporting and index patches
--- SHA256: a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3
+-- SHA256: 2ebda8906151ac9117bd028e7b638fcf55734a40128ab767559f90dbffe4ac37
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -10218,10 +10200,7 @@ begin
  if not found then return false;end if;
  select * into c from public.customers where id=p_customer and tenant_id=p_tenant for update;
  if not found or not exists(select 1 from public.messages where id=p_message and customer_id=c.id and sender='customer') then return false;end if;
- if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
-  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
-  insert into public.conversation_events(tenant_id,customer_id,action,reason) values(p_tenant,c.id,'handover','quota_exceeded');
- end if;
+ -- Compatibility RPC only: quota exhaustion must never change the merchant's AI toggle.
  return true;
 end $$;
 
@@ -10255,7 +10234,7 @@ notify pgrst,'reload schema';
 commit;
 -- ============================================================================
 -- 87. vision-master-switch.sql | Latest delivery safety, reporting and index patches
--- SHA256: 137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6
+-- SHA256: 13e82fd970cc94e80c7c30761c19efd6f5d77fa029550c4fdc514c5d3e407555
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -10312,10 +10291,6 @@ begin
  if j.status<>'processing' or p_claim is null or j.claim_token is distinct from p_claim
   or c.id is null or not exists(select 1 from public.vision_settings where tenant_id=j.tenant_id and enabled)
   or not exists(select 1 from public.messages where id=j.message_id and customer_id=c.id and sender='customer') then return false;end if;
- if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
-  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
-  insert into public.conversation_events(tenant_id,customer_id,action) values(j.tenant_id,c.id,'handover');
- end if;
  update public.vision_jobs set status='requires_review',reason=left(coalesce(nullif(p_reason,''),'VISION_ANALYSIS_FAILED'),200),
   claim_token=null,claim_until=null,updated_at=clock_timestamp() where id=j.id;
  return true;

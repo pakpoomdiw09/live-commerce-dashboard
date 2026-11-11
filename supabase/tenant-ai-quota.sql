@@ -139,10 +139,7 @@ begin
  if not found then return false;end if;
  select * into c from public.customers where id=p_customer and tenant_id=p_tenant for update;
  if not found or not exists(select 1 from public.messages where id=p_message and customer_id=c.id and sender='customer') then return false;end if;
- if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
-  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
-  insert into public.conversation_events(tenant_id,customer_id,action,reason) values(p_tenant,c.id,'handover','quota_exceeded');
- end if;
+ -- Compatibility RPC only: quota exhaustion must never change the merchant's AI toggle.
  return true;
 end $$;
 

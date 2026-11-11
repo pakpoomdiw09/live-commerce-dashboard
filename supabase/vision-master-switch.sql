@@ -38,10 +38,8 @@ begin
  values(p_tenant,p_actor,'settings_updated',case when p_enabled then 'enabled' else 'disabled' end);
 end $$;
 
--- A handover performs no provider request, so it needs no messaging window or
--- outgoing delivery lease. Pause future automation while preserving any in-flight
--- lease and the current admin's assignment/closed state. Job + Inbox update commit
--- together; test jobs and stale/cross-customer claims cannot trigger a handover.
+-- A failed vision analysis requires review but must not change the merchant's
+-- per-customer AI toggle or ownership state.
 create or replace function public.handover_vision_job(p_job uuid,p_claim uuid,p_reason text)
 returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare j public.vision_jobs;c public.customers;
@@ -55,10 +53,6 @@ begin
  if j.status<>'processing' or p_claim is null or j.claim_token is distinct from p_claim
   or c.id is null or not exists(select 1 from public.vision_settings where tenant_id=j.tenant_id and enabled)
   or not exists(select 1 from public.messages where id=j.message_id and customer_id=c.id and sender='customer') then return false;end if;
- if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
-  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
-  insert into public.conversation_events(tenant_id,customer_id,action) values(j.tenant_id,c.id,'handover');
- end if;
  update public.vision_jobs set status='requires_review',reason=left(coalesce(nullif(p_reason,''),'VISION_ANALYSIS_FAILED'),200),
   claim_token=null,claim_until=null,updated_at=clock_timestamp() where id=j.id;
  return true;

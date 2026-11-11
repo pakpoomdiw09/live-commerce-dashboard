@@ -11,7 +11,11 @@ import {
   type ChatRule,
 } from '@/lib/features/agents/chatbot'
 import { hasFeature } from '@/lib/feature-access'
-import { inputRisk, isPaymentQuestion } from '@/lib/features/agents/agent-control-core'
+import {
+  inputRisk,
+  isPaymentQuestion,
+  isProductQuestion,
+} from '@/lib/features/agents/agent-control-core'
 import {
   reserveAiReplyQuota,
   authorizeAiReplyQuota,
@@ -37,12 +41,13 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
   const { orchestrateAgentMessage } = await import('@/lib/features/agents/agent-orchestrator')
   if (await orchestrateAgentMessage(db, m)) return
   const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
-  const customerPaymentQuestion = isPaymentQuestion(m.text) && !inputRisk(m.text)
+  const customerContextQuestion =
+    (isPaymentQuestion(m.text) || isProductQuestion(m.text)) && !inputRisk(m.text)
   const once = 'reply:' + m.messageId
-  if ((!customerPaymentQuestion && wantsHuman(settings.handover_keywords, m.text)) || inputRisk(m.text))
+  if ((!customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)) || inputRisk(m.text))
     return handover(db, m, settings, once)
   const rules =
-    settings.reply_mode === 'keyword' && !customerPaymentQuestion
+    settings.reply_mode === 'keyword' && !customerContextQuestion
       ? await db
           .from('chat_rules')
           .select(CHAT_RULE_COLUMNS)
@@ -55,7 +60,7 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
       : { data: [], error: null }
   if (rules.error) throw rules.error
   const rule =
-    settings.reply_mode === 'keyword' && !customerPaymentQuestion
+    settings.reply_mode === 'keyword' && !customerContextQuestion
       ? matchChatRule(((rules.data ?? []) as ChatRule[]).sort(ruleOrder), m.text)
       : null
   if (rule) {
@@ -63,8 +68,8 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
     await db.rpc('bump_chat_rule', { p_rule: rule.id })
     return
   }
-  if (settings.reply_mode === 'keyword' && !customerPaymentQuestion) return // Keyword mode only uses canned replies outside payment intents.
-  if ((!customerPaymentQuestion && wantsHuman(settings.handover_keywords, m.text)) || inputRisk(m.text))
+  if (settings.reply_mode === 'keyword' && !customerContextQuestion) return // Keyword mode only uses canned replies outside contextual intents.
+  if ((!customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)) || inputRisk(m.text))
     return handover(db, m, settings, once)
   if (!(await hasFeature(db, m.tenant.id, 'ai_agent'))) {
     console.info('[chatbot] AI reply skipped', {
@@ -102,7 +107,7 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
         },
       })
     } catch {
-      /* Provider failure transfers to staff; never send a generic fallback. */
+      /* Provider failure uses the configured message fallback without pausing AI. */
     }
     if (!reply || reply === HANDOVER_TOKEN) return await handover(db, m, settings, once)
     if ((await authorizeAiReplyQuota(db, m, quota.id)) !== 'authorized') return

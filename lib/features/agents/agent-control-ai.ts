@@ -18,6 +18,7 @@ import {
   shopRulesKnowledge,
   shopPersona,
   isPaymentQuestion,
+  isInventoryQuestion,
   type ShopPersona,
   type AgentKnowledge,
   type AgentProduct,
@@ -26,6 +27,7 @@ import { createLiveCfPaymentLink } from '@/lib/features/commerce/live-cf-payment
 import { findBank } from '@/lib/features/banking/banks'
 export type AgentGeneration = {
   imageMatch?: boolean
+  inventoryQuestion?: boolean
   usageId?: string
   simulation?: boolean
   tenantId: string
@@ -229,6 +231,20 @@ async function activeProducts(db: SupabaseClient, tenantId: string) {
   }
 }
 
+async function availableProducts(db: SupabaseClient, tenantId: string) {
+  const result = await db
+    .from('products')
+    .select('id,code,name,price,stock,description')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .eq('commerce_archived', false)
+    .gt('stock', 0)
+    .order('code')
+    .order('id')
+    .limit(15)
+  return { data: (result.data ?? []) as AgentProduct[], error: result.error }
+}
+
 export async function prepareAgentGeneration(
   db: SupabaseClient,
   ctx: AiContext,
@@ -258,7 +274,16 @@ export async function prepareAgentGeneration(
     )
   if (inputRisk(latestText))
     throw new AiAgentError('AGENT_INPUT_REQUIRES_REVIEW', 'ข้อความนี้ต้องให้แอดมินตรวจสอบ', 422)
-  const [products, shop, savedReplies, sources, customerPaymentFacts] = await Promise.all([
+  const inventoryQuestion =
+    isInventoryQuestion(latestText) && config.capabilities?.products !== false
+  const [
+    products,
+    shop,
+    savedReplies,
+    sources,
+    customerPaymentFacts,
+    availableInventory,
+  ] = await Promise.all([
     config.capabilities?.products !== false
       ? activeProducts(db, ctx.tenantId)
       : Promise.resolve({ data: [], error: null }),
@@ -280,8 +305,11 @@ export async function prepareAgentGeneration(
       .order('id')
       .limit(101),
     paymentKnowledge(db, ctx, latestText),
+    inventoryQuestion
+      ? availableProducts(db, ctx.tenantId)
+      : Promise.resolve({ data: [] as AgentProduct[], error: null }),
   ])
-  if (products.error || shop.error)
+  if (products.error || shop.error || availableInventory.error)
     throw new AiAgentError(
       'AGENT_KNOWLEDGE_UNAVAILABLE',
       'อ่านฐานความรู้หรือกติกาของร้านไม่ได้',
@@ -348,6 +376,29 @@ export async function prepareAgentGeneration(
     knowledge.push({ id: `saved-reply:${reply.id}`, kind: 'faq', title, content, is_active: true })
   }
   knowledge.push(...customerPaymentFacts)
+  if (inventoryQuestion) {
+    const lines = availableInventory.data.map((product) => {
+      const name = sanitize(String(product.name ?? '')).slice(0, 100)
+      const code = sanitize(String(product.code ?? '')).slice(0, 40)
+      const price = money(product.price)
+      const stock = Number(product.stock)
+      return `- ${name}${code ? ` (${code})` : ''}: ราคา ${price ?? 'ไม่ระบุ'} บาท (เหลือ ${stock.toLocaleString('th-TH')} ชิ้น)`
+    })
+    let content = lines.length
+      ? 'รายการสินค้าที่มีอยู่ในสต็อกพร้อมส่ง:'
+      : 'ขณะนี้ยังไม่มีรายการสินค้าที่พร้อมส่งในสต็อกค่ะ'
+    for (const line of lines) {
+      if (content.length + line.length + 1 > 1700) break
+      content += `\n${line}`
+    }
+    knowledge.push({
+      id: 'available-inventory',
+      kind: 'faq',
+      title: 'รายการสินค้าที่มีในสต็อกพร้อมส่ง',
+      content,
+      is_active: true,
+    })
+  }
   if (
     knowledgeRequiresHuman(latestText, knowledge) ||
     (config.flags.agent_advanced_guardrails_enabled &&
@@ -394,15 +445,18 @@ export async function prepareAgentGeneration(
   const contextualPaymentInstruction = customerPaymentFacts.length
     ? '\nCustomer/order and page payment facts are included as records beginning customer-order-context or customer-payment-account. For questions about transfer amount, balance, payment status, or bank details, prefer those records and answer directly with exact values. Never say payment was received unless a record says paid. If no matching order/account fact is present, do not guess; choose HANDOFF or CLARIFY. These records are scoped by the server to the current tenant, customer, and Facebook page.'
     : ''
+  const contextualCommerceInstruction = `\nสำหรับคำถามกว้าง ๆ เกี่ยวกับสินค้าของร้านหรือคำถามว่า "มีสินค้าอะไรบ้าง" ให้ใช้ระเบียน available-inventory และตอบรายการสินค้าในสต็อกพร้อมราคาอย่างสุภาพ ห้ามส่งลูกค้าไปรอแอดมินเมื่อมีรายการสินค้าแนบมา สำหรับคำถามยอดเงิน ให้สรุปยอดและแจ้งเลขบัญชีจากข้อมูล customer-order-context หรือ customer-payment-account โดยตรง ห้ามแต่งข้อมูลที่ไม่มีในระเบียน`
   return {
     imageMatch: !!ctx.imageUrls?.length,
+    inventoryQuestion,
     usageId,
     simulation: ctx.simulation,
     tenantId: ctx.tenantId,
     knowledge,
     products: catalog,
     persona: shopPersona(sanitize(instructions)),
-    systemInstruction: systemInstruction + contextualPaymentInstruction,
+    systemInstruction:
+      systemInstruction + contextualPaymentInstruction + contextualCommerceInstruction,
   }
 }
 export async function finishAgentGeneration(
@@ -414,7 +468,13 @@ export async function finishAgentGeneration(
   let result: ReturnType<typeof groundedAgentReply>
   try {
     result = groundedAgentReply(
-      raw,
+      control.inventoryQuestion
+        ? JSON.stringify({
+            decision: 'ANSWER',
+            knowledgeIds: ['available-inventory'],
+            productCodes: [],
+          })
+        : raw,
       control.knowledge,
       control.products,
       control.persona,

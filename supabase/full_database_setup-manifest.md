@@ -3,7 +3,7 @@
 พบ SQL ต้นฉบับ 154 ไฟล์: รวมตาม dependencies 134 ไฟล์ และแยกไว้ 20 ไฟล์
 หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 156 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1325686 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1323585 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1145990 bytes, 18699 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1143889 bytes, 18674 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -462,7 +462,7 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - fallback-messages.sql: `b3a22811de461dac12dca9e85b8f5fd9ed5f5e0130547607eaced5c2ed1ba28b`
 - handover-messages.sql: `47c4af183d56f18eb06929dab7daacf713eb30f77d4b080deb0fe9c9fd99742e`
 - followup-message-defaults.sql: `1615ee171cacdcd867738276d1f676168275c34067e7067495851c9a34964562`
-- smart-inbox.sql: `2ccfb610d36a3a3acce7138038b3197b8e1203128daa627780d82bc5722ad505`
+- smart-inbox.sql: `39ba599f1ee874d54e008f5e05543b02ac6076b40bd0f32a91ccbe31f377b604`
 - smart-inbox-pro.sql: `e5aeb9d94cce891b6ddcfbac736c4db5985f98146a5f582bc4551b5dbaccba6f`
 - smart-inbox-v2.sql: `c554817c3a8c16bd2dc68d725938bc9aef2bba2b63bc8762618157a19584521e`
 - inbox-follow-up-flags.sql: `bdf113d9341ecb5c831a278c0624b0c04ce95ac2aee3a8b0509078099358365d`
@@ -495,7 +495,7 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - broadcast-recipient-eligibility.sql: `6ea5e1f9044db876fc8d0f07d8da52668f9897fa684851092eab347710e4a74c`
 - broadcast-recipient-selection.sql: `bdd1581c239a6ebc20048d32d342e6697d98ada245dd01260feacde8fe44278f`
 - broadcast-inbound-sync.sql: `074351e109ac3b2191bc1eece9356c5ea28a58cb5b165a078e63413ad876beba`
-- inbox-messenger-window.sql: `4ebe59d252e016e5d62eb28617e9a08d27847550f925f0273d18cc456c43e77e`
+- inbox-messenger-window.sql: `91644713e423df3c4a49bd8b06b1a9188d316e480b08e39ded172b76e512315c`
 - smart-follow-up-presend.sql: `978fd4adf4cb9e1f16c8a1f21783ab4c7c43dedb66d7c11c7df20fe6ad36f9e4`
 - manual-follow-ups.sql: `34d34f06c0a32579c6dc4a80583c4c15040b1919b8f2bd7e6638848adb06e165`
 - follow-up-simplified.sql: `c1463162272b2eb3b5248a42dd663baf9bc2371c23f300c70916df0921f4b86b`
@@ -515,8 +515,8 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - messenger-product-lookup.sql: `d7dc47ee4ae0c13a90593a213044a0f6dd4f99075e09726bfab58b1ccb9140c0`
 - slip-confirmation-template.sql: `591e7c6185b3c102ecc0e7045ffaeb6f0b3b7bf4b7fd1f0e19247995b1b8778f`
 - standalone-slips.sql: `96608fd194cf79cae1e2972b7bb8e8e93dc199b75029eb8305dc2576f9a2227b`
-- tenant-ai-quota.sql: `a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3`
-- vision-master-switch.sql: `137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6`
+- tenant-ai-quota.sql: `2ebda8906151ac9117bd028e7b638fcf55734a40128ab767559f90dbffe4ac37`
+- vision-master-switch.sql: `13e82fd970cc94e80c7c30761c19efd6f5d77fa029550c4fdc514c5d3e407555`
 - live-cf-customer-variants.sql: `c620b8852bf6067a70bc0cb265a285e3d9fddd0d05d55e9ed5a8a6c72fa6df29`
 - live-auctions.sql: `910202f12dfb75ce136dc66fe2d95ea645f9de96b03a69ef8e1b92b0fa89eeec`
 - customer-tabs.sql: `16b91f3b78245a76dacaa59840e6b4fa966193e938a71d36d56489c3a2e2e48a`

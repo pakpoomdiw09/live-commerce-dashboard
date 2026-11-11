@@ -3423,7 +3423,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='smart-inbox.sql';
   if found then
-    if installed <> '5f275f20a22fd4d8d91d8a353969610df1fd48ca812af75c8f11421a4e1380ef' then
+    if installed <> '2a57e78f12c085e2d185e5d17aafefaa3e4046b4184fd4639db7bc0952b8c55a' then
       raise exception 'Applied migration changed: smart-inbox.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -3613,14 +3613,9 @@ language sql set search_path=pg_catalog,public as $$update public.customers set 
 
 -- smart-inbox.sql: source statement 33
 execute $sql_32_33$create or replace function public.start_inbox_handover(p_customer uuid) returns uuid
-language plpgsql set search_path=pg_catalog,public as $$
-declare lease uuid;target uuid;
-begin
- lease:=public.start_inbox_delivery(p_customer,null);
- update public.customers set bot_enabled=false,handover_at=now(),conversation_version=conversation_version+1 where id=p_customer returning tenant_id into target;
- insert into public.conversation_events(tenant_id,customer_id,action) values(target,p_customer,'handover');
- return lease;
-end $$$sql_32_33$;
+language sql set search_path=pg_catalog,public as $$
+ select public.start_inbox_delivery(p_customer,null);
+$$$sql_32_33$;
 
 -- smart-inbox.sql: source statement 34
 execute $sql_32_34$revoke update(bot_enabled) on public.customers from authenticated$sql_32_34$;
@@ -3655,7 +3650,7 @@ execute $sql_32_43$insert into storage.buckets(id,name,public,file_size_limit,al
 -- smart-inbox.sql: source statement 44
 execute $sql_32_44$do $$begin alter publication supabase_realtime add table public.conversation_reads;exception when duplicate_object then null;end $$$sql_32_44$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('smart-inbox.sql','5f275f20a22fd4d8d91d8a353969610df1fd48ca812af75c8f11421a4e1380ef','2ccfb610d36a3a3acce7138038b3197b8e1203128daa627780d82bc5722ad505');
+    values('smart-inbox.sql','2a57e78f12c085e2d185e5d17aafefaa3e4046b4184fd4639db7bc0952b8c55a','39ba599f1ee874d54e008f5e05543b02ac6076b40bd0f32a91ccbe31f377b604');
 end $migration_32$;
 
 -- 34. smart-inbox-pro.sql
@@ -7780,7 +7775,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-messenger-window.sql';
   if found then
-    if installed <> 'ebcb83ce0712072589de616ed3770d2b034b2aefa1a9fefc73285e08943004d4' then
+    if installed <> '18f6eee7e3266cb12d6fea966d96dce55542fca789f42c99c5d66120bfa7b59a' then
       raise exception 'Applied migration changed: inbox-messenger-window.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -7883,31 +7878,18 @@ $$$sql_65_14$;
 -- inbox-messenger-window.sql: source statement 15
 execute $sql_65_15$create or replace function public.expire_inbox_automation(p_customer uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
-declare c public.customers;inbound_at timestamptz;
 begin
- select * into c from public.customers where id=p_customer for update;
- if not found or c.platform<>'facebook' or not c.bot_enabled then return false;end if;
- inbound_at:=public.inbox_verified_inbound_at(c.tenant_id,c.id);
- -- The message row may commit just before its signed evidence. Never pause a fresh inbound.
- if inbound_at>clock_timestamp()-interval '24 hours' or c.last_message_at>clock_timestamp()-interval '24 hours' then return false;end if;
- update public.customers set bot_enabled=false,conversation_version=conversation_version+1,handover_at=coalesce(handover_at,clock_timestamp()) where id=c.id;
- insert into public.conversation_events(tenant_id,customer_id,action,previous_assignee,next_assignee) values(c.tenant_id,c.id,'pause',c.assigned_user_id,c.assigned_user_id);
- return true;
+ -- The Messenger window blocks delivery; it does not change the merchant's AI setting.
+ return false;
 end $$$sql_65_15$;
 
 -- inbox-messenger-window.sql: source statement 16
 execute $sql_65_16$create or replace function public.expire_inbox_automation_windows(p_limit integer default 200) returns integer
 language plpgsql set search_path=pg_catalog,public as $$
-declare customer uuid;changed integer:=0;
 begin
  if p_limit is null or p_limit not between 1 and 1000 then raise exception 'Invalid batch limit' using errcode='22023';end if;
- for customer in select c.id from public.customers c where c.platform='facebook' and c.bot_enabled
- and (c.last_message_at is null or c.last_message_at<=clock_timestamp()-interval '24 hours')
- and not public.inbox_automation_window_open(c.id,c.tenant_id)
- order by c.last_message_at nulls first,c.id limit p_limit for update skip locked loop
-  if public.expire_inbox_automation(customer) then changed:=changed+1;end if;
- end loop;
- return changed;
+ -- Retained for existing schedulers; window expiration no longer pauses AI.
+ return 0;
 end $$$sql_65_16$;
 
 -- inbox-messenger-window.sql: source statement 17
@@ -7916,7 +7898,7 @@ execute $sql_65_17$revoke all on function public.inbox_automation_window_open(uu
 -- inbox-messenger-window.sql: source statement 18
 execute $sql_65_18$grant execute on function public.inbox_automation_window_open(uuid,uuid),public.expire_inbox_automation(uuid),public.expire_inbox_automation_windows(integer) to service_role$sql_65_18$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('inbox-messenger-window.sql','ebcb83ce0712072589de616ed3770d2b034b2aefa1a9fefc73285e08943004d4','4ebe59d252e016e5d62eb28617e9a08d27847550f925f0273d18cc456c43e77e');
+    values('inbox-messenger-window.sql','18f6eee7e3266cb12d6fea966d96dce55542fca789f42c99c5d66120bfa7b59a','91644713e423df3c4a49bd8b06b1a9188d316e480b08e39ded172b76e512315c');
 end $migration_65$;
 
 -- 67. smart-follow-up-presend.sql
@@ -10681,7 +10663,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='tenant-ai-quota.sql';
   if found then
-    if installed <> '673b0b070a71b1aee8d59d3e7ecb77f993d389c425f67e534a2318a7ceace9e9' then
+    if installed <> 'd6dda13d5c3615a91639a47c7c8f0585ea0bd60966dd3f4bb33fa65a6bebf577' then
       raise exception 'Applied migration changed: tenant-ai-quota.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -10862,10 +10844,7 @@ begin
  if not found then return false;end if;
  select * into c from public.customers where id=p_customer and tenant_id=p_tenant for update;
  if not found or not exists(select 1 from public.messages where id=p_message and customer_id=c.id and sender='customer') then return false;end if;
- if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
-  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
-  insert into public.conversation_events(tenant_id,customer_id,action,reason) values(p_tenant,c.id,'handover','quota_exceeded');
- end if;
+ -- Compatibility RPC only: quota exhaustion must never change the merchant's AI toggle.
  return true;
 end $$$sql_85_25$;
 
@@ -10896,7 +10875,7 @@ end $$$sql_85_29$;
 -- tenant-ai-quota.sql: source statement 30
 execute $sql_85_30$notify pgrst,'reload schema'$sql_85_30$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('tenant-ai-quota.sql','673b0b070a71b1aee8d59d3e7ecb77f993d389c425f67e534a2318a7ceace9e9','a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3');
+    values('tenant-ai-quota.sql','d6dda13d5c3615a91639a47c7c8f0585ea0bd60966dd3f4bb33fa65a6bebf577','2ebda8906151ac9117bd028e7b638fcf55734a40128ab767559f90dbffe4ac37');
 end $migration_85$;
 
 -- 87. vision-master-switch.sql
@@ -10905,7 +10884,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='vision-master-switch.sql';
   if found then
-    if installed <> '59ad5e7e4032c8ca944ddfd3727164461ea7292b548a38114defb05f1fe381fe' then
+    if installed <> 'feef719073c7504274f43a23021b388d143c171cff30db236b1b6e497f28a187' then
       raise exception 'Applied migration changed: vision-master-switch.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -10960,10 +10939,6 @@ begin
  if j.status<>'processing' or p_claim is null or j.claim_token is distinct from p_claim
   or c.id is null or not exists(select 1 from public.vision_settings where tenant_id=j.tenant_id and enabled)
   or not exists(select 1 from public.messages where id=j.message_id and customer_id=c.id and sender='customer') then return false;end if;
- if c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' then
-  update public.customers set bot_enabled=false,handover_at=clock_timestamp(),conversation_version=conversation_version+1 where id=c.id;
-  insert into public.conversation_events(tenant_id,customer_id,action) values(j.tenant_id,c.id,'handover');
- end if;
  update public.vision_jobs set status='requires_review',reason=left(coalesce(nullif(p_reason,''),'VISION_ANALYSIS_FAILED'),200),
   claim_token=null,claim_until=null,updated_at=clock_timestamp() where id=j.id;
  return true;
@@ -10978,7 +10953,7 @@ execute $sql_86_6$grant execute on function public.handover_vision_job(uuid,uuid
 -- vision-master-switch.sql: source statement 7
 execute $sql_86_7$notify pgrst,'reload schema'$sql_86_7$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('vision-master-switch.sql','59ad5e7e4032c8ca944ddfd3727164461ea7292b548a38114defb05f1fe381fe','137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6');
+    values('vision-master-switch.sql','feef719073c7504274f43a23021b388d143c171cff30db236b1b6e497f28a187','13e82fd970cc94e80c7c30761c19efd6f5d77fa029550c4fdc514c5d3e407555');
 end $migration_86$;
 
 -- 88. live-cf-customer-variants.sql

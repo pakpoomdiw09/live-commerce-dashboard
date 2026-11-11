@@ -57,6 +57,16 @@ export function isPaymentQuestion(text: string) {
     text,
   )
 }
+export function isProductQuestion(text: string) {
+  return /สินค้า|product|catalog|inventory|stock|มีอะไรขาย|มีอะไรบ้าง|มีของอะไร|รายการสินค้า|อยากดูสินค้า|ขอดูสินค้า/i.test(
+    text,
+  )
+}
+export function isInventoryQuestion(text: string) {
+  return /มีสินค้าอะไรบ้าง|สินค้าอะไรบ้าง|มีอะไรขาย|มีสินค้าอะไร|มีของอะไรบ้าง|รายการสินค้า|สินค้าที่มี|ดูสินค้าทั้งหมด|มีอะไรบ้าง/i.test(
+    text,
+  )
+}
 export type AgentProduct = {
   id?: string
   code: string

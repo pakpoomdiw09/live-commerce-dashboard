@@ -147,10 +147,7 @@ async function claimAndSend(
     !externalId.startsWith('bc:') &&
     !externalId.startsWith('slip-confirm:')
   ) {
-    const started = await db.rpc(
-      externalId.startsWith('handover:') ? 'start_inbox_handover' : 'start_inbox_delivery',
-      { p_customer: customer.id },
-    )
+    const started = await db.rpc('start_inbox_delivery', { p_customer: customer.id })
     if (started.error?.code === 'P0424') throw new BotDeliveryBlockedError('window_closed')
     if (started.error?.code === '40001' || started.error?.code === '55P03')
       throw new BotDeliveryBlockedError(

@@ -176,9 +176,7 @@ export async function observeFollowUpMessage(
       .limit(1)
       .maybeSingle()
     if (delivered.error || !delivered.data) return
-    const handover = await db.rpc('start_inbox_handover', { p_customer: customerId })
-    if (handover.error) return
-    await db.rpc('end_inbox_delivery', { p_customer: customerId, p_lease: handover.data })
+    console.info('[smart-follow-up] complaint requires review', { tenantId, customerId })
     return
   }
   if (
