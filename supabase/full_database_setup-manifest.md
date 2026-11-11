@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 149 ไฟล์: รวมตาม dependencies 131 ไฟล์ และแยกไว้ 18 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 151 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 150 ไฟล์: รวมตาม dependencies 132 ไฟล์ และแยกไว้ 18 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 152 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1320031 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1323147 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1142424 bytes, 18629 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1144677 bytes, 18684 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -57,117 +57,118 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 24. [followup-plan-gate.sql](followup-plan-gate.sql) — 4 statements retained
 25. [package-access.sql](package-access.sql) — 6 statements retained
 26. [feature-access.sql](feature-access.sql) — 32 statements retained
-27. [free-message-quota.sql](free-message-quota.sql) — 24 statements retained
-28. [keyword-reply-limits.sql](keyword-reply-limits.sql) — 4 statements retained
-29. [fallback-messages.sql](fallback-messages.sql) — 4 statements retained
-30. [handover-messages.sql](handover-messages.sql) — 4 statements retained
-31. [followup-message-defaults.sql](followup-message-defaults.sql) — 1 statements retained
+27. [tenant-feature-overrides.sql](tenant-feature-overrides.sql) — 7 statements retained
+28. [free-message-quota.sql](free-message-quota.sql) — 24 statements retained
+29. [keyword-reply-limits.sql](keyword-reply-limits.sql) — 4 statements retained
+30. [fallback-messages.sql](fallback-messages.sql) — 4 statements retained
+31. [handover-messages.sql](handover-messages.sql) — 4 statements retained
+32. [followup-message-defaults.sql](followup-message-defaults.sql) — 1 statements retained
 
 ### Inbox, automation and commerce functions/triggers
 
-32. [smart-inbox.sql](smart-inbox.sql) — 41 statements retained
-33. [smart-inbox-pro.sql](smart-inbox-pro.sql) — 31 statements retained
-34. [smart-inbox-v2.sql](smart-inbox-v2.sql) — 13 statements retained
-35. [inbox-follow-up-flags.sql](inbox-follow-up-flags.sql) — 9 statements retained
-36. [inbox-quick-replies.sql](inbox-quick-replies.sql) — 12 statements retained
-37. [inbox-actions.sql](inbox-actions.sql) — 3 statements retained
-38. [automation-safety.sql](automation-safety.sql) — 14 statements retained
-39. [smart-follow-ups.sql](smart-follow-ups.sql) — 78 statements retained
-40. [agent-control.sql](agent-control.sql) — 40 statements retained
-41. [agent-overview.sql](agent-overview.sql) — 3 statements retained
-42. [ai-paid-access.sql](ai-paid-access.sql) — 15 statements retained
-43. [ai-vision.sql](ai-vision.sql) — 35 statements retained
-44. [commerce-v2.sql](commerce-v2.sql) — 45 statements retained
-45. [product-sku-reuse.sql](product-sku-reuse.sql) — 0 statements retained
-46. [payment-pro.sql](payment-pro.sql) — 35 statements retained
-47. [payment-pro-dashboard.sql](payment-pro-dashboard.sql) — 4 statements retained
-48. [slip-bank-controls.sql](slip-bank-controls.sql) — 19 statements retained
-49. [bank-registry.sql](bank-registry.sql) — 7 statements retained
-50. [bank-qr-upload.sql](bank-qr-upload.sql) — 11 statements retained
-51. [bank-qr-per-account.sql](bank-qr-per-account.sql) — 5 statements retained
-52. [bank-account-combined-save.sql](bank-account-combined-save.sql) — 8 statements retained
-53. [payment-receiving-codes.sql](payment-receiving-codes.sql) — 13 statements retained
-54. [qr-payment-designer.sql](qr-payment-designer.sql) — 11 statements retained
-55. [store-rules.sql](store-rules.sql) — 7 statements retained
-56. [store-rule-items.sql](store-rule-items.sql) — 4 statements retained
-57. [store-rules-validation.sql](store-rules-validation.sql) — 11 statements retained
+33. [smart-inbox.sql](smart-inbox.sql) — 41 statements retained
+34. [smart-inbox-pro.sql](smart-inbox-pro.sql) — 31 statements retained
+35. [smart-inbox-v2.sql](smart-inbox-v2.sql) — 13 statements retained
+36. [inbox-follow-up-flags.sql](inbox-follow-up-flags.sql) — 9 statements retained
+37. [inbox-quick-replies.sql](inbox-quick-replies.sql) — 12 statements retained
+38. [inbox-actions.sql](inbox-actions.sql) — 3 statements retained
+39. [automation-safety.sql](automation-safety.sql) — 14 statements retained
+40. [smart-follow-ups.sql](smart-follow-ups.sql) — 78 statements retained
+41. [agent-control.sql](agent-control.sql) — 40 statements retained
+42. [agent-overview.sql](agent-overview.sql) — 3 statements retained
+43. [ai-paid-access.sql](ai-paid-access.sql) — 15 statements retained
+44. [ai-vision.sql](ai-vision.sql) — 35 statements retained
+45. [commerce-v2.sql](commerce-v2.sql) — 45 statements retained
+46. [product-sku-reuse.sql](product-sku-reuse.sql) — 0 statements retained
+47. [payment-pro.sql](payment-pro.sql) — 35 statements retained
+48. [payment-pro-dashboard.sql](payment-pro-dashboard.sql) — 4 statements retained
+49. [slip-bank-controls.sql](slip-bank-controls.sql) — 19 statements retained
+50. [bank-registry.sql](bank-registry.sql) — 7 statements retained
+51. [bank-qr-upload.sql](bank-qr-upload.sql) — 11 statements retained
+52. [bank-qr-per-account.sql](bank-qr-per-account.sql) — 5 statements retained
+53. [bank-account-combined-save.sql](bank-account-combined-save.sql) — 8 statements retained
+54. [payment-receiving-codes.sql](payment-receiving-codes.sql) — 13 statements retained
+55. [qr-payment-designer.sql](qr-payment-designer.sql) — 11 statements retained
+56. [store-rules.sql](store-rules.sql) — 7 statements retained
+57. [store-rule-items.sql](store-rule-items.sql) — 4 statements retained
+58. [store-rules-validation.sql](store-rules-validation.sql) — 11 statements retained
 
 ### Latest delivery safety, reporting and index patches
 
-58. [facebook-webhook-queue.sql](facebook-webhook-queue.sql) — 30 statements retained
-59. [facebook-webhook-nonblocking.sql](facebook-webhook-nonblocking.sql) — 2 statements retained
-60. [facebook-message-window.sql](facebook-message-window.sql) — 10 statements retained
-61. [broadcast-policy.sql](broadcast-policy.sql) — 21 statements retained
-62. [broadcast-recipient-eligibility.sql](broadcast-recipient-eligibility.sql) — 3 statements retained
-63. [broadcast-recipient-selection.sql](broadcast-recipient-selection.sql) — 5 statements retained
-64. [broadcast-inbound-sync.sql](broadcast-inbound-sync.sql) — 5 statements retained
-65. [inbox-messenger-window.sql](inbox-messenger-window.sql) — 17 statements retained
-66. [smart-follow-up-presend.sql](smart-follow-up-presend.sql) — 14 statements retained
-67. [manual-follow-ups.sql](manual-follow-ups.sql) — 6 statements retained
-68. [follow-up-simplified.sql](follow-up-simplified.sql) — 7 statements retained
-69. [follow-up-step-settings.sql](follow-up-step-settings.sql) — 3 statements retained
-70. [follow-up-manual-dispatch-fix.sql](follow-up-manual-dispatch-fix.sql) — 8 statements retained
-71. [follow-up-24h-window.sql](follow-up-24h-window.sql) — 20 statements retained
-72. [follow-up-approval-mode.sql](follow-up-approval-mode.sql) — 10 statements retained
-73. [dashboard-performance.sql](dashboard-performance.sql) — 21 statements retained
-74. [dashboard-read-models.sql](dashboard-read-models.sql) — 10 statements retained
-75. [premium-overview.sql](premium-overview.sql) — 6 statements retained
-76. [inbox-realtime.sql](inbox-realtime.sql) — 1 statements retained
-77. [inbox-load-indexes.sql](inbox-load-indexes.sql) — 9 statements retained
-78. [facebook-inbox-recovery.sql](facebook-inbox-recovery.sql) — 10 statements retained
-79. [live-cf-variants.sql](live-cf-variants.sql) — 22 statements retained
-80. [live-cf-mode.sql](live-cf-mode.sql) — 18 statements retained
-81. [live-cf-setup.sql](live-cf-setup.sql) — 21 statements retained
-82. [messenger-product-lookup.sql](messenger-product-lookup.sql) — 3 statements retained
-83. [slip-confirmation-template.sql](slip-confirmation-template.sql) — 8 statements retained
-84. [standalone-slips.sql](standalone-slips.sql) — 21 statements retained
-85. [tenant-ai-quota.sql](tenant-ai-quota.sql) — 28 statements retained
-86. [vision-master-switch.sql](vision-master-switch.sql) — 6 statements retained
-87. [live-cf-customer-variants.sql](live-cf-customer-variants.sql) — 16 statements retained
-88. [live-auctions.sql](live-auctions.sql) — 28 statements retained
-89. [customer-tabs.sql](customer-tabs.sql) — 40 statements retained
-90. [auction-experience.sql](auction-experience.sql) — 5 statements retained
-91. [live-session-dashboard.sql](live-session-dashboard.sql) — 31 statements retained
-92. [shipping-fulfillment.sql](shipping-fulfillment.sql) — 35 statements retained
-93. [shipping-integrations.sql](shipping-integrations.sql) — 18 statements retained
-94. [live-order-types.sql](live-order-types.sql) — 7 statements retained
-95. [live-auction-dashboard.sql](live-auction-dashboard.sql) — 14 statements retained
-96. [live-auction-instant-winners.sql](live-auction-instant-winners.sql) — 1 statements retained
-97. [live-auction-customer-workspace.sql](live-auction-customer-workspace.sql) — 12 statements retained
-98. [live-auction-thai-workflow.sql](live-auction-thai-workflow.sql) — 9 statements retained
-99. [live-auction-customer-columns.sql](live-auction-customer-columns.sql) — 3 statements retained
-100. [live-auction-close-presets.sql](live-auction-close-presets.sql) — 6 statements retained
-101. [live-auction-unlimited-keywords.sql](live-auction-unlimited-keywords.sql) — 1 statements retained
-102. [live-auction-winner-confirmation.sql](live-auction-winner-confirmation.sql) — 11 statements retained
-103. [live-auction-payment-auto-verify.sql](live-auction-payment-auto-verify.sql) — 3 statements retained
-104. [facebook-webhook-comment-ordering.sql](facebook-webhook-comment-ordering.sql) — 3 statements retained
-105. [live-auction-workspace.sql](live-auction-workspace.sql) — 8 statements retained
-106. [live-auction-empty-keyword-defaults.sql](live-auction-empty-keyword-defaults.sql) — 6 statements retained
-107. [live-auction-production-readiness.sql](live-auction-production-readiness.sql) — 22 statements retained
-108. [live-auction-on-demand.sql](live-auction-on-demand.sql) — 29 statements retained
-109. [live-auction-split-summary.sql](live-auction-split-summary.sql) — 3 statements retained
-110. [shipping-integrations-beemove.sql](shipping-integrations-beemove.sql) — 12 statements retained
-111. [vision-product-catalog.sql](vision-product-catalog.sql) — 2 statements retained
-112. [live-customer-item-labels.sql](live-customer-item-labels.sql) — 2 statements retained
-113. [live-cf-order-post.sql](live-cf-order-post.sql) — 2 statements retained
-114. [live-auction-highest-confirmation.sql](live-auction-highest-confirmation.sql) — 5 statements retained
-115. [live-auction-dynamic-tags.sql](live-auction-dynamic-tags.sql) — 9 statements retained
-116. [facebook-comment-configuration.sql](facebook-comment-configuration.sql) — 25 statements retained
-117. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
-118. [inbox-realtime-access.sql](inbox-realtime-access.sql) — 13 statements retained
-119. [live-auction-deadlines.sql](live-auction-deadlines.sql) — 24 statements retained
-120. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 14 statements retained
-121. [live-auction-audit-hardening-2.sql](live-auction-audit-hardening-2.sql) — 11 statements retained
-122. [live-auction-manual-host-close.sql](live-auction-manual-host-close.sql) — 4 statements retained
-123. [live-auction-auto-cycle.sql](live-auction-auto-cycle.sql) — 14 statements retained
-124. [live-auction-confirmation-preservation.sql](live-auction-confirmation-preservation.sql) — 4 statements retained
-125. [live-auction-remove-host-countdown.sql](live-auction-remove-host-countdown.sql) — 14 statements retained
-126. [live-auction-sync-winner-price.sql](live-auction-sync-winner-price.sql) — 4 statements retained
-127. [live-auction-designated-winner.sql](live-auction-designated-winner.sql) — 8 statements retained
-128. [live-auction-winner-candidates.sql](live-auction-winner-candidates.sql) — 4 statements retained
-129. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
-130. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
-131. [live-cf-quantity.sql](live-cf-quantity.sql) — 21 statements retained
+59. [facebook-webhook-queue.sql](facebook-webhook-queue.sql) — 30 statements retained
+60. [facebook-webhook-nonblocking.sql](facebook-webhook-nonblocking.sql) — 2 statements retained
+61. [facebook-message-window.sql](facebook-message-window.sql) — 10 statements retained
+62. [broadcast-policy.sql](broadcast-policy.sql) — 21 statements retained
+63. [broadcast-recipient-eligibility.sql](broadcast-recipient-eligibility.sql) — 3 statements retained
+64. [broadcast-recipient-selection.sql](broadcast-recipient-selection.sql) — 5 statements retained
+65. [broadcast-inbound-sync.sql](broadcast-inbound-sync.sql) — 5 statements retained
+66. [inbox-messenger-window.sql](inbox-messenger-window.sql) — 17 statements retained
+67. [smart-follow-up-presend.sql](smart-follow-up-presend.sql) — 14 statements retained
+68. [manual-follow-ups.sql](manual-follow-ups.sql) — 6 statements retained
+69. [follow-up-simplified.sql](follow-up-simplified.sql) — 7 statements retained
+70. [follow-up-step-settings.sql](follow-up-step-settings.sql) — 3 statements retained
+71. [follow-up-manual-dispatch-fix.sql](follow-up-manual-dispatch-fix.sql) — 8 statements retained
+72. [follow-up-24h-window.sql](follow-up-24h-window.sql) — 20 statements retained
+73. [follow-up-approval-mode.sql](follow-up-approval-mode.sql) — 10 statements retained
+74. [dashboard-performance.sql](dashboard-performance.sql) — 21 statements retained
+75. [dashboard-read-models.sql](dashboard-read-models.sql) — 10 statements retained
+76. [premium-overview.sql](premium-overview.sql) — 6 statements retained
+77. [inbox-realtime.sql](inbox-realtime.sql) — 1 statements retained
+78. [inbox-load-indexes.sql](inbox-load-indexes.sql) — 9 statements retained
+79. [facebook-inbox-recovery.sql](facebook-inbox-recovery.sql) — 10 statements retained
+80. [live-cf-variants.sql](live-cf-variants.sql) — 22 statements retained
+81. [live-cf-mode.sql](live-cf-mode.sql) — 18 statements retained
+82. [live-cf-setup.sql](live-cf-setup.sql) — 21 statements retained
+83. [messenger-product-lookup.sql](messenger-product-lookup.sql) — 3 statements retained
+84. [slip-confirmation-template.sql](slip-confirmation-template.sql) — 8 statements retained
+85. [standalone-slips.sql](standalone-slips.sql) — 21 statements retained
+86. [tenant-ai-quota.sql](tenant-ai-quota.sql) — 28 statements retained
+87. [vision-master-switch.sql](vision-master-switch.sql) — 6 statements retained
+88. [live-cf-customer-variants.sql](live-cf-customer-variants.sql) — 16 statements retained
+89. [live-auctions.sql](live-auctions.sql) — 28 statements retained
+90. [customer-tabs.sql](customer-tabs.sql) — 40 statements retained
+91. [auction-experience.sql](auction-experience.sql) — 5 statements retained
+92. [live-session-dashboard.sql](live-session-dashboard.sql) — 31 statements retained
+93. [shipping-fulfillment.sql](shipping-fulfillment.sql) — 35 statements retained
+94. [shipping-integrations.sql](shipping-integrations.sql) — 18 statements retained
+95. [live-order-types.sql](live-order-types.sql) — 7 statements retained
+96. [live-auction-dashboard.sql](live-auction-dashboard.sql) — 14 statements retained
+97. [live-auction-instant-winners.sql](live-auction-instant-winners.sql) — 1 statements retained
+98. [live-auction-customer-workspace.sql](live-auction-customer-workspace.sql) — 12 statements retained
+99. [live-auction-thai-workflow.sql](live-auction-thai-workflow.sql) — 9 statements retained
+100. [live-auction-customer-columns.sql](live-auction-customer-columns.sql) — 3 statements retained
+101. [live-auction-close-presets.sql](live-auction-close-presets.sql) — 6 statements retained
+102. [live-auction-unlimited-keywords.sql](live-auction-unlimited-keywords.sql) — 1 statements retained
+103. [live-auction-winner-confirmation.sql](live-auction-winner-confirmation.sql) — 11 statements retained
+104. [live-auction-payment-auto-verify.sql](live-auction-payment-auto-verify.sql) — 3 statements retained
+105. [facebook-webhook-comment-ordering.sql](facebook-webhook-comment-ordering.sql) — 3 statements retained
+106. [live-auction-workspace.sql](live-auction-workspace.sql) — 8 statements retained
+107. [live-auction-empty-keyword-defaults.sql](live-auction-empty-keyword-defaults.sql) — 6 statements retained
+108. [live-auction-production-readiness.sql](live-auction-production-readiness.sql) — 22 statements retained
+109. [live-auction-on-demand.sql](live-auction-on-demand.sql) — 29 statements retained
+110. [live-auction-split-summary.sql](live-auction-split-summary.sql) — 3 statements retained
+111. [shipping-integrations-beemove.sql](shipping-integrations-beemove.sql) — 12 statements retained
+112. [vision-product-catalog.sql](vision-product-catalog.sql) — 2 statements retained
+113. [live-customer-item-labels.sql](live-customer-item-labels.sql) — 2 statements retained
+114. [live-cf-order-post.sql](live-cf-order-post.sql) — 2 statements retained
+115. [live-auction-highest-confirmation.sql](live-auction-highest-confirmation.sql) — 5 statements retained
+116. [live-auction-dynamic-tags.sql](live-auction-dynamic-tags.sql) — 9 statements retained
+117. [facebook-comment-configuration.sql](facebook-comment-configuration.sql) — 25 statements retained
+118. [facebook-message-echoes.sql](facebook-message-echoes.sql) — 9 statements retained
+119. [inbox-realtime-access.sql](inbox-realtime-access.sql) — 13 statements retained
+120. [live-auction-deadlines.sql](live-auction-deadlines.sql) — 24 statements retained
+121. [live-auction-audit-hardening.sql](live-auction-audit-hardening.sql) — 14 statements retained
+122. [live-auction-audit-hardening-2.sql](live-auction-audit-hardening-2.sql) — 11 statements retained
+123. [live-auction-manual-host-close.sql](live-auction-manual-host-close.sql) — 4 statements retained
+124. [live-auction-auto-cycle.sql](live-auction-auto-cycle.sql) — 14 statements retained
+125. [live-auction-confirmation-preservation.sql](live-auction-confirmation-preservation.sql) — 4 statements retained
+126. [live-auction-remove-host-countdown.sql](live-auction-remove-host-countdown.sql) — 14 statements retained
+127. [live-auction-sync-winner-price.sql](live-auction-sync-winner-price.sql) — 4 statements retained
+128. [live-auction-designated-winner.sql](live-auction-designated-winner.sql) — 8 statements retained
+129. [live-auction-winner-candidates.sql](live-auction-winner-candidates.sql) — 4 statements retained
+130. [rpc-execution-hardening.sql](rpc-execution-hardening.sql) — 290 statements retained
+131. [inbox-owner-takeover.sql](inbox-owner-takeover.sql) — 10 statements retained
+132. [live-cf-quantity.sql](live-cf-quantity.sql) — 21 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -247,6 +248,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | followup-plan-gate.sql | automation.sql, billing.sql, security.sql, admin-feature-bypass.sql |
 | package-access.sql | billing-auto-approval.sql, ai-agent-gate.sql |
 | feature-access.sql | package-access.sql, admin-feature-bypass.sql |
+| tenant-feature-overrides.sql | feature-access.sql |
 | free-message-quota.sql | feature-access.sql |
 | keyword-reply-limits.sql | automation.sql, billing.sql, security.sql |
 | fallback-messages.sql | automation.sql |
@@ -448,6 +450,7 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - followup-plan-gate.sql: `8722938e430e15924bae4bb6bb40330ff247996564aa94ba803b01b59296f96f`
 - package-access.sql: `31174caa94e6407b3cf95e13f96ca1264d826309acc529310a5df06f75bcf16b`
 - feature-access.sql: `dc491c46c80669e9f8f62230d1d822fb0c67d9605e2dc2fc22154f4616444ff7`
+- tenant-feature-overrides.sql: `3807778cf0a86c56b6f14efdc843c20e40b766ab6febe306c3ddcc33b924037d`
 - free-message-quota.sql: `6c43832ecc28fe37a753487ea001174d0c724f028f45249f3275893f0b6e99a5`
 - keyword-reply-limits.sql: `331db8ee61d4e12356f6f883c08403717d136abaa29190bfa71940aa693d9c34`
 - fallback-messages.sql: `b3a22811de461dac12dca9e85b8f5fd9ed5f5e0130547607eaced5c2ed1ba28b`

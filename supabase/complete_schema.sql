@@ -3070,8 +3070,71 @@ execute $sql_25_33$grant execute on function public.refund_slip_credit(uuid) to 
     values('feature-access.sql','21e1be5059e7166bd9c9c3e2b2501cbae20cbb6ec4b5a9880f3f803120dcc513','dc491c46c80669e9f8f62230d1d822fb0c67d9605e2dc2fc22154f4616444ff7');
 end $migration_25$;
 
--- 27. free-message-quota.sql
+-- 27. tenant-feature-overrides.sql
 do $migration_26$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='tenant-feature-overrides.sql';
+  if found then
+    if installed <> '953a35309fcd1749ca1bb9f062f52693f607e31451f5a20829cb514dcec2a21f' then
+      raise exception 'Applied migration changed: tenant-feature-overrides.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- tenant-feature-overrides.sql: source statement 1
+execute $sql_26_1$create table if not exists public.tenant_feature_overrides (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  feature text not null check (feature in ('ai_agent','image_assistant','customer_management','slip_auto_pilot','customer_follow_up')),
+  enabled boolean not null,
+  reason text not null check (length(trim(reason)) between 1 and 500),
+  expires_at timestamptz,
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,feature)
+)$sql_26_1$;
+
+-- tenant-feature-overrides.sql: source statement 2
+execute $sql_26_2$alter table public.tenant_feature_overrides enable row level security$sql_26_2$;
+
+-- tenant-feature-overrides.sql: source statement 3
+execute $sql_26_3$revoke all on public.tenant_feature_overrides from public,anon,authenticated$sql_26_3$;
+
+-- tenant-feature-overrides.sql: source statement 4
+execute $sql_26_4$grant select,insert,update,delete on public.tenant_feature_overrides to service_role$sql_26_4$;
+
+-- tenant-feature-overrides.sql: source statement 5
+begin
+execute $sql_26_5$create or replace function public.has_tenant_feature(p_tenant uuid,p_feature text) returns boolean
+language sql stable security definer set search_path=pg_catalog,public as $$
+ select exists(
+   select 1 from public.tenants t
+   where t.id=p_tenant and t.is_active
+     and coalesce(
+       (select case when o.expires_at is not null and o.expires_at<=now() then null else o.enabled end
+        from public.tenant_feature_overrides o
+        where o.tenant_id=t.id and o.feature=p_feature),
+       (t.plan<>'free' and t.plan_expires_at>now() and exists(
+         select 1 from public.plan_features f
+         where f.plan=t.plan and f.feature=p_feature and f.enabled
+       ))
+     )
+ );
+$$$sql_26_5$;
+exception when invalid_function_definition then
+  -- A newer signature of has_tenant_feature(uuid,text) is already installed. Its final definition below is mandatory.
+  null;
+end;
+
+-- tenant-feature-overrides.sql: source statement 6
+execute $sql_26_6$revoke all on function public.has_tenant_feature(uuid,text) from public,anon$sql_26_6$;
+
+-- tenant-feature-overrides.sql: source statement 7
+execute $sql_26_7$grant execute on function public.has_tenant_feature(uuid,text) to authenticated,service_role$sql_26_7$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('tenant-feature-overrides.sql','953a35309fcd1749ca1bb9f062f52693f607e31451f5a20829cb514dcec2a21f','3807778cf0a86c56b6f14efdc843c20e40b766ab6febe306c3ddcc33b924037d');
+end $migration_26$;
+
+-- 28. free-message-quota.sql
+do $migration_27$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='free-message-quota.sql';
@@ -3082,13 +3145,13 @@ begin
     return;
   end if;
 -- free-message-quota.sql: source statement 2
-execute $sql_26_2$alter table public.tenants alter column broadcast_allowance set default 100$sql_26_2$;
+execute $sql_27_2$alter table public.tenants alter column broadcast_allowance set default 100$sql_27_2$;
 
 -- free-message-quota.sql: source statement 3
-execute $sql_26_3$alter table public.tenants alter column broadcast_credits set default 100$sql_26_3$;
+execute $sql_27_3$alter table public.tenants alter column broadcast_credits set default 100$sql_27_3$;
 
 -- free-message-quota.sql: source statement 5
-execute $sql_26_5$create or replace function public.refresh_broadcast_credits(p_tenant uuid) returns void
+execute $sql_27_5$create or replace function public.refresh_broadcast_credits(p_tenant uuid) returns void
 language plpgsql set search_path = pg_catalog, public as $$
 declare t public.tenants; this_month text := to_char(now() at time zone 'Asia/Bangkok', 'YYYY-MM');
 begin
@@ -3104,10 +3167,10 @@ begin
     update public.tenants set broadcast_credits = broadcast_allowance, broadcast_period = this_month
     where id = p_tenant;
   end if;
-end $$$sql_26_5$;
+end $$$sql_27_5$;
 
 -- free-message-quota.sql: source statement 6
-execute $sql_26_6$create or replace function public.reserve_broadcast_credits(p_tenant uuid, p_count integer)
+execute $sql_27_6$create or replace function public.reserve_broadcast_credits(p_tenant uuid, p_count integer)
 returns table (monthly integer, topup integer)
 language plpgsql set search_path = pg_catalog, public as $$
 declare t public.tenants; m integer; u integer;
@@ -3121,10 +3184,10 @@ begin
   update public.tenants set broadcast_credits = broadcast_credits - m,
     broadcast_topup_credits = broadcast_topup_credits - u where id = p_tenant;
   return query select m, u;
-end $$$sql_26_6$;
+end $$$sql_27_6$;
 
 -- free-message-quota.sql: source statement 7
-execute $sql_26_7$create or replace function public.refund_broadcast_credits(p_tenant uuid, p_monthly integer, p_topup integer)
+execute $sql_27_7$create or replace function public.refund_broadcast_credits(p_tenant uuid, p_monthly integer, p_topup integer)
 returns void language plpgsql set search_path = pg_catalog, public as $$
 begin
   perform public.refresh_broadcast_credits(p_tenant);
@@ -3134,10 +3197,10 @@ begin
       else least(broadcast_allowance, broadcast_credits + greatest(coalesce(p_monthly, 0), 0)) end,
     broadcast_topup_credits = broadcast_topup_credits + greatest(coalesce(p_topup, 0), 0)
   where id = p_tenant;
-end $$$sql_26_7$;
+end $$$sql_27_7$;
 
 -- free-message-quota.sql: source statement 8
-execute $sql_26_8$create or replace function public.platform_update_tenant(
+execute $sql_27_8$create or replace function public.platform_update_tenant(
   p_tenant uuid, p_admin uuid, p_plan text default null, p_active boolean default null
 ) returns void
 language plpgsql set search_path = pg_catalog, public as $$
@@ -3167,67 +3230,67 @@ begin
     values(p_tenant,p_admin,
       jsonb_build_object('plan',t.plan,'expiresAt',t.plan_expires_at,'active',t.is_active,'broadcastCredits',t.broadcast_credits),
       jsonb_build_object('plan',updated.plan,'expiresAt',updated.plan_expires_at,'active',updated.is_active,'broadcastCredits',updated.broadcast_credits));
-end $$$sql_26_8$;
+end $$$sql_27_8$;
 
 -- free-message-quota.sql: source statement 9
-execute $sql_26_9$alter table public.plan_features drop constraint if exists plan_features_feature_check$sql_26_9$;
+execute $sql_27_9$alter table public.plan_features drop constraint if exists plan_features_feature_check$sql_27_9$;
 
 -- free-message-quota.sql: source statement 10
-execute $sql_26_10$alter table public.plan_features add constraint plan_features_feature_check check(feature in ('ai_agent','image_assistant','customer_management','slip_auto_pilot','customer_follow_up'))$sql_26_10$;
+execute $sql_27_10$alter table public.plan_features add constraint plan_features_feature_check check(feature in ('ai_agent','image_assistant','customer_management','slip_auto_pilot','customer_follow_up'))$sql_27_10$;
 
 -- free-message-quota.sql: source statement 11
-execute $sql_26_11$insert into public.plan_features(plan,feature,enabled) values('starter','customer_follow_up',true),('pro','customer_follow_up',true) on conflict do nothing$sql_26_11$;
+execute $sql_27_11$insert into public.plan_features(plan,feature,enabled) values('starter','customer_follow_up',true),('pro','customer_follow_up',true) on conflict do nothing$sql_27_11$;
 
 -- free-message-quota.sql: source statement 12
-execute $sql_26_12$create or replace function public.guard_followup_plan() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$ begin if new.followup_enabled and not public.has_tenant_feature(new.tenant_id,'customer_follow_up') then raise exception 'FEATURE_LOCKED: customer_follow_up' using errcode='42501'; end if;return new;end $$$sql_26_12$;
+execute $sql_27_12$create or replace function public.guard_followup_plan() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$ begin if new.followup_enabled and not public.has_tenant_feature(new.tenant_id,'customer_follow_up') then raise exception 'FEATURE_LOCKED: customer_follow_up' using errcode='42501'; end if;return new;end $$$sql_27_12$;
 
 -- free-message-quota.sql: source statement 13
-execute $sql_26_13$drop trigger if exists bot_settings_followup_plan_gate on public.bot_settings$sql_26_13$;
+execute $sql_27_13$drop trigger if exists bot_settings_followup_plan_gate on public.bot_settings$sql_27_13$;
 
 -- free-message-quota.sql: source statement 14
-execute $sql_26_14$create trigger bot_settings_followup_plan_gate before insert or update on public.bot_settings for each row execute function public.guard_followup_plan()$sql_26_14$;
+execute $sql_27_14$create trigger bot_settings_followup_plan_gate before insert or update on public.bot_settings for each row execute function public.guard_followup_plan()$sql_27_14$;
 
 -- free-message-quota.sql: source statement 15
-execute $sql_26_15$revoke all on function public.guard_followup_plan() from public,anon,authenticated,service_role$sql_26_15$;
+execute $sql_27_15$revoke all on function public.guard_followup_plan() from public,anon,authenticated,service_role$sql_27_15$;
 
 -- free-message-quota.sql: source statement 16
-execute $sql_26_16$drop policy if exists followup_feature_access on public.follow_up_jobs$sql_26_16$;
+execute $sql_27_16$drop policy if exists followup_feature_access on public.follow_up_jobs$sql_27_16$;
 
 -- free-message-quota.sql: source statement 17
-execute $sql_26_17$create policy followup_feature_access on public.follow_up_jobs as restrictive for all to authenticated using(public.has_tenant_feature(tenant_id,'customer_follow_up')) with check(public.has_tenant_feature(tenant_id,'customer_follow_up'))$sql_26_17$;
+execute $sql_27_17$create policy followup_feature_access on public.follow_up_jobs as restrictive for all to authenticated using(public.has_tenant_feature(tenant_id,'customer_follow_up')) with check(public.has_tenant_feature(tenant_id,'customer_follow_up'))$sql_27_17$;
 
 -- free-message-quota.sql: source statement 18
-execute $sql_26_18$revoke all on function public.refresh_broadcast_credits(uuid) from public,anon,authenticated$sql_26_18$;
+execute $sql_27_18$revoke all on function public.refresh_broadcast_credits(uuid) from public,anon,authenticated$sql_27_18$;
 
 -- free-message-quota.sql: source statement 19
-execute $sql_26_19$grant execute on function public.refresh_broadcast_credits(uuid) to service_role$sql_26_19$;
+execute $sql_27_19$grant execute on function public.refresh_broadcast_credits(uuid) to service_role$sql_27_19$;
 
 -- free-message-quota.sql: source statement 20
-execute $sql_26_20$revoke all on function public.reserve_broadcast_credits(uuid,integer) from public,anon,authenticated$sql_26_20$;
+execute $sql_27_20$revoke all on function public.reserve_broadcast_credits(uuid,integer) from public,anon,authenticated$sql_27_20$;
 
 -- free-message-quota.sql: source statement 21
-execute $sql_26_21$grant execute on function public.reserve_broadcast_credits(uuid,integer) to service_role$sql_26_21$;
+execute $sql_27_21$grant execute on function public.reserve_broadcast_credits(uuid,integer) to service_role$sql_27_21$;
 
 -- free-message-quota.sql: source statement 22
-execute $sql_26_22$revoke all on function public.refund_broadcast_credits(uuid,integer,integer) from public,anon,authenticated$sql_26_22$;
+execute $sql_27_22$revoke all on function public.refund_broadcast_credits(uuid,integer,integer) from public,anon,authenticated$sql_27_22$;
 
 -- free-message-quota.sql: source statement 23
-execute $sql_26_23$grant execute on function public.refund_broadcast_credits(uuid,integer,integer) to service_role$sql_26_23$;
+execute $sql_27_23$grant execute on function public.refund_broadcast_credits(uuid,integer,integer) to service_role$sql_27_23$;
 
 -- free-message-quota.sql: source statement 24
-execute $sql_26_24$revoke all on function public.platform_update_tenant(uuid,uuid,text,boolean) from public,anon,authenticated$sql_26_24$;
+execute $sql_27_24$revoke all on function public.platform_update_tenant(uuid,uuid,text,boolean) from public,anon,authenticated$sql_27_24$;
 
 -- free-message-quota.sql: source statement 25
-execute $sql_26_25$grant execute on function public.platform_update_tenant(uuid,uuid,text,boolean) to service_role$sql_26_25$;
+execute $sql_27_25$grant execute on function public.platform_update_tenant(uuid,uuid,text,boolean) to service_role$sql_27_25$;
 
 -- free-message-quota.sql: source statement 26
-execute $sql_26_26$notify pgrst, 'reload schema'$sql_26_26$;
+execute $sql_27_26$notify pgrst, 'reload schema'$sql_27_26$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('free-message-quota.sql','b9e578a5de13337499c0b85a4d3dbcf994098105179357e10f6de043bfd945e3','6c43832ecc28fe37a753487ea001174d0c724f028f45249f3275893f0b6e99a5');
-end $migration_26$;
+end $migration_27$;
 
--- 28. keyword-reply-limits.sql
-do $migration_27$
+-- 29. keyword-reply-limits.sql
+do $migration_28$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='keyword-reply-limits.sql';
@@ -3238,7 +3301,7 @@ begin
     return;
   end if;
 -- keyword-reply-limits.sql: source statement 2
-execute $sql_27_2$create or replace function public.guard_keyword_reply_limit() returns trigger
+execute $sql_28_2$create or replace function public.guard_keyword_reply_limit() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare allowed integer; used integer;
 begin
@@ -3255,23 +3318,23 @@ begin
    using errcode='P0422',hint='Delete an existing keyword reply or upgrade the subscription.';
  end if;
  return new;
-end $$$sql_27_2$;
+end $$$sql_28_2$;
 
 -- keyword-reply-limits.sql: source statement 3
-execute $sql_27_3$revoke all on function public.guard_keyword_reply_limit() from public,anon,authenticated,service_role$sql_27_3$;
+execute $sql_28_3$revoke all on function public.guard_keyword_reply_limit() from public,anon,authenticated,service_role$sql_28_3$;
 
 -- keyword-reply-limits.sql: source statement 4
-execute $sql_27_4$drop trigger if exists keyword_reply_limit on public.chat_rules$sql_27_4$;
+execute $sql_28_4$drop trigger if exists keyword_reply_limit on public.chat_rules$sql_28_4$;
 
 -- keyword-reply-limits.sql: source statement 5
-execute $sql_27_5$create trigger keyword_reply_limit before insert or update of tenant_id on public.chat_rules
-for each row execute function public.guard_keyword_reply_limit()$sql_27_5$;
+execute $sql_28_5$create trigger keyword_reply_limit before insert or update of tenant_id on public.chat_rules
+for each row execute function public.guard_keyword_reply_limit()$sql_28_5$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('keyword-reply-limits.sql','39685c871c386d7851389c4c3f0238d73570201c9d7074e173ab10a55d182ea5','331db8ee61d4e12356f6f883c08403717d136abaa29190bfa71940aa693d9c34');
-end $migration_27$;
+end $migration_28$;
 
--- 29. fallback-messages.sql
-do $migration_28$
+-- 30. fallback-messages.sql
+do $migration_29$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='fallback-messages.sql';
@@ -3282,28 +3345,28 @@ begin
     return;
   end if;
 -- fallback-messages.sql: source statement 2
-execute $sql_28_2$alter table public.bot_settings add column if not exists fallback_messages text[] not null default '{}'$sql_28_2$;
+execute $sql_29_2$alter table public.bot_settings add column if not exists fallback_messages text[] not null default '{}'$sql_29_2$;
 
 -- fallback-messages.sql: source statement 3
-execute $sql_28_3$create or replace function public.valid_fallback_messages(messages text[]) returns boolean
+execute $sql_29_3$create or replace function public.valid_fallback_messages(messages text[]) returns boolean
 language sql immutable set search_path = pg_catalog as $$
   select coalesce(cardinality(messages) <= 20 and not exists (
     select 1 from unnest(messages) message where message is null or length(message) > 2000
   ), false)
-$$$sql_28_3$;
+$$$sql_29_3$;
 
 -- fallback-messages.sql: source statement 4
-execute $sql_28_4$alter table public.bot_settings drop constraint if exists bot_settings_fallback_messages_check$sql_28_4$;
+execute $sql_29_4$alter table public.bot_settings drop constraint if exists bot_settings_fallback_messages_check$sql_29_4$;
 
 -- fallback-messages.sql: source statement 5
-execute $sql_28_5$alter table public.bot_settings add constraint bot_settings_fallback_messages_check
-  check (public.valid_fallback_messages(fallback_messages))$sql_28_5$;
+execute $sql_29_5$alter table public.bot_settings add constraint bot_settings_fallback_messages_check
+  check (public.valid_fallback_messages(fallback_messages))$sql_29_5$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('fallback-messages.sql','ebdd583bef19e9865d40b67f204d801cecee1ee7a15051a56a057071b5dcae9c','b3a22811de461dac12dca9e85b8f5fd9ed5f5e0130547607eaced5c2ed1ba28b');
-end $migration_28$;
+end $migration_29$;
 
--- 30. handover-messages.sql
-do $migration_29$
+-- 31. handover-messages.sql
+do $migration_30$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='handover-messages.sql';
@@ -3314,28 +3377,28 @@ begin
     return;
   end if;
 -- handover-messages.sql: source statement 2
-execute $sql_29_2$alter table public.bot_settings add column if not exists handover_messages text[] not null default '{}'$sql_29_2$;
+execute $sql_30_2$alter table public.bot_settings add column if not exists handover_messages text[] not null default '{}'$sql_30_2$;
 
 -- handover-messages.sql: source statement 3
-execute $sql_29_3$create or replace function public.valid_handover_messages(messages text[]) returns boolean
+execute $sql_30_3$create or replace function public.valid_handover_messages(messages text[]) returns boolean
 language sql immutable set search_path = pg_catalog as $$
   select coalesce(cardinality(messages) <= 20 and not exists (
     select 1 from unnest(messages) message where message is null or length(message) > 2000
   ), false)
-$$$sql_29_3$;
+$$$sql_30_3$;
 
 -- handover-messages.sql: source statement 4
-execute $sql_29_4$alter table public.bot_settings drop constraint if exists bot_settings_handover_messages_check$sql_29_4$;
+execute $sql_30_4$alter table public.bot_settings drop constraint if exists bot_settings_handover_messages_check$sql_30_4$;
 
 -- handover-messages.sql: source statement 5
-execute $sql_29_5$alter table public.bot_settings add constraint bot_settings_handover_messages_check
-  check (public.valid_handover_messages(handover_messages))$sql_29_5$;
+execute $sql_30_5$alter table public.bot_settings add constraint bot_settings_handover_messages_check
+  check (public.valid_handover_messages(handover_messages))$sql_30_5$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('handover-messages.sql','831bef8ef4c6046ed8cbf37259a047ab6b41ea3d4390c5715637b3c566beecc3','47c4af183d56f18eb06929dab7daacf713eb30f77d4b080deb0fe9c9fd99742e');
-end $migration_29$;
+end $migration_30$;
 
--- 31. followup-message-defaults.sql
-do $migration_30$
+-- 32. followup-message-defaults.sql
+do $migration_31$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='followup-message-defaults.sql';
@@ -3346,16 +3409,16 @@ begin
     return;
   end if;
 -- followup-message-defaults.sql: source statement 1
-execute $sql_30_1$alter table public.bot_settings alter column followup_steps set default '[
+execute $sql_31_1$alter table public.bot_settings alter column followup_steps set default '[
   {"delay_minutes": 15, "text": "คุณ {ชื่อลูกค้า} ยังไม่ได้ส่งสลิปสำหรับยอด {ยอดเงิน} บาทนะคะ โอนแล้วส่งสลิปในแชทนี้ได้เลยค่ะ"},
   {"delay_minutes": 60, "text": "แจ้งเตือนอีกครั้งค่ะ ออเดอร์ยอด {ยอดเงิน} บาท ยังรอการชำระเงิน หากต้องการยกเลิกแจ้งแอดมินได้เลยนะคะ"}
-]'::jsonb$sql_30_1$;
+]'::jsonb$sql_31_1$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('followup-message-defaults.sql','64cbf3fb5743680daa3252b9ce910aea4bfb714efc90feaddf270d2360eeb7c8','1615ee171cacdcd867738276d1f676168275c34067e7067495851c9a34964562');
-end $migration_30$;
+end $migration_31$;
 
--- 32. smart-inbox.sql
-do $migration_31$
+-- 33. smart-inbox.sql
+do $migration_32$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='smart-inbox.sql';
@@ -3366,83 +3429,83 @@ begin
     return;
   end if;
 -- smart-inbox.sql: source statement 2
-execute $sql_31_2$alter table public.customers add column if not exists assigned_user_id uuid references auth.users(id) on delete set null$sql_31_2$;
+execute $sql_32_2$alter table public.customers add column if not exists assigned_user_id uuid references auth.users(id) on delete set null$sql_32_2$;
 
 -- smart-inbox.sql: source statement 3
-execute $sql_31_3$alter table public.customers add column if not exists conversation_status text not null default 'open' check(conversation_status in ('open','closed'))$sql_31_3$;
+execute $sql_32_3$alter table public.customers add column if not exists conversation_status text not null default 'open' check(conversation_status in ('open','closed'))$sql_32_3$;
 
 -- smart-inbox.sql: source statement 4
-execute $sql_31_4$alter table public.customers add column if not exists conversation_version integer not null default 0$sql_31_4$;
+execute $sql_32_4$alter table public.customers add column if not exists conversation_version integer not null default 0$sql_32_4$;
 
 -- smart-inbox.sql: source statement 5
-execute $sql_31_5$alter table public.customers add column if not exists inbound_seq bigint not null default 0$sql_31_5$;
+execute $sql_32_5$alter table public.customers add column if not exists inbound_seq bigint not null default 0$sql_32_5$;
 
 -- smart-inbox.sql: source statement 6
-execute $sql_31_6$alter table public.customers add column if not exists outbound_lock uuid$sql_31_6$;
+execute $sql_32_6$alter table public.customers add column if not exists outbound_lock uuid$sql_32_6$;
 
 -- smart-inbox.sql: source statement 7
-execute $sql_31_7$alter table public.customers add column if not exists outbound_lock_until timestamptz$sql_31_7$;
+execute $sql_32_7$alter table public.customers add column if not exists outbound_lock_until timestamptz$sql_32_7$;
 
 -- smart-inbox.sql: source statement 8
-execute $sql_31_8$alter table public.messages add column if not exists inbound_seq bigint$sql_31_8$;
+execute $sql_32_8$alter table public.messages add column if not exists inbound_seq bigint$sql_32_8$;
 
 -- smart-inbox.sql: source statement 9
-execute $sql_31_9$alter table public.messages add column if not exists provider_message_id text$sql_31_9$;
+execute $sql_32_9$alter table public.messages add column if not exists provider_message_id text$sql_32_9$;
 
 -- smart-inbox.sql: source statement 10
-execute $sql_31_10$alter table public.messages add column if not exists delivery_status text check(delivery_status in ('pending','sent','delivered','read','failed','unknown'))$sql_31_10$;
+execute $sql_32_10$alter table public.messages add column if not exists delivery_status text check(delivery_status in ('pending','sent','delivered','read','failed','unknown'))$sql_32_10$;
 
 -- smart-inbox.sql: source statement 11
-execute $sql_31_11$create index if not exists messages_provider_id on public.messages(provider_message_id) where provider_message_id is not null$sql_31_11$;
+execute $sql_32_11$create index if not exists messages_provider_id on public.messages(provider_message_id) where provider_message_id is not null$sql_32_11$;
 
 -- smart-inbox.sql: source statement 12
-execute $sql_31_12$grant select(assigned_user_id,conversation_status,conversation_version,inbound_seq) on public.customers to authenticated$sql_31_12$;
+execute $sql_32_12$grant select(assigned_user_id,conversation_status,conversation_version,inbound_seq) on public.customers to authenticated$sql_32_12$;
 
 -- smart-inbox.sql: source statement 15
-execute $sql_31_15$create table if not exists public.conversation_reads(
+execute $sql_32_15$create table if not exists public.conversation_reads(
  customer_id uuid not null references public.customers(id) on delete cascade,
  user_id uuid not null references auth.users(id) on delete cascade,
  read_seq bigint not null default 0, primary key(customer_id,user_id)
-)$sql_31_15$;
+)$sql_32_15$;
 
 -- smart-inbox.sql: source statement 16
-execute $sql_31_16$create table if not exists public.conversation_events(
+execute $sql_32_16$create table if not exists public.conversation_events(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id) on delete cascade,
  customer_id uuid not null references public.customers(id) on delete cascade,
  actor_id uuid references auth.users(id) on delete set null,action text not null,
  previous_assignee uuid,next_assignee uuid,created_at timestamptz not null default now()
-)$sql_31_16$;
+)$sql_32_16$;
 
 -- smart-inbox.sql: source statement 17
-execute $sql_31_17$alter table public.conversation_reads enable row level security$sql_31_17$;
+execute $sql_32_17$alter table public.conversation_reads enable row level security$sql_32_17$;
 
 -- smart-inbox.sql: source statement 18
-execute $sql_31_18$alter table public.conversation_events enable row level security$sql_31_18$;
+execute $sql_32_18$alter table public.conversation_events enable row level security$sql_32_18$;
 
 -- smart-inbox.sql: source statement 19
-execute $sql_31_19$revoke all on public.conversation_reads,public.conversation_events from public,anon,authenticated$sql_31_19$;
+execute $sql_32_19$revoke all on public.conversation_reads,public.conversation_events from public,anon,authenticated$sql_32_19$;
 
 -- smart-inbox.sql: source statement 20
-execute $sql_31_20$grant select on public.conversation_reads,public.conversation_events to authenticated$sql_31_20$;
+execute $sql_32_20$grant select on public.conversation_reads,public.conversation_events to authenticated$sql_32_20$;
 
 -- smart-inbox.sql: source statement 21
-execute $sql_31_21$grant all on public.conversation_reads,public.conversation_events to service_role$sql_31_21$;
+execute $sql_32_21$grant all on public.conversation_reads,public.conversation_events to service_role$sql_32_21$;
 
 -- smart-inbox.sql: source statement 22
-execute $sql_31_22$drop policy if exists own_read on public.conversation_reads$sql_31_22$;
+execute $sql_32_22$drop policy if exists own_read on public.conversation_reads$sql_32_22$;
 
 -- smart-inbox.sql: source statement 23
-execute $sql_31_23$create policy own_read on public.conversation_reads for select to authenticated using(user_id=auth.uid() and exists(select 1 from public.customers c where c.id=customer_id and public.can_access_tenant(c.tenant_id) and public.has_tenant_feature(c.tenant_id,'customer_management')))$sql_31_23$;
+execute $sql_32_23$create policy own_read on public.conversation_reads for select to authenticated using(user_id=auth.uid() and exists(select 1 from public.customers c where c.id=customer_id and public.can_access_tenant(c.tenant_id) and public.has_tenant_feature(c.tenant_id,'customer_management')))$sql_32_23$;
 
 -- smart-inbox.sql: source statement 24
-execute $sql_31_24$drop policy if exists member_read on public.conversation_events$sql_31_24$;
+execute $sql_32_24$drop policy if exists member_read on public.conversation_events$sql_32_24$;
 
 -- smart-inbox.sql: source statement 25
-execute $sql_31_25$create policy member_read on public.conversation_events for select to authenticated using(public.can_access_tenant(tenant_id) and public.has_tenant_feature(tenant_id,'customer_management'))$sql_31_25$;
+execute $sql_32_25$create policy member_read on public.conversation_events for select to authenticated using(public.can_access_tenant(tenant_id) and public.has_tenant_feature(tenant_id,'customer_management'))$sql_32_25$;
 
 -- smart-inbox.sql: source statement 26
 begin
-execute $sql_31_26$create or replace function public.inbox_incoming_message() returns trigger
+execute $sql_32_26$create or replace function public.inbox_incoming_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.sender='customer' then
@@ -3452,21 +3515,21 @@ begin
     where id=new.customer_id returning inbound_seq into new.inbound_seq;
  end if;
  return new;
-end $$$sql_31_26$;
+end $$$sql_32_26$;
 exception when invalid_function_definition then
   -- A newer signature of inbox_incoming_message() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- smart-inbox.sql: source statement 27
-execute $sql_31_27$drop trigger if exists inbox_message_counter on public.messages$sql_31_27$;
+execute $sql_32_27$drop trigger if exists inbox_message_counter on public.messages$sql_32_27$;
 
 -- smart-inbox.sql: source statement 28
-execute $sql_31_28$create trigger inbox_message_counter before insert on public.messages for each row execute function public.inbox_incoming_message()$sql_31_28$;
+execute $sql_32_28$create trigger inbox_message_counter before insert on public.messages for each row execute function public.inbox_incoming_message()$sql_32_28$;
 
 -- smart-inbox.sql: source statement 29
 begin
-execute $sql_31_29$create or replace function public.manage_inbox_conversation(p_customer uuid,p_actor uuid,p_action text,p_version integer,p_assignee uuid default null) returns jsonb
+execute $sql_32_29$create or replace function public.manage_inbox_conversation(p_customer uuid,p_actor uuid,p_action text,p_version integer,p_assignee uuid default null) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;previous uuid; mode text;
 begin
@@ -3502,14 +3565,14 @@ begin
  insert into public.conversation_events(tenant_id,customer_id,actor_id,action,previous_assignee,next_assignee)
  values(c.tenant_id,c.id,p_actor,p_action,previous,c.assigned_user_id);
  return jsonb_build_object('ok',true);
-end $$$sql_31_29$;
+end $$$sql_32_29$;
 exception when invalid_function_definition then
   -- A newer signature of manage_inbox_conversation(uuid,uuid,text,integer,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- smart-inbox.sql: source statement 30
-execute $sql_31_30$create or replace function public.mark_inbox_read(p_customer uuid,p_actor uuid,p_message uuid) returns void
+execute $sql_32_30$create or replace function public.mark_inbox_read(p_customer uuid,p_actor uuid,p_message uuid) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;seq bigint;
 begin
@@ -3519,11 +3582,11 @@ begin
  if seq is null then return;end if;
  insert into public.conversation_reads(customer_id,user_id,read_seq) values(p_customer,p_actor,seq)
  on conflict(customer_id,user_id) do update set read_seq=greatest(conversation_reads.read_seq,excluded.read_seq);
-end $$$sql_31_30$;
+end $$$sql_32_30$;
 
 -- smart-inbox.sql: source statement 31
 begin
-execute $sql_31_31$create or replace function public.start_inbox_delivery(p_customer uuid,p_actor uuid default null) returns uuid
+execute $sql_32_31$create or replace function public.start_inbox_delivery(p_customer uuid,p_actor uuid default null) returns uuid
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;lease uuid:=gen_random_uuid();
 begin
@@ -3538,18 +3601,18 @@ begin
  if c.outbound_lock_until>clock_timestamp() then raise exception 'Delivery busy' using errcode='55P03';end if;
  update public.customers set outbound_lock=lease,outbound_lock_until=clock_timestamp()+interval '2 minutes' where id=p_customer;
  return lease;
-end $$$sql_31_31$;
+end $$$sql_32_31$;
 exception when invalid_function_definition then
   -- A newer signature of start_inbox_delivery(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- smart-inbox.sql: source statement 32
-execute $sql_31_32$create or replace function public.end_inbox_delivery(p_customer uuid,p_lease uuid) returns void
-language sql set search_path=pg_catalog,public as $$update public.customers set outbound_lock=null,outbound_lock_until=null where id=p_customer and outbound_lock=p_lease$$$sql_31_32$;
+execute $sql_32_32$create or replace function public.end_inbox_delivery(p_customer uuid,p_lease uuid) returns void
+language sql set search_path=pg_catalog,public as $$update public.customers set outbound_lock=null,outbound_lock_until=null where id=p_customer and outbound_lock=p_lease$$$sql_32_32$;
 
 -- smart-inbox.sql: source statement 33
-execute $sql_31_33$create or replace function public.start_inbox_handover(p_customer uuid) returns uuid
+execute $sql_32_33$create or replace function public.start_inbox_handover(p_customer uuid) returns uuid
 language plpgsql set search_path=pg_catalog,public as $$
 declare lease uuid;target uuid;
 begin
@@ -3557,46 +3620,46 @@ begin
  update public.customers set bot_enabled=false,handover_at=now(),conversation_version=conversation_version+1 where id=p_customer returning tenant_id into target;
  insert into public.conversation_events(tenant_id,customer_id,action) values(target,p_customer,'handover');
  return lease;
-end $$$sql_31_33$;
+end $$$sql_32_33$;
 
 -- smart-inbox.sql: source statement 34
-execute $sql_31_34$revoke update(bot_enabled) on public.customers from authenticated$sql_31_34$;
+execute $sql_32_34$revoke update(bot_enabled) on public.customers from authenticated$sql_32_34$;
 
 -- smart-inbox.sql: source statement 35
-execute $sql_31_35$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid),public.mark_inbox_read(uuid,uuid,uuid),public.start_inbox_delivery(uuid,uuid),public.end_inbox_delivery(uuid,uuid),public.inbox_incoming_message() from public,anon,authenticated$sql_31_35$;
+execute $sql_32_35$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid),public.mark_inbox_read(uuid,uuid,uuid),public.start_inbox_delivery(uuid,uuid),public.end_inbox_delivery(uuid,uuid),public.inbox_incoming_message() from public,anon,authenticated$sql_32_35$;
 
 -- smart-inbox.sql: source statement 36
-execute $sql_31_36$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid),public.mark_inbox_read(uuid,uuid,uuid),public.start_inbox_delivery(uuid,uuid),public.end_inbox_delivery(uuid,uuid) to service_role$sql_31_36$;
+execute $sql_32_36$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid),public.mark_inbox_read(uuid,uuid,uuid),public.start_inbox_delivery(uuid,uuid),public.end_inbox_delivery(uuid,uuid) to service_role$sql_32_36$;
 
 -- smart-inbox.sql: source statement 37
-execute $sql_31_37$revoke all on function public.start_inbox_handover(uuid) from public,anon,authenticated$sql_31_37$;
+execute $sql_32_37$revoke all on function public.start_inbox_handover(uuid) from public,anon,authenticated$sql_32_37$;
 
 -- smart-inbox.sql: source statement 38
-execute $sql_31_38$grant execute on function public.start_inbox_handover(uuid) to service_role$sql_31_38$;
+execute $sql_32_38$grant execute on function public.start_inbox_handover(uuid) to service_role$sql_32_38$;
 
 -- smart-inbox.sql: source statement 39
-execute $sql_31_39$create table if not exists public.inbox_media(id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id) on delete cascade,uploaded_by uuid not null references auth.users(id),path text not null unique,name text not null,mime text not null,kind text not null check(kind in ('image','file')),created_at timestamptz not null default now())$sql_31_39$;
+execute $sql_32_39$create table if not exists public.inbox_media(id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id) on delete cascade,uploaded_by uuid not null references auth.users(id),path text not null unique,name text not null,mime text not null,kind text not null check(kind in ('image','file')),created_at timestamptz not null default now())$sql_32_39$;
 
 -- smart-inbox.sql: source statement 40
-execute $sql_31_40$alter table public.inbox_media enable row level security$sql_31_40$;
+execute $sql_32_40$alter table public.inbox_media enable row level security$sql_32_40$;
 
 -- smart-inbox.sql: source statement 41
-execute $sql_31_41$revoke all on public.inbox_media from public,anon,authenticated$sql_31_41$;
+execute $sql_32_41$revoke all on public.inbox_media from public,anon,authenticated$sql_32_41$;
 
 -- smart-inbox.sql: source statement 42
-execute $sql_31_42$grant select,insert,delete on public.inbox_media to service_role$sql_31_42$;
+execute $sql_32_42$grant select,insert,delete on public.inbox_media to service_role$sql_32_42$;
 
 -- smart-inbox.sql: source statement 43
-execute $sql_31_43$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('inbox-media','inbox-media',false,8388608,array['image/jpeg','image/png','image/gif','image/webp','application/pdf']) on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types$sql_31_43$;
+execute $sql_32_43$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('inbox-media','inbox-media',false,8388608,array['image/jpeg','image/png','image/gif','image/webp','application/pdf']) on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types$sql_32_43$;
 
 -- smart-inbox.sql: source statement 44
-execute $sql_31_44$do $$begin alter publication supabase_realtime add table public.conversation_reads;exception when duplicate_object then null;end $$$sql_31_44$;
+execute $sql_32_44$do $$begin alter publication supabase_realtime add table public.conversation_reads;exception when duplicate_object then null;end $$$sql_32_44$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('smart-inbox.sql','5f275f20a22fd4d8d91d8a353969610df1fd48ca812af75c8f11421a4e1380ef','2ccfb610d36a3a3acce7138038b3197b8e1203128daa627780d82bc5722ad505');
-end $migration_31$;
+end $migration_32$;
 
--- 33. smart-inbox-pro.sql
-do $migration_32$
+-- 34. smart-inbox-pro.sql
+do $migration_33$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='smart-inbox-pro.sql';
@@ -3607,64 +3670,64 @@ begin
     return;
   end if;
 -- smart-inbox-pro.sql: source statement 2
-execute $sql_32_2$alter table public.customers add column if not exists inbox_stage text$sql_32_2$;
+execute $sql_33_2$alter table public.customers add column if not exists inbox_stage text$sql_33_2$;
 
 -- smart-inbox-pro.sql: source statement 3
-execute $sql_32_3$alter table public.customers add column if not exists closed_at timestamptz$sql_32_3$;
+execute $sql_33_3$alter table public.customers add column if not exists closed_at timestamptz$sql_33_3$;
 
 -- smart-inbox-pro.sql: source statement 4
-execute $sql_32_4$alter table public.customers add column if not exists closed_by uuid references auth.users(id)$sql_32_4$;
+execute $sql_33_4$alter table public.customers add column if not exists closed_by uuid references auth.users(id)$sql_33_4$;
 
 -- smart-inbox-pro.sql: source statement 5
-execute $sql_32_5$alter table public.customers add column if not exists close_reason text$sql_32_5$;
+execute $sql_33_5$alter table public.customers add column if not exists close_reason text$sql_33_5$;
 
 -- smart-inbox-pro.sql: source statement 7
-execute $sql_32_7$alter table public.customers alter column inbox_stage set default 'UNASSIGNED'$sql_32_7$;
+execute $sql_33_7$alter table public.customers alter column inbox_stage set default 'UNASSIGNED'$sql_33_7$;
 
 -- smart-inbox-pro.sql: source statement 8
-execute $sql_32_8$alter table public.customers alter column inbox_stage set not null$sql_32_8$;
+execute $sql_33_8$alter table public.customers alter column inbox_stage set not null$sql_33_8$;
 
 -- smart-inbox-pro.sql: source statement 9
-execute $sql_32_9$do $$begin if not exists(select 1 from pg_constraint where conname='customers_inbox_stage_check' and conrelid='public.customers'::regclass) then
+execute $sql_33_9$do $$begin if not exists(select 1 from pg_constraint where conname='customers_inbox_stage_check' and conrelid='public.customers'::regclass) then
  alter table public.customers add constraint customers_inbox_stage_check check(inbox_stage in ('UNASSIGNED','ASSIGNED','IN_PROGRESS','RESOLVED','CLOSED'));
-end if;end $$$sql_32_9$;
+end if;end $$$sql_33_9$;
 
 -- smart-inbox-pro.sql: source statement 10
-execute $sql_32_10$alter table public.conversation_events add column if not exists reason text$sql_32_10$;
+execute $sql_33_10$alter table public.conversation_events add column if not exists reason text$sql_33_10$;
 
 -- smart-inbox-pro.sql: source statement 11
-execute $sql_32_11$alter table public.conversation_events add column if not exists request_id uuid$sql_32_11$;
+execute $sql_33_11$alter table public.conversation_events add column if not exists request_id uuid$sql_33_11$;
 
 -- smart-inbox-pro.sql: source statement 12
-execute $sql_32_12$grant select(inbox_stage,closed_at,closed_by,close_reason) on public.customers to authenticated$sql_32_12$;
+execute $sql_33_12$grant select(inbox_stage,closed_at,closed_by,close_reason) on public.customers to authenticated$sql_33_12$;
 
 -- smart-inbox-pro.sql: source statement 13
-execute $sql_32_13$create table if not exists public.inbox_action_receipts(
+execute $sql_33_13$create table if not exists public.inbox_action_receipts(
  tenant_id uuid not null references public.tenants(id),actor_id uuid not null references auth.users(id),request_id uuid not null,
  customer_id uuid not null references public.customers(id),payload jsonb not null,result jsonb not null,
  created_at timestamptz not null default now(),primary key(tenant_id,actor_id,request_id)
-)$sql_32_13$;
+)$sql_33_13$;
 
 -- smart-inbox-pro.sql: source statement 14
-execute $sql_32_14$create index if not exists inbox_action_rate on public.inbox_action_receipts(tenant_id,actor_id,created_at)$sql_32_14$;
+execute $sql_33_14$create index if not exists inbox_action_rate on public.inbox_action_receipts(tenant_id,actor_id,created_at)$sql_33_14$;
 
 -- smart-inbox-pro.sql: source statement 15
-execute $sql_32_15$create index if not exists customers_inbox_pro_queue on public.customers(tenant_id,inbox_stage,last_message_at)$sql_32_15$;
+execute $sql_33_15$create index if not exists customers_inbox_pro_queue on public.customers(tenant_id,inbox_stage,last_message_at)$sql_33_15$;
 
 -- smart-inbox-pro.sql: source statement 16
-execute $sql_32_16$create index if not exists messages_inbox_pro_reply on public.messages(customer_id,created_at,id) where sender='agent' and delivery_status in ('sent','delivered','read')$sql_32_16$;
+execute $sql_33_16$create index if not exists messages_inbox_pro_reply on public.messages(customer_id,created_at,id) where sender='agent' and delivery_status in ('sent','delivered','read')$sql_33_16$;
 
 -- smart-inbox-pro.sql: source statement 17
-execute $sql_32_17$alter table public.inbox_action_receipts enable row level security$sql_32_17$;
+execute $sql_33_17$alter table public.inbox_action_receipts enable row level security$sql_33_17$;
 
 -- smart-inbox-pro.sql: source statement 18
-execute $sql_32_18$revoke all on public.inbox_action_receipts from public,anon,authenticated$sql_32_18$;
+execute $sql_33_18$revoke all on public.inbox_action_receipts from public,anon,authenticated$sql_33_18$;
 
 -- smart-inbox-pro.sql: source statement 19
-execute $sql_32_19$grant select,insert on public.inbox_action_receipts to service_role$sql_32_19$;
+execute $sql_33_19$grant select,insert on public.inbox_action_receipts to service_role$sql_33_19$;
 
 -- smart-inbox-pro.sql: source statement 20
-execute $sql_32_20$create or replace function public.sync_inbox_pro_stage() returns trigger language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_33_20$create or replace function public.sync_inbox_pro_stage() returns trigger language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.conversation_status='closed' then new.inbox_stage:='CLOSED';
  elsif tg_op='INSERT' then new.inbox_stage:=case when new.assigned_user_id is null then 'UNASSIGNED' else 'ASSIGNED' end;
@@ -3673,16 +3736,16 @@ begin
  end if;
  if new.conversation_status<>'closed' then new.closed_at:=null;new.closed_by:=null;new.close_reason:=null;end if;
  return new;
-end $$$sql_32_20$;
+end $$$sql_33_20$;
 
 -- smart-inbox-pro.sql: source statement 21
-execute $sql_32_21$drop trigger if exists customers_inbox_pro_stage on public.customers$sql_32_21$;
+execute $sql_33_21$drop trigger if exists customers_inbox_pro_stage on public.customers$sql_33_21$;
 
 -- smart-inbox-pro.sql: source statement 22
-execute $sql_32_22$create trigger customers_inbox_pro_stage before insert or update on public.customers for each row execute function public.sync_inbox_pro_stage()$sql_32_22$;
+execute $sql_33_22$create trigger customers_inbox_pro_stage before insert or update on public.customers for each row execute function public.sync_inbox_pro_stage()$sql_33_22$;
 
 -- smart-inbox-pro.sql: source statement 23
-execute $sql_32_23$create or replace function public.manage_inbox_pro(p_customer uuid,p_actor uuid,p_action text,p_version integer,p_key uuid,p_reason text default null,p_assignee uuid default null) returns jsonb
+execute $sql_33_23$create or replace function public.manage_inbox_pro(p_customer uuid,p_actor uuid,p_action text,p_version integer,p_key uuid,p_reason text default null,p_assignee uuid default null) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;manager boolean;payload jsonb;receipt public.inbox_action_receipts;result jsonb;previous uuid;event_id uuid;
 begin
@@ -3726,16 +3789,16 @@ begin
  select jsonb_build_object('ok',true,'stage',inbox_stage,'version',conversation_version) into result from public.customers where id=c.id;
  insert into public.inbox_action_receipts(tenant_id,actor_id,request_id,customer_id,payload,result) values(c.tenant_id,p_actor,p_key,c.id,payload,result);
  return result;
-end $$$sql_32_23$;
+end $$$sql_33_23$;
 
 -- smart-inbox-pro.sql: source statement 24
-execute $sql_32_24$revoke all on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid),public.sync_inbox_pro_stage() from public,anon,authenticated$sql_32_24$;
+execute $sql_33_24$revoke all on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid),public.sync_inbox_pro_stage() from public,anon,authenticated$sql_33_24$;
 
 -- smart-inbox-pro.sql: source statement 25
-execute $sql_32_25$grant execute on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) to service_role$sql_32_25$;
+execute $sql_33_25$grant execute on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) to service_role$sql_33_25$;
 
 -- smart-inbox-pro.sql: source statement 26
-execute $sql_32_26$create or replace function public.inbox_pro_message_progress() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_33_26$create or replace function public.inbox_pro_message_progress() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.sender='agent' then
   update public.customers set inbox_stage='IN_PROGRESS',conversation_version=conversation_version+1 where id=new.customer_id and assigned_user_id is not null and conversation_status='open' and inbox_stage in ('ASSIGNED','RESOLVED');
@@ -3743,19 +3806,19 @@ begin
   update public.customers set inbox_stage=case when assigned_user_id is null then 'UNASSIGNED' else 'IN_PROGRESS' end,conversation_version=conversation_version+1 where id=new.customer_id and inbox_stage='RESOLVED';
  end if;
  return null;
-end $$$sql_32_26$;
+end $$$sql_33_26$;
 
 -- smart-inbox-pro.sql: source statement 27
-execute $sql_32_27$drop trigger if exists messages_inbox_pro_progress on public.messages$sql_32_27$;
+execute $sql_33_27$drop trigger if exists messages_inbox_pro_progress on public.messages$sql_33_27$;
 
 -- smart-inbox-pro.sql: source statement 28
-execute $sql_32_28$create trigger messages_inbox_pro_progress after insert on public.messages for each row execute function public.inbox_pro_message_progress()$sql_32_28$;
+execute $sql_33_28$create trigger messages_inbox_pro_progress after insert on public.messages for each row execute function public.inbox_pro_message_progress()$sql_33_28$;
 
 -- smart-inbox-pro.sql: source statement 29
-execute $sql_32_29$revoke all on function public.inbox_pro_message_progress() from public,anon,authenticated$sql_32_29$;
+execute $sql_33_29$revoke all on function public.inbox_pro_message_progress() from public,anon,authenticated$sql_33_29$;
 
 -- smart-inbox-pro.sql: source statement 30
-execute $sql_32_30$create or replace function public.inbox_pro_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
+execute $sql_33_30$create or replace function public.inbox_pro_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
  with counters as (
   select count(*) total,count(*) filter(where inbox_stage='UNASSIGNED' and not bot_enabled) waiting,
    count(*) filter(where inbox_stage in ('ASSIGNED','IN_PROGRESS')) active,
@@ -3774,22 +3837,22 @@ execute $sql_32_30$create or replace function public.inbox_pro_overview(p_tenant
  )
  select jsonb_build_object('counts',(select row_to_json(counters) from counters),'averageResponseSeconds',(select round(avg(seconds)) from responses),
   'responseSamples',(select count(*) from responses),'team',coalesce((select jsonb_agg(row_to_json(team)) from team),'[]'::jsonb),'overdueMinutes',15,'days',30)
-$$$sql_32_30$;
+$$$sql_33_30$;
 
 -- smart-inbox-pro.sql: source statement 31
-execute $sql_32_31$revoke all on function public.inbox_pro_overview(uuid) from public,anon,authenticated$sql_32_31$;
+execute $sql_33_31$revoke all on function public.inbox_pro_overview(uuid) from public,anon,authenticated$sql_33_31$;
 
 -- smart-inbox-pro.sql: source statement 32
-execute $sql_32_32$grant execute on function public.inbox_pro_overview(uuid) to service_role$sql_32_32$;
+execute $sql_33_32$grant execute on function public.inbox_pro_overview(uuid) to service_role$sql_33_32$;
 
 -- smart-inbox-pro.sql: source statement 33
-execute $sql_32_33$notify pgrst,'reload schema'$sql_32_33$;
+execute $sql_33_33$notify pgrst,'reload schema'$sql_33_33$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('smart-inbox-pro.sql','6c0db1e904369e292a1eac9f1021ee284ba341e5ad5ec6b32e69117a1b2824c5','e5aeb9d94cce891b6ddcfbac736c4db5985f98146a5f582bc4551b5dbaccba6f');
-end $migration_32$;
+end $migration_33$;
 
--- 34. smart-inbox-v2.sql
-do $migration_33$
+-- 35. smart-inbox-v2.sql
+do $migration_34$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='smart-inbox-v2.sql';
@@ -3800,50 +3863,50 @@ begin
     return;
   end if;
 -- smart-inbox-v2.sql: source statement 2
-execute $sql_33_2$create table if not exists public.inbox_internal_notes (
+execute $sql_34_2$create table if not exists public.inbox_internal_notes (
  id uuid primary key, tenant_id uuid not null references public.tenants(id) on delete cascade,
  customer_id uuid not null references public.customers(id) on delete cascade,
  actor_id uuid references auth.users(id) on delete set null,
  body text not null check(length(body) between 1 and 2000), created_at timestamptz not null default now()
-)$sql_33_2$;
+)$sql_34_2$;
 
 -- smart-inbox-v2.sql: source statement 3
-execute $sql_33_3$create index if not exists inbox_internal_notes_customer on public.inbox_internal_notes(tenant_id,customer_id,created_at desc)$sql_33_3$;
+execute $sql_34_3$create index if not exists inbox_internal_notes_customer on public.inbox_internal_notes(tenant_id,customer_id,created_at desc)$sql_34_3$;
 
 -- smart-inbox-v2.sql: source statement 4
-execute $sql_33_4$create table if not exists public.inbox_stars (
+execute $sql_34_4$create table if not exists public.inbox_stars (
  customer_id uuid not null references public.customers(id) on delete cascade,
  user_id uuid not null references auth.users(id) on delete cascade,
  primary key(customer_id,user_id)
-)$sql_33_4$;
+)$sql_34_4$;
 
 -- smart-inbox-v2.sql: source statement 5
-execute $sql_33_5$create table if not exists public.inbox_workspace_requests (
+execute $sql_34_5$create table if not exists public.inbox_workspace_requests (
  actor_id uuid not null references auth.users(id) on delete cascade, request_id uuid not null,
  customer_id uuid not null references public.customers(id) on delete cascade,
  action text not null, body text, created_at timestamptz not null default now(), primary key(actor_id,request_id)
-)$sql_33_5$;
+)$sql_34_5$;
 
 -- smart-inbox-v2.sql: source statement 6
-execute $sql_33_6$create index if not exists inbox_workspace_rate on public.inbox_workspace_requests(actor_id,created_at)$sql_33_6$;
+execute $sql_34_6$create index if not exists inbox_workspace_rate on public.inbox_workspace_requests(actor_id,created_at)$sql_34_6$;
 
 -- smart-inbox-v2.sql: source statement 7
-execute $sql_33_7$alter table public.inbox_internal_notes enable row level security$sql_33_7$;
+execute $sql_34_7$alter table public.inbox_internal_notes enable row level security$sql_34_7$;
 
 -- smart-inbox-v2.sql: source statement 8
-execute $sql_33_8$alter table public.inbox_stars enable row level security$sql_33_8$;
+execute $sql_34_8$alter table public.inbox_stars enable row level security$sql_34_8$;
 
 -- smart-inbox-v2.sql: source statement 9
-execute $sql_33_9$alter table public.inbox_workspace_requests enable row level security$sql_33_9$;
+execute $sql_34_9$alter table public.inbox_workspace_requests enable row level security$sql_34_9$;
 
 -- smart-inbox-v2.sql: source statement 10
-execute $sql_33_10$revoke all on public.inbox_internal_notes,public.inbox_stars,public.inbox_workspace_requests from public,anon,authenticated$sql_33_10$;
+execute $sql_34_10$revoke all on public.inbox_internal_notes,public.inbox_stars,public.inbox_workspace_requests from public,anon,authenticated$sql_34_10$;
 
 -- smart-inbox-v2.sql: source statement 11
-execute $sql_33_11$grant all on public.inbox_internal_notes,public.inbox_stars,public.inbox_workspace_requests to service_role$sql_33_11$;
+execute $sql_34_11$grant all on public.inbox_internal_notes,public.inbox_stars,public.inbox_workspace_requests to service_role$sql_34_11$;
 
 -- smart-inbox-v2.sql: source statement 12
-execute $sql_33_12$create or replace function public.manage_inbox_workspace(p_customer uuid,p_actor uuid,p_action text,p_key uuid,p_body text default null)
+execute $sql_34_12$create or replace function public.manage_inbox_workspace(p_customer uuid,p_actor uuid,p_action text,p_key uuid,p_body text default null)
 returns void language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers; old public.inbox_workspace_requests;
 begin
@@ -3865,19 +3928,19 @@ begin
  elsif p_action='star' then insert into public.inbox_stars values(p_customer,p_actor) on conflict do nothing;
  else delete from public.inbox_stars where customer_id=p_customer and user_id=p_actor;end if;
  insert into public.inbox_workspace_requests(actor_id,request_id,customer_id,action,body) values(p_actor,p_key,p_customer,p_action,p_body);
-end $$$sql_33_12$;
+end $$$sql_34_12$;
 
 -- smart-inbox-v2.sql: source statement 13
-execute $sql_33_13$revoke all on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) from public,anon,authenticated$sql_33_13$;
+execute $sql_34_13$revoke all on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) from public,anon,authenticated$sql_34_13$;
 
 -- smart-inbox-v2.sql: source statement 14
-execute $sql_33_14$grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) to service_role$sql_33_14$;
+execute $sql_34_14$grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) to service_role$sql_34_14$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('smart-inbox-v2.sql','b347a7e9ab5a3dee701401f50d275b88c9607cc9542d0238ad17986517483456','c554817c3a8c16bd2dc68d725938bc9aef2bba2b63bc8762618157a19584521e');
-end $migration_33$;
+end $migration_34$;
 
--- 35. inbox-follow-up-flags.sql
-do $migration_34$
+-- 36. inbox-follow-up-flags.sql
+do $migration_35$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-follow-up-flags.sql';
@@ -3888,28 +3951,28 @@ begin
     return;
   end if;
 -- inbox-follow-up-flags.sql: source statement 2
-execute $sql_34_2$create table if not exists public.inbox_follow_up_flags (
+execute $sql_35_2$create table if not exists public.inbox_follow_up_flags (
  customer_id uuid not null references public.customers(id) on delete cascade,
  user_id uuid not null references auth.users(id) on delete cascade,
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  created_at timestamptz not null default now(),
  primary key(customer_id,user_id)
-)$sql_34_2$;
+)$sql_35_2$;
 
 -- inbox-follow-up-flags.sql: source statement 3
-execute $sql_34_3$create index if not exists inbox_follow_up_flags_user on public.inbox_follow_up_flags(tenant_id,user_id,created_at desc)$sql_34_3$;
+execute $sql_35_3$create index if not exists inbox_follow_up_flags_user on public.inbox_follow_up_flags(tenant_id,user_id,created_at desc)$sql_35_3$;
 
 -- inbox-follow-up-flags.sql: source statement 4
-execute $sql_34_4$alter table public.inbox_follow_up_flags enable row level security$sql_34_4$;
+execute $sql_35_4$alter table public.inbox_follow_up_flags enable row level security$sql_35_4$;
 
 -- inbox-follow-up-flags.sql: source statement 5
-execute $sql_34_5$revoke all on public.inbox_follow_up_flags from public,anon,authenticated$sql_34_5$;
+execute $sql_35_5$revoke all on public.inbox_follow_up_flags from public,anon,authenticated$sql_35_5$;
 
 -- inbox-follow-up-flags.sql: source statement 6
-execute $sql_34_6$grant all on public.inbox_follow_up_flags to service_role$sql_34_6$;
+execute $sql_35_6$grant all on public.inbox_follow_up_flags to service_role$sql_35_6$;
 
 -- inbox-follow-up-flags.sql: source statement 7
-execute $sql_34_7$create or replace function public.set_inbox_follow_up_flag(p_customer uuid,p_actor uuid,p_enabled boolean,p_key uuid)
+execute $sql_35_7$create or replace function public.set_inbox_follow_up_flag(p_customer uuid,p_actor uuid,p_enabled boolean,p_key uuid)
 returns void language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers; previous public.inbox_workspace_requests; requested_action text;
 begin
@@ -3939,22 +4002,22 @@ begin
   delete from public.inbox_follow_up_flags where customer_id=c.id and user_id=p_actor and tenant_id=c.tenant_id;
  end if;
  insert into public.inbox_workspace_requests(actor_id,request_id,customer_id,action) values(p_actor,p_key,c.id,requested_action);
-end $$$sql_34_7$;
+end $$$sql_35_7$;
 
 -- inbox-follow-up-flags.sql: source statement 8
-execute $sql_34_8$revoke all on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) from public,anon,authenticated$sql_34_8$;
+execute $sql_35_8$revoke all on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) from public,anon,authenticated$sql_35_8$;
 
 -- inbox-follow-up-flags.sql: source statement 9
-execute $sql_34_9$grant execute on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) to service_role$sql_34_9$;
+execute $sql_35_9$grant execute on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) to service_role$sql_35_9$;
 
 -- inbox-follow-up-flags.sql: source statement 10
-execute $sql_34_10$notify pgrst,'reload schema'$sql_34_10$;
+execute $sql_35_10$notify pgrst,'reload schema'$sql_35_10$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-follow-up-flags.sql','9584563f84ad0fe2f2cdce52495f97953940f11df49c4844d2d0429413c132a9','bdf113d9341ecb5c831a278c0624b0c04ce95ac2aee3a8b0509078099358365d');
-end $migration_34$;
+end $migration_35$;
 
--- 36. inbox-quick-replies.sql
-do $migration_35$
+-- 37. inbox-quick-replies.sql
+do $migration_36$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-quick-replies.sql';
@@ -3965,29 +4028,29 @@ begin
     return;
   end if;
 -- inbox-quick-replies.sql: source statement 2
-execute $sql_35_2$create table if not exists public.inbox_quick_replies (
+execute $sql_36_2$create table if not exists public.inbox_quick_replies (
  id uuid primary key,tenant_id uuid not null references public.tenants(id) on delete cascade,
  actor_id uuid references auth.users(id) on delete set null,
  body text not null check(length(trim(body)) between 1 and 2000),created_at timestamptz not null default now()
-)$sql_35_2$;
+)$sql_36_2$;
 
 -- inbox-quick-replies.sql: source statement 3
-execute $sql_35_3$alter table public.inbox_quick_replies add column if not exists shortcut text not null default '' check(length(shortcut)<=60)$sql_35_3$;
+execute $sql_36_3$alter table public.inbox_quick_replies add column if not exists shortcut text not null default '' check(length(shortcut)<=60)$sql_36_3$;
 
 -- inbox-quick-replies.sql: source statement 4
-execute $sql_35_4$create index if not exists inbox_quick_replies_tenant on public.inbox_quick_replies(tenant_id,created_at)$sql_35_4$;
+execute $sql_36_4$create index if not exists inbox_quick_replies_tenant on public.inbox_quick_replies(tenant_id,created_at)$sql_36_4$;
 
 -- inbox-quick-replies.sql: source statement 5
-execute $sql_35_5$alter table public.inbox_quick_replies enable row level security$sql_35_5$;
+execute $sql_36_5$alter table public.inbox_quick_replies enable row level security$sql_36_5$;
 
 -- inbox-quick-replies.sql: source statement 6
-execute $sql_35_6$revoke all on public.inbox_quick_replies from public,anon,authenticated$sql_35_6$;
+execute $sql_36_6$revoke all on public.inbox_quick_replies from public,anon,authenticated$sql_36_6$;
 
 -- inbox-quick-replies.sql: source statement 7
-execute $sql_35_7$grant all on public.inbox_quick_replies to service_role$sql_35_7$;
+execute $sql_36_7$grant all on public.inbox_quick_replies to service_role$sql_36_7$;
 
 -- inbox-quick-replies.sql: source statement 8
-execute $sql_35_8$create or replace function public.save_inbox_quick_reply(p_tenant uuid,p_actor uuid,p_key uuid,p_body text,p_shortcut text)
+execute $sql_36_8$create or replace function public.save_inbox_quick_reply(p_tenant uuid,p_actor uuid,p_key uuid,p_body text,p_shortcut text)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare old public.inbox_quick_replies; row public.inbox_quick_replies;
 begin
@@ -4005,31 +4068,31 @@ begin
  if (select count(*) from public.inbox_quick_replies where tenant_id=p_tenant)>=100 then raise exception 'Store supports up to 100 quick replies' using errcode='22023';end if;
  insert into public.inbox_quick_replies(id,tenant_id,actor_id,body,shortcut) values(p_key,p_tenant,p_actor,p_body,p_shortcut) returning * into row;
  return jsonb_build_object('id',row.id,'body',row.body,'shortcut',row.shortcut);
-end $$$sql_35_8$;
+end $$$sql_36_8$;
 
 -- inbox-quick-replies.sql: source statement 9
-execute $sql_35_9$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) from public,anon,authenticated$sql_35_9$;
+execute $sql_36_9$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) from public,anon,authenticated$sql_36_9$;
 
 -- inbox-quick-replies.sql: source statement 10
-execute $sql_35_10$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) to service_role$sql_35_10$;
+execute $sql_36_10$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) to service_role$sql_36_10$;
 
 -- inbox-quick-replies.sql: source statement 11
-execute $sql_35_11$create or replace function public.save_inbox_quick_reply(p_tenant uuid,p_actor uuid,p_key uuid,p_body text)
+execute $sql_36_11$create or replace function public.save_inbox_quick_reply(p_tenant uuid,p_actor uuid,p_key uuid,p_body text)
 returns jsonb language sql set search_path=pg_catalog,public as $$
  select public.save_inbox_quick_reply(p_tenant,p_actor,p_key,p_body,'');
-$$$sql_35_11$;
+$$$sql_36_11$;
 
 -- inbox-quick-replies.sql: source statement 12
-execute $sql_35_12$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) from public,anon,authenticated$sql_35_12$;
+execute $sql_36_12$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) from public,anon,authenticated$sql_36_12$;
 
 -- inbox-quick-replies.sql: source statement 13
-execute $sql_35_13$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to service_role$sql_35_13$;
+execute $sql_36_13$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to service_role$sql_36_13$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-quick-replies.sql','7d8b33736fed54e475521828127ecf4e2272b9cbbb5e47354181fc6409346ac5','832f7002fc6a45f2a5054583c19e03942ecb451423afa4b3d168510206f0e6eb');
-end $migration_35$;
+end $migration_36$;
 
--- 37. inbox-actions.sql
-do $migration_36$
+-- 38. inbox-actions.sql
+do $migration_37$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-actions.sql';
@@ -4041,7 +4104,7 @@ begin
   end if;
 -- inbox-actions.sql: source statement 2
 begin
-execute $sql_36_2$create or replace function public.manage_inbox_conversation(p_customer uuid,p_actor uuid,p_action text,p_version integer,p_assignee uuid default null) returns jsonb
+execute $sql_37_2$create or replace function public.manage_inbox_conversation(p_customer uuid,p_actor uuid,p_action text,p_version integer,p_assignee uuid default null) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;previous uuid; mode text;
 begin
@@ -4082,23 +4145,23 @@ begin
     'conversation_version',conversation_version,'inbound_seq',inbound_seq)
   from public.customers where id=c.id and tenant_id=c.tenant_id
   ));
-end $$$sql_36_2$;
+end $$$sql_37_2$;
 exception when invalid_function_definition then
   -- A newer signature of manage_inbox_conversation(uuid,uuid,text,integer,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- inbox-actions.sql: source statement 3
-execute $sql_36_3$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public,anon,authenticated$sql_36_3$;
+execute $sql_37_3$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public,anon,authenticated$sql_37_3$;
 
 -- inbox-actions.sql: source statement 4
-execute $sql_36_4$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_36_4$;
+execute $sql_37_4$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_37_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-actions.sql','a9d5ec9163b5fac342843a2e46b5f2eb3f888f42709dce4953a7cea1e0ae190a','e5f91c58531dd16ff25556e42e3223c0781abe615846f407773143e4d5dd5590');
-end $migration_36$;
+end $migration_37$;
 
--- 38. automation-safety.sql
-do $migration_37$
+-- 39. automation-safety.sql
+do $migration_38$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='automation-safety.sql';
@@ -4109,36 +4172,36 @@ begin
     return;
   end if;
 -- automation-safety.sql: source statement 2
-execute $sql_37_2$create table if not exists public.tenant_automation_controls (
+execute $sql_38_2$create table if not exists public.tenant_automation_controls (
  tenant_id uuid primary key references public.tenants(id),
  stopped boolean not null default false,
  updated_at timestamptz not null default now()
-)$sql_37_2$;
+)$sql_38_2$;
 
 -- automation-safety.sql: source statement 3
-execute $sql_37_3$create table if not exists public.tenant_automation_audit (
+execute $sql_38_3$create table if not exists public.tenant_automation_audit (
  id uuid primary key default gen_random_uuid(), tenant_id uuid not null references public.tenants(id),
  actor_id uuid not null references auth.users(id), stopped boolean not null,
  reason text not null check(length(trim(reason)) between 1 and 500), created_at timestamptz not null default now()
-)$sql_37_3$;
+)$sql_38_3$;
 
 -- automation-safety.sql: source statement 4
-execute $sql_37_4$alter table public.tenant_automation_controls enable row level security$sql_37_4$;
+execute $sql_38_4$alter table public.tenant_automation_controls enable row level security$sql_38_4$;
 
 -- automation-safety.sql: source statement 5
-execute $sql_37_5$alter table public.tenant_automation_audit enable row level security$sql_37_5$;
+execute $sql_38_5$alter table public.tenant_automation_audit enable row level security$sql_38_5$;
 
 -- automation-safety.sql: source statement 6
-execute $sql_37_6$revoke all on public.tenant_automation_controls,public.tenant_automation_audit from public,anon,authenticated$sql_37_6$;
+execute $sql_38_6$revoke all on public.tenant_automation_controls,public.tenant_automation_audit from public,anon,authenticated$sql_38_6$;
 
 -- automation-safety.sql: source statement 7
-execute $sql_37_7$grant select,insert,update on public.tenant_automation_controls to service_role$sql_37_7$;
+execute $sql_38_7$grant select,insert,update on public.tenant_automation_controls to service_role$sql_38_7$;
 
 -- automation-safety.sql: source statement 8
-execute $sql_37_8$grant select,insert on public.tenant_automation_audit to service_role$sql_37_8$;
+execute $sql_38_8$grant select,insert on public.tenant_automation_audit to service_role$sql_38_8$;
 
 -- automation-safety.sql: source statement 9
-execute $sql_37_9$create or replace function public.set_tenant_automation_stop(p_tenant uuid,p_actor uuid,p_stopped boolean,p_reason text) returns void
+execute $sql_38_9$create or replace function public.set_tenant_automation_stop(p_tenant uuid,p_actor uuid,p_stopped boolean,p_reason text) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if not exists(select 1 from public.tenants where id=p_tenant and is_active) or not (
@@ -4150,17 +4213,17 @@ begin
  insert into public.tenant_automation_controls(tenant_id,stopped) values(p_tenant,p_stopped)
  on conflict(tenant_id) do update set stopped=excluded.stopped,updated_at=now();
  insert into public.tenant_automation_audit(tenant_id,actor_id,stopped,reason) values(p_tenant,p_actor,p_stopped,trim(p_reason));
-end $$$sql_37_9$;
+end $$$sql_38_9$;
 
 -- automation-safety.sql: source statement 10
-execute $sql_37_10$revoke all on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) from public,anon,authenticated$sql_37_10$;
+execute $sql_38_10$revoke all on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) from public,anon,authenticated$sql_38_10$;
 
 -- automation-safety.sql: source statement 11
-execute $sql_37_11$grant execute on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) to service_role$sql_37_11$;
+execute $sql_38_11$grant execute on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) to service_role$sql_38_11$;
 
 -- automation-safety.sql: source statement 12
 begin
-execute $sql_37_12$create or replace function public.claim_and_start_inbox_reply(p_customer uuid,p_actor uuid,p_version integer) returns uuid
+execute $sql_38_12$create or replace function public.claim_and_start_inbox_reply(p_customer uuid,p_actor uuid,p_version integer) returns uuid
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;
 begin
@@ -4175,26 +4238,26 @@ begin
   perform public.manage_inbox_conversation(p_customer,p_actor,'claim',p_version);
  end if;
  return public.start_inbox_delivery(p_customer,p_actor);
-end $$$sql_37_12$;
+end $$$sql_38_12$;
 exception when invalid_function_definition then
   -- A newer signature of claim_and_start_inbox_reply(uuid,uuid,integer) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- automation-safety.sql: source statement 13
-execute $sql_37_13$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public,anon,authenticated$sql_37_13$;
+execute $sql_38_13$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public,anon,authenticated$sql_38_13$;
 
 -- automation-safety.sql: source statement 14
-execute $sql_37_14$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_37_14$;
+execute $sql_38_14$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_38_14$;
 
 -- automation-safety.sql: source statement 15
-execute $sql_37_15$notify pgrst,'reload schema'$sql_37_15$;
+execute $sql_38_15$notify pgrst,'reload schema'$sql_38_15$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('automation-safety.sql','37da8791492f81612252a073d7d3197e8e4b3907e5f06fe1c413e6cbf73b9d02','86b4d84d2db794a379520b40c3ff268143107c2a12501c72c90b32445a668096');
-end $migration_37$;
+end $migration_38$;
 
--- 39. smart-follow-ups.sql
-do $migration_38$
+-- 40. smart-follow-ups.sql
+do $migration_39$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='smart-follow-ups.sql';
@@ -4205,135 +4268,135 @@ begin
     return;
   end if;
 -- smart-follow-ups.sql: source statement 2
-execute $sql_38_2$alter table public.customers add column if not exists followup_opted_out boolean not null default false$sql_38_2$;
+execute $sql_39_2$alter table public.customers add column if not exists followup_opted_out boolean not null default false$sql_39_2$;
 
 -- smart-follow-ups.sql: source statement 3
-execute $sql_38_3$alter table public.customers add column if not exists followup_opted_out_at timestamptz$sql_38_3$;
+execute $sql_39_3$alter table public.customers add column if not exists followup_opted_out_at timestamptz$sql_39_3$;
 
 -- smart-follow-ups.sql: source statement 4
-execute $sql_38_4$alter table public.customers add column if not exists contact_suspended boolean not null default false$sql_38_4$;
+execute $sql_39_4$alter table public.customers add column if not exists contact_suspended boolean not null default false$sql_39_4$;
 
 -- smart-follow-ups.sql: source statement 5
-execute $sql_38_5$alter table public.orders add column if not exists confirmed_at timestamptz$sql_38_5$;
+execute $sql_39_5$alter table public.orders add column if not exists confirmed_at timestamptz$sql_39_5$;
 
 -- smart-follow-ups.sql: source statement 7
-execute $sql_38_7$create table if not exists public.follow_up_policies(
+execute $sql_39_7$create table if not exists public.follow_up_policies(
  tenant_id uuid primary key references public.tenants(id) on delete cascade,enabled boolean not null default false,
  timezone text not null default 'Asia/Bangkok',quiet_enabled boolean not null default false,
  quiet_start integer not null default 1320 check(quiet_start between 0 and 1439),quiet_end integer not null default 480 check(quiet_end between 0 and 1439),
  max_per_customer integer not null default 3 check(max_per_customer between 1 and 20),max_per_order integer not null default 3 check(max_per_order between 1 and 10)
-)$sql_38_7$;
+)$sql_39_7$;
 
 -- smart-follow-ups.sql: source statement 8
-execute $sql_38_8$create table if not exists public.follow_up_workflows(
+execute $sql_39_8$create table if not exists public.follow_up_workflows(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id) on delete cascade,
  kind text not null check(kind in ('payment','interested','after_sales')),enabled boolean not null default false,
  use_ai boolean not null default false,stop_on_reply boolean not null default true,version integer not null default 1,
  steps jsonb not null check(jsonb_typeof(steps)='array' and jsonb_array_length(steps) between 1 and 3),unique(tenant_id,kind)
-)$sql_38_8$;
+)$sql_39_8$;
 
 -- smart-follow-ups.sql: source statement 9
-execute $sql_38_9$create table if not exists public.order_delivery_events(
+execute $sql_39_9$create table if not exists public.order_delivery_events(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),order_id uuid not null unique references public.orders(id),
  customer_id uuid not null references public.customers(id),confirmed_by uuid not null references auth.users(id),
  evidence text not null check(length(trim(evidence)) between 5 and 1000),delivered_at timestamptz not null,created_at timestamptz not null default now()
-)$sql_38_9$;
+)$sql_39_9$;
 
 -- smart-follow-ups.sql: source statement 10
-execute $sql_38_10$alter table public.follow_up_jobs alter column order_id drop not null$sql_38_10$;
+execute $sql_39_10$alter table public.follow_up_jobs alter column order_id drop not null$sql_39_10$;
 
 -- smart-follow-ups.sql: source statement 11
-execute $sql_38_11$alter table public.follow_up_jobs drop constraint if exists follow_up_jobs_order_id_step_key$sql_38_11$;
+execute $sql_39_11$alter table public.follow_up_jobs drop constraint if exists follow_up_jobs_order_id_step_key$sql_39_11$;
 
 -- smart-follow-ups.sql: source statement 12
-execute $sql_38_12$alter table public.follow_up_jobs drop constraint if exists follow_up_jobs_status_check$sql_38_12$;
+execute $sql_39_12$alter table public.follow_up_jobs drop constraint if exists follow_up_jobs_status_check$sql_39_12$;
 
 -- smart-follow-ups.sql: source statement 13
-execute $sql_38_13$alter table public.follow_up_jobs add constraint follow_up_jobs_status_check check(status in ('scheduled','pending','processing','sent','failed','cancelled','skipped','requires_review'))$sql_38_13$;
+execute $sql_39_13$alter table public.follow_up_jobs add constraint follow_up_jobs_status_check check(status in ('scheduled','pending','processing','sent','failed','cancelled','skipped','requires_review'))$sql_39_13$;
 
 -- smart-follow-ups.sql: source statement 14
-execute $sql_38_14$alter table public.follow_up_jobs alter column status set default 'pending'$sql_38_14$;
+execute $sql_39_14$alter table public.follow_up_jobs alter column status set default 'pending'$sql_39_14$;
 
 -- smart-follow-ups.sql: source statement 15
-execute $sql_38_15$alter table public.follow_up_jobs add column if not exists kind text not null default 'payment' check(kind in ('payment','interested','after_sales'))$sql_38_15$;
+execute $sql_39_15$alter table public.follow_up_jobs add column if not exists kind text not null default 'payment' check(kind in ('payment','interested','after_sales'))$sql_39_15$;
 
 -- smart-follow-ups.sql: source statement 16
-execute $sql_38_16$alter table public.follow_up_jobs add column if not exists workflow_id uuid references public.follow_up_workflows(id)$sql_38_16$;
+execute $sql_39_16$alter table public.follow_up_jobs add column if not exists workflow_id uuid references public.follow_up_workflows(id)$sql_39_16$;
 
 -- smart-follow-ups.sql: source statement 17
-execute $sql_38_17$alter table public.follow_up_jobs add column if not exists workflow_version integer not null default 1$sql_38_17$;
+execute $sql_39_17$alter table public.follow_up_jobs add column if not exists workflow_version integer not null default 1$sql_39_17$;
 
 -- smart-follow-ups.sql: source statement 18
-execute $sql_38_18$alter table public.follow_up_jobs add column if not exists source_message_id uuid references public.messages(id)$sql_38_18$;
+execute $sql_39_18$alter table public.follow_up_jobs add column if not exists source_message_id uuid references public.messages(id)$sql_39_18$;
 
 -- smart-follow-ups.sql: source statement 19
-execute $sql_38_19$alter table public.follow_up_jobs add column if not exists product_id uuid references public.products(id)$sql_38_19$;
+execute $sql_39_19$alter table public.follow_up_jobs add column if not exists product_id uuid references public.products(id)$sql_39_19$;
 
 -- smart-follow-ups.sql: source statement 20
-execute $sql_38_20$alter table public.follow_up_jobs add column if not exists source_seq bigint not null default 0$sql_38_20$;
+execute $sql_39_20$alter table public.follow_up_jobs add column if not exists source_seq bigint not null default 0$sql_39_20$;
 
 -- smart-follow-ups.sql: source statement 21
-execute $sql_38_21$alter table public.follow_up_jobs add column if not exists anchor_at timestamptz not null default now()$sql_38_21$;
+execute $sql_39_21$alter table public.follow_up_jobs add column if not exists anchor_at timestamptz not null default now()$sql_39_21$;
 
 -- smart-follow-ups.sql: source statement 22
-execute $sql_38_22$alter table public.follow_up_jobs add column if not exists claim_token uuid$sql_38_22$;
+execute $sql_39_22$alter table public.follow_up_jobs add column if not exists claim_token uuid$sql_39_22$;
 
 -- smart-follow-ups.sql: source statement 23
-execute $sql_38_23$alter table public.follow_up_jobs add column if not exists claim_until timestamptz$sql_38_23$;
+execute $sql_39_23$alter table public.follow_up_jobs add column if not exists claim_until timestamptz$sql_39_23$;
 
 -- smart-follow-ups.sql: source statement 24
-execute $sql_38_24$alter table public.follow_up_jobs add column if not exists attempts integer not null default 0$sql_38_24$;
+execute $sql_39_24$alter table public.follow_up_jobs add column if not exists attempts integer not null default 0$sql_39_24$;
 
 -- smart-follow-ups.sql: source statement 25
-execute $sql_38_25$alter table public.follow_up_jobs add column if not exists dispatch_started_at timestamptz$sql_38_25$;
+execute $sql_39_25$alter table public.follow_up_jobs add column if not exists dispatch_started_at timestamptz$sql_39_25$;
 
 -- smart-follow-ups.sql: source statement 26
-execute $sql_38_26$alter table public.follow_up_jobs add column if not exists message_id uuid references public.messages(id)$sql_38_26$;
+execute $sql_39_26$alter table public.follow_up_jobs add column if not exists message_id uuid references public.messages(id)$sql_39_26$;
 
 -- smart-follow-ups.sql: source statement 27
-execute $sql_38_27$alter table public.follow_up_jobs add column if not exists provider_message_id text$sql_38_27$;
+execute $sql_39_27$alter table public.follow_up_jobs add column if not exists provider_message_id text$sql_39_27$;
 
 -- smart-follow-ups.sql: source statement 28
-execute $sql_38_28$alter table public.follow_up_jobs add column if not exists reserved_monthly integer not null default 0$sql_38_28$;
+execute $sql_39_28$alter table public.follow_up_jobs add column if not exists reserved_monthly integer not null default 0$sql_39_28$;
 
 -- smart-follow-ups.sql: source statement 29
-execute $sql_38_29$alter table public.follow_up_jobs add column if not exists reserved_topup integer not null default 0$sql_38_29$;
+execute $sql_39_29$alter table public.follow_up_jobs add column if not exists reserved_topup integer not null default 0$sql_39_29$;
 
 -- smart-follow-ups.sql: source statement 30
-execute $sql_38_30$alter table public.follow_up_jobs add column if not exists delivery_lease uuid$sql_38_30$;
+execute $sql_39_30$alter table public.follow_up_jobs add column if not exists delivery_lease uuid$sql_39_30$;
 
 -- smart-follow-ups.sql: source statement 31
-execute $sql_38_31$alter table public.follow_up_jobs add column if not exists responded_at timestamptz$sql_38_31$;
+execute $sql_39_31$alter table public.follow_up_jobs add column if not exists responded_at timestamptz$sql_39_31$;
 
 -- smart-follow-ups.sql: source statement 32
-execute $sql_38_32$alter table public.follow_up_jobs add column if not exists ai_approved boolean not null default false$sql_38_32$;
+execute $sql_39_32$alter table public.follow_up_jobs add column if not exists ai_approved boolean not null default false$sql_39_32$;
 
 -- smart-follow-ups.sql: source statement 33
-execute $sql_38_33$create unique index if not exists follow_up_order_step on public.follow_up_jobs(order_id,kind,step) where order_id is not null$sql_38_33$;
+execute $sql_39_33$create unique index if not exists follow_up_order_step on public.follow_up_jobs(order_id,kind,step) where order_id is not null$sql_39_33$;
 
 -- smart-follow-ups.sql: source statement 34
-execute $sql_38_34$create unique index if not exists follow_up_interest_step on public.follow_up_jobs(source_message_id,step) where kind='interested'$sql_38_34$;
+execute $sql_39_34$create unique index if not exists follow_up_interest_step on public.follow_up_jobs(source_message_id,step) where kind='interested'$sql_39_34$;
 
 -- smart-follow-ups.sql: source statement 35
-execute $sql_38_35$create index if not exists follow_up_pending_due on public.follow_up_jobs(run_at,id) where status='pending'$sql_38_35$;
+execute $sql_39_35$create index if not exists follow_up_pending_due on public.follow_up_jobs(run_at,id) where status='pending'$sql_39_35$;
 
 -- smart-follow-ups.sql: source statement 36
-execute $sql_38_36$create index if not exists follow_up_processing_lease on public.follow_up_jobs(claim_until) where status='processing'$sql_38_36$;
+execute $sql_39_36$create index if not exists follow_up_processing_lease on public.follow_up_jobs(claim_until) where status='processing'$sql_39_36$;
 
 -- smart-follow-ups.sql: source statement 37
-execute $sql_38_37$create index if not exists follow_up_contact_rate on public.follow_up_jobs(customer_id,dispatch_started_at desc) where dispatch_started_at is not null$sql_38_37$;
+execute $sql_39_37$create index if not exists follow_up_contact_rate on public.follow_up_jobs(customer_id,dispatch_started_at desc) where dispatch_started_at is not null$sql_39_37$;
 
 -- smart-follow-ups.sql: source statement 38
-execute $sql_38_38$create table if not exists public.follow_up_execution_logs(
+execute $sql_39_38$create table if not exists public.follow_up_execution_logs(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),job_id uuid not null references public.follow_up_jobs(id),
  status text not null,reason text,actor_id uuid references auth.users(id),created_at timestamptz not null default now()
-)$sql_38_38$;
+)$sql_39_38$;
 
 -- smart-follow-ups.sql: source statement 39
-execute $sql_38_39$create index if not exists follow_up_logs_tenant on public.follow_up_execution_logs(tenant_id,created_at desc)$sql_38_39$;
+execute $sql_39_39$create index if not exists follow_up_logs_tenant on public.follow_up_execution_logs(tenant_id,created_at desc)$sql_39_39$;
 
 -- smart-follow-ups.sql: source statement 46
-execute $sql_38_46$do $$declare tab text;begin
+execute $sql_39_46$do $$declare tab text;begin
  foreach tab in array array['follow_up_policies','follow_up_workflows','order_delivery_events','follow_up_execution_logs'] loop
   execute format('alter table public.%I enable row level security',tab);
   execute format('revoke all on public.%I from public,anon,authenticated',tab);
@@ -4342,37 +4405,37 @@ execute $sql_38_46$do $$declare tab text;begin
   execute format('drop policy if exists tenant_read on public.%I',tab);
   execute format('create policy tenant_read on public.%I for select to authenticated using(public.can_access_tenant(tenant_id) and public.has_tenant_feature(tenant_id,''customer_follow_up''))',tab);
  end loop;
-end $$$sql_38_46$;
+end $$$sql_39_46$;
 
 -- smart-follow-ups.sql: source statement 47
-execute $sql_38_47$revoke update(status,reason) on public.follow_up_jobs from authenticated$sql_38_47$;
+execute $sql_39_47$revoke update(status,reason) on public.follow_up_jobs from authenticated$sql_39_47$;
 
 -- smart-follow-ups.sql: source statement 48
-execute $sql_38_48$revoke insert,update,delete on public.follow_up_jobs from authenticated,anon$sql_38_48$;
+execute $sql_39_48$revoke insert,update,delete on public.follow_up_jobs from authenticated,anon$sql_39_48$;
 
 -- smart-follow-ups.sql: source statement 49
-execute $sql_38_49$grant select(followup_opted_out,followup_opted_out_at,contact_suspended) on public.customers to authenticated$sql_38_49$;
+execute $sql_39_49$grant select(followup_opted_out,followup_opted_out_at,contact_suspended) on public.customers to authenticated$sql_39_49$;
 
 -- smart-follow-ups.sql: source statement 50
-execute $sql_38_50$grant select(confirmed_at) on public.orders to authenticated$sql_38_50$;
+execute $sql_39_50$grant select(confirmed_at) on public.orders to authenticated$sql_39_50$;
 
 -- smart-follow-ups.sql: source statement 51
-execute $sql_38_51$create or replace function public.log_follow_up_state() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_39_51$create or replace function public.log_follow_up_state() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if tg_op='INSERT' or new.status is distinct from old.status or new.reason is distinct from old.reason then
   insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason) values(new.tenant_id,new.id,new.status,new.reason);
  end if;return new;
-end $$$sql_38_51$;
+end $$$sql_39_51$;
 
 -- smart-follow-ups.sql: source statement 52
-execute $sql_38_52$drop trigger if exists follow_up_state_log on public.follow_up_jobs$sql_38_52$;
+execute $sql_39_52$drop trigger if exists follow_up_state_log on public.follow_up_jobs$sql_39_52$;
 
 -- smart-follow-ups.sql: source statement 53
-execute $sql_38_53$create trigger follow_up_state_log after insert or update on public.follow_up_jobs for each row execute function public.log_follow_up_state()$sql_38_53$;
+execute $sql_39_53$create trigger follow_up_state_log after insert or update on public.follow_up_jobs for each row execute function public.log_follow_up_state()$sql_39_53$;
 
 -- smart-follow-ups.sql: source statement 54
 begin
-execute $sql_38_54$create or replace function public.enqueue_follow_up(p_tenant uuid,p_customer uuid,p_kind text,p_order uuid default null,p_source uuid default null,p_product uuid default null) returns void
+execute $sql_39_54$create or replace function public.enqueue_follow_up(p_tenant uuid,p_customer uuid,p_kind text,p_order uuid default null,p_source uuid default null,p_product uuid default null) returns void
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare w public.follow_up_workflows;c public.customers;anchor timestamptz;st jsonb;n integer:=0;source_sequence bigint;
 begin
@@ -4400,59 +4463,59 @@ begin
    case when w.use_ai then 'requires_review' else 'pending' end,case when w.use_ai then 'ai_draft' else null end)
   on conflict do nothing;
  end loop;
-end $$$sql_38_54$;
+end $$$sql_39_54$;
 exception when invalid_function_definition then
   -- A newer signature of enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- smart-follow-ups.sql: source statement 55
-execute $sql_38_55$create or replace function public.schedule_follow_ups() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_39_55$create or replace function public.schedule_follow_ups() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  update public.follow_up_jobs set status='cancelled',reason='new_order' where customer_id=new.customer_id and tenant_id=new.tenant_id and kind='interested' and (status in ('pending','requires_review') or status='processing' and dispatch_started_at is null);
  if new.status='pending_payment' then perform public.enqueue_follow_up(new.tenant_id,new.customer_id,'payment',new.id);end if;
  return new;
-end $$$sql_38_55$;
+end $$$sql_39_55$;
 
 -- smart-follow-ups.sql: source statement 56
-execute $sql_38_56$create or replace function public.confirm_cf_order() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_39_56$create or replace function public.confirm_cf_order() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.message_id is not null and exists(select 1 from public.messages m where m.id=new.message_id and m.customer_id=new.customer_id and m.sender='customer') then new.confirmed_at:=coalesce(new.confirmed_at,now());end if;
  return new;
-end $$$sql_38_56$;
+end $$$sql_39_56$;
 
 -- smart-follow-ups.sql: source statement 57
-execute $sql_38_57$drop trigger if exists orders_confirm_cf on public.orders$sql_38_57$;
+execute $sql_39_57$drop trigger if exists orders_confirm_cf on public.orders$sql_39_57$;
 
 -- smart-follow-ups.sql: source statement 58
-execute $sql_38_58$create trigger orders_confirm_cf before insert on public.orders for each row execute function public.confirm_cf_order()$sql_38_58$;
+execute $sql_39_58$create trigger orders_confirm_cf before insert on public.orders for each row execute function public.confirm_cf_order()$sql_39_58$;
 
 -- smart-follow-ups.sql: source statement 59
-execute $sql_38_59$create or replace function public.cancel_paid_follow_ups() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_39_59$create or replace function public.cancel_paid_follow_ups() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status<>old.status and new.status in ('paid','shipped','cancelled') then
   update public.follow_up_jobs set status='cancelled',reason=case when new.status='cancelled' then 'order_cancelled' else 'paid' end
   where order_id=new.id and (kind='payment' or new.status='cancelled') and (status in ('pending','requires_review') or status='processing' and dispatch_started_at is null);
  end if;return null;
-end $$$sql_38_59$;
+end $$$sql_39_59$;
 
 -- smart-follow-ups.sql: source statement 60
-execute $sql_38_60$create or replace function public.on_follow_up_customer() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_39_60$create or replace function public.on_follow_up_customer() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.followup_opted_out or new.contact_suspended or not new.bot_enabled or new.assigned_user_id is not null or new.conversation_status='closed' then
   update public.follow_up_jobs set status='cancelled',reason=case when new.followup_opted_out then 'opt_out' when new.contact_suspended then 'contact_suspended' else 'handover' end
   where customer_id=new.id and (status in ('pending','requires_review') or status='processing' and dispatch_started_at is null);
  end if;return null;
-end $$$sql_38_60$;
+end $$$sql_39_60$;
 
 -- smart-follow-ups.sql: source statement 61
-execute $sql_38_61$drop trigger if exists customers_follow_up_stop on public.customers$sql_38_61$;
+execute $sql_39_61$drop trigger if exists customers_follow_up_stop on public.customers$sql_39_61$;
 
 -- smart-follow-ups.sql: source statement 62
-execute $sql_38_62$create trigger customers_follow_up_stop after update of followup_opted_out,contact_suspended,bot_enabled,assigned_user_id,conversation_status on public.customers for each row execute function public.on_follow_up_customer()$sql_38_62$;
+execute $sql_39_62$create trigger customers_follow_up_stop after update of followup_opted_out,contact_suspended,bot_enabled,assigned_user_id,conversation_status on public.customers for each row execute function public.on_follow_up_customer()$sql_39_62$;
 
 -- smart-follow-ups.sql: source statement 63
-execute $sql_38_63$create or replace function public.on_follow_up_message() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_39_63$create or replace function public.on_follow_up_message() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 declare normalized text;
 begin
  if new.sender<>'customer' then return null;end if;
@@ -4466,31 +4529,31 @@ begin
  update public.follow_up_jobs j set status='cancelled',reason='customer_replied' from public.follow_up_workflows w
  where j.customer_id=new.customer_id and w.id=j.workflow_id and (w.stop_on_reply or j.kind='interested') and j.source_seq<new.inbound_seq and (j.status in ('pending','requires_review') or j.status='processing' and j.dispatch_started_at is null);
  return null;
-end $$$sql_38_63$;
+end $$$sql_39_63$;
 
 -- smart-follow-ups.sql: source statement 64
-execute $sql_38_64$drop trigger if exists messages_follow_up_stop on public.messages$sql_38_64$;
+execute $sql_39_64$drop trigger if exists messages_follow_up_stop on public.messages$sql_39_64$;
 
 -- smart-follow-ups.sql: source statement 65
-execute $sql_38_65$create trigger messages_follow_up_stop after insert on public.messages for each row execute function public.on_follow_up_message()$sql_38_65$;
+execute $sql_39_65$create trigger messages_follow_up_stop after insert on public.messages for each row execute function public.on_follow_up_message()$sql_39_65$;
 
 -- smart-follow-ups.sql: source statement 66
-execute $sql_38_66$create or replace function public.on_follow_up_delivery() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_39_66$create or replace function public.on_follow_up_delivery() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if not exists(select 1 from public.orders where id=new.order_id and tenant_id=new.tenant_id and customer_id=new.customer_id and status='shipped' and created_at<=new.delivered_at)
   or new.delivered_at>clock_timestamp()+interval '2 minutes' then raise exception 'Actual shipped order and delivery evidence required' using errcode='22023';end if;
  perform public.enqueue_follow_up(new.tenant_id,new.customer_id,'after_sales',new.order_id);
  return null;
-end $$$sql_38_66$;
+end $$$sql_39_66$;
 
 -- smart-follow-ups.sql: source statement 67
-execute $sql_38_67$drop trigger if exists delivery_schedule_follow_up on public.order_delivery_events$sql_38_67$;
+execute $sql_39_67$drop trigger if exists delivery_schedule_follow_up on public.order_delivery_events$sql_39_67$;
 
 -- smart-follow-ups.sql: source statement 68
-execute $sql_38_68$create trigger delivery_schedule_follow_up after insert on public.order_delivery_events for each row execute function public.on_follow_up_delivery()$sql_38_68$;
+execute $sql_39_68$create trigger delivery_schedule_follow_up after insert on public.order_delivery_events for each row execute function public.on_follow_up_delivery()$sql_39_68$;
 
 -- smart-follow-ups.sql: source statement 69
-execute $sql_38_69$create or replace function public.claim_follow_up_jobs(p_tenant uuid default null,p_limit integer default 5) returns setof public.follow_up_jobs
+execute $sql_39_69$create or replace function public.claim_follow_up_jobs(p_tenant uuid default null,p_limit integer default 5) returns setof public.follow_up_jobs
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  -- Once dispatch starts, a crashed worker must NEVER guess that the request was not delivered.
@@ -4503,10 +4566,10 @@ begin
   order by run_at,id limit least(greatest(p_limit,1),10) for update skip locked
  ) update public.follow_up_jobs j set status='processing',claim_token=gen_random_uuid(),claim_until=clock_timestamp()+interval '2 minutes',attempts=attempts+1,reason=null
  from due where j.id=due.id returning j.*;
-end $$$sql_38_69$;
+end $$$sql_39_69$;
 
 -- smart-follow-ups.sql: source statement 70
-execute $sql_38_70$create or replace function public.render_smart_follow_up(p_template text,p_name text,p_product text,p_total numeric) returns text
+execute $sql_39_70$create or replace function public.render_smart_follow_up(p_template text,p_name text,p_product text,p_total numeric) returns text
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare remaining text:=p_template;result text:='';matched text[];token text;at_position integer;value text;
 begin
@@ -4518,17 +4581,17 @@ begin
   result:=result||left(remaining,at_position-1)||value;remaining:=substring(remaining from at_position+length(token));
  end loop;
  return result||remaining;
-end $$$sql_38_70$;
+end $$$sql_39_70$;
 
 -- smart-follow-ups.sql: source statement 71
-execute $sql_38_71$revoke all on function public.render_smart_follow_up(text,text,text,numeric) from public,anon,authenticated$sql_38_71$;
+execute $sql_39_71$revoke all on function public.render_smart_follow_up(text,text,text,numeric) from public,anon,authenticated$sql_39_71$;
 
 -- smart-follow-ups.sql: source statement 72
-execute $sql_38_72$grant execute on function public.render_smart_follow_up(text,text,text,numeric) to service_role$sql_38_72$;
+execute $sql_39_72$grant execute on function public.render_smart_follow_up(text,text,text,numeric) to service_role$sql_39_72$;
 
 -- smart-follow-ups.sql: source statement 73
 begin
-execute $sql_38_73$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_39_73$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 <<preflight>>
 declare j public.follow_up_jobs;c public.customers;w public.follow_up_workflows;p public.follow_up_policies;t public.tenants;o public.orders;
@@ -4600,7 +4663,7 @@ begin
  insert into public.messages(customer_id,sender,external_id,body,delivery_status) values(c.id,'bot','followup:'||j.id::text,rendered,'pending') returning id into msg;
  update public.follow_up_jobs set dispatch_started_at=clock_timestamp(),message_id=msg,delivery_lease=lease,reserved_monthly=reservation.monthly,reserved_topup=reservation.topup where id=j.id;
  return jsonb_build_object('status','ready','text',rendered,'customerId',c.id,'psid',c.platform_user_id,'tenantId',j.tenant_id,'messageId',msg);
-end $$$sql_38_73$;
+end $$$sql_39_73$;
 exception when invalid_function_definition then
   -- A newer signature of prepare_follow_up(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
@@ -4608,7 +4671,7 @@ end;
 
 -- smart-follow-ups.sql: source statement 74
 begin
-execute $sql_38_74$create or replace function public.complete_follow_up(p_job uuid,p_claim uuid,p_result text,p_provider text default null,p_reason text default null) returns boolean
+execute $sql_39_74$create or replace function public.complete_follow_up(p_job uuid,p_claim uuid,p_result text,p_provider text default null,p_reason text default null) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;
 begin
@@ -4625,19 +4688,19 @@ begin
   claim_token=null,claim_until=null,reserved_monthly=0,reserved_topup=0 where id=j.id;
  perform public.end_inbox_delivery(j.customer_id,j.delivery_lease);
  return true;
-end $$$sql_38_74$;
+end $$$sql_39_74$;
 exception when invalid_function_definition then
   -- A newer signature of complete_follow_up(uuid,uuid,text,text,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- smart-follow-ups.sql: source statement 75
-execute $sql_38_75$create or replace function public.follow_up_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
+execute $sql_39_75$create or replace function public.follow_up_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
  select jsonb_build_object('pending',count(*) filter(where status='pending'),'processing',count(*) filter(where status='processing'),'sent',count(*) filter(where status='sent'),'requires_review',count(*) filter(where status='requires_review'),'cancelled',count(*) filter(where status in ('cancelled','skipped')),'failed',count(*) filter(where status='failed'),'responded',count(distinct customer_id) filter(where responded_at is not null)) from public.follow_up_jobs where tenant_id=p_tenant and created_at>now()-interval '30 days'
-$$$sql_38_75$;
+$$$sql_39_75$;
 
 -- smart-follow-ups.sql: source statement 76
-execute $sql_38_76$create or replace function public.save_smart_follow_up(p_tenant uuid,p_actor uuid,p_policy jsonb,p_workflows jsonb) returns void
+execute $sql_39_76$create or replace function public.save_smart_follow_up(p_tenant uuid,p_actor uuid,p_policy jsonb,p_workflows jsonb) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare row jsonb;st jsonb;previous integer;n integer;current_version integer;
 begin
@@ -4668,10 +4731,10 @@ begin
  end loop;
  update public.follow_up_jobs set status='cancelled',reason=case when (p_policy->>'enabled')::boolean then 'workflow_changed' else 'disabled' end where tenant_id=p_tenant and (status in ('pending','requires_review') or status='processing' and dispatch_started_at is null);
  -- Existing in-flight deliveries are never retried; changes apply to new orders/events.
-end $$$sql_38_76$;
+end $$$sql_39_76$;
 
 -- smart-follow-ups.sql: source statement 77
-execute $sql_38_77$create or replace function public.act_follow_up_job(p_job uuid,p_tenant uuid,p_actor uuid,p_action text,p_text text default null) returns void
+execute $sql_39_77$create or replace function public.act_follow_up_job(p_job uuid,p_tenant uuid,p_actor uuid,p_action text,p_text text default null) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;
 begin
@@ -4687,10 +4750,10 @@ begin
   update public.follow_up_jobs set status='pending',reason=null,run_at=greatest(run_at,now()),attempts=0 where id=j.id;
  else raise exception 'Unsafe action' using errcode='22023';end if;
  insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason,actor_id) values(p_tenant,j.id,'admin_action',p_action,p_actor);
-end $$$sql_38_77$;
+end $$$sql_39_77$;
 
 -- smart-follow-ups.sql: source statement 78
-execute $sql_38_78$create or replace function public.confirm_follow_up_order(p_order uuid,p_tenant uuid,p_actor uuid) returns void
+execute $sql_39_78$create or replace function public.confirm_follow_up_order(p_order uuid,p_tenant uuid,p_actor uuid) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare c uuid;
 begin
@@ -4698,41 +4761,41 @@ begin
  update public.orders set confirmed_at=coalesce(confirmed_at,now()) where id=p_order and tenant_id=p_tenant and status='pending_payment' returning customer_id into c;
  if c is null then raise exception 'Pending order not found' using errcode='P0002';end if;
  perform public.enqueue_follow_up(p_tenant,c,'payment',p_order);
-end $$$sql_38_78$;
+end $$$sql_39_78$;
 
 -- smart-follow-ups.sql: source statement 79
-execute $sql_38_79$revoke all on function public.confirm_follow_up_order(uuid,uuid,uuid) from public,anon,authenticated$sql_38_79$;
+execute $sql_39_79$revoke all on function public.confirm_follow_up_order(uuid,uuid,uuid) from public,anon,authenticated$sql_39_79$;
 
 -- smart-follow-ups.sql: source statement 80
-execute $sql_38_80$grant execute on function public.confirm_follow_up_order(uuid,uuid,uuid) to service_role$sql_38_80$;
+execute $sql_39_80$grant execute on function public.confirm_follow_up_order(uuid,uuid,uuid) to service_role$sql_39_80$;
 
 -- smart-follow-ups.sql: source statement 81
-execute $sql_38_81$revoke all on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb),public.act_follow_up_job(uuid,uuid,uuid,text,text) from public,anon,authenticated$sql_38_81$;
+execute $sql_39_81$revoke all on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb),public.act_follow_up_job(uuid,uuid,uuid,text,text) from public,anon,authenticated$sql_39_81$;
 
 -- smart-follow-ups.sql: source statement 82
-execute $sql_38_82$grant execute on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb),public.act_follow_up_job(uuid,uuid,uuid,text,text) to service_role$sql_38_82$;
+execute $sql_39_82$grant execute on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb),public.act_follow_up_job(uuid,uuid,uuid,text,text) to service_role$sql_39_82$;
 
 -- smart-follow-ups.sql: source statement 83
-execute $sql_38_83$revoke all on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid),public.claim_follow_up_jobs(uuid,integer),public.prepare_follow_up(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.follow_up_overview(uuid),public.log_follow_up_state(),public.confirm_cf_order(),public.on_follow_up_customer(),public.on_follow_up_message(),public.on_follow_up_delivery() from public,anon,authenticated$sql_38_83$;
+execute $sql_39_83$revoke all on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid),public.claim_follow_up_jobs(uuid,integer),public.prepare_follow_up(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.follow_up_overview(uuid),public.log_follow_up_state(),public.confirm_cf_order(),public.on_follow_up_customer(),public.on_follow_up_message(),public.on_follow_up_delivery() from public,anon,authenticated$sql_39_83$;
 
 -- smart-follow-ups.sql: source statement 84
-execute $sql_38_84$grant execute on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid),public.claim_follow_up_jobs(uuid,integer),public.prepare_follow_up(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.follow_up_overview(uuid) to service_role$sql_38_84$;
+execute $sql_39_84$grant execute on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid),public.claim_follow_up_jobs(uuid,integer),public.prepare_follow_up(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.follow_up_overview(uuid) to service_role$sql_39_84$;
 
 -- smart-follow-ups.sql: source statement 85
-execute $sql_38_85$do $$declare tab text;begin
+execute $sql_39_85$do $$declare tab text;begin
  foreach tab in array array['follow_up_workflows','follow_up_policies'] loop
   if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename=tab) then execute format('alter publication supabase_realtime add table public.%I',tab);end if;
  end loop;
-end $$$sql_38_85$;
+end $$$sql_39_85$;
 
 -- smart-follow-ups.sql: source statement 86
-execute $sql_38_86$notify pgrst,'reload schema'$sql_38_86$;
+execute $sql_39_86$notify pgrst,'reload schema'$sql_39_86$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('smart-follow-ups.sql','d21abb2a3fc187d74128338926d59140259d1e4ebe8b36dc42806433e20d5f0a','1a1337af816ff8cb005eb12a2753e1595f0857de717cfe955736cf0769898db1');
-end $migration_38$;
+end $migration_39$;
 
--- 40. agent-control.sql
-do $migration_39$
+-- 41. agent-control.sql
+do $migration_40$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='agent-control.sql';
@@ -4743,61 +4806,61 @@ begin
     return;
   end if;
 -- agent-control.sql: source statement 2
-execute $sql_39_2$alter table public.customers add column if not exists agent_opted_out boolean not null default false$sql_39_2$;
+execute $sql_40_2$alter table public.customers add column if not exists agent_opted_out boolean not null default false$sql_40_2$;
 
 -- agent-control.sql: source statement 3
-execute $sql_39_3$create table if not exists public.agent_control_settings(
+execute $sql_40_3$create table if not exists public.agent_control_settings(
  tenant_id uuid primary key references public.tenants(id),flags jsonb not null default '{}' check(jsonb_typeof(flags)='object'),
  ai_monthly_limit integer not null default 0 check(ai_monthly_limit between 0 and 1000000),requests_per_minute integer not null default 10 check(requests_per_minute between 1 and 100)
-)$sql_39_3$;
+)$sql_40_3$;
 
 -- agent-control.sql: source statement 4
-execute $sql_39_4$create table if not exists public.agent_knowledge_sources(
+execute $sql_40_4$create table if not exists public.agent_knowledge_sources(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),
  kind text not null check(kind in ('shop','shipping','warranty','returns','faq','forbidden','handoff')),title text not null check(length(trim(title)) between 1 and 100),
  content text not null check(length(trim(content)) between 1 and 2000),is_active boolean not null default true,created_at timestamptz not null default now(),updated_at timestamptz not null default now()
-)$sql_39_4$;
+)$sql_40_4$;
 
 -- agent-control.sql: source statement 5
-execute $sql_39_5$create table if not exists public.agent_prompt_versions(
+execute $sql_40_5$create table if not exists public.agent_prompt_versions(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),version integer not null,instructions text,
  actor_id uuid references auth.users(id),created_at timestamptz not null default now(),unique(tenant_id,version)
-)$sql_39_5$;
+)$sql_40_5$;
 
 -- agent-control.sql: source statement 6
-execute $sql_39_6$create table if not exists public.agent_message_jobs(
+execute $sql_40_6$create table if not exists public.agent_message_jobs(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),customer_id uuid not null references public.customers(id),message_id uuid not null unique references public.messages(id),
  inbound_seq bigint not null,status text not null default 'processing' check(status in ('processing','draft','sent','review','skipped','failed')),route text,reason text,
  claim_token uuid,claim_until timestamptz,dispatch_started_at timestamptz,created_at timestamptz not null default now(),updated_at timestamptz not null default now()
-)$sql_39_6$;
+)$sql_40_6$;
 
 -- agent-control.sql: source statement 7
-execute $sql_39_7$create table if not exists public.agent_ai_monthly_usage(tenant_id uuid not null references public.tenants(id),month date not null,used integer not null default 0 check(used>=0),primary key(tenant_id,month))$sql_39_7$;
+execute $sql_40_7$create table if not exists public.agent_ai_monthly_usage(tenant_id uuid not null references public.tenants(id),month date not null,used integer not null default 0 check(used>=0),primary key(tenant_id,month))$sql_40_7$;
 
 -- agent-control.sql: source statement 8
-execute $sql_39_8$create table if not exists public.agent_ai_usage(
+execute $sql_40_8$create table if not exists public.agent_ai_usage(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),customer_id uuid references public.customers(id),job_id uuid unique references public.agent_message_jobs(id),
  invocation_key uuid not null unique,status text not null default 'started' check(status in ('started','completed','review','provider_error')),
  input_tokens integer,output_tokens integer,cost_baht numeric,source_ids jsonb not null default '[]',reason text,created_at timestamptz not null default now(),completed_at timestamptz
-)$sql_39_8$;
+)$sql_40_8$;
 
 -- agent-control.sql: source statement 9
-execute $sql_39_9$create table if not exists public.agent_control_audit(id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),actor_id uuid references auth.users(id),event text not null,subject_id uuid,detail text,created_at timestamptz not null default now())$sql_39_9$;
+execute $sql_40_9$create table if not exists public.agent_control_audit(id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),actor_id uuid references auth.users(id),event text not null,subject_id uuid,detail text,created_at timestamptz not null default now())$sql_40_9$;
 
 -- agent-control.sql: source statement 10
-execute $sql_39_10$create index if not exists agent_jobs_tenant on public.agent_message_jobs(tenant_id,created_at desc)$sql_39_10$;
+execute $sql_40_10$create index if not exists agent_jobs_tenant on public.agent_message_jobs(tenant_id,created_at desc)$sql_40_10$;
 
 -- agent-control.sql: source statement 11
-execute $sql_39_11$create index if not exists agent_usage_rate on public.agent_ai_usage(tenant_id,created_at desc)$sql_39_11$;
+execute $sql_40_11$create index if not exists agent_usage_rate on public.agent_ai_usage(tenant_id,created_at desc)$sql_40_11$;
 
 -- agent-control.sql: source statement 12
-execute $sql_39_12$create index if not exists agent_knowledge_tenant on public.agent_knowledge_sources(tenant_id,is_active)$sql_39_12$;
+execute $sql_40_12$create index if not exists agent_knowledge_tenant on public.agent_knowledge_sources(tenant_id,is_active)$sql_40_12$;
 
 -- agent-control.sql: source statement 13
-execute $sql_39_13$create index if not exists agent_audit_tenant on public.agent_control_audit(tenant_id,created_at desc)$sql_39_13$;
+execute $sql_40_13$create index if not exists agent_audit_tenant on public.agent_control_audit(tenant_id,created_at desc)$sql_40_13$;
 
 -- agent-control.sql: source statement 14
-execute $sql_39_14$do $$declare tab text;begin
+execute $sql_40_14$do $$declare tab text;begin
  foreach tab in array array['agent_control_settings','agent_knowledge_sources','agent_prompt_versions','agent_message_jobs','agent_ai_monthly_usage','agent_ai_usage','agent_control_audit'] loop
   execute format('alter table public.%I enable row level security',tab);
   execute format('revoke all on public.%I from public,anon,authenticated',tab);
@@ -4806,25 +4869,25 @@ execute $sql_39_14$do $$declare tab text;begin
   execute format('drop policy if exists tenant_read on public.%I',tab);
   execute format('create policy tenant_read on public.%I for select to authenticated using(public.can_access_tenant(tenant_id) and public.has_tenant_feature(tenant_id,''ai_agent''))',tab);
  end loop;
-end $$$sql_39_14$;
+end $$$sql_40_14$;
 
 -- agent-control.sql: source statement 15
-execute $sql_39_15$grant select(agent_opted_out) on public.customers to authenticated$sql_39_15$;
+execute $sql_40_15$grant select(agent_opted_out) on public.customers to authenticated$sql_40_15$;
 
 -- agent-control.sql: source statement 16
-execute $sql_39_16$revoke select on public.agent_message_jobs,public.agent_ai_usage,public.agent_prompt_versions from authenticated$sql_39_16$;
+execute $sql_40_16$revoke select on public.agent_message_jobs,public.agent_ai_usage,public.agent_prompt_versions from authenticated$sql_40_16$;
 
 -- agent-control.sql: source statement 17
-execute $sql_39_17$grant select(id,tenant_id,status,route,reason,created_at,updated_at) on public.agent_message_jobs to authenticated$sql_39_17$;
+execute $sql_40_17$grant select(id,tenant_id,status,route,reason,created_at,updated_at) on public.agent_message_jobs to authenticated$sql_40_17$;
 
 -- agent-control.sql: source statement 18
-execute $sql_39_18$grant select(id,tenant_id,status,input_tokens,output_tokens,cost_baht,source_ids,reason,created_at,completed_at) on public.agent_ai_usage to authenticated$sql_39_18$;
+execute $sql_40_18$grant select(id,tenant_id,status,input_tokens,output_tokens,cost_baht,source_ids,reason,created_at,completed_at) on public.agent_ai_usage to authenticated$sql_40_18$;
 
 -- agent-control.sql: source statement 19
-execute $sql_39_19$grant select(id,tenant_id,version,actor_id,created_at) on public.agent_prompt_versions to authenticated$sql_39_19$;
+execute $sql_40_19$grant select(id,tenant_id,version,actor_id,created_at) on public.agent_prompt_versions to authenticated$sql_40_19$;
 
 -- agent-control.sql: source statement 21
-execute $sql_39_21$create or replace function public.record_agent_prompt() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_40_21$create or replace function public.record_agent_prompt() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 declare revision integer;actor uuid:=coalesce(auth.uid(),nullif(current_setting('snapbot.agent_actor',true),'')::uuid);
 begin
  if tg_op='INSERT' or new.ai_instructions is distinct from old.ai_instructions then
@@ -4832,16 +4895,16 @@ begin
   insert into public.agent_prompt_versions(tenant_id,version,instructions,actor_id) values(new.tenant_id,revision,new.ai_instructions,actor);
   insert into public.agent_control_audit(tenant_id,actor_id,event,detail) values(new.tenant_id,actor,'prompt_version',revision::text);
  end if;return null;
-end $$$sql_39_21$;
+end $$$sql_40_21$;
 
 -- agent-control.sql: source statement 22
-execute $sql_39_22$drop trigger if exists bot_settings_agent_version on public.bot_settings$sql_39_22$;
+execute $sql_40_22$drop trigger if exists bot_settings_agent_version on public.bot_settings$sql_40_22$;
 
 -- agent-control.sql: source statement 23
-execute $sql_39_23$create trigger bot_settings_agent_version after insert or update of ai_instructions on public.bot_settings for each row execute function public.record_agent_prompt()$sql_39_23$;
+execute $sql_40_23$create trigger bot_settings_agent_version after insert or update of ai_instructions on public.bot_settings for each row execute function public.record_agent_prompt()$sql_40_23$;
 
 -- agent-control.sql: source statement 24
-execute $sql_39_24$create or replace function public.agent_customer_consent() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_40_24$create or replace function public.agent_customer_consent() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 declare target uuid;normalized text;
 begin
  if new.sender<>'customer' then return null;end if;
@@ -4855,28 +4918,28 @@ begin
   update public.customers set agent_opted_out=false where id=new.customer_id;
   insert into public.agent_control_audit(tenant_id,event,subject_id) values(target,'customer_opt_in',new.customer_id);
  end if;return null;
-end $$$sql_39_24$;
+end $$$sql_40_24$;
 
 -- agent-control.sql: source statement 25
-execute $sql_39_25$drop trigger if exists messages_agent_consent on public.messages$sql_39_25$;
+execute $sql_40_25$drop trigger if exists messages_agent_consent on public.messages$sql_40_25$;
 
 -- agent-control.sql: source statement 26
-execute $sql_39_26$create trigger messages_agent_consent after insert on public.messages for each row execute function public.agent_customer_consent()$sql_39_26$;
+execute $sql_40_26$create trigger messages_agent_consent after insert on public.messages for each row execute function public.agent_customer_consent()$sql_40_26$;
 
 -- agent-control.sql: source statement 27
-execute $sql_39_27$create or replace function public.guard_agent_consent() returns trigger language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_27$create or replace function public.guard_agent_consent() returns trigger language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.bot_enabled and new.agent_opted_out then raise exception 'Customer opted out' using errcode='42501';end if;return new;
-end $$$sql_39_27$;
+end $$$sql_40_27$;
 
 -- agent-control.sql: source statement 28
-execute $sql_39_28$drop trigger if exists customers_agent_consent_guard on public.customers$sql_39_28$;
+execute $sql_40_28$drop trigger if exists customers_agent_consent_guard on public.customers$sql_40_28$;
 
 -- agent-control.sql: source statement 29
-execute $sql_39_29$create trigger customers_agent_consent_guard before update of bot_enabled on public.customers for each row execute function public.guard_agent_consent()$sql_39_29$;
+execute $sql_40_29$create trigger customers_agent_consent_guard before update of bot_enabled on public.customers for each row execute function public.guard_agent_consent()$sql_40_29$;
 
 -- agent-control.sql: source statement 30
-execute $sql_39_30$create or replace function public.claim_agent_message(p_tenant uuid,p_customer uuid,p_message uuid) returns setof public.agent_message_jobs language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_30$create or replace function public.claim_agent_message(p_tenant uuid,p_customer uuid,p_message uuid) returns setof public.agent_message_jobs language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;m public.messages;
 begin
  perform 1 from public.tenants where id=p_tenant and is_active and auto_reply_enabled for update;
@@ -4886,11 +4949,11 @@ begin
  select * into m from public.messages where id=p_message and customer_id=c.id and sender='customer' and inbound_seq=c.inbound_seq;
  if not found or exists(select 1 from public.messages where external_id in ('reply:'||p_message::text,'handover:reply:'||p_message::text)) then return;end if;
  return query insert into public.agent_message_jobs(tenant_id,customer_id,message_id,inbound_seq,claim_token,claim_until) values(p_tenant,c.id,m.id,c.inbound_seq,gen_random_uuid(),clock_timestamp()+interval '3 minutes') on conflict do nothing returning *;
-end $$$sql_39_30$;
+end $$$sql_40_30$;
 
 -- agent-control.sql: source statement 31
 begin
-execute $sql_39_31$create or replace function public.start_agent_ai_call(p_tenant uuid,p_key uuid,p_customer uuid default null,p_job uuid default null,p_claim uuid default null) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_31$create or replace function public.start_agent_ai_call(p_tenant uuid,p_key uuid,p_customer uuid default null,p_job uuid default null,p_claim uuid default null) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.agent_control_settings;j public.agent_message_jobs;used_count integer;usage_id uuid;month_start date:=date_trunc('month',now() at time zone 'UTC')::date;
 begin
  perform 1 from public.tenants where id=p_tenant for update;
@@ -4910,14 +4973,14 @@ begin
  if not found then return jsonb_build_object('reason','AI_QUOTA_EXHAUSTED');end if;
  insert into public.agent_ai_usage(tenant_id,customer_id,job_id,invocation_key) values(p_tenant,p_customer,p_job,p_key) returning id into usage_id;
  return jsonb_build_object('id',usage_id);
-end $$$sql_39_31$;
+end $$$sql_40_31$;
 exception when invalid_function_definition then
   -- A newer signature of start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- agent-control.sql: source statement 32
-execute $sql_39_32$create or replace function public.begin_agent_dispatch(p_job uuid,p_claim uuid) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_32$create or replace function public.begin_agent_dispatch(p_job uuid,p_claim uuid) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare j public.agent_message_jobs;c public.customers;
 begin
  select * into j from public.agent_message_jobs where id=p_job;
@@ -4929,45 +4992,45 @@ begin
  if not exists(select 1 from public.tenants where id=j.tenant_id and is_active and auto_reply_enabled) or not exists(select 1 from public.agent_control_settings where tenant_id=j.tenant_id and flags->'agent_orchestrator_enabled'='true'::jsonb) then return false;end if;
  if j.route='AI' and not public.has_tenant_feature(j.tenant_id,'ai_agent') then return false;end if;
  update public.agent_message_jobs set dispatch_started_at=clock_timestamp() where id=j.id;return true;
-end $$$sql_39_32$;
+end $$$sql_40_32$;
 
 -- agent-control.sql: source statement 33
-execute $sql_39_33$create or replace function public.recover_agent_jobs() returns integer language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_33$create or replace function public.recover_agent_jobs() returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare n integer;
 begin
  update public.agent_ai_usage u set status='review',reason='WORKER_RESTARTED',completed_at=now() from public.agent_message_jobs j where u.job_id=j.id and u.status='started' and j.status='processing' and j.claim_until<clock_timestamp();
  update public.agent_message_jobs set status='review',reason='WORKER_RESTARTED',claim_token=null,claim_until=null,updated_at=now() where status='processing' and claim_until<clock_timestamp();get diagnostics n=row_count;return n;
-end $$$sql_39_33$;
+end $$$sql_40_33$;
 
 -- agent-control.sql: source statement 34
-execute $sql_39_34$create or replace function public.agent_job_audit() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_40_34$create or replace function public.agent_job_audit() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if tg_op='INSERT' or new.status is distinct from old.status then insert into public.agent_control_audit(tenant_id,event,subject_id,detail) values(new.tenant_id,'job_'||new.status,new.id,new.reason);end if;return null;
-end $$$sql_39_34$;
+end $$$sql_40_34$;
 
 -- agent-control.sql: source statement 35
-execute $sql_39_35$drop trigger if exists agent_job_audit on public.agent_message_jobs$sql_39_35$;
+execute $sql_40_35$drop trigger if exists agent_job_audit on public.agent_message_jobs$sql_40_35$;
 
 -- agent-control.sql: source statement 36
-execute $sql_39_36$create trigger agent_job_audit after insert or update on public.agent_message_jobs for each row execute function public.agent_job_audit()$sql_39_36$;
+execute $sql_40_36$create trigger agent_job_audit after insert or update on public.agent_message_jobs for each row execute function public.agent_job_audit()$sql_40_36$;
 
 -- agent-control.sql: source statement 37
 begin
-execute $sql_39_37$create or replace function public.save_agent_prompt(p_tenant uuid,p_actor uuid,p_instructions text) returns void language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_37$create or replace function public.save_agent_prompt(p_tenant uuid,p_actor uuid,p_instructions text) returns void language plpgsql set search_path=pg_catalog,public as $$
 begin
  if not public.has_tenant_feature(p_tenant,'ai_agent') or not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or exists(select 1 from public.platform_admins where user_id=p_actor)) then raise exception 'Owner required' using errcode='42501';end if;
  if length(p_instructions)>8000 then raise exception 'Prompt too long' using errcode='22023';end if;
  perform set_config('snapbot.agent_actor',p_actor::text,true);
  insert into public.bot_settings(tenant_id,ai_instructions) values(p_tenant,p_instructions) on conflict(tenant_id) do update set ai_instructions=excluded.ai_instructions;
  insert into public.agent_control_audit(tenant_id,actor_id,event) values(p_tenant,p_actor,'prompt_saved');
-end $$$sql_39_37$;
+end $$$sql_40_37$;
 exception when invalid_function_definition then
   -- A newer signature of save_agent_prompt(uuid,uuid,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- agent-control.sql: source statement 38
-execute $sql_39_38$create or replace function public.manage_agent_knowledge(p_tenant uuid,p_actor uuid,p_action text,p_id uuid,p_data jsonb) returns uuid language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_38$create or replace function public.manage_agent_knowledge(p_tenant uuid,p_actor uuid,p_action text,p_id uuid,p_data jsonb) returns uuid language plpgsql set search_path=pg_catalog,public as $$
 declare changed uuid;
 begin
  if not public.has_tenant_feature(p_tenant,'ai_agent') or not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or exists(select 1 from public.platform_admins where user_id=p_actor)) then raise exception 'Owner required' using errcode='42501';end if;
@@ -4981,10 +5044,10 @@ begin
  else raise exception 'Invalid action' using errcode='22023';end if;
  if changed is null then raise exception 'Knowledge not found' using errcode='P0002';end if;
  insert into public.agent_control_audit(tenant_id,actor_id,event,subject_id) values(p_tenant,p_actor,'knowledge_'||p_action,changed);return changed;
-end $$$sql_39_38$;
+end $$$sql_40_38$;
 
 -- agent-control.sql: source statement 39
-execute $sql_39_39$create or replace function public.restore_agent_prompt(p_tenant uuid,p_actor uuid,p_version integer) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_40_39$create or replace function public.restore_agent_prompt(p_tenant uuid,p_actor uuid,p_version integer) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare content text;
 begin
  if not public.has_tenant_feature(p_tenant,'ai_agent') or not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or exists(select 1 from public.platform_admins where user_id=p_actor)) then raise exception 'Owner required' using errcode='42501';end if;
@@ -4992,28 +5055,28 @@ begin
  if not found then return false;end if;
  perform public.save_agent_prompt(p_tenant,p_actor,content);
  insert into public.agent_control_audit(tenant_id,actor_id,event,detail) values(p_tenant,p_actor,'prompt_restored',p_version::text);return true;
-end $$$sql_39_39$;
+end $$$sql_40_39$;
 
 -- agent-control.sql: source statement 40
-execute $sql_39_40$create or replace function public.agent_control_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
+execute $sql_40_40$create or replace function public.agent_control_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
  select jsonb_build_object('jobs',count(*),'sent',count(*) filter(where status='sent'),'draft',count(*) filter(where status='draft'),'review',count(*) filter(where status='review'),'handoffs',count(*) filter(where route='ADMIN'),'ai',count(*) filter(where route='AI'),'keyword',count(*) filter(where route='KEYWORD')) from public.agent_message_jobs where tenant_id=p_tenant and created_at>now()-interval '30 days'
-$$$sql_39_40$;
+$$$sql_40_40$;
 
 -- agent-control.sql: source statement 41
-execute $sql_39_41$do $$declare fn record;begin
+execute $sql_40_41$do $$declare fn record;begin
  for fn in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('record_agent_prompt','agent_customer_consent','guard_agent_consent','claim_agent_message','start_agent_ai_call','begin_agent_dispatch','recover_agent_jobs','agent_job_audit','restore_agent_prompt','save_agent_prompt','manage_agent_knowledge','agent_control_overview') loop
   execute format('revoke all on function %s from public,anon,authenticated',fn.signature);execute format('grant execute on function %s to service_role',fn.signature);
  end loop;
-end $$$sql_39_41$;
+end $$$sql_40_41$;
 
 -- agent-control.sql: source statement 42
-execute $sql_39_42$notify pgrst,'reload schema'$sql_39_42$;
+execute $sql_40_42$notify pgrst,'reload schema'$sql_40_42$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('agent-control.sql','5f9ad2e208aecc260394697ca6d6cb611e964b674338c1c96100139b38940f52','462a262220a863bbc2ceae0a130173530d9de25285a66423eff8aeb67a436cf2');
-end $migration_39$;
+end $migration_40$;
 
--- 41. agent-overview.sql
-do $migration_40$
+-- 42. agent-overview.sql
+do $migration_41$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='agent-overview.sql';
@@ -5024,7 +5087,7 @@ begin
     return;
   end if;
 -- agent-overview.sql: source statement 2
-execute $sql_40_2$create or replace function public.set_agent_overview_capability(p_tenant uuid,p_actor uuid,p_capability text,p_enabled boolean)
+execute $sql_41_2$create or replace function public.set_agent_overview_capability(p_tenant uuid,p_actor uuid,p_capability text,p_enabled boolean)
 returns void language plpgsql set search_path=pg_catalog,public as $$
 declare settings public.agent_control_settings; used_count integer; slip_remaining bigint;
 begin
@@ -5065,19 +5128,19 @@ begin
    update public.agent_control_settings set flags=jsonb_set(flags,array['capability_'||p_capability],to_jsonb(p_enabled)) where tenant_id=p_tenant;
  end if;
  insert into public.agent_control_audit(tenant_id,actor_id,event,detail) values(p_tenant,p_actor,'capability_changed',p_capability||':'||p_enabled::text);
-end $$$sql_40_2$;
+end $$$sql_41_2$;
 
 -- agent-overview.sql: source statement 3
-execute $sql_40_3$revoke all on function public.set_agent_overview_capability(uuid,uuid,text,boolean) from public,anon,authenticated$sql_40_3$;
+execute $sql_41_3$revoke all on function public.set_agent_overview_capability(uuid,uuid,text,boolean) from public,anon,authenticated$sql_41_3$;
 
 -- agent-overview.sql: source statement 4
-execute $sql_40_4$grant execute on function public.set_agent_overview_capability(uuid,uuid,text,boolean) to service_role$sql_40_4$;
+execute $sql_41_4$grant execute on function public.set_agent_overview_capability(uuid,uuid,text,boolean) to service_role$sql_41_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('agent-overview.sql','f515d46518524752be2352f7483d479dffa7408aa169247d34a7450a28d0d84b','bbd87d3b0f164c778eb52983b7862d8d8cd61dfd1bf029bc68be6af164bac819');
-end $migration_40$;
+end $migration_41$;
 
--- 42. ai-paid-access.sql
-do $migration_41$
+-- 43. ai-paid-access.sql
+do $migration_42$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='ai-paid-access.sql';
@@ -5088,35 +5151,35 @@ begin
     return;
   end if;
 -- ai-paid-access.sql: source statement 2
-execute $sql_41_2$create or replace function public.tenant_has_paid_ai_access(p_tenant uuid) returns boolean
+execute $sql_42_2$create or replace function public.tenant_has_paid_ai_access(p_tenant uuid) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
  select exists(select 1 from public.tenants t where t.id=p_tenant and t.is_active
    and t.plan in ('starter','pro') and t.plan_expires_at>now()
    and exists(select 1 from public.billing_requests r where r.tenant_id=t.id
      and r.item=t.plan and r.status='approved' and r.price_baht>0));
-$$$sql_41_2$;
+$$$sql_42_2$;
 
 -- ai-paid-access.sql: source statement 3
-execute $sql_41_3$revoke all on function public.tenant_has_paid_ai_access(uuid) from public,anon,authenticated$sql_41_3$;
+execute $sql_42_3$revoke all on function public.tenant_has_paid_ai_access(uuid) from public,anon,authenticated$sql_42_3$;
 
 -- ai-paid-access.sql: source statement 4
-execute $sql_41_4$grant execute on function public.tenant_has_paid_ai_access(uuid) to service_role$sql_41_4$;
+execute $sql_42_4$grant execute on function public.tenant_has_paid_ai_access(uuid) to service_role$sql_42_4$;
 
 -- ai-paid-access.sql: source statement 5
-execute $sql_41_5$insert into public.plan_features(plan,feature,enabled) values('starter','ai_agent',true),('pro','ai_agent',true)
-on conflict(plan,feature) do update set enabled=true$sql_41_5$;
+execute $sql_42_5$insert into public.plan_features(plan,feature,enabled) values('starter','ai_agent',true),('pro','ai_agent',true)
+on conflict(plan,feature) do update set enabled=true$sql_42_5$;
 
 -- ai-paid-access.sql: source statement 6
-execute $sql_41_6$create or replace function public.has_tenant_feature(p_tenant uuid,p_feature text) returns boolean
+execute $sql_42_6$create or replace function public.has_tenant_feature(p_tenant uuid,p_feature text) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
  select exists(select 1 from public.tenants t join public.plan_features f on f.plan=t.plan
    where t.id=p_tenant and t.is_active and t.plan in ('starter','pro') and t.plan_expires_at>now()
    and f.feature=p_feature and f.enabled
    and (p_feature not in ('ai_agent','image_assistant') or public.tenant_has_paid_ai_access(t.id)));
-$$$sql_41_6$;
+$$$sql_42_6$;
 
 -- ai-paid-access.sql: source statement 7
-execute $sql_41_7$create or replace function public.normalize_paid_ai_settings() returns trigger
+execute $sql_42_7$create or replace function public.normalize_paid_ai_settings() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if public.has_tenant_feature(new.tenant_id,'ai_agent') then
@@ -5124,17 +5187,17 @@ begin
      ||coalesce(new.flags,'{}'::jsonb)||jsonb_build_object('agent_control_center_enabled',true,'agent_orchestrator_enabled',new.ai_monthly_limit>0);
  end if;
  return new;
-end $$$sql_41_7$;
+end $$$sql_42_7$;
 
 -- ai-paid-access.sql: source statement 8
-execute $sql_41_8$drop trigger if exists paid_ai_settings_ready on public.agent_control_settings$sql_41_8$;
+execute $sql_42_8$drop trigger if exists paid_ai_settings_ready on public.agent_control_settings$sql_42_8$;
 
 -- ai-paid-access.sql: source statement 9
-execute $sql_41_9$create trigger paid_ai_settings_ready before insert or update of ai_monthly_limit on public.agent_control_settings
-for each row execute function public.normalize_paid_ai_settings()$sql_41_9$;
+execute $sql_42_9$create trigger paid_ai_settings_ready before insert or update of ai_monthly_limit on public.agent_control_settings
+for each row execute function public.normalize_paid_ai_settings()$sql_42_9$;
 
 -- ai-paid-access.sql: source statement 10
-execute $sql_41_10$create or replace function public.prepare_paid_ai_purchase() returns trigger
+execute $sql_42_10$create or replace function public.prepare_paid_ai_purchase() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status='approved' and new.item in ('starter','pro') and public.has_tenant_feature(new.tenant_id,'ai_agent') then
@@ -5142,17 +5205,17 @@ begin
    on conflict(tenant_id) do update set ai_monthly_limit=public.agent_control_settings.ai_monthly_limit;
  end if;
  return new;
-end $$$sql_41_10$;
+end $$$sql_42_10$;
 
 -- ai-paid-access.sql: source statement 11
-execute $sql_41_11$drop trigger if exists paid_ai_purchase_ready on public.billing_requests$sql_41_11$;
+execute $sql_42_11$drop trigger if exists paid_ai_purchase_ready on public.billing_requests$sql_42_11$;
 
 -- ai-paid-access.sql: source statement 12
-execute $sql_41_12$create trigger paid_ai_purchase_ready after insert or update of status on public.billing_requests
-for each row execute function public.prepare_paid_ai_purchase()$sql_41_12$;
+execute $sql_42_12$create trigger paid_ai_purchase_ready after insert or update of status on public.billing_requests
+for each row execute function public.prepare_paid_ai_purchase()$sql_42_12$;
 
 -- ai-paid-access.sql: source statement 14
-execute $sql_41_14$create or replace function public.start_agent_ai_call(p_tenant uuid,p_key uuid,p_customer uuid default null,p_job uuid default null,p_claim uuid default null)
+execute $sql_42_14$create or replace function public.start_agent_ai_call(p_tenant uuid,p_key uuid,p_customer uuid default null,p_job uuid default null,p_claim uuid default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.agent_control_settings;j public.agent_message_jobs;used_count integer;usage_id uuid;month_start date:=date_trunc('month',now() at time zone 'UTC')::date;
 begin
@@ -5175,22 +5238,22 @@ begin
  if not found then return jsonb_build_object('reason','AI_QUOTA_EXHAUSTED');end if;
  insert into public.agent_ai_usage(tenant_id,customer_id,job_id,invocation_key) values(p_tenant,p_customer,p_job,p_key) returning id into usage_id;
  return jsonb_build_object('id',usage_id);
-end $$$sql_41_14$;
+end $$$sql_42_14$;
 
 -- ai-paid-access.sql: source statement 15
-execute $sql_41_15$revoke all on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) from public,anon,authenticated$sql_41_15$;
+execute $sql_42_15$revoke all on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) from public,anon,authenticated$sql_42_15$;
 
 -- ai-paid-access.sql: source statement 16
-execute $sql_41_16$grant execute on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) to service_role$sql_41_16$;
+execute $sql_42_16$grant execute on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) to service_role$sql_42_16$;
 
 -- ai-paid-access.sql: source statement 17
-execute $sql_41_17$revoke all on function public.normalize_paid_ai_settings(),public.prepare_paid_ai_purchase() from public,anon,authenticated,service_role$sql_41_17$;
+execute $sql_42_17$revoke all on function public.normalize_paid_ai_settings(),public.prepare_paid_ai_purchase() from public,anon,authenticated,service_role$sql_42_17$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('ai-paid-access.sql','003aa8106b68663022bfa627f0deb78b4a51611f421bdfbfc769a81e8a108fdb','42f6eb4cf373dca787fecb745fb5089f19c610c519768fc6c63e2994dc88ade2');
-end $migration_41$;
+end $migration_42$;
 
--- 43. ai-vision.sql
-do $migration_42$
+-- 44. ai-vision.sql
+do $migration_43$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='ai-vision.sql';
@@ -5201,38 +5264,38 @@ begin
     return;
   end if;
 -- ai-vision.sql: source statement 2
-execute $sql_42_2$alter table public.image_response_rules add column if not exists priority integer not null default 0 check(priority between 0 and 1000)$sql_42_2$;
+execute $sql_43_2$alter table public.image_response_rules add column if not exists priority integer not null default 0 check(priority between 0 and 1000)$sql_43_2$;
 
 -- ai-vision.sql: source statement 3
-execute $sql_42_3$create table if not exists public.vision_plan_limits(
+execute $sql_43_3$create table if not exists public.vision_plan_limits(
  plan text primary key check(plan in ('free','starter','pro')),monthly_images integer not null check(monthly_images>=0),product_search boolean not null default false
-)$sql_42_3$;
+)$sql_43_3$;
 
 -- ai-vision.sql: source statement 4
-execute $sql_42_4$insert into public.vision_plan_limits values('free',0,false),('starter',100,false),('pro',1000,true) on conflict do nothing$sql_42_4$;
+execute $sql_43_4$insert into public.vision_plan_limits values('free',0,false),('starter',100,false),('pro',1000,true) on conflict do nothing$sql_43_4$;
 
 -- ai-vision.sql: source statement 5
-execute $sql_42_5$alter table public.vision_plan_limits enable row level security$sql_42_5$;
+execute $sql_43_5$alter table public.vision_plan_limits enable row level security$sql_43_5$;
 
 -- ai-vision.sql: source statement 6
-execute $sql_42_6$revoke all on public.vision_plan_limits from public,anon,authenticated$sql_42_6$;
+execute $sql_43_6$revoke all on public.vision_plan_limits from public,anon,authenticated$sql_43_6$;
 
 -- ai-vision.sql: source statement 7
-execute $sql_42_7$grant all on public.vision_plan_limits to service_role$sql_42_7$;
+execute $sql_43_7$grant all on public.vision_plan_limits to service_role$sql_43_7$;
 
 -- ai-vision.sql: source statement 8
-execute $sql_42_8$create table if not exists public.vision_settings(
+execute $sql_43_8$create table if not exists public.vision_settings(
  tenant_id uuid primary key references public.tenants(id) on delete cascade,enabled boolean not null default false,
  mode text not null default 'rules' check(mode in ('rules','catalog')),confidence_threshold numeric not null default 0.8 check(confidence_threshold between 0.8 and 1),handoff_enabled boolean not null default true
-)$sql_42_8$;
+)$sql_43_8$;
 
 -- ai-vision.sql: source statement 9
-execute $sql_42_9$create table if not exists public.vision_usage(
+execute $sql_43_9$create table if not exists public.vision_usage(
  tenant_id uuid not null references public.tenants(id) on delete cascade,month date not null,used integer not null default 0 check(used>=0),primary key(tenant_id,month)
-)$sql_42_9$;
+)$sql_43_9$;
 
 -- ai-vision.sql: source statement 10
-execute $sql_42_10$create table if not exists public.vision_jobs(
+execute $sql_43_10$create table if not exists public.vision_jobs(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),customer_id uuid references public.customers(id),message_id uuid references public.messages(id),
  source text not null check(source in ('test','messenger')),idempotency_key text not null check(length(idempotency_key) between 1 and 200),
  image_path text not null,mime_type text not null check(mime_type in ('image/jpeg','image/png','image/webp')),
@@ -5241,18 +5304,18 @@ execute $sql_42_10$create table if not exists public.vision_jobs(
  ai_request_started_at timestamptz,usage_month date,quota_reserved boolean not null default false,attempts integer not null default 0,
  result jsonb,decision jsonb,reason text,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),
  unique(tenant_id,source,idempotency_key),check((source='test' and customer_id is null and message_id is null) or (source='messenger' and customer_id is not null and message_id is not null))
-)$sql_42_10$;
+)$sql_43_10$;
 
 -- ai-vision.sql: source statement 11
-execute $sql_42_11$create index if not exists vision_jobs_pending on public.vision_jobs(created_at) where status='pending'$sql_42_11$;
+execute $sql_43_11$create index if not exists vision_jobs_pending on public.vision_jobs(created_at) where status='pending'$sql_43_11$;
 
 -- ai-vision.sql: source statement 12
-execute $sql_42_12$create table if not exists public.vision_audit_logs(
+execute $sql_43_12$create table if not exists public.vision_audit_logs(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),job_id uuid references public.vision_jobs(id),actor_id uuid references auth.users(id),event text not null,detail text,created_at timestamptz not null default now()
-)$sql_42_12$;
+)$sql_43_12$;
 
 -- ai-vision.sql: source statement 13
-execute $sql_42_13$do $$declare tab text;begin
+execute $sql_43_13$do $$declare tab text;begin
  foreach tab in array array['vision_settings','vision_usage','vision_jobs','vision_audit_logs'] loop
   execute format('alter table public.%I enable row level security',tab);
   execute format('revoke all on public.%I from public,anon,authenticated',tab);
@@ -5261,24 +5324,24 @@ execute $sql_42_13$do $$declare tab text;begin
   execute format('drop policy if exists tenant_read on public.%I',tab);
   execute format('create policy tenant_read on public.%I for select to authenticated using(public.can_access_tenant(tenant_id) and public.has_tenant_feature(tenant_id,''image_assistant''))',tab);
  end loop;
-end $$$sql_42_13$;
+end $$$sql_43_13$;
 
 -- ai-vision.sql: source statement 14
-execute $sql_42_14$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('vision-images','vision-images',false,5242880,array['image/jpeg','image/png','image/webp']) on conflict(id) do nothing$sql_42_14$;
+execute $sql_43_14$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('vision-images','vision-images',false,5242880,array['image/jpeg','image/png','image/webp']) on conflict(id) do nothing$sql_43_14$;
 
 -- ai-vision.sql: source statement 15
-execute $sql_42_15$update storage.buckets set public=false,file_size_limit=5242880,allowed_mime_types=array['image/jpeg','image/png','image/webp'] where id='vision-images'$sql_42_15$;
+execute $sql_43_15$update storage.buckets set public=false,file_size_limit=5242880,allowed_mime_types=array['image/jpeg','image/png','image/webp'] where id='vision-images'$sql_43_15$;
 
 -- ai-vision.sql: source statement 16
-execute $sql_42_16$create or replace function public.vision_job_audit() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_43_16$create or replace function public.vision_job_audit() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if tg_op='INSERT' or new.status is distinct from old.status then
   insert into public.vision_audit_logs(tenant_id,job_id,event,detail) values(new.tenant_id,new.id,new.status,new.reason);
  end if;return new;
-end $$$sql_42_16$;
+end $$$sql_43_16$;
 
 -- ai-vision.sql: source statement 17
-execute $sql_42_17$create or replace function public.retry_unstarted_vision(p_job uuid,p_tenant uuid,p_actor uuid) returns boolean
+execute $sql_43_17$create or replace function public.retry_unstarted_vision(p_job uuid,p_tenant uuid,p_actor uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare changed uuid;
 begin
@@ -5287,22 +5350,22 @@ begin
  update public.vision_jobs set status='pending',reason=null where id=p_job and tenant_id=p_tenant and status in ('requires_review','cancelled') and ai_request_started_at is null and dispatch_started_at is null and not quota_reserved and attempts<3 returning id into changed;
  if changed is not null then insert into public.vision_audit_logs(tenant_id,job_id,actor_id,event) values(p_tenant,p_job,p_actor,'safe_retry');end if;
  return changed is not null;
-end $$$sql_42_17$;
+end $$$sql_43_17$;
 
 -- ai-vision.sql: source statement 18
-execute $sql_42_18$revoke all on function public.retry_unstarted_vision(uuid,uuid,uuid) from public,anon,authenticated$sql_42_18$;
+execute $sql_43_18$revoke all on function public.retry_unstarted_vision(uuid,uuid,uuid) from public,anon,authenticated$sql_43_18$;
 
 -- ai-vision.sql: source statement 19
-execute $sql_42_19$grant execute on function public.retry_unstarted_vision(uuid,uuid,uuid) to service_role$sql_42_19$;
+execute $sql_43_19$grant execute on function public.retry_unstarted_vision(uuid,uuid,uuid) to service_role$sql_43_19$;
 
 -- ai-vision.sql: source statement 20
-execute $sql_42_20$drop trigger if exists vision_job_audit on public.vision_jobs$sql_42_20$;
+execute $sql_43_20$drop trigger if exists vision_job_audit on public.vision_jobs$sql_43_20$;
 
 -- ai-vision.sql: source statement 21
-execute $sql_42_21$create trigger vision_job_audit after insert or update on public.vision_jobs for each row execute function public.vision_job_audit()$sql_42_21$;
+execute $sql_43_21$create trigger vision_job_audit after insert or update on public.vision_jobs for each row execute function public.vision_job_audit()$sql_43_21$;
 
 -- ai-vision.sql: source statement 22
-execute $sql_42_22$create or replace function public.claim_vision_job(p_job uuid default null) returns setof public.vision_jobs
+execute $sql_43_22$create or replace function public.claim_vision_job(p_job uuid default null) returns setof public.vision_jobs
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.vision_jobs;stale public.vision_jobs;limit_images integer;used_images integer;month_start date:=date_trunc('month',now() at time zone 'UTC')::date;
 begin
@@ -5326,10 +5389,10 @@ begin
  update public.vision_usage set used=used+1 where tenant_id=j.tenant_id and month=month_start and used<coalesce(limit_images,0) returning used into used_images;
  if not found then update public.vision_jobs set status='requires_review',reason='VISION_QUOTA_EXHAUSTED' where id=j.id;return;end if;
  return query update public.vision_jobs set status='processing',claim_token=gen_random_uuid(),claim_until=clock_timestamp()+interval '3 minutes',analysis_started_at=clock_timestamp(),usage_month=month_start,quota_reserved=true,attempts=attempts+1 where id=j.id returning *;
-end $$$sql_42_22$;
+end $$$sql_43_22$;
 
 -- ai-vision.sql: source statement 23
-execute $sql_42_23$create or replace function public.start_vision_analysis(p_job uuid,p_claim uuid) returns boolean
+execute $sql_43_23$create or replace function public.start_vision_analysis(p_job uuid,p_claim uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.vision_jobs;
 begin
@@ -5338,10 +5401,10 @@ begin
  if not public.has_tenant_feature(j.tenant_id,'image_assistant') then return false;end if;
  if j.source='messenger' and (not exists(select 1 from public.vision_settings where tenant_id=j.tenant_id and enabled) or not exists(select 1 from public.customers c join public.tenants t on t.id=c.tenant_id where c.id=j.customer_id and c.tenant_id=j.tenant_id and c.bot_enabled and c.assigned_user_id is null and c.conversation_status<>'closed' and t.auto_reply_enabled)) then return false;end if;
  update public.vision_jobs set ai_request_started_at=clock_timestamp() where id=j.id;return true;
-end $$$sql_42_23$;
+end $$$sql_43_23$;
 
 -- ai-vision.sql: source statement 24
-execute $sql_42_24$create or replace function public.refund_unstarted_vision(p_job uuid,p_claim uuid) returns void
+execute $sql_43_24$create or replace function public.refund_unstarted_vision(p_job uuid,p_claim uuid) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.vision_jobs;
 begin
@@ -5350,16 +5413,16 @@ begin
   update public.vision_usage set used=greatest(0,used-1) where tenant_id=j.tenant_id and month=j.usage_month;
   update public.vision_jobs set quota_reserved=false where id=j.id;
  end if;
-end $$$sql_42_24$;
+end $$$sql_43_24$;
 
 -- ai-vision.sql: source statement 25
-execute $sql_42_25$revoke all on function public.start_vision_analysis(uuid,uuid),public.refund_unstarted_vision(uuid,uuid) from public,anon,authenticated$sql_42_25$;
+execute $sql_43_25$revoke all on function public.start_vision_analysis(uuid,uuid),public.refund_unstarted_vision(uuid,uuid) from public,anon,authenticated$sql_43_25$;
 
 -- ai-vision.sql: source statement 26
-execute $sql_42_26$grant execute on function public.start_vision_analysis(uuid,uuid),public.refund_unstarted_vision(uuid,uuid) to service_role$sql_42_26$;
+execute $sql_43_26$grant execute on function public.start_vision_analysis(uuid,uuid),public.refund_unstarted_vision(uuid,uuid) to service_role$sql_43_26$;
 
 -- ai-vision.sql: source statement 27
-execute $sql_42_27$create or replace function public.begin_vision_dispatch(p_job uuid,p_claim uuid) returns boolean
+execute $sql_43_27$create or replace function public.begin_vision_dispatch(p_job uuid,p_claim uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.vision_jobs;c public.customers;
 begin
@@ -5379,11 +5442,11 @@ begin
  if j.decision->>'action'='VERIFY_SLIP' and (not public.has_tenant_feature(j.tenant_id,'slip_auto_pilot') or not exists(select 1 from public.tenants where id=j.tenant_id and auto_verify_enabled and slip_used::bigint<slip_quota::bigint+slip_quota_credits::bigint)) then return false;end if;
  update public.vision_jobs set dispatch_started_at=clock_timestamp() where id=j.id;
  return true;
-end $$$sql_42_27$;
+end $$$sql_43_27$;
 
 -- ai-vision.sql: source statement 28
 begin
-execute $sql_42_28$create or replace function public.save_vision_settings(p_tenant uuid,p_actor uuid,p_enabled boolean,p_mode text,p_confidence numeric,p_handoff boolean) returns void
+execute $sql_43_28$create or replace function public.save_vision_settings(p_tenant uuid,p_actor uuid,p_enabled boolean,p_mode text,p_confidence numeric,p_handoff boolean) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or exists(select 1 from public.platform_admins where user_id=p_actor)) or not public.has_tenant_feature(p_tenant,'image_assistant') then raise exception 'FEATURE_LOCKED' using errcode='42501';end if;
@@ -5391,45 +5454,45 @@ begin
  insert into public.vision_settings(tenant_id,enabled,mode,confidence_threshold,handoff_enabled) values(p_tenant,p_enabled,p_mode,p_confidence,p_handoff)
  on conflict(tenant_id) do update set enabled=excluded.enabled,mode=excluded.mode,confidence_threshold=excluded.confidence_threshold,handoff_enabled=excluded.handoff_enabled;
  insert into public.vision_audit_logs(tenant_id,actor_id,event,detail) values(p_tenant,p_actor,'settings_updated',case when p_enabled then 'enabled' else 'disabled' end);
-end $$$sql_42_28$;
+end $$$sql_43_28$;
 exception when invalid_function_definition then
   -- A newer signature of save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- ai-vision.sql: source statement 29
-execute $sql_42_29$create or replace function public.audit_image_rule_change() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_43_29$create or replace function public.audit_image_rule_change() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  insert into public.vision_audit_logs(tenant_id,actor_id,event,detail) values(case when tg_op='DELETE' then old.tenant_id else new.tenant_id end,auth.uid(),'rule_'||lower(tg_op),case when tg_op='DELETE' then old.id::text else new.id::text end);
  return null;
-end $$$sql_42_29$;
+end $$$sql_43_29$;
 
 -- ai-vision.sql: source statement 30
-execute $sql_42_30$drop trigger if exists image_rule_vision_audit on public.image_response_rules$sql_42_30$;
+execute $sql_43_30$drop trigger if exists image_rule_vision_audit on public.image_response_rules$sql_43_30$;
 
 -- ai-vision.sql: source statement 31
-execute $sql_42_31$create trigger image_rule_vision_audit after insert or update or delete on public.image_response_rules for each row execute function public.audit_image_rule_change()$sql_42_31$;
+execute $sql_43_31$create trigger image_rule_vision_audit after insert or update or delete on public.image_response_rules for each row execute function public.audit_image_rule_change()$sql_43_31$;
 
 -- ai-vision.sql: source statement 32
-execute $sql_42_32$revoke all on function public.begin_vision_dispatch(uuid,uuid),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean),public.audit_image_rule_change() from public,anon,authenticated$sql_42_32$;
+execute $sql_43_32$revoke all on function public.begin_vision_dispatch(uuid,uuid),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean),public.audit_image_rule_change() from public,anon,authenticated$sql_43_32$;
 
 -- ai-vision.sql: source statement 33
-execute $sql_42_33$grant execute on function public.begin_vision_dispatch(uuid,uuid),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_42_33$;
+execute $sql_43_33$grant execute on function public.begin_vision_dispatch(uuid,uuid),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_43_33$;
 
 -- ai-vision.sql: source statement 34
-execute $sql_42_34$revoke all on function public.claim_vision_job(uuid),public.vision_job_audit() from public,anon,authenticated$sql_42_34$;
+execute $sql_43_34$revoke all on function public.claim_vision_job(uuid),public.vision_job_audit() from public,anon,authenticated$sql_43_34$;
 
 -- ai-vision.sql: source statement 35
-execute $sql_42_35$grant execute on function public.claim_vision_job(uuid) to service_role$sql_42_35$;
+execute $sql_43_35$grant execute on function public.claim_vision_job(uuid) to service_role$sql_43_35$;
 
 -- ai-vision.sql: source statement 36
-execute $sql_42_36$notify pgrst,'reload schema'$sql_42_36$;
+execute $sql_43_36$notify pgrst,'reload schema'$sql_43_36$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('ai-vision.sql','00a2ef0b3cae53cfad157ad52b609b0dee9eaea580de2bb4056b277ecdae4605','ea63d4c520548a1f13923b62491f7eff31ac55ebef4e1f51e63ae64ee7309301');
-end $migration_42$;
+end $migration_43$;
 
--- 44. commerce-v2.sql
-do $migration_43$
+-- 45. commerce-v2.sql
+do $migration_44$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='commerce-v2.sql';
@@ -5440,142 +5503,142 @@ begin
     return;
   end if;
 -- commerce-v2.sql: source statement 2
-execute $sql_43_2$create table if not exists commerce_limits (
+execute $sql_44_2$create table if not exists commerce_limits (
  plan text primary key, max_products integer check(max_products>=0), max_pages integer not null default 1 check(max_pages>=0),
  checkout boolean not null default false, reports boolean not null default false, advanced_templates boolean not null default false
-)$sql_43_2$;
+)$sql_44_2$;
 
 -- commerce-v2.sql: source statement 3
-execute $sql_43_3$insert into commerce_limits values('free',null,1,false,false,false),('starter',null,3,true,true,false),('pro',null,10,true,true,true) on conflict do nothing$sql_43_3$;
+execute $sql_44_3$insert into commerce_limits values('free',null,1,false,false,false),('starter',null,3,true,true,false),('pro',null,10,true,true,true) on conflict do nothing$sql_44_3$;
 
 -- commerce-v2.sql: source statement 4
-execute $sql_43_4$create table if not exists commerce_stores (
+execute $sql_44_4$create table if not exists commerce_stores (
  tenant_id uuid primary key references tenants(id), slug text not null unique check(slug~'^[a-z0-9]+(-[a-z0-9]+)*$'),
  name text not null, description text not null default '', logo text not null default '', banner text not null default '', contact text not null default '',
  is_open boolean not null default false, updated_at timestamptz not null default now()
-)$sql_43_4$;
+)$sql_44_4$;
 
 -- commerce-v2.sql: source statement 5
-execute $sql_43_5$create table if not exists commerce_categories (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),name text not null check(length(trim(name)) between 1 and 80),unique(tenant_id,name))$sql_43_5$;
+execute $sql_44_5$create table if not exists commerce_categories (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),name text not null check(length(trim(name)) between 1 and 80),unique(tenant_id,name))$sql_44_5$;
 
 -- commerce-v2.sql: source statement 6
-execute $sql_43_6$alter table products add column if not exists commerce_category_id uuid references commerce_categories(id)$sql_43_6$;
+execute $sql_44_6$alter table products add column if not exists commerce_category_id uuid references commerce_categories(id)$sql_44_6$;
 
 -- commerce-v2.sql: source statement 7
-execute $sql_43_7$alter table products add column if not exists commerce_images jsonb not null default '[]'$sql_43_7$;
+execute $sql_44_7$alter table products add column if not exists commerce_images jsonb not null default '[]'$sql_44_7$;
 
 -- commerce-v2.sql: source statement 8
-execute $sql_43_8$alter table products add column if not exists commerce_compare_price numeric(12,2)$sql_43_8$;
+execute $sql_44_8$alter table products add column if not exists commerce_compare_price numeric(12,2)$sql_44_8$;
 
 -- commerce-v2.sql: source statement 9
-execute $sql_43_9$alter table products add column if not exists commerce_cost numeric(12,2)$sql_43_9$;
+execute $sql_44_9$alter table products add column if not exists commerce_cost numeric(12,2)$sql_44_9$;
 
 -- commerce-v2.sql: source statement 10
-execute $sql_43_10$alter table products add column if not exists commerce_featured boolean not null default false$sql_43_10$;
+execute $sql_44_10$alter table products add column if not exists commerce_featured boolean not null default false$sql_44_10$;
 
 -- commerce-v2.sql: source statement 11
-execute $sql_43_11$alter table products add column if not exists commerce_archived boolean not null default false$sql_43_11$;
+execute $sql_44_11$alter table products add column if not exists commerce_archived boolean not null default false$sql_44_11$;
 
 -- commerce-v2.sql: source statement 12
-execute $sql_43_12$drop index if exists public.products_tenant_code$sql_43_12$;
+execute $sql_44_12$drop index if exists public.products_tenant_code$sql_44_12$;
 
 -- commerce-v2.sql: source statement 13
-execute $sql_43_13$create unique index if not exists products_tenant_code on public.products(tenant_id,lower(code)) where not commerce_archived$sql_43_13$;
+execute $sql_44_13$create unique index if not exists products_tenant_code on public.products(tenant_id,lower(code)) where not commerce_archived$sql_44_13$;
 
 -- commerce-v2.sql: source statement 14
-execute $sql_43_14$alter table products add column if not exists commerce_version integer not null default 0$sql_43_14$;
+execute $sql_44_14$alter table products add column if not exists commerce_version integer not null default 0$sql_44_14$;
 
 -- commerce-v2.sql: source statement 15
-execute $sql_43_15$create table if not exists commerce_variants (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),product_id uuid not null references products(id),label text not null,price numeric(12,2) not null check(price>0),stock integer not null check(stock>=0),is_active boolean not null default true)$sql_43_15$;
+execute $sql_44_15$create table if not exists commerce_variants (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),product_id uuid not null references products(id),label text not null,price numeric(12,2) not null check(price>0),stock integer not null check(stock>=0),is_active boolean not null default true)$sql_44_15$;
 
 -- commerce-v2.sql: source statement 16
-execute $sql_43_16$create index if not exists commerce_variant_product on commerce_variants(tenant_id,product_id)$sql_43_16$;
+execute $sql_44_16$create index if not exists commerce_variant_product on commerce_variants(tenant_id,product_id)$sql_44_16$;
 
 -- commerce-v2.sql: source statement 17
-execute $sql_43_17$create table if not exists commerce_pages (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),slug text not null,name text not null,draft jsonb not null,published jsonb,published_at timestamptz,version integer not null default 0,unique(tenant_id,slug))$sql_43_17$;
+execute $sql_44_17$create table if not exists commerce_pages (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),slug text not null,name text not null,draft jsonb not null,published jsonb,published_at timestamptz,version integer not null default 0,unique(tenant_id,slug))$sql_44_17$;
 
 -- commerce-v2.sql: source statement 18
-execute $sql_43_18$create table if not exists commerce_customers (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),name text not null,phone text not null,address text not null,crm_customer_id uuid references customers(id),created_at timestamptz not null default now(),unique(tenant_id,phone))$sql_43_18$;
+execute $sql_44_18$create table if not exists commerce_customers (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),name text not null,phone text not null,address text not null,crm_customer_id uuid references customers(id),created_at timestamptz not null default now(),unique(tenant_id,phone))$sql_44_18$;
 
 -- commerce-v2.sql: source statement 19
-execute $sql_43_19$create table if not exists commerce_orders (
+execute $sql_44_19$create table if not exists commerce_orders (
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),customer_id uuid not null references commerce_customers(id),
  request_key uuid not null,payload jsonb not null,number text not null unique default ('SB-'||upper(substr(replace(gen_random_uuid()::text,'-',''),1,16))),
  status text not null default 'pending_payment' check(status in ('pending_payment','payment_review','paid','preparing','shipped','completed','cancelled')),
  total numeric(12,2) not null default 0,shipping jsonb not null,tracking text,created_at timestamptz not null default now(),paid_at timestamptz,unique(tenant_id,request_key)
-)$sql_43_19$;
+)$sql_44_19$;
 
 -- commerce-v2.sql: source statement 20
-execute $sql_43_20$create table if not exists commerce_order_items (id uuid primary key default gen_random_uuid(),order_id uuid not null references commerce_orders(id),tenant_id uuid not null references tenants(id),product_id uuid not null references products(id),variant_id uuid references commerce_variants(id),name text not null,variant_label text,qty integer not null check(qty between 1 and 99),price numeric(12,2) not null check(price>0))$sql_43_20$;
+execute $sql_44_20$create table if not exists commerce_order_items (id uuid primary key default gen_random_uuid(),order_id uuid not null references commerce_orders(id),tenant_id uuid not null references tenants(id),product_id uuid not null references products(id),variant_id uuid references commerce_variants(id),name text not null,variant_label text,qty integer not null check(qty between 1 and 99),price numeric(12,2) not null check(price>0))$sql_44_20$;
 
 -- commerce-v2.sql: source statement 21
-execute $sql_43_21$create table if not exists commerce_audit (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),actor_id uuid,entity_id uuid,action text not null,detail text not null default '',created_at timestamptz not null default now())$sql_43_21$;
+execute $sql_44_21$create table if not exists commerce_audit (id uuid primary key default gen_random_uuid(),tenant_id uuid not null references tenants(id),actor_id uuid,entity_id uuid,action text not null,detail text not null default '',created_at timestamptz not null default now())$sql_44_21$;
 
 -- commerce-v2.sql: source statement 22
-execute $sql_43_22$create table if not exists commerce_rate (bucket text not null,period bigint not null,hits integer not null default 1,primary key(bucket,period))$sql_43_22$;
+execute $sql_44_22$create table if not exists commerce_rate (bucket text not null,period bigint not null,hits integer not null default 1,primary key(bucket,period))$sql_44_22$;
 
 -- commerce-v2.sql: source statement 23
-execute $sql_43_23$create index if not exists commerce_orders_recent on commerce_orders(tenant_id,created_at desc)$sql_43_23$;
+execute $sql_44_23$create index if not exists commerce_orders_recent on commerce_orders(tenant_id,created_at desc)$sql_44_23$;
 
 -- commerce-v2.sql: source statement 24
-execute $sql_43_24$create index if not exists commerce_orders_customer on commerce_orders(tenant_id,customer_id)$sql_43_24$;
+execute $sql_44_24$create index if not exists commerce_orders_customer on commerce_orders(tenant_id,customer_id)$sql_44_24$;
 
 -- commerce-v2.sql: source statement 25
-execute $sql_43_25$create index if not exists commerce_items_order on commerce_order_items(order_id,product_id,variant_id)$sql_43_25$;
+execute $sql_44_25$create index if not exists commerce_items_order on commerce_order_items(order_id,product_id,variant_id)$sql_44_25$;
 
 -- commerce-v2.sql: source statement 26
-execute $sql_43_26$create index if not exists commerce_audit_recent on commerce_audit(tenant_id,created_at desc)$sql_43_26$;
+execute $sql_44_26$create index if not exists commerce_audit_recent on commerce_audit(tenant_id,created_at desc)$sql_44_26$;
 
 -- commerce-v2.sql: source statement 27
-execute $sql_43_27$create index if not exists commerce_rate_expiry on commerce_rate(period)$sql_43_27$;
+execute $sql_44_27$create index if not exists commerce_rate_expiry on commerce_rate(period)$sql_44_27$;
 
 -- commerce-v2.sql: source statement 28
-execute $sql_43_28$create index if not exists commerce_products_category on products(tenant_id,commerce_category_id) where not commerce_archived$sql_43_28$;
+execute $sql_44_28$create index if not exists commerce_products_category on products(tenant_id,commerce_category_id) where not commerce_archived$sql_44_28$;
 
 -- commerce-v2.sql: source statement 29
-execute $sql_43_29$do $$declare t text;begin foreach t in array array['commerce_limits','commerce_stores','commerce_categories','commerce_variants','commerce_pages','commerce_customers','commerce_orders','commerce_order_items','commerce_audit','commerce_rate'] loop
- execute format('alter table %I enable row level security',t);execute format('revoke all on %I from public,anon,authenticated',t);execute format('grant all on %I to service_role',t);end loop;end$$$sql_43_29$;
+execute $sql_44_29$do $$declare t text;begin foreach t in array array['commerce_limits','commerce_stores','commerce_categories','commerce_variants','commerce_pages','commerce_customers','commerce_orders','commerce_order_items','commerce_audit','commerce_rate'] loop
+ execute format('alter table %I enable row level security',t);execute format('revoke all on %I from public,anon,authenticated',t);execute format('grant all on %I to service_role',t);end loop;end$$$sql_44_29$;
 
 -- commerce-v2.sql: source statement 30
-execute $sql_43_30$create or replace function commerce_access(p_tenant uuid,p_actor uuid) returns void language plpgsql security definer set search_path=pg_catalog,public as $$begin
+execute $sql_44_30$create or replace function commerce_access(p_tenant uuid,p_actor uuid) returns void language plpgsql security definer set search_path=pg_catalog,public as $$begin
  if not exists(select 1 from tenants where id=p_tenant and is_active) or not (exists(select 1 from tenant_members where tenant_id=p_tenant and user_id=p_actor and role in ('owner','admin')) or exists(select 1 from platform_admins where user_id=p_actor)) then raise exception 'COMMERCE_FORBIDDEN' using errcode='42501';end if;
-end$$$sql_43_30$;
+end$$$sql_44_30$;
 
 -- commerce-v2.sql: source statement 31
-execute $sql_43_31$create or replace function commerce_plan(p_tenant uuid) returns commerce_limits language sql stable security definer set search_path=pg_catalog,public as $$
+execute $sql_44_31$create or replace function commerce_plan(p_tenant uuid) returns commerce_limits language sql stable security definer set search_path=pg_catalog,public as $$
  select l.* from tenants t join commerce_limits l on l.plan=case when t.plan in ('starter','pro') and t.plan_expires_at>now() then t.plan else 'free' end where t.id=p_tenant and t.is_active
-$$$sql_43_31$;
+$$$sql_44_31$;
 
 -- commerce-v2.sql: source statement 32
-execute $sql_43_32$create or replace function commerce_rate_limit(p_bucket text,p_max integer) returns boolean language plpgsql security definer set search_path=pg_catalog,public as $$declare n integer;window_period bigint:=floor(extract(epoch from clock_timestamp())/60);begin
+execute $sql_44_32$create or replace function commerce_rate_limit(p_bucket text,p_max integer) returns boolean language plpgsql security definer set search_path=pg_catalog,public as $$declare n integer;window_period bigint:=floor(extract(epoch from clock_timestamp())/60);begin
  delete from commerce_rate where commerce_rate.period<window_period-10;
  insert into commerce_rate(bucket,period) values(p_bucket,window_period) on conflict(bucket,period) do update set hits=commerce_rate.hits+1 returning hits into n;return n<=p_max;
-end$$$sql_43_32$;
+end$$$sql_44_32$;
 
 -- commerce-v2.sql: source statement 33
-execute $sql_43_33$create or replace function commerce_product_version() returns trigger language plpgsql set search_path=pg_catalog,public as $$begin new.commerce_version:=old.commerce_version+1;return new;end$$$sql_43_33$;
+execute $sql_44_33$create or replace function commerce_product_version() returns trigger language plpgsql set search_path=pg_catalog,public as $$begin new.commerce_version:=old.commerce_version+1;return new;end$$$sql_44_33$;
 
 -- commerce-v2.sql: source statement 34
-execute $sql_43_34$drop trigger if exists commerce_product_version on products$sql_43_34$;
+execute $sql_44_34$drop trigger if exists commerce_product_version on products$sql_44_34$;
 
 -- commerce-v2.sql: source statement 35
-execute $sql_43_35$create trigger commerce_product_version before update on products for each row execute function commerce_product_version()$sql_43_35$;
+execute $sql_44_35$create trigger commerce_product_version before update on products for each row execute function commerce_product_version()$sql_44_35$;
 
 -- commerce-v2.sql: source statement 36
-execute $sql_43_36$create or replace function commerce_product_quota() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$declare l commerce_limits;begin
+execute $sql_44_36$create or replace function commerce_product_quota() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$declare l commerce_limits;begin
  perform 1 from tenants where id=new.tenant_id for update;l:=commerce_plan(new.tenant_id);
  if l.max_products is not null and (select count(*) from products where tenant_id=new.tenant_id and not commerce_archived)>=l.max_products then raise exception 'COMMERCE_LIMIT' using errcode='42501';end if;return new;
-end$$$sql_43_36$;
+end$$$sql_44_36$;
 
 -- commerce-v2.sql: source statement 37
-execute $sql_43_37$drop trigger if exists commerce_product_quota on products$sql_43_37$;
+execute $sql_44_37$drop trigger if exists commerce_product_quota on products$sql_44_37$;
 
 -- commerce-v2.sql: source statement 38
-execute $sql_43_38$create trigger commerce_product_quota before insert on products for each row execute function commerce_product_quota()$sql_43_38$;
+execute $sql_44_38$create trigger commerce_product_quota before insert on products for each row execute function commerce_product_quota()$sql_44_38$;
 
 -- commerce-v2.sql: source statement 39
 begin
-execute $sql_43_39$create or replace function commerce_save_product(p_tenant uuid,p_actor uuid,p_id uuid,p_value jsonb,p_version integer default null) returns uuid
+execute $sql_44_39$create or replace function commerce_save_product(p_tenant uuid,p_actor uuid,p_id uuid,p_value jsonb,p_version integer default null) returns uuid
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare r products;l commerce_limits;v jsonb;vid uuid;pid uuid:=coalesce(p_id,gen_random_uuid());kept uuid[]:='{}';begin
  perform commerce_access(p_tenant,p_actor);perform 1 from tenants where id=p_tenant for update;l:=commerce_plan(p_tenant);
@@ -5594,14 +5657,14 @@ declare r products;l commerce_limits;v jsonb;vid uuid;pid uuid:=coalesce(p_id,ge
  end loop;
  update commerce_variants set is_active=false where product_id=pid and not(id=any(kept));
  insert into commerce_audit(tenant_id,actor_id,entity_id,action) values(p_tenant,p_actor,pid,'product_saved');return pid;
-end$$$sql_43_39$;
+end$$$sql_44_39$;
 exception when invalid_function_definition then
   -- A newer signature of commerce_save_product(uuid,uuid,uuid,jsonb,integer) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- commerce-v2.sql: source statement 40
-execute $sql_43_40$create or replace function commerce_checkout(p_slug text,p_value jsonb) returns jsonb language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_44_40$create or replace function commerce_checkout(p_slug text,p_value jsonb) returns jsonb language plpgsql security definer set search_path=pg_catalog,public as $$
 declare s commerce_stores;l commerce_limits;o commerce_orders;c uuid;item jsonb;p products;v commerce_variants;price numeric;order_total numeric:=0;oid uuid;qty integer;label text;begin
  select * into s from commerce_stores where slug=p_slug; if not found then raise exception 'COMMERCE_CLOSED';end if;
  -- Shared tenant lock serializes with plan/store/product management and checkout.
@@ -5628,10 +5691,10 @@ declare s commerce_stores;l commerce_limits;o commerce_orders;c uuid;item jsonb;
  update commerce_orders set total=order_total where id=oid returning * into o;
  insert into commerce_audit(tenant_id,entity_id,action) values(s.tenant_id,oid,'order_created');
  return jsonb_build_object('number',o.number,'total',o.total,'status',o.status);
-end$$$sql_43_40$;
+end$$$sql_44_40$;
 
 -- commerce-v2.sql: source statement 41
-execute $sql_43_41$create or replace function commerce_move_order(p_tenant uuid,p_actor uuid,p_id uuid,p_status text,p_note text) returns void language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_44_41$create or replace function commerce_move_order(p_tenant uuid,p_actor uuid,p_id uuid,p_status text,p_note text) returns void language plpgsql security definer set search_path=pg_catalog,public as $$
 declare o commerce_orders;i commerce_order_items;l commerce_limits;begin
  perform commerce_access(p_tenant,p_actor);perform 1 from tenants where id=p_tenant for update;l:=commerce_plan(p_tenant);if l.checkout is distinct from true then raise exception 'COMMERCE_PLAN';end if;
  select * into o from commerce_orders where id=p_id and tenant_id=p_tenant for update;if not found then raise exception 'COMMERCE_NOT_FOUND';end if;
@@ -5643,10 +5706,10 @@ declare o commerce_orders;i commerce_order_items;l commerce_limits;begin
  end if;
  update commerce_orders set status=p_status,paid_at=case when p_status='paid' then clock_timestamp() else paid_at end,tracking=case when p_status='shipped' then p_note else tracking end where id=o.id;
  insert into commerce_audit(tenant_id,actor_id,entity_id,action,detail) values(p_tenant,p_actor,o.id,'order_'||p_status,p_note);
-end$$$sql_43_41$;
+end$$$sql_44_41$;
 
 -- commerce-v2.sql: source statement 42
-execute $sql_43_42$create or replace function commerce_manage(p_tenant uuid,p_actor uuid,p_action text,p_value jsonb) returns uuid language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_44_42$create or replace function commerce_manage(p_tenant uuid,p_actor uuid,p_action text,p_value jsonb) returns uuid language plpgsql security definer set search_path=pg_catalog,public as $$
 declare entity uuid;l commerce_limits;pg commerce_pages;begin
  perform commerce_access(p_tenant,p_actor);perform 1 from tenants where id=p_tenant for update;l:=commerce_plan(p_tenant);
  if p_action='store' then
@@ -5672,11 +5735,11 @@ declare entity uuid;l commerce_limits;pg commerce_pages;begin
   else update commerce_pages set published=null,published_at=null,version=version+1 where id=entity and tenant_id=p_tenant;end if;
  else raise exception 'COMMERCE_ACTION';end if;
  insert into commerce_audit(tenant_id,actor_id,entity_id,action) values(p_tenant,p_actor,entity,p_action);return entity;
-end$$$sql_43_42$;
+end$$$sql_44_42$;
 
 -- commerce-v2.sql: source statement 43
 begin
-execute $sql_43_43$create or replace function place_cf_order(p_tenant uuid,p_customer uuid,p_message uuid,p_code text)
+execute $sql_44_43$create or replace function place_cf_order(p_tenant uuid,p_customer uuid,p_message uuid,p_code text)
 returns table(r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric)
 language plpgsql set search_path=pg_catalog,public as $$declare p products;new_id uuid;begin
  select * into p from products where tenant_id=p_tenant and lower(code)=lower(trim(p_code)) and is_active for update;
@@ -5686,27 +5749,27 @@ language plpgsql set search_path=pg_catalog,public as $$declare p products;new_i
  if not found then return query select 'sold_out'::text,null::uuid,p.name,p.code,p.price;return;end if;
  insert into orders(tenant_id,customer_id,product_id,product_name,amount,message_id) values(p_tenant,p_customer,p.id,p.name,p.price,p_message) returning id into new_id;
  return query select 'created'::text,new_id,p.name,p.code,p.price;
-end$$$sql_43_43$;
+end$$$sql_44_43$;
 exception when invalid_function_definition then
   -- A newer signature of place_cf_order(uuid,uuid,uuid,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- commerce-v2.sql: source statement 44
-execute $sql_43_44$revoke execute on function place_cf_order(uuid,uuid,uuid,text) from public,anon,authenticated$sql_43_44$;
+execute $sql_44_44$revoke execute on function place_cf_order(uuid,uuid,uuid,text) from public,anon,authenticated$sql_44_44$;
 
 -- commerce-v2.sql: source statement 45
-execute $sql_43_45$grant execute on function place_cf_order(uuid,uuid,uuid,text) to service_role$sql_43_45$;
+execute $sql_44_45$grant execute on function place_cf_order(uuid,uuid,uuid,text) to service_role$sql_44_45$;
 
 -- commerce-v2.sql: source statement 46
-execute $sql_43_46$do $$declare r record;begin for r in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('commerce_access','commerce_plan','commerce_rate_limit','commerce_save_product','commerce_checkout','commerce_move_order','commerce_manage') loop
- execute format('revoke all on function %s from public,anon,authenticated',r.signature);execute format('grant execute on function %s to service_role',r.signature);end loop;end$$$sql_43_46$;
+execute $sql_44_46$do $$declare r record;begin for r in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('commerce_access','commerce_plan','commerce_rate_limit','commerce_save_product','commerce_checkout','commerce_move_order','commerce_manage') loop
+ execute format('revoke all on function %s from public,anon,authenticated',r.signature);execute format('grant execute on function %s to service_role',r.signature);end loop;end$$$sql_44_46$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('commerce-v2.sql','3834c46549e41bfa3edae84fe5f328d1c91eb270c9b5cc94500d977f96bba4a4','43b4aa77038376bec249d3dfd1c9c53c08fa2094ba24fe40b35afcbcfc94f9f7');
-end $migration_43$;
+end $migration_44$;
 
--- 45. product-sku-reuse.sql
-do $migration_44$
+-- 46. product-sku-reuse.sql
+do $migration_45$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='product-sku-reuse.sql';
@@ -5719,10 +5782,10 @@ begin
 
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('product-sku-reuse.sql','2be83464cda5214221af1e9703ec864a9b26d7e18c1e5b21a164b317d325badf','158567cbd1962b8e6c75c72a9f5aaa52aceb26c84b9fc2c7bb4a7f24c41c41f4');
-end $migration_44$;
+end $migration_45$;
 
--- 46. payment-pro.sql
-do $migration_45$
+-- 47. payment-pro.sql
+do $migration_46$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='payment-pro.sql';
@@ -5733,13 +5796,13 @@ begin
     return;
   end if;
 -- payment-pro.sql: source statement 2
-execute $sql_45_2$create table if not exists public.payment_pro_settings(
+execute $sql_46_2$create table if not exists public.payment_pro_settings(
  tenant_id uuid primary key references public.tenants(id),enabled boolean not null default false,
  flags jsonb not null default '{}' check(jsonb_typeof(flags)='object')
-)$sql_45_2$;
+)$sql_46_2$;
 
 -- payment-pro.sql: source statement 3
-execute $sql_45_3$create table if not exists public.payment_pro_attempts(
+execute $sql_46_3$create table if not exists public.payment_pro_attempts(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),
  customer_id uuid references public.customers(id),slip_id uuid not null unique references public.slips(id) on delete restrict,
  message_id uuid references public.messages(id),proof_sha256 text not null check(proof_sha256~'^[0-9a-f]{64}$'),
@@ -5750,22 +5813,22 @@ execute $sql_45_3$create table if not exists public.payment_pro_attempts(
  local_attempts integer not null default 1 check(local_attempts between 1 and 3),
  evidence jsonb,eligible boolean not null default false,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),
  unique(tenant_id,proof_sha256)
-)$sql_45_3$;
+)$sql_46_3$;
 
 -- payment-pro.sql: source statement 4
-execute $sql_45_4$create table if not exists public.payment_pro_audit(
+execute $sql_46_4$create table if not exists public.payment_pro_audit(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),attempt_id uuid references public.payment_pro_attempts(id),
  actor_id uuid references auth.users(id),event text not null,reason text,created_at timestamptz not null default now()
-)$sql_45_4$;
+)$sql_46_4$;
 
 -- payment-pro.sql: source statement 5
-execute $sql_45_5$create index if not exists payment_pro_review_queue on public.payment_pro_attempts(tenant_id,created_at desc) where status='REVIEW_REQUIRED'$sql_45_5$;
+execute $sql_46_5$create index if not exists payment_pro_review_queue on public.payment_pro_attempts(tenant_id,created_at desc) where status='REVIEW_REQUIRED'$sql_46_5$;
 
 -- payment-pro.sql: source statement 6
-execute $sql_45_6$create index if not exists payment_pro_recovery on public.payment_pro_attempts(claim_until) where status='VERIFYING'$sql_45_6$;
+execute $sql_46_6$create index if not exists payment_pro_recovery on public.payment_pro_attempts(claim_until) where status='VERIFYING'$sql_46_6$;
 
 -- payment-pro.sql: source statement 7
-execute $sql_45_7$do $$declare tab text;begin
+execute $sql_46_7$do $$declare tab text;begin
  foreach tab in array array['payment_pro_settings','payment_pro_attempts','payment_pro_audit'] loop
   execute format('alter table public.%I enable row level security',tab);
   execute format('revoke all on public.%I from public,anon,authenticated',tab);
@@ -5774,22 +5837,22 @@ execute $sql_45_7$do $$declare tab text;begin
   execute format('drop policy if exists tenant_read on public.%I',tab);
   execute format('create policy tenant_read on public.%I for select to authenticated using(public.can_access_tenant(tenant_id) and public.has_tenant_feature(tenant_id,''slip_auto_pilot''))',tab);
  end loop;
-end $$$sql_45_7$;
+end $$$sql_46_7$;
 
 -- payment-pro.sql: source statement 8
-execute $sql_45_8$revoke select on public.payment_pro_attempts from authenticated$sql_45_8$;
+execute $sql_46_8$revoke select on public.payment_pro_attempts from authenticated$sql_46_8$;
 
 -- payment-pro.sql: source statement 9
-execute $sql_45_9$grant select(id,tenant_id,customer_id,slip_id,message_id,status,reason,expected_satang,eligible,credit_charged,credit_refunded,provider_started_at,created_at,updated_at) on public.payment_pro_attempts to authenticated$sql_45_9$;
+execute $sql_46_9$grant select(id,tenant_id,customer_id,slip_id,message_id,status,reason,expected_satang,eligible,credit_charged,credit_refunded,provider_started_at,created_at,updated_at) on public.payment_pro_attempts to authenticated$sql_46_9$;
 
 -- payment-pro.sql: source statement 10
-execute $sql_45_10$alter table public.payment_image_ledger drop constraint if exists payment_image_ledger_source_check$sql_45_10$;
+execute $sql_46_10$alter table public.payment_image_ledger drop constraint if exists payment_image_ledger_source_check$sql_46_10$;
 
 -- payment-pro.sql: source statement 11
-execute $sql_45_11$alter table public.payment_image_ledger add constraint payment_image_ledger_source_check check(source in ('package','billing','sale_pro'))$sql_45_11$;
+execute $sql_46_11$alter table public.payment_image_ledger add constraint payment_image_ledger_source_check check(source in ('package','billing','sale_pro'))$sql_46_11$;
 
 -- payment-pro.sql: source statement 12
-execute $sql_45_12$create or replace function public.payment_pro_state_guard() returns trigger language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_12$create or replace function public.payment_pro_state_guard() returns trigger language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.status<>old.status and not (
   old.status='PENDING' and new.status in ('VERIFYING','CANCELLED') or
@@ -5798,35 +5861,35 @@ begin
   raise exception 'Invalid payment transition' using errcode='40001';end if;
  if new.tenant_id<>old.tenant_id or new.slip_id<>old.slip_id or new.proof_sha256<>old.proof_sha256 or new.customer_id is distinct from old.customer_id then raise exception 'Payment identity immutable';end if;
  new.updated_at:=now();return new;
-end $$$sql_45_12$;
+end $$$sql_46_12$;
 
 -- payment-pro.sql: source statement 13
-execute $sql_45_13$drop trigger if exists payment_pro_state_guard on public.payment_pro_attempts$sql_45_13$;
+execute $sql_46_13$drop trigger if exists payment_pro_state_guard on public.payment_pro_attempts$sql_46_13$;
 
 -- payment-pro.sql: source statement 14
-execute $sql_45_14$create trigger payment_pro_state_guard before update on public.payment_pro_attempts for each row execute function public.payment_pro_state_guard()$sql_45_14$;
+execute $sql_46_14$create trigger payment_pro_state_guard before update on public.payment_pro_attempts for each row execute function public.payment_pro_state_guard()$sql_46_14$;
 
 -- payment-pro.sql: source statement 15
-execute $sql_45_15$create or replace function public.payment_pro_audit_state() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_46_15$create or replace function public.payment_pro_audit_state() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if tg_op='INSERT' or new.status is distinct from old.status or new.reason is distinct from old.reason then
   insert into public.payment_pro_audit(tenant_id,attempt_id,event,reason) values(new.tenant_id,new.id,new.status,new.reason);
  end if;return null;
-end $$$sql_45_15$;
+end $$$sql_46_15$;
 
 -- payment-pro.sql: source statement 16
-execute $sql_45_16$drop trigger if exists payment_pro_audit_state on public.payment_pro_attempts$sql_45_16$;
+execute $sql_46_16$drop trigger if exists payment_pro_audit_state on public.payment_pro_attempts$sql_46_16$;
 
 -- payment-pro.sql: source statement 17
-execute $sql_45_17$create trigger payment_pro_audit_state after insert or update on public.payment_pro_attempts for each row execute function public.payment_pro_audit_state()$sql_45_17$;
+execute $sql_46_17$create trigger payment_pro_audit_state after insert or update on public.payment_pro_attempts for each row execute function public.payment_pro_audit_state()$sql_46_17$;
 
 -- payment-pro.sql: source statement 18
-execute $sql_45_18$create or replace function public.payment_pro_bank(p_bank text) returns text language sql immutable set search_path=pg_catalog,public as $$
+execute $sql_46_18$create or replace function public.payment_pro_bank(p_bank text) returns text language sql immutable set search_path=pg_catalog,public as $$
  select case upper(trim(p_bank)) when 'KBANK' then '004' when 'SCB' then '014' when 'BBL' then '002' when 'KTB' then '006' when 'BAY' then '025' when 'TTB' then '011' when 'TMB' then '011' when 'TTBNK' then '011' when 'GSB' then '030' else case when trim(p_bank)~'^[0-9]{1,3}$' then lpad(trim(p_bank),3,'0') else upper(trim(p_bank)) end end
-$$$sql_45_18$;
+$$$sql_46_18$;
 
 -- payment-pro.sql: source statement 19
-execute $sql_45_19$create or replace function public.payment_pro_account(p_full text,p_mask text) returns boolean language plpgsql immutable set search_path=pg_catalog,public as $$
+execute $sql_46_19$create or replace function public.payment_pro_account(p_full text,p_mask text) returns boolean language plpgsql immutable set search_path=pg_catalog,public as $$
 declare full_no text:=regexp_replace(coalesce(p_full,''),'[^0-9]','','g');masked text:=lower(regexp_replace(replace(coalesce(p_mask,''),'*','x'),'[^0-9xX]','','g'));i integer;parts text[];
 begin
  if length(regexp_replace(masked,'x','','g'))<3 or full_no='' then return false;end if;
@@ -5835,17 +5898,17 @@ begin
  end if;
  parts:=regexp_match(masked,'^([0-9]*)x+([0-9]*)$');
  return coalesce(parts is not null and length(parts[1])+length(parts[2])<=length(full_no) and starts_with(full_no,parts[1]) and right(full_no,length(parts[2]))=parts[2],false);
-end $$$sql_45_19$;
+end $$$sql_46_19$;
 
 -- payment-pro.sql: source statement 20
-execute $sql_45_20$create or replace function public.payment_pro_receiver(p_tenant uuid,p_bank text,p_account text,p_proxy text) returns boolean language sql stable security definer set search_path=pg_catalog,public as $$
+execute $sql_46_20$create or replace function public.payment_pro_receiver(p_tenant uuid,p_bank text,p_account text,p_proxy text) returns boolean language sql stable security definer set search_path=pg_catalog,public as $$
  select exists(select 1 from public.bank_accounts b where b.tenant_id=p_tenant and b.is_active and
   case when b.bank_code='PROMPTPAY' then public.payment_pro_account(b.account_number,regexp_replace(regexp_replace(coalesce(p_proxy,''),'[[:space:]-]','','g'),'^(\+?66|0066)(?=[0-9xX*]{9}$)','0'))
   else public.payment_pro_bank(b.bank_code)=public.payment_pro_bank(p_bank) and public.payment_pro_account(b.account_number,p_account) end)
-$$$sql_45_20$;
+$$$sql_46_20$;
 
 -- payment-pro.sql: source statement 21
-execute $sql_45_21$create or replace function public.claim_payment_pro(p_tenant uuid,p_customer uuid,p_message uuid,p_hash text,p_image text,p_kind text) returns jsonb
+execute $sql_46_21$create or replace function public.claim_payment_pro(p_tenant uuid,p_customer uuid,p_message uuid,p_hash text,p_image text,p_kind text) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;slip uuid;ids uuid[];total bigint;earliest timestamptz;token uuid:=gen_random_uuid();
 begin
@@ -5861,10 +5924,10 @@ begin
  insert into public.payment_pro_attempts(tenant_id,customer_id,message_id,slip_id,proof_sha256,proof_kind,image_path,status,order_ids,expected_satang,earliest_order_at,claim_token,claim_until)
  values(p_tenant,p_customer,p_message,slip,p_hash,p_kind,p_image,'VERIFYING',coalesce(ids,'{}'),total,earliest,token,clock_timestamp()+interval '3 minutes') returning * into a;
  return to_jsonb(a);
-end $$$sql_45_21$;
+end $$$sql_46_21$;
 
 -- payment-pro.sql: source statement 22
-execute $sql_45_22$create or replace function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_22$create or replace function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt;
@@ -5881,10 +5944,10 @@ begin
   update public.slips set status='error',note='เครดิตตรวจสลิปหมด กรุณาเติมเครดิต',verified_at=now() where id=a.slip_id;return false;
  end if;
  update public.payment_pro_attempts set provider_started_at=clock_timestamp(),credit_charged=true where id=a.id;return true;
-end $$$sql_45_22$;
+end $$$sql_46_22$;
 
 -- payment-pro.sql: source statement 23
-execute $sql_45_23$create or replace function public.apply_payment_pro(p_attempt uuid,p_actor uuid default null) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_23$create or replace function public.apply_payment_pro(p_attempt uuid,p_actor uuid default null) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;total bigint;count_orders integer;matched boolean;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt;
@@ -5919,10 +5982,10 @@ begin
   update public.payment_pro_attempts set status='REJECTED',reason='DUPLICATE_TRANSACTION',eligible=false,claim_token=null,claim_until=null where id=a.id;
   update public.slips set status='duplicate',note='หลักฐานนี้ถูกใช้ชำระเงินแล้ว' where id=a.slip_id;return false;
  end;
-end $$$sql_45_23$;
+end $$$sql_46_23$;
 
 -- payment-pro.sql: source statement 24
-execute $sql_45_24$create or replace function public.complete_payment_pro(p_attempt uuid,p_claim uuid,p_evidence jsonb) returns void language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_24$create or replace function public.complete_payment_pro(p_attempt uuid,p_claim uuid,p_evidence jsonb) returns void language plpgsql set search_path=pg_catalog,public as $$
 <<completion>>
 declare a public.payment_pro_attempts;reason text;paid timestamptz;amount bigint;valid boolean;applied boolean;
 begin
@@ -5954,10 +6017,10 @@ begin
   update public.slips set status=case when completion.reason='DUPLICATE_TRANSACTION' then 'duplicate' when completion.reason='AMOUNT_MISMATCH' then 'amount_mismatch' when completion.reason='RECEIVER_NOT_CONFIRMED' then 'wrong_receiver' else 'error' end,note='Payment Pro: '||coalesce(completion.reason,'รอเจ้าของร้านอนุมัติ') where id=a.slip_id and status<>'duplicate';
   update public.customers set order_status='pending_review' where id=a.customer_id and tenant_id=a.tenant_id;
  end if;
-end $$$sql_45_24$;
+end $$$sql_46_24$;
 
 -- payment-pro.sql: source statement 25
-execute $sql_45_25$create or replace function public.review_payment_pro_failure(p_attempt uuid,p_claim uuid) returns void language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_25$create or replace function public.review_payment_pro_failure(p_attempt uuid,p_claim uuid) returns void language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt for update;
@@ -5965,19 +6028,19 @@ begin
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason=case when provider_started_at is null then 'PROCESSING_FAILED_BEFORE_PROVIDER' else 'PROVIDER_RESULT_UNKNOWN' end,claim_token=null,claim_until=null where id=a.id;
   update public.slips set status='error',note='รอตรวจสอบเพิ่มเติม ระบบไม่ลองเรียก Provider ซ้ำอัตโนมัติ',verified_at=now() where id=a.slip_id;
  end if;
-end $$$sql_45_25$;
+end $$$sql_46_25$;
 
 -- payment-pro.sql: source statement 26
-execute $sql_45_26$create or replace function public.recover_payment_pro() returns integer language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_26$create or replace function public.recover_payment_pro() returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;n integer:=0;
 begin
  for a in select * from public.payment_pro_attempts where status='VERIFYING' and claim_until<clock_timestamp() for update skip locked loop
   perform public.review_payment_pro_failure(a.id,a.claim_token);n:=n+1;
  end loop;return n;
-end $$$sql_45_26$;
+end $$$sql_46_26$;
 
 -- payment-pro.sql: source statement 27
-execute $sql_45_27$create or replace function public.act_payment_pro(p_attempt uuid,p_tenant uuid,p_actor uuid,p_action text,p_reason text) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_27$create or replace function public.act_payment_pro(p_attempt uuid,p_tenant uuid,p_actor uuid,p_action text,p_reason text) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;applied boolean;
 begin
  if not public.has_tenant_feature(p_tenant,'slip_auto_pilot') or not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or exists(select 1 from public.platform_admins where user_id=p_actor)) then raise exception 'Owner required' using errcode='42501';end if;
@@ -5995,59 +6058,59 @@ begin
  else return false;end if;
  insert into public.payment_pro_audit(tenant_id,attempt_id,actor_id,event,reason) values(p_tenant,a.id,p_actor,'manual_'||p_action,p_reason);
  return applied;
-end $$$sql_45_27$;
+end $$$sql_46_27$;
 
 -- payment-pro.sql: source statement 28
-execute $sql_45_28$create or replace function public.payment_pro_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
+execute $sql_46_28$create or replace function public.payment_pro_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
  select jsonb_build_object('total',count(*),'verified',count(*) filter(where status='VERIFIED'),'review',count(*) filter(where status='REVIEW_REQUIRED'),
  'duplicates',count(*) filter(where reason='DUPLICATE_TRANSACTION'),'amountMismatch',count(*) filter(where reason='AMOUNT_MISMATCH'),
  'receiverMismatch',count(*) filter(where reason in ('RECEIVER_NOT_CONFIRMED','RECEIVER_CHANGED')),
  'charged',count(*) filter(where credit_charged),'refunded',count(*) filter(where credit_refunded),
  'verifiedSatang',coalesce(sum(expected_satang) filter(where status='VERIFIED'),0))
  from public.payment_pro_attempts where tenant_id=p_tenant and created_at>now()-interval '30 days'
-$$$sql_45_28$;
+$$$sql_46_28$;
 
 -- payment-pro.sql: source statement 29
-execute $sql_45_29$create or replace function public.guard_payment_pro_slip() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_46_29$create or replace function public.guard_payment_pro_slip() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if (new.status='valid' or new.approved_at is not null) and exists(select 1 from public.payment_pro_attempts where slip_id=new.id and status<>'VERIFIED') then raise exception 'Payment Pro proof approval required' using errcode='42501';end if;return new;
-end $$$sql_45_29$;
+end $$$sql_46_29$;
 
 -- payment-pro.sql: source statement 30
-execute $sql_45_30$drop trigger if exists slips_payment_pro_guard on public.slips$sql_45_30$;
+execute $sql_46_30$drop trigger if exists slips_payment_pro_guard on public.slips$sql_46_30$;
 
 -- payment-pro.sql: source statement 31
-execute $sql_45_31$create trigger slips_payment_pro_guard before update on public.slips for each row execute function public.guard_payment_pro_slip()$sql_45_31$;
+execute $sql_46_31$create trigger slips_payment_pro_guard before update on public.slips for each row execute function public.guard_payment_pro_slip()$sql_46_31$;
 
 -- payment-pro.sql: source statement 32
-execute $sql_45_32$create or replace function public.guard_payment_pro_order() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_46_32$create or replace function public.guard_payment_pro_order() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status='paid' and (old.status is distinct from new.status or old.slip_id is distinct from new.slip_id) and exists(select 1 from public.payment_pro_attempts where slip_id=new.slip_id) and not exists(select 1 from public.payment_pro_attempts a where a.slip_id=new.slip_id and a.status='VERIFIED' and a.tenant_id=new.tenant_id and a.customer_id=new.customer_id and new.id=any(a.order_ids)) then
   raise exception 'Payment Pro order snapshot required' using errcode='42501';end if;return new;
-end $$$sql_45_32$;
+end $$$sql_46_32$;
 
 -- payment-pro.sql: source statement 33
-execute $sql_45_33$drop trigger if exists orders_payment_pro_guard on public.orders$sql_45_33$;
+execute $sql_46_33$drop trigger if exists orders_payment_pro_guard on public.orders$sql_46_33$;
 
 -- payment-pro.sql: source statement 34
-execute $sql_45_34$create trigger orders_payment_pro_guard before update of status,slip_id on public.orders for each row execute function public.guard_payment_pro_order()$sql_45_34$;
+execute $sql_46_34$create trigger orders_payment_pro_guard before update of status,slip_id on public.orders for each row execute function public.guard_payment_pro_order()$sql_46_34$;
 
 -- payment-pro.sql: source statement 35
-execute $sql_45_35$do $$declare fn record;begin
+execute $sql_46_35$do $$declare fn record;begin
  for fn in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and (p.proname like '%payment_pro%' or p.proname in ('payment_pro_bank','payment_pro_account','payment_pro_receiver')) loop
   execute format('revoke all on function %s from public,anon,authenticated',fn.signature);
   execute format('grant execute on function %s to service_role',fn.signature);
  end loop;
-end $$$sql_45_35$;
+end $$$sql_46_35$;
 
 -- payment-pro.sql: source statement 36
-execute $sql_45_36$notify pgrst,'reload schema'$sql_45_36$;
+execute $sql_46_36$notify pgrst,'reload schema'$sql_46_36$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('payment-pro.sql','cd3319ec00052fc92e98f746533af4a8b45f48d4a8b584bab531a18061736297','aa6343641fb6d1c026a0913c81d79d990c295c23e9de63e41bfd42d3cdb7e148');
-end $migration_45$;
+end $migration_46$;
 
--- 47. payment-pro-dashboard.sql
-do $migration_46$
+-- 48. payment-pro-dashboard.sql
+do $migration_47$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='payment-pro-dashboard.sql';
@@ -6058,7 +6121,7 @@ begin
     return;
   end if;
 -- payment-pro-dashboard.sql: source statement 2
-execute $sql_46_2$create or replace function public.payment_pro_dashboard_report(p_tenant uuid,p_from timestamptz,p_to timestamptz,p_query text default '') returns jsonb
+execute $sql_47_2$create or replace function public.payment_pro_dashboard_report(p_tenant uuid,p_from timestamptz,p_to timestamptz,p_query text default '') returns jsonb
 language sql stable set search_path=pg_catalog,public as $$
  with scoped as(select * from public.payment_pro_attempts where tenant_id=p_tenant and created_at>=p_from and created_at<p_to),
  matched as(select * from scoped where coalesce(p_query,'')='' or strpos(lower(coalesce(reason,'')),lower(p_query))>0),
@@ -6067,22 +6130,22 @@ language sql stable set search_path=pg_catalog,public as $$
  select jsonb_build_object('attempts',(select coalesce(jsonb_agg(to_jsonb(r)),'[]') from(select id,slip_id,customer_id,status,reason,expected_satang,eligible,credit_charged,credit_refunded,provider_started_at,created_at,updated_at from matched order by created_at desc,id limit 500)r),
  'stats',(select jsonb_build_object('total',count(*),'verified',count(*) filter(where status='VERIFIED'),'review',count(*) filter(where status in ('PENDING','VERIFYING','REVIEW_REQUIRED')),'rejected',count(*) filter(where status='REJECTED'),'cancelled',count(*) filter(where status='CANCELLED'),'duplicates',count(*) filter(where reason='DUPLICATE_TRANSACTION'),'amountMismatch',count(*) filter(where reason='AMOUNT_MISMATCH'),'receiverMismatch',count(*) filter(where reason in ('RECEIVER_NOT_CONFIRMED','RECEIVER_CHANGED')),'charged',count(*) filter(where credit_charged),'refunded',count(*) filter(where credit_refunded),'verifiedSatang',coalesce(sum(expected_satang) filter(where status='VERIFIED'),0)) from scoped),
  'series',(select jsonb_agg(jsonb_build_object('day',d.bucket,'amount',coalesce(r.satang,0)/100.0,'count',coalesce(r.total,0)) order by d.bucket) from days d left join daily r using(bucket)))
-$$$sql_46_2$;
+$$$sql_47_2$;
 
 -- payment-pro-dashboard.sql: source statement 3
-execute $sql_46_3$revoke all on function public.payment_pro_dashboard_report(uuid,timestamptz,timestamptz,text) from public,anon,authenticated$sql_46_3$;
+execute $sql_47_3$revoke all on function public.payment_pro_dashboard_report(uuid,timestamptz,timestamptz,text) from public,anon,authenticated$sql_47_3$;
 
 -- payment-pro-dashboard.sql: source statement 4
-execute $sql_46_4$grant execute on function public.payment_pro_dashboard_report(uuid,timestamptz,timestamptz,text) to service_role$sql_46_4$;
+execute $sql_47_4$grant execute on function public.payment_pro_dashboard_report(uuid,timestamptz,timestamptz,text) to service_role$sql_47_4$;
 
 -- payment-pro-dashboard.sql: source statement 5
-execute $sql_46_5$notify pgrst,'reload schema'$sql_46_5$;
+execute $sql_47_5$notify pgrst,'reload schema'$sql_47_5$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('payment-pro-dashboard.sql','8df2ea6f5f1d83802e8ee6ef604638d301b853f4163c45403cb89f15c32785bc','8d4e52e0d834ca8ce7cab97c2b78209535263726b7c5d1796ba4398b7ae54b7b');
-end $migration_46$;
+end $migration_47$;
 
--- 48. slip-bank-controls.sql
-do $migration_47$
+-- 49. slip-bank-controls.sql
+do $migration_48$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='slip-bank-controls.sql';
@@ -6093,25 +6156,25 @@ begin
     return;
   end if;
 -- slip-bank-controls.sql: source statement 2
-execute $sql_47_2$alter table public.bank_accounts add column if not exists is_primary boolean not null default false$sql_47_2$;
+execute $sql_48_2$alter table public.bank_accounts add column if not exists is_primary boolean not null default false$sql_48_2$;
 
 -- slip-bank-controls.sql: source statement 4
-execute $sql_47_4$create unique index if not exists bank_accounts_one_primary on public.bank_accounts(tenant_id) where is_primary$sql_47_4$;
+execute $sql_48_4$create unique index if not exists bank_accounts_one_primary on public.bank_accounts(tenant_id) where is_primary$sql_48_4$;
 
 -- slip-bank-controls.sql: source statement 5
-execute $sql_47_5$create table if not exists public.bank_account_audit(id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),account_id uuid,actor_id uuid references auth.users(id),action text not null,last_four text,created_at timestamptz not null default now())$sql_47_5$;
+execute $sql_48_5$create table if not exists public.bank_account_audit(id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),account_id uuid,actor_id uuid references auth.users(id),action text not null,last_four text,created_at timestamptz not null default now())$sql_48_5$;
 
 -- slip-bank-controls.sql: source statement 6
-execute $sql_47_6$alter table public.bank_account_audit enable row level security$sql_47_6$;
+execute $sql_48_6$alter table public.bank_account_audit enable row level security$sql_48_6$;
 
 -- slip-bank-controls.sql: source statement 7
-execute $sql_47_7$revoke all on public.bank_account_audit from public,anon,authenticated$sql_47_7$;
+execute $sql_48_7$revoke all on public.bank_account_audit from public,anon,authenticated$sql_48_7$;
 
 -- slip-bank-controls.sql: source statement 8
-execute $sql_47_8$grant select,insert on public.bank_account_audit to service_role$sql_47_8$;
+execute $sql_48_8$grant select,insert on public.bank_account_audit to service_role$sql_48_8$;
 
 -- slip-bank-controls.sql: source statement 9
-execute $sql_47_9$create or replace function public.sync_primary_bank_account() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_48_9$create or replace function public.sync_primary_bank_account() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 declare target uuid;selected public.bank_accounts;
 begin
  target:=case when tg_op='DELETE' then old.tenant_id else new.tenant_id end;
@@ -6120,28 +6183,28 @@ begin
  select * into selected from public.bank_accounts where tenant_id=target and is_active order by is_primary desc,created_at,id limit 1;
  update public.tenants set bank_code=selected.bank_code,account_name=selected.account_name,account_number=selected.account_number where id=target;
  return null;
-end $$$sql_47_9$;
+end $$$sql_48_9$;
 
 -- slip-bank-controls.sql: source statement 10
-execute $sql_47_10$revoke insert,update,delete on public.bank_accounts from authenticated$sql_47_10$;
+execute $sql_48_10$revoke insert,update,delete on public.bank_accounts from authenticated$sql_48_10$;
 
 -- slip-bank-controls.sql: source statement 11
-execute $sql_47_11$drop policy if exists member_read on public.bank_accounts$sql_47_11$;
+execute $sql_48_11$drop policy if exists member_read on public.bank_accounts$sql_48_11$;
 
 -- slip-bank-controls.sql: source statement 12
-execute $sql_47_12$drop policy if exists owner_write on public.bank_accounts$sql_47_12$;
+execute $sql_48_12$drop policy if exists owner_write on public.bank_accounts$sql_48_12$;
 
 -- slip-bank-controls.sql: source statement 13
-execute $sql_47_13$drop policy if exists owner_read on public.bank_accounts$sql_47_13$;
+execute $sql_48_13$drop policy if exists owner_read on public.bank_accounts$sql_48_13$;
 
 -- slip-bank-controls.sql: source statement 14
-execute $sql_47_14$create policy owner_read on public.bank_accounts for select to authenticated using(public.can_manage_bank_accounts(tenant_id))$sql_47_14$;
+execute $sql_48_14$create policy owner_read on public.bank_accounts for select to authenticated using(public.can_manage_bank_accounts(tenant_id))$sql_48_14$;
 
 -- slip-bank-controls.sql: source statement 15
-execute $sql_47_15$revoke select(account_number) on public.tenants from authenticated$sql_47_15$;
+execute $sql_48_15$revoke select(account_number) on public.tenants from authenticated$sql_48_15$;
 
 -- slip-bank-controls.sql: source statement 16
-execute $sql_47_16$create or replace function public.manage_slip_bank_account(p_tenant uuid,p_actor uuid,p_action text,p_id uuid default null,p_data jsonb default '{}',p_confirmed boolean default false) returns uuid
+execute $sql_48_16$create or replace function public.manage_slip_bank_account(p_tenant uuid,p_actor uuid,p_action text,p_id uuid default null,p_data jsonb default '{}',p_confirmed boolean default false) returns uuid
 language plpgsql set search_path=pg_catalog,public as $$
 declare saved uuid;old_account public.bank_accounts;
 begin
@@ -6168,17 +6231,17 @@ begin
  end if;
  insert into public.bank_account_audit(tenant_id,account_id,actor_id,action,last_four) values(p_tenant,saved,p_actor,p_action,right(coalesce(p_data->>'account_number',old_account.account_number),4));
  return saved;
-end $$$sql_47_16$;
+end $$$sql_48_16$;
 
 -- slip-bank-controls.sql: source statement 17
-execute $sql_47_17$revoke all on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) from public,anon,authenticated$sql_47_17$;
+execute $sql_48_17$revoke all on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) from public,anon,authenticated$sql_48_17$;
 
 -- slip-bank-controls.sql: source statement 18
-execute $sql_47_18$grant execute on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) to service_role$sql_47_18$;
+execute $sql_48_18$grant execute on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) to service_role$sql_48_18$;
 
 -- slip-bank-controls.sql: source statement 19
 begin
-execute $sql_47_19$create or replace function public.seed_tenant_bank_account() returns trigger
+execute $sql_48_19$create or replace function public.seed_tenant_bank_account() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  update public.tenants set bank_accounts_migrated=true where id=new.id;
@@ -6187,23 +6250,23 @@ begin
   values(new.id,new.bank_code,coalesce(nullif(trim(new.account_name),''),new.name),new.account_number,true) on conflict do nothing;
  end if;
  return null;
-end $$$sql_47_19$;
+end $$$sql_48_19$;
 exception when invalid_function_definition then
   -- A newer signature of seed_tenant_bank_account() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- slip-bank-controls.sql: source statement 20
-execute $sql_47_20$revoke all on function public.seed_tenant_bank_account() from public,anon,authenticated$sql_47_20$;
+execute $sql_48_20$revoke all on function public.seed_tenant_bank_account() from public,anon,authenticated$sql_48_20$;
 
 -- slip-bank-controls.sql: source statement 21
-execute $sql_47_21$notify pgrst,'reload schema'$sql_47_21$;
+execute $sql_48_21$notify pgrst,'reload schema'$sql_48_21$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('slip-bank-controls.sql','08a8fe42aac8571f4b1696b1e4e42c15c0ad6349339e7481be3c70537e703cfa','08d19ff46fa0d05b9a42f710ea11f212756e4a95fea9440d221bce1b808f98e3');
-end $migration_47$;
+end $migration_48$;
 
--- 49. bank-registry.sql
-do $migration_48$
+-- 50. bank-registry.sql
+do $migration_49$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='bank-registry.sql';
@@ -6214,22 +6277,22 @@ begin
     return;
   end if;
 -- bank-registry.sql: source statement 2
-execute $sql_48_2$create or replace function public.bank_registry_code_valid(p_code text) returns boolean
+execute $sql_49_2$create or replace function public.bank_registry_code_valid(p_code text) returns boolean
 language sql immutable set search_path=pg_catalog,public as $$
  select coalesce(p_code in ('KBANK','SCB','KTB','BBL','BAY','KKP','CLICX','JPM','CITI','CIMB','SMTB','SMBC','DB','TTB','TISCO','TCRB','BNP','PROMPTPAY','SME','BAAC','EXIM','MHCB','MEGA','UOB','LH','SCBT','BOC','BOFA','GSB','GHB','RHB','IOB','IBANK','OCBC','ICBC','HSBC'),false)
-$$$sql_48_2$;
+$$$sql_49_2$;
 
 -- bank-registry.sql: source statement 3
-execute $sql_48_3$alter table public.bank_accounts drop constraint if exists bank_accounts_bank_code_check$sql_48_3$;
+execute $sql_49_3$alter table public.bank_accounts drop constraint if exists bank_accounts_bank_code_check$sql_49_3$;
 
 -- bank-registry.sql: source statement 4
-execute $sql_48_4$alter table public.bank_accounts drop constraint if exists bank_accounts_bank_code_registry_check$sql_48_4$;
+execute $sql_49_4$alter table public.bank_accounts drop constraint if exists bank_accounts_bank_code_registry_check$sql_49_4$;
 
 -- bank-registry.sql: source statement 5
-execute $sql_48_5$alter table public.bank_accounts add constraint bank_accounts_bank_code_registry_check check(public.bank_registry_code_valid(bank_code))$sql_48_5$;
+execute $sql_49_5$alter table public.bank_accounts add constraint bank_accounts_bank_code_registry_check check(public.bank_registry_code_valid(bank_code))$sql_49_5$;
 
 -- bank-registry.sql: source statement 6
-execute $sql_48_6$create or replace function public.seed_tenant_bank_account() returns trigger
+execute $sql_49_6$create or replace function public.seed_tenant_bank_account() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  update public.tenants set bank_accounts_migrated=true where id=new.id;
@@ -6238,19 +6301,19 @@ begin
   values(new.id,new.bank_code,coalesce(nullif(trim(new.account_name),''),new.name),new.account_number,true) on conflict do nothing;
  end if;
  return null;
-end $$$sql_48_6$;
+end $$$sql_49_6$;
 
 -- bank-registry.sql: source statement 7
-execute $sql_48_7$revoke all on function public.seed_tenant_bank_account() from public,anon,authenticated$sql_48_7$;
+execute $sql_49_7$revoke all on function public.seed_tenant_bank_account() from public,anon,authenticated$sql_49_7$;
 
 -- bank-registry.sql: source statement 8
-execute $sql_48_8$notify pgrst,'reload schema'$sql_48_8$;
+execute $sql_49_8$notify pgrst,'reload schema'$sql_49_8$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('bank-registry.sql','e40dbd449546f7ab03061e3c3f770645e5897ef782660b8f880068e06e9fe8db','9552aa3856ddf0c584f98f7ac722bc877e9a1a89617d0dd0c2dd5a1d7914b4d0');
-end $migration_48$;
+end $migration_49$;
 
--- 50. bank-qr-upload.sql
-do $migration_49$
+-- 51. bank-qr-upload.sql
+do $migration_50$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='bank-qr-upload.sql';
@@ -6261,19 +6324,19 @@ begin
     return;
   end if;
 -- bank-qr-upload.sql: source statement 2
-execute $sql_49_2$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+execute $sql_50_2$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
 values('bank-receiving-qr','bank-receiving-qr',false,5242880,array['image/png','image/jpeg'])
-on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types$sql_49_2$;
+on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types$sql_50_2$;
 
 -- bank-qr-upload.sql: source statement 3
-execute $sql_49_3$drop policy if exists bank_receiving_qr_private on storage.objects$sql_49_3$;
+execute $sql_50_3$drop policy if exists bank_receiving_qr_private on storage.objects$sql_50_3$;
 
 -- bank-qr-upload.sql: source statement 4
-execute $sql_49_4$create policy bank_receiving_qr_private on storage.objects as restrictive for all to anon,authenticated
-using(bucket_id<>'bank-receiving-qr') with check(bucket_id<>'bank-receiving-qr')$sql_49_4$;
+execute $sql_50_4$create policy bank_receiving_qr_private on storage.objects as restrictive for all to anon,authenticated
+using(bucket_id<>'bank-receiving-qr') with check(bucket_id<>'bank-receiving-qr')$sql_50_4$;
 
 -- bank-qr-upload.sql: source statement 5
-execute $sql_49_5$create table if not exists public.bank_receiving_qr (
+execute $sql_50_5$create table if not exists public.bank_receiving_qr (
  tenant_id uuid primary key references public.tenants(id) on delete cascade,
  account_id uuid not null references public.bank_accounts(id),
  bank_code_snapshot text not null,
@@ -6282,19 +6345,19 @@ execute $sql_49_5$create table if not exists public.bank_receiving_qr (
  payload text not null check(length(payload) between 20 and 2048),
  version integer not null check(version>0),
  updated_at timestamptz not null default now()
-)$sql_49_5$;
+)$sql_50_5$;
 
 -- bank-qr-upload.sql: source statement 6
-execute $sql_49_6$alter table public.bank_receiving_qr enable row level security$sql_49_6$;
+execute $sql_50_6$alter table public.bank_receiving_qr enable row level security$sql_50_6$;
 
 -- bank-qr-upload.sql: source statement 7
-execute $sql_49_7$revoke all on public.bank_receiving_qr from public,anon,authenticated$sql_49_7$;
+execute $sql_50_7$revoke all on public.bank_receiving_qr from public,anon,authenticated$sql_50_7$;
 
 -- bank-qr-upload.sql: source statement 8
-execute $sql_49_8$grant select,insert,update,delete on public.bank_receiving_qr to service_role$sql_49_8$;
+execute $sql_50_8$grant select,insert,update,delete on public.bank_receiving_qr to service_role$sql_50_8$;
 
 -- bank-qr-upload.sql: source statement 9
-execute $sql_49_9$create or replace function public.save_bank_receiving_qr(
+execute $sql_50_9$create or replace function public.save_bank_receiving_qr(
  p_tenant uuid,p_actor uuid,p_bank text,p_name text,p_number text,p_path text,p_payload text,p_version integer
 ) returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare previous public.bank_receiving_qr; saved uuid; next_version integer;
@@ -6326,22 +6389,22 @@ begin
   account_number_snapshot=excluded.account_number_snapshot,image_path=excluded.image_path,payload=excluded.payload,
   version=excluded.version,updated_at=now();
  return next_version;
-end $$$sql_49_9$;
+end $$$sql_50_9$;
 
 -- bank-qr-upload.sql: source statement 10
-execute $sql_49_10$revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public,anon,authenticated$sql_49_10$;
+execute $sql_50_10$revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public,anon,authenticated$sql_50_10$;
 
 -- bank-qr-upload.sql: source statement 11
-execute $sql_49_11$grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role$sql_49_11$;
+execute $sql_50_11$grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role$sql_50_11$;
 
 -- bank-qr-upload.sql: source statement 12
-execute $sql_49_12$notify pgrst,'reload schema'$sql_49_12$;
+execute $sql_50_12$notify pgrst,'reload schema'$sql_50_12$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('bank-qr-upload.sql','1f3644e8fc49b91992c0172ca91aa93000bc79e8a668bd61301baeafe961527b','6f115a66a303c4cdffce869df158f47c6090542411f674fdede0c28f9c6f539c');
-end $migration_49$;
+end $migration_50$;
 
--- 51. bank-qr-per-account.sql
-do $migration_50$
+-- 52. bank-qr-per-account.sql
+do $migration_51$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='bank-qr-per-account.sql';
@@ -6352,16 +6415,16 @@ begin
     return;
   end if;
 -- bank-qr-per-account.sql: source statement 2
-execute $sql_50_2$do $$ begin
+execute $sql_51_2$do $$ begin
  if exists(select 1 from pg_constraint where conrelid='public.bank_receiving_qr'::regclass
   and contype='p' and pg_get_constraintdef(oid)='PRIMARY KEY (tenant_id)') then
   alter table public.bank_receiving_qr drop constraint bank_receiving_qr_pkey;
   alter table public.bank_receiving_qr add primary key(tenant_id,account_id);
  end if;
-end $$$sql_50_2$;
+end $$$sql_51_2$;
 
 -- bank-qr-per-account.sql: source statement 3
-execute $sql_50_3$create or replace function public.save_bank_account_qr(
+execute $sql_51_3$create or replace function public.save_bank_account_qr(
  p_tenant uuid,p_actor uuid,p_account uuid,p_bank text,p_number text,p_path text,p_payload text,p_version integer
 ) returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare account public.bank_accounts; previous public.bank_receiving_qr; next_version integer;
@@ -6394,22 +6457,22 @@ begin
  insert into public.bank_account_audit(tenant_id,account_id,actor_id,action,last_four)
  values(p_tenant,p_account,p_actor,'qr_upload',right(account.account_number,4));
  return next_version;
-end $$$sql_50_3$;
+end $$$sql_51_3$;
 
 -- bank-qr-per-account.sql: source statement 4
-execute $sql_50_4$revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public,anon,authenticated$sql_50_4$;
+execute $sql_51_4$revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public,anon,authenticated$sql_51_4$;
 
 -- bank-qr-per-account.sql: source statement 5
-execute $sql_50_5$grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_50_5$;
+execute $sql_51_5$grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_51_5$;
 
 -- bank-qr-per-account.sql: source statement 6
-execute $sql_50_6$notify pgrst,'reload schema'$sql_50_6$;
+execute $sql_51_6$notify pgrst,'reload schema'$sql_51_6$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('bank-qr-per-account.sql','0278f60e9233803ed19593a64a0f77bf1bc950c4d776e42394ab5ccd76ba8191','32f1910876783a4661555a71c8144e1923d9548611ef0cbd5c6927681aecee27');
-end $migration_50$;
+end $migration_51$;
 
--- 52. bank-account-combined-save.sql
-do $migration_51$
+-- 53. bank-account-combined-save.sql
+do $migration_52$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='bank-account-combined-save.sql';
@@ -6420,7 +6483,7 @@ begin
     return;
   end if;
 -- bank-account-combined-save.sql: source statement 2
-execute $sql_51_2$create table if not exists public.bank_account_save_requests (
+execute $sql_52_2$create table if not exists public.bank_account_save_requests (
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  request_id uuid not null,
  actor_id uuid not null,
@@ -6428,19 +6491,19 @@ execute $sql_51_2$create table if not exists public.bank_account_save_requests (
  result jsonb not null,
  created_at timestamptz not null default now(),
  primary key(tenant_id,request_id)
-)$sql_51_2$;
+)$sql_52_2$;
 
 -- bank-account-combined-save.sql: source statement 3
-execute $sql_51_3$alter table public.bank_account_save_requests enable row level security$sql_51_3$;
+execute $sql_52_3$alter table public.bank_account_save_requests enable row level security$sql_52_3$;
 
 -- bank-account-combined-save.sql: source statement 4
-execute $sql_51_4$revoke all on public.bank_account_save_requests from public,anon,authenticated$sql_51_4$;
+execute $sql_52_4$revoke all on public.bank_account_save_requests from public,anon,authenticated$sql_52_4$;
 
 -- bank-account-combined-save.sql: source statement 5
-execute $sql_51_5$grant select,insert on public.bank_account_save_requests to service_role$sql_51_5$;
+execute $sql_52_5$grant select,insert on public.bank_account_save_requests to service_role$sql_52_5$;
 
 -- bank-account-combined-save.sql: source statement 6
-execute $sql_51_6$create or replace function public.save_bank_account_with_qr(
+execute $sql_52_6$create or replace function public.save_bank_account_with_qr(
  p_tenant uuid,p_actor uuid,p_account uuid,p_create boolean,p_data jsonb,p_original jsonb,
  p_path text,p_payload text,p_version integer,p_request uuid,p_fingerprint text
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
@@ -6494,22 +6557,22 @@ begin
  insert into public.bank_account_save_requests(tenant_id,request_id,actor_id,fingerprint,result)
  values(p_tenant,p_request,p_actor,p_fingerprint,result);
  return result;
-end $$$sql_51_6$;
+end $$$sql_52_6$;
 
 -- bank-account-combined-save.sql: source statement 7
-execute $sql_51_7$revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public,anon,authenticated$sql_51_7$;
+execute $sql_52_7$revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public,anon,authenticated$sql_52_7$;
 
 -- bank-account-combined-save.sql: source statement 8
-execute $sql_51_8$grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role$sql_51_8$;
+execute $sql_52_8$grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role$sql_52_8$;
 
 -- bank-account-combined-save.sql: source statement 9
-execute $sql_51_9$notify pgrst,'reload schema'$sql_51_9$;
+execute $sql_52_9$notify pgrst,'reload schema'$sql_52_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('bank-account-combined-save.sql','281d6d62139150815e56559a45c5eb043cdda51a7b3b8b5aca960e2150cb47a2','ba5776e10e9d121d7d374238c8031330a1ac43c18ccfe055a2dafc1551bc1128');
-end $migration_51$;
+end $migration_52$;
 
--- 53. payment-receiving-codes.sql
-do $migration_52$
+-- 54. payment-receiving-codes.sql
+do $migration_53$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='payment-receiving-codes.sql';
@@ -6520,7 +6583,7 @@ begin
     return;
   end if;
 -- payment-receiving-codes.sql: source statement 2
-execute $sql_52_2$create table if not exists public.payment_receiving_codes(
+execute $sql_53_2$create table if not exists public.payment_receiving_codes(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),
  account_id uuid not null references public.bank_accounts(id),actor_id uuid not null references auth.users(id),
  request_id uuid not null,label text not null check(length(trim(label)) between 1 and 100),
@@ -6529,35 +6592,35 @@ execute $sql_52_2$create table if not exists public.payment_receiving_codes(
  order_id uuid references public.orders(id),source text not null check(source in ('generated','imported')),
  is_active boolean not null default true,created_at timestamptz not null default now(),
  unique(tenant_id,actor_id,request_id)
-)$sql_52_2$;
+)$sql_53_2$;
 
 -- payment-receiving-codes.sql: source statement 3
-execute $sql_52_3$create index if not exists receiving_codes_shop on public.payment_receiving_codes(tenant_id,created_at desc)$sql_52_3$;
+execute $sql_53_3$create index if not exists receiving_codes_shop on public.payment_receiving_codes(tenant_id,created_at desc)$sql_53_3$;
 
 -- payment-receiving-codes.sql: source statement 4
-execute $sql_52_4$create table if not exists public.payment_receiving_audit(
+execute $sql_53_4$create table if not exists public.payment_receiving_audit(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),
  code_id uuid not null references public.payment_receiving_codes(id),actor_id uuid not null references auth.users(id),
  action text not null,created_at timestamptz not null default now()
-)$sql_52_4$;
+)$sql_53_4$;
 
 -- payment-receiving-codes.sql: source statement 5
-execute $sql_52_5$alter table public.payment_receiving_codes enable row level security$sql_52_5$;
+execute $sql_53_5$alter table public.payment_receiving_codes enable row level security$sql_53_5$;
 
 -- payment-receiving-codes.sql: source statement 6
-execute $sql_52_6$alter table public.payment_receiving_audit enable row level security$sql_52_6$;
+execute $sql_53_6$alter table public.payment_receiving_audit enable row level security$sql_53_6$;
 
 -- payment-receiving-codes.sql: source statement 7
-execute $sql_52_7$revoke all on public.payment_receiving_codes,public.payment_receiving_audit from public,anon,authenticated$sql_52_7$;
+execute $sql_53_7$revoke all on public.payment_receiving_codes,public.payment_receiving_audit from public,anon,authenticated$sql_53_7$;
 
 -- payment-receiving-codes.sql: source statement 8
-execute $sql_52_8$grant select,insert,update on public.payment_receiving_codes to service_role$sql_52_8$;
+execute $sql_53_8$grant select,insert,update on public.payment_receiving_codes to service_role$sql_53_8$;
 
 -- payment-receiving-codes.sql: source statement 9
-execute $sql_52_9$grant select,insert on public.payment_receiving_audit to service_role$sql_52_9$;
+execute $sql_53_9$grant select,insert on public.payment_receiving_audit to service_role$sql_53_9$;
 
 -- payment-receiving-codes.sql: source statement 10
-execute $sql_52_10$create or replace function public.save_payment_receiving_code(p_tenant uuid,p_actor uuid,p_key uuid,p_account uuid,p_label text,p_payload text,p_recipient text,p_amount bigint,p_order uuid default null,p_source text default 'generated') returns uuid
+execute $sql_53_10$create or replace function public.save_payment_receiving_code(p_tenant uuid,p_actor uuid,p_key uuid,p_account uuid,p_label text,p_payload text,p_recipient text,p_amount bigint,p_order uuid default null,p_source text default 'generated') returns uuid
 language plpgsql set search_path=pg_catalog,public as $$
 declare account public.bank_accounts;existing public.payment_receiving_codes;saved uuid;order_amount numeric;
 begin
@@ -6583,10 +6646,10 @@ begin
   values(p_tenant,p_account,p_actor,p_key,trim(p_label),p_payload,account.account_number,p_amount,p_order,p_source) returning id into saved;
  insert into public.payment_receiving_audit(tenant_id,code_id,actor_id,action) values(p_tenant,saved,p_actor,p_source);
  return saved;
-end $$$sql_52_10$;
+end $$$sql_53_10$;
 
 -- payment-receiving-codes.sql: source statement 11
-execute $sql_52_11$create or replace function public.set_payment_receiving_code_active(p_tenant uuid,p_actor uuid,p_id uuid,p_active boolean) returns void
+execute $sql_53_11$create or replace function public.set_payment_receiving_code_active(p_tenant uuid,p_actor uuid,p_id uuid,p_active boolean) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare current_state boolean;
 begin
@@ -6598,22 +6661,22 @@ begin
  if current_state=p_active then return;end if;
  update public.payment_receiving_codes set is_active=p_active where id=p_id;
  insert into public.payment_receiving_audit(tenant_id,code_id,actor_id,action) values(p_tenant,p_id,p_actor,case when p_active then 'enabled' else 'disabled' end);
-end $$$sql_52_11$;
+end $$$sql_53_11$;
 
 -- payment-receiving-codes.sql: source statement 12
-execute $sql_52_12$revoke all on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text),public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_52_12$;
+execute $sql_53_12$revoke all on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text),public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_53_12$;
 
 -- payment-receiving-codes.sql: source statement 13
-execute $sql_52_13$grant execute on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text),public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) to service_role$sql_52_13$;
+execute $sql_53_13$grant execute on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text),public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) to service_role$sql_53_13$;
 
 -- payment-receiving-codes.sql: source statement 14
-execute $sql_52_14$notify pgrst,'reload schema'$sql_52_14$;
+execute $sql_53_14$notify pgrst,'reload schema'$sql_53_14$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('payment-receiving-codes.sql','9a96597249a877924b57c925eba98dfd2f81933125788850c4f0779e52af5955','69d202f61858dbf27aaffa6a93e201b0fe43cb15e22fc579fbe82d1bca342826');
-end $migration_52$;
+end $migration_53$;
 
--- 54. qr-payment-designer.sql
-do $migration_53$
+-- 55. qr-payment-designer.sql
+do $migration_54$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='qr-payment-designer.sql';
@@ -6624,19 +6687,19 @@ begin
     return;
   end if;
 -- qr-payment-designer.sql: source statement 2
-execute $sql_53_2$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+execute $sql_54_2$insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
 values('payment-qr-assets','payment-qr-assets',false,5242880,array['image/png','image/jpeg','image/webp'])
-on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types$sql_53_2$;
+on conflict(id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types$sql_54_2$;
 
 -- qr-payment-designer.sql: source statement 3
-execute $sql_53_3$drop policy if exists payment_qr_assets_private on storage.objects$sql_53_3$;
+execute $sql_54_3$drop policy if exists payment_qr_assets_private on storage.objects$sql_54_3$;
 
 -- qr-payment-designer.sql: source statement 4
-execute $sql_53_4$create policy payment_qr_assets_private on storage.objects as restrictive for all to anon,authenticated
-using(bucket_id<>'payment-qr-assets') with check(bucket_id<>'payment-qr-assets')$sql_53_4$;
+execute $sql_54_4$create policy payment_qr_assets_private on storage.objects as restrictive for all to anon,authenticated
+using(bucket_id<>'payment-qr-assets') with check(bucket_id<>'payment-qr-assets')$sql_54_4$;
 
 -- qr-payment-designer.sql: source statement 5
-execute $sql_53_5$create table if not exists public.bank_qr_designs(
+execute $sql_54_5$create table if not exists public.bank_qr_designs(
  account_id uuid primary key references public.bank_accounts(id),
  tenant_id uuid not null references public.tenants(id),
  payload text not null,recipient_snapshot text not null,
@@ -6645,19 +6708,19 @@ execute $sql_53_5$create table if not exists public.bank_qr_designs(
  original_path text,logo_path text,design jsonb not null,
  version integer not null default 1,updated_at timestamptz not null default now(),
  updated_by uuid not null references auth.users(id)
-)$sql_53_5$;
+)$sql_54_5$;
 
 -- qr-payment-designer.sql: source statement 6
-execute $sql_53_6$alter table public.bank_qr_designs enable row level security$sql_53_6$;
+execute $sql_54_6$alter table public.bank_qr_designs enable row level security$sql_54_6$;
 
 -- qr-payment-designer.sql: source statement 7
-execute $sql_53_7$revoke all on public.bank_qr_designs from public,anon,authenticated$sql_53_7$;
+execute $sql_54_7$revoke all on public.bank_qr_designs from public,anon,authenticated$sql_54_7$;
 
 -- qr-payment-designer.sql: source statement 8
-execute $sql_53_8$grant select,insert,update on public.bank_qr_designs to service_role$sql_53_8$;
+execute $sql_54_8$grant select,insert,update on public.bank_qr_designs to service_role$sql_54_8$;
 
 -- qr-payment-designer.sql: source statement 9
-execute $sql_53_9$create or replace function public.save_bank_qr_design(p_tenant uuid,p_actor uuid,p_account uuid,p_recipient text,p_payload text,p_amount bigint,p_original text,p_logo text,p_design jsonb,p_version integer) returns void
+execute $sql_54_9$create or replace function public.save_bank_qr_design(p_tenant uuid,p_actor uuid,p_account uuid,p_recipient text,p_payload text,p_amount bigint,p_original text,p_logo text,p_design jsonb,p_version integer) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare account public.bank_accounts; current_version integer;
 begin
@@ -6677,22 +6740,22 @@ begin
  on conflict(account_id) do update set payload=excluded.payload,recipient_snapshot=excluded.recipient_snapshot,amount_satang=excluded.amount_satang,original_path=excluded.original_path,logo_path=excluded.logo_path,design=excluded.design,version=bank_qr_designs.version+1,updated_at=now(),updated_by=p_actor;
  insert into public.bank_account_audit(tenant_id,actor_id,account_id,action,last_four)
  values(p_tenant,p_actor,p_account,'qr_design',right(p_recipient,4));
-end $$$sql_53_9$;
+end $$$sql_54_9$;
 
 -- qr-payment-designer.sql: source statement 10
-execute $sql_53_10$revoke all on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) from public,anon,authenticated$sql_53_10$;
+execute $sql_54_10$revoke all on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) from public,anon,authenticated$sql_54_10$;
 
 -- qr-payment-designer.sql: source statement 11
-execute $sql_53_11$grant execute on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) to service_role$sql_53_11$;
+execute $sql_54_11$grant execute on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) to service_role$sql_54_11$;
 
 -- qr-payment-designer.sql: source statement 12
-execute $sql_53_12$notify pgrst,'reload schema'$sql_53_12$;
+execute $sql_54_12$notify pgrst,'reload schema'$sql_54_12$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('qr-payment-designer.sql','9306b7ffda7e95f18dbfe853f2ea29171604d41a57ece1fb86c3da4287a0dc67','791010165b6065afb641c311106260bb7f574a3624530ee8d9df966d2bee8cd3');
-end $migration_53$;
+end $migration_54$;
 
--- 55. store-rules.sql
-do $migration_54$
+-- 56. store-rules.sql
+do $migration_55$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='store-rules.sql';
@@ -6703,13 +6766,13 @@ begin
     return;
   end if;
 -- store-rules.sql: source statement 2
-execute $sql_54_2$alter table public.bot_settings drop constraint if exists bot_settings_ai_instructions_check$sql_54_2$;
+execute $sql_55_2$alter table public.bot_settings drop constraint if exists bot_settings_ai_instructions_check$sql_55_2$;
 
 -- store-rules.sql: source statement 3
-execute $sql_54_3$alter table public.bot_settings add constraint bot_settings_ai_instructions_check check(length(ai_instructions)<=50000)$sql_54_3$;
+execute $sql_55_3$alter table public.bot_settings add constraint bot_settings_ai_instructions_check check(length(ai_instructions)<=50000)$sql_55_3$;
 
 -- store-rules.sql: source statement 4
-execute $sql_54_4$create or replace function public.save_agent_prompt(p_tenant uuid,p_actor uuid,p_instructions text) returns void
+execute $sql_55_4$create or replace function public.save_agent_prompt(p_tenant uuid,p_actor uuid,p_instructions text) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if not public.has_tenant_feature(p_tenant,'ai_agent')
@@ -6721,25 +6784,25 @@ begin
  insert into public.bot_settings(tenant_id,ai_instructions) values(p_tenant,p_instructions)
  on conflict(tenant_id) do update set ai_instructions=excluded.ai_instructions;
  insert into public.agent_control_audit(tenant_id,actor_id,event) values(p_tenant,p_actor,'prompt_saved');
-end $$$sql_54_4$;
+end $$$sql_55_4$;
 
 -- store-rules.sql: source statement 5
-execute $sql_54_5$revoke all on function public.save_agent_prompt(uuid,uuid,text) from public,anon,authenticated$sql_54_5$;
+execute $sql_55_5$revoke all on function public.save_agent_prompt(uuid,uuid,text) from public,anon,authenticated$sql_55_5$;
 
 -- store-rules.sql: source statement 6
-execute $sql_54_6$grant execute on function public.save_agent_prompt(uuid,uuid,text) to service_role$sql_54_6$;
+execute $sql_55_6$grant execute on function public.save_agent_prompt(uuid,uuid,text) to service_role$sql_55_6$;
 
 -- store-rules.sql: source statement 7
-execute $sql_54_7$revoke all on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) from public,anon,authenticated,service_role$sql_54_7$;
+execute $sql_55_7$revoke all on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) from public,anon,authenticated,service_role$sql_55_7$;
 
 -- store-rules.sql: source statement 8
-execute $sql_54_8$notify pgrst,'reload schema'$sql_54_8$;
+execute $sql_55_8$notify pgrst,'reload schema'$sql_55_8$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('store-rules.sql','1c0cc3f48b63cf0cf733537ccc0d986d29396fe8751b4827c17286a0ea759094','ea6f24e091470f5d88369563d5f012c9500370aaa7536d84d3bf33c986daaee9');
-end $migration_54$;
+end $migration_55$;
 
--- 56. store-rule-items.sql
-do $migration_55$
+-- 57. store-rule-items.sql
+do $migration_56$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='store-rule-items.sql';
@@ -6750,7 +6813,7 @@ begin
     return;
   end if;
 -- store-rule-items.sql: source statement 2
-execute $sql_55_2$create or replace function public.save_store_rule_items(p_tenant uuid,p_actor uuid,p_expected text,p_instructions text)
+execute $sql_56_2$create or replace function public.save_store_rule_items(p_tenant uuid,p_actor uuid,p_expected text,p_instructions text)
 returns void language plpgsql set search_path=pg_catalog,public as $$
 declare current_rules text;doc jsonb;
 begin
@@ -6769,22 +6832,22 @@ begin
  select ai_instructions into current_rules from public.bot_settings where tenant_id=p_tenant for update;
  if coalesce(current_rules,'') is distinct from coalesce(p_expected,'') then raise exception 'Store rules changed' using errcode='40001';end if;
  perform public.save_agent_prompt(p_tenant,p_actor,p_instructions);
-end $$$sql_55_2$;
+end $$$sql_56_2$;
 
 -- store-rule-items.sql: source statement 3
-execute $sql_55_3$revoke all on function public.save_store_rule_items(uuid,uuid,text,text) from public,anon,authenticated$sql_55_3$;
+execute $sql_56_3$revoke all on function public.save_store_rule_items(uuid,uuid,text,text) from public,anon,authenticated$sql_56_3$;
 
 -- store-rule-items.sql: source statement 4
-execute $sql_55_4$grant execute on function public.save_store_rule_items(uuid,uuid,text,text) to service_role$sql_55_4$;
+execute $sql_56_4$grant execute on function public.save_store_rule_items(uuid,uuid,text,text) to service_role$sql_56_4$;
 
 -- store-rule-items.sql: source statement 5
-execute $sql_55_5$notify pgrst,'reload schema'$sql_55_5$;
+execute $sql_56_5$notify pgrst,'reload schema'$sql_56_5$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('store-rule-items.sql','6baac66282ff42d7e6b0d4018e7daaec2f1b5561e22b33c6dfce75c1f9acefe6','7f10a22e7c4ad118a193af3e28a5105070e4eeff33b9fee5d95d836fc9664a41');
-end $migration_55$;
+end $migration_56$;
 
--- 57. store-rules-validation.sql
-do $migration_56$
+-- 58. store-rules-validation.sql
+do $migration_57$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='store-rules-validation.sql';
@@ -6795,7 +6858,7 @@ begin
     return;
   end if;
 -- store-rules-validation.sql: source statement 2
-execute $sql_56_2$create or replace function public.assert_valid_store_rules(p_instructions text) returns void
+execute $sql_57_2$create or replace function public.assert_valid_store_rules(p_instructions text) returns void
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare doc jsonb;item jsonb;candidate boolean;seen text[]:=array[]::text[];
  whitespace text:=U&'[\0009-\000D\0020\00A0\1680\2000-\200A\2028\2029\202F\205F\3000\FEFF]';
@@ -6825,10 +6888,10 @@ begin
   if item->>'id'=any(seen) then raise exception 'STORE_RULES_INVALID: พบรหัสกฎซ้ำ' using errcode='22023';end if;
   seen:=array_append(seen,item->>'id');
  end loop;
-end $$$sql_56_2$;
+end $$$sql_57_2$;
 
 -- store-rules-validation.sql: source statement 3
-execute $sql_56_3$create or replace function public.guard_store_rules_validation() returns trigger
+execute $sql_57_3$create or replace function public.guard_store_rules_validation() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare revision integer;actor uuid;
 begin
@@ -6842,16 +6905,16 @@ begin
   end if;
  end if;
  return new;
-end $$$sql_56_3$;
+end $$$sql_57_3$;
 
 -- store-rules-validation.sql: source statement 4
-execute $sql_56_4$drop trigger if exists bot_settings_store_rules_validation on public.bot_settings$sql_56_4$;
+execute $sql_57_4$drop trigger if exists bot_settings_store_rules_validation on public.bot_settings$sql_57_4$;
 
 -- store-rules-validation.sql: source statement 5
-execute $sql_56_5$create trigger bot_settings_store_rules_validation before insert or update of ai_instructions on public.bot_settings for each row execute function public.guard_store_rules_validation()$sql_56_5$;
+execute $sql_57_5$create trigger bot_settings_store_rules_validation before insert or update of ai_instructions on public.bot_settings for each row execute function public.guard_store_rules_validation()$sql_57_5$;
 
 -- store-rules-validation.sql: source statement 6
-execute $sql_56_6$create or replace function public.save_validated_store_rules(p_tenant uuid,p_actor uuid,p_expected text,p_instructions text) returns void
+execute $sql_57_6$create or replace function public.save_validated_store_rules(p_tenant uuid,p_actor uuid,p_expected text,p_instructions text) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare current_rules text;
 begin
@@ -6863,31 +6926,31 @@ begin
  select ai_instructions into current_rules from public.bot_settings where tenant_id=p_tenant for update;
  if coalesce(current_rules,'') is distinct from coalesce(p_expected,'') then raise exception 'Store rules changed' using errcode='40001';end if;
  perform public.save_agent_prompt(p_tenant,p_actor,p_instructions);
-end $$$sql_56_6$;
+end $$$sql_57_6$;
 
 -- store-rules-validation.sql: source statement 7
-execute $sql_56_7$revoke all on function public.save_validated_store_rules(uuid,uuid,text,text) from public,anon,authenticated$sql_56_7$;
+execute $sql_57_7$revoke all on function public.save_validated_store_rules(uuid,uuid,text,text) from public,anon,authenticated$sql_57_7$;
 
 -- store-rules-validation.sql: source statement 8
-execute $sql_56_8$grant execute on function public.save_validated_store_rules(uuid,uuid,text,text) to service_role$sql_56_8$;
+execute $sql_57_8$grant execute on function public.save_validated_store_rules(uuid,uuid,text,text) to service_role$sql_57_8$;
 
 -- store-rules-validation.sql: source statement 9
-execute $sql_56_9$revoke all on function public.assert_valid_store_rules(text) from public,anon$sql_56_9$;
+execute $sql_57_9$revoke all on function public.assert_valid_store_rules(text) from public,anon$sql_57_9$;
 
 -- store-rules-validation.sql: source statement 10
-execute $sql_56_10$grant execute on function public.assert_valid_store_rules(text) to authenticated,service_role$sql_56_10$;
+execute $sql_57_10$grant execute on function public.assert_valid_store_rules(text) to authenticated,service_role$sql_57_10$;
 
 -- store-rules-validation.sql: source statement 11
-execute $sql_56_11$revoke all on function public.guard_store_rules_validation() from public,anon,authenticated,service_role$sql_56_11$;
+execute $sql_57_11$revoke all on function public.guard_store_rules_validation() from public,anon,authenticated,service_role$sql_57_11$;
 
 -- store-rules-validation.sql: source statement 12
-execute $sql_56_12$notify pgrst,'reload schema'$sql_56_12$;
+execute $sql_57_12$notify pgrst,'reload schema'$sql_57_12$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('store-rules-validation.sql','809110a4e553b2296de3469657cacaf441acf0ee68f6bdcfa35f87348589d034','f8cbdf12cd3851025951edbf50d831548032211d73e43f12b011c1aa51df4883');
-end $migration_56$;
+end $migration_57$;
 
--- 58. facebook-webhook-queue.sql
-do $migration_57$
+-- 59. facebook-webhook-queue.sql
+do $migration_58$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-webhook-queue.sql';
@@ -6898,20 +6961,20 @@ begin
     return;
   end if;
 -- facebook-webhook-queue.sql: source statement 2
-execute $sql_57_2$alter table public.customers add column if not exists last_interaction_at timestamptz$sql_57_2$;
+execute $sql_58_2$alter table public.customers add column if not exists last_interaction_at timestamptz$sql_58_2$;
 
 -- facebook-webhook-queue.sql: source statement 3
-execute $sql_57_3$alter table public.customers add column if not exists window_expires_at timestamptz$sql_57_3$;
+execute $sql_58_3$alter table public.customers add column if not exists window_expires_at timestamptz$sql_58_3$;
 
 -- facebook-webhook-queue.sql: source statement 4
-execute $sql_57_4$create table if not exists public.facebook_webhook_payloads (
+execute $sql_58_4$create table if not exists public.facebook_webhook_payloads (
  id uuid primary key default gen_random_uuid(), payload_sha256 text not null unique check(payload_sha256 ~ '^[a-f0-9]{64}$'),
  raw_payload text not null check(octet_length(raw_payload)<=2097152), received_at timestamptz not null default clock_timestamp(),
  last_received_at timestamptz not null default clock_timestamp(), delivery_count integer not null default 1
-)$sql_57_4$;
+)$sql_58_4$;
 
 -- facebook-webhook-queue.sql: source statement 5
-execute $sql_57_5$create table if not exists public.facebook_webhook_events (
+execute $sql_58_5$create table if not exists public.facebook_webhook_events (
  id uuid primary key default gen_random_uuid(), payload_id uuid not null references public.facebook_webhook_payloads(id),
  sequence bigint generated always as identity unique, page_id text not null, event_key text not null, ordering_key text not null,
  kind text not null check(kind in ('message','change')), payload jsonb not null,
@@ -6919,45 +6982,45 @@ execute $sql_57_5$create table if not exists public.facebook_webhook_events (
  attempts integer not null default 0, available_at timestamptz not null default clock_timestamp(),
  claim_token uuid, lease_until timestamptz, last_error text, created_at timestamptz not null default clock_timestamp(), completed_at timestamptz,
  unique(page_id,event_key)
-)$sql_57_5$;
+)$sql_58_5$;
 
 -- facebook-webhook-queue.sql: source statement 6
-execute $sql_57_6$create index if not exists facebook_webhook_due on public.facebook_webhook_events(available_at,sequence) where status='pending'$sql_57_6$;
+execute $sql_58_6$create index if not exists facebook_webhook_due on public.facebook_webhook_events(available_at,sequence) where status='pending'$sql_58_6$;
 
 -- facebook-webhook-queue.sql: source statement 7
-execute $sql_57_7$create index if not exists facebook_webhook_ordering on public.facebook_webhook_events(page_id,ordering_key,sequence) where status in ('pending','processing','requires_review','dead')$sql_57_7$;
+execute $sql_58_7$create index if not exists facebook_webhook_ordering on public.facebook_webhook_events(page_id,ordering_key,sequence) where status in ('pending','processing','requires_review','dead')$sql_58_7$;
 
 -- facebook-webhook-queue.sql: source statement 8
-execute $sql_57_8$create index if not exists facebook_webhook_leases on public.facebook_webhook_events(lease_until) where status='processing'$sql_57_8$;
+execute $sql_58_8$create index if not exists facebook_webhook_leases on public.facebook_webhook_events(lease_until) where status='processing'$sql_58_8$;
 
 -- facebook-webhook-queue.sql: source statement 9
-execute $sql_57_9$create table if not exists public.facebook_webhook_steps (
+execute $sql_58_9$create table if not exists public.facebook_webhook_steps (
  event_id uuid not null references public.facebook_webhook_events(id), name text not null check(length(name) between 1 and 120),
  status text not null check(status in ('started','completed')), result jsonb, started_at timestamptz not null default clock_timestamp(),
  completed_at timestamptz, primary key(event_id,name)
-)$sql_57_9$;
+)$sql_58_9$;
 
 -- facebook-webhook-queue.sql: source statement 10
-execute $sql_57_10$alter table public.facebook_webhook_payloads enable row level security$sql_57_10$;
+execute $sql_58_10$alter table public.facebook_webhook_payloads enable row level security$sql_58_10$;
 
 -- facebook-webhook-queue.sql: source statement 11
-execute $sql_57_11$alter table public.facebook_webhook_events enable row level security$sql_57_11$;
+execute $sql_58_11$alter table public.facebook_webhook_events enable row level security$sql_58_11$;
 
 -- facebook-webhook-queue.sql: source statement 12
-execute $sql_57_12$alter table public.facebook_webhook_steps enable row level security$sql_57_12$;
+execute $sql_58_12$alter table public.facebook_webhook_steps enable row level security$sql_58_12$;
 
 -- facebook-webhook-queue.sql: source statement 13
-execute $sql_57_13$revoke all on public.facebook_webhook_payloads,public.facebook_webhook_events,public.facebook_webhook_steps from public,anon,authenticated$sql_57_13$;
+execute $sql_58_13$revoke all on public.facebook_webhook_payloads,public.facebook_webhook_events,public.facebook_webhook_steps from public,anon,authenticated$sql_58_13$;
 
 -- facebook-webhook-queue.sql: source statement 14
-execute $sql_57_14$grant select,insert,update,delete on public.facebook_webhook_payloads,public.facebook_webhook_events,public.facebook_webhook_steps to service_role$sql_57_14$;
+execute $sql_58_14$grant select,insert,update,delete on public.facebook_webhook_payloads,public.facebook_webhook_events,public.facebook_webhook_steps to service_role$sql_58_14$;
 
 -- facebook-webhook-queue.sql: source statement 15
-execute $sql_57_15$grant usage,select on sequence public.facebook_webhook_events_sequence_seq to service_role$sql_57_15$;
+execute $sql_58_15$grant usage,select on sequence public.facebook_webhook_events_sequence_seq to service_role$sql_58_15$;
 
 -- facebook-webhook-queue.sql: source statement 16
 begin
-execute $sql_57_16$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
+execute $sql_58_16$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare receipt uuid; item jsonb; accepted integer:=0; affected integer;
 begin
@@ -6976,7 +7039,7 @@ begin
   get diagnostics affected=row_count;accepted:=accepted+affected;
  end loop;
  return jsonb_build_object('id',receipt,'accepted',accepted);
-end $$$sql_57_16$;
+end $$$sql_58_16$;
 exception when invalid_function_definition then
   -- A newer signature of enqueue_facebook_webhook(text,text,jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -6984,7 +7047,7 @@ end;
 
 -- facebook-webhook-queue.sql: source statement 17
 begin
-execute $sql_57_17$create or replace function public.claim_facebook_webhook(p_lease_seconds integer default 120) returns setof public.facebook_webhook_events
+execute $sql_58_17$create or replace function public.claim_facebook_webhook(p_lease_seconds integer default 120) returns setof public.facebook_webhook_events
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  -- A side effect whose outcome was not committed is never automatically repeated.
@@ -7006,22 +7069,22 @@ begin
  ) update public.facebook_webhook_events e set status='processing',attempts=e.attempts+1,claim_token=gen_random_uuid(),
  lease_until=clock_timestamp()+make_interval(secs=>least(300,greatest(30,p_lease_seconds)))
  from candidate where e.id=candidate.id returning e.*;
-end $$$sql_57_17$;
+end $$$sql_58_17$;
 exception when invalid_function_definition then
   -- A newer signature of claim_facebook_webhook(integer) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- facebook-webhook-queue.sql: source statement 18
-execute $sql_57_18$create or replace function public.heartbeat_facebook_webhook(p_event uuid,p_claim uuid) returns boolean
+execute $sql_58_18$create or replace function public.heartbeat_facebook_webhook(p_event uuid,p_claim uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  update public.facebook_webhook_events set lease_until=clock_timestamp()+interval '120 seconds'
  where id=p_event and claim_token=p_claim and status='processing' and lease_until>clock_timestamp();return found;
-end $$$sql_57_18$;
+end $$$sql_58_18$;
 
 -- facebook-webhook-queue.sql: source statement 19
-execute $sql_57_19$create or replace function public.begin_facebook_webhook_step(p_event uuid,p_claim uuid,p_name text) returns jsonb
+execute $sql_58_19$create or replace function public.begin_facebook_webhook_step(p_event uuid,p_claim uuid,p_name text) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare step public.facebook_webhook_steps;
 begin
@@ -7031,20 +7094,20 @@ begin
  if found then return jsonb_build_object('status',step.status,'result',step.result);end if;
  insert into public.facebook_webhook_steps(event_id,name,status) values(p_event,p_name,'started');
  return jsonb_build_object('status','new');
-end $$$sql_57_19$;
+end $$$sql_58_19$;
 
 -- facebook-webhook-queue.sql: source statement 20
-execute $sql_57_20$create or replace function public.complete_facebook_webhook_step(p_event uuid,p_claim uuid,p_name text,p_result jsonb) returns boolean
+execute $sql_58_20$create or replace function public.complete_facebook_webhook_step(p_event uuid,p_claim uuid,p_name text,p_result jsonb) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  perform 1 from public.facebook_webhook_events where id=p_event and claim_token=p_claim and status='processing' and lease_until>clock_timestamp() for update;
  if not found then return false;end if;
  update public.facebook_webhook_steps set status='completed',result=p_result,completed_at=clock_timestamp() where event_id=p_event and name=p_name and status='started';return found;
-end $$$sql_57_20$;
+end $$$sql_58_20$;
 
 -- facebook-webhook-queue.sql: source statement 21
 begin
-execute $sql_57_21$create or replace function public.finish_facebook_webhook(p_event uuid,p_claim uuid,p_outcome text,p_error text default null) returns text
+execute $sql_58_21$create or replace function public.finish_facebook_webhook(p_event uuid,p_claim uuid,p_outcome text,p_error text default null) returns text
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events;next_state text;
 begin
@@ -7058,7 +7121,7 @@ begin
  available_at=case when next_state='pending' then clock_timestamp()+make_interval(secs=>least(3600,5*power(2,least(e.attempts-1,10))::integer))+random()*interval '2 seconds' else available_at end,
  completed_at=case when next_state='completed' then clock_timestamp() else null end where id=e.id;
  return next_state;
-end $$$sql_57_21$;
+end $$$sql_58_21$;
 exception when invalid_function_definition then
   -- A newer signature of finish_facebook_webhook(uuid,uuid,text,text) is already installed. Its final definition below is mandatory.
   null;
@@ -7066,7 +7129,7 @@ end;
 
 -- facebook-webhook-queue.sql: source statement 22
 begin
-execute $sql_57_22$create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
+execute $sql_58_22$create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
  whitespace text:=U&'[\0009-\000D\0020\00A0\1680\2000-\200A\2028\2029\202F\205F\3000\FEFF]';
@@ -7092,21 +7155,21 @@ begin
  if milliseconds<=0 or milliseconds<>trunc(milliseconds) or milliseconds>9007199254740991
  or milliseconds>floor(extract(epoch from p_received_at)*1000) then return null;end if;
  return to_timestamp(floor(milliseconds/1000)::double precision)+(mod(milliseconds,1000)::integer*interval '1 millisecond');
-end $$$sql_57_22$;
+end $$$sql_58_22$;
 exception when invalid_function_definition then
   -- A newer signature of facebook_inbound_message_at(jsonb,text,timestamptz) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- facebook-webhook-queue.sql: source statement 23
-execute $sql_57_23$revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated$sql_57_23$;
+execute $sql_58_23$revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated$sql_58_23$;
 
 -- facebook-webhook-queue.sql: source statement 24
-execute $sql_57_24$grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role$sql_57_24$;
+execute $sql_58_24$grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role$sql_58_24$;
 
 -- facebook-webhook-queue.sql: source statement 25
 begin
-execute $sql_57_25$create or replace function public.inbox_incoming_message() returns trigger
+execute $sql_58_25$create or replace function public.inbox_incoming_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.sender='customer' then
@@ -7116,7 +7179,7 @@ begin
    where id=new.customer_id returning inbound_seq into new.inbound_seq;
  end if;
  return new;
-end $$$sql_57_25$;
+end $$$sql_58_25$;
 exception when invalid_function_definition then
   -- A newer signature of inbox_incoming_message() is already installed. Its final definition below is mandatory.
   null;
@@ -7124,7 +7187,7 @@ end;
 
 -- facebook-webhook-queue.sql: source statement 26
 begin
-execute $sql_57_26$create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
+execute $sql_58_26$create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events; prior jsonb; v jsonb; c public.customers; record_id uuid; result jsonb; event_time timestamptz; duplicate boolean;
 begin
@@ -7181,32 +7244,32 @@ begin
  result:=jsonb_build_object('id',record_id,'tenantId',p_tenant,'duplicate',duplicate,'customer',case when c.id is null then null else jsonb_build_object('id',c.id,'display_name',c.display_name,'bot_enabled',c.bot_enabled) end);
  insert into public.facebook_webhook_steps(event_id,name,status,result,completed_at) values(e.id,'record','completed',result,clock_timestamp());
  return result;
-end $$$sql_57_26$;
+end $$$sql_58_26$;
 exception when invalid_function_definition then
   -- A newer signature of persist_facebook_webhook_record(uuid,uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- facebook-webhook-queue.sql: source statement 27
-execute $sql_57_27$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated$sql_57_27$;
+execute $sql_58_27$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated$sql_58_27$;
 
 -- facebook-webhook-queue.sql: source statement 28
-execute $sql_57_28$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_57_28$;
+execute $sql_58_28$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_58_28$;
 
 -- facebook-webhook-queue.sql: source statement 29
-execute $sql_57_29$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) from public,anon,authenticated$sql_57_29$;
+execute $sql_58_29$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) from public,anon,authenticated$sql_58_29$;
 
 -- facebook-webhook-queue.sql: source statement 30
-execute $sql_57_30$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) to service_role$sql_57_30$;
+execute $sql_58_30$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) to service_role$sql_58_30$;
 
 -- facebook-webhook-queue.sql: source statement 31
-execute $sql_57_31$notify pgrst,'reload schema'$sql_57_31$;
+execute $sql_58_31$notify pgrst,'reload schema'$sql_58_31$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-webhook-queue.sql','2ee3ebefcea5c085891915b27408e9ebb4fc599f73233b7888507e326b89630d','7e67011b3489c011639ea3f4f800fa6ac4825670f76f04fca4e0f7fddb3c641e');
-end $migration_57$;
+end $migration_58$;
 
--- 59. facebook-webhook-nonblocking.sql
-do $migration_58$
+-- 60. facebook-webhook-nonblocking.sql
+do $migration_59$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-webhook-nonblocking.sql';
@@ -7217,7 +7280,7 @@ begin
     return;
   end if;
 -- facebook-webhook-nonblocking.sql: source statement 2
-execute $sql_58_2$create or replace function public.claim_facebook_webhook(p_lease_seconds integer default 120) returns setof public.facebook_webhook_events
+execute $sql_59_2$create or replace function public.claim_facebook_webhook(p_lease_seconds integer default 120) returns setof public.facebook_webhook_events
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  -- A side effect whose outcome was not committed is never automatically repeated.
@@ -7239,10 +7302,10 @@ begin
  ) update public.facebook_webhook_events e set status='processing',attempts=e.attempts+1,claim_token=gen_random_uuid(),
  lease_until=clock_timestamp()+make_interval(secs=>least(300,greatest(30,p_lease_seconds)))
  from candidate where e.id=candidate.id returning e.*;
-end $$$sql_58_2$;
+end $$$sql_59_2$;
 
 -- facebook-webhook-nonblocking.sql: source statement 3
-execute $sql_58_3$create or replace function public.finish_facebook_webhook(p_event uuid,p_claim uuid,p_outcome text,p_error text default null) returns text
+execute $sql_59_3$create or replace function public.finish_facebook_webhook(p_event uuid,p_claim uuid,p_outcome text,p_error text default null) returns text
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events;next_state text;
 begin
@@ -7256,13 +7319,13 @@ begin
  available_at=case when next_state='pending' then clock_timestamp()+make_interval(secs=>least(3600,5*power(2,least(e.attempts-1,10))::integer))+random()*interval '2 seconds' else available_at end,
  completed_at=case when next_state='completed' then clock_timestamp() else null end where id=e.id;
  return next_state;
-end $$$sql_58_3$;
+end $$$sql_59_3$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-webhook-nonblocking.sql','56d60019b21e77c80f8e4ba3160b0ba1e9fc74b80fface5e8bf20650d437c7f2','0cfe5319ef9b061c353b80a57463e06e1a97ff1424be84ecefb4a7ecb10baf4d');
-end $migration_58$;
+end $migration_59$;
 
--- 60. facebook-message-window.sql
-do $migration_59$
+-- 61. facebook-message-window.sql
+do $migration_60$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-message-window.sql';
@@ -7273,13 +7336,13 @@ begin
     return;
   end if;
 -- facebook-message-window.sql: source statement 2
-execute $sql_59_2$alter table public.customers add column if not exists last_interaction_at timestamptz$sql_59_2$;
+execute $sql_60_2$alter table public.customers add column if not exists last_interaction_at timestamptz$sql_60_2$;
 
 -- facebook-message-window.sql: source statement 3
-execute $sql_59_3$alter table public.customers add column if not exists window_expires_at timestamptz$sql_59_3$;
+execute $sql_60_3$alter table public.customers add column if not exists window_expires_at timestamptz$sql_60_3$;
 
 -- facebook-message-window.sql: source statement 4
-execute $sql_59_4$create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
+execute $sql_60_4$create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
  whitespace text:=U&'[\0009-\000D\0020\00A0\1680\2000-\200A\2028\2029\202F\205F\3000\FEFF]';
@@ -7305,16 +7368,16 @@ begin
  if milliseconds<=0 or milliseconds<>trunc(milliseconds) or milliseconds>9007199254740991
  or milliseconds>floor(extract(epoch from p_received_at)*1000) then return null;end if;
  return to_timestamp(floor(milliseconds/1000)::double precision)+(mod(milliseconds,1000)::integer*interval '1 millisecond');
-end $$$sql_59_4$;
+end $$$sql_60_4$;
 
 -- facebook-message-window.sql: source statement 5
-execute $sql_59_5$revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated$sql_59_5$;
+execute $sql_60_5$revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated$sql_60_5$;
 
 -- facebook-message-window.sql: source statement 6
-execute $sql_59_6$grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role$sql_59_6$;
+execute $sql_60_6$grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role$sql_60_6$;
 
 -- facebook-message-window.sql: source statement 7
-execute $sql_59_7$create or replace function public.inbox_incoming_message() returns trigger
+execute $sql_60_7$create or replace function public.inbox_incoming_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.sender='customer' then
@@ -7324,10 +7387,10 @@ begin
    where id=new.customer_id returning inbound_seq into new.inbound_seq;
  end if;
  return new;
-end $$$sql_59_7$;
+end $$$sql_60_7$;
 
 -- facebook-message-window.sql: source statement 8
-execute $sql_59_8$create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
+execute $sql_60_8$create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events; prior jsonb; v jsonb; c public.customers; record_id uuid; result jsonb; event_time timestamptz; duplicate boolean;
 begin
@@ -7384,22 +7447,22 @@ begin
  result:=jsonb_build_object('id',record_id,'tenantId',p_tenant,'duplicate',duplicate,'customer',case when c.id is null then null else jsonb_build_object('id',c.id,'display_name',c.display_name,'bot_enabled',c.bot_enabled) end);
  insert into public.facebook_webhook_steps(event_id,name,status,result,completed_at) values(e.id,'record','completed',result,clock_timestamp());
  return result;
-end $$$sql_59_8$;
+end $$$sql_60_8$;
 
 -- facebook-message-window.sql: source statement 9
-execute $sql_59_9$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated$sql_59_9$;
+execute $sql_60_9$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated$sql_60_9$;
 
 -- facebook-message-window.sql: source statement 10
-execute $sql_59_10$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_59_10$;
+execute $sql_60_10$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_60_10$;
 
 -- facebook-message-window.sql: source statement 11
-execute $sql_59_11$notify pgrst,'reload schema'$sql_59_11$;
+execute $sql_60_11$notify pgrst,'reload schema'$sql_60_11$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-message-window.sql','84c90a8b951956c4a63a2d15f44ab8ed4ff6c9646ba45f734f1e56f24f3113bc','d2581ef71797895f11e05f0dfc74302cd202b9c278c9ecbb4c2968418baa9d5e');
-end $migration_59$;
+end $migration_60$;
 
--- 61. broadcast-policy.sql
-do $migration_60$
+-- 62. broadcast-policy.sql
+do $migration_61$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='broadcast-policy.sql';
@@ -7410,67 +7473,67 @@ begin
     return;
   end if;
 -- broadcast-policy.sql: source statement 2
-execute $sql_60_2$create table if not exists public.broadcast_messaging_events (
+execute $sql_61_2$create table if not exists public.broadcast_messaging_events (
  tenant_id uuid not null references public.tenants(id), customer_id uuid not null references public.customers(id),
  event_id text not null, page_id text not null, kind text not null check(kind='inbound_message'),
  interacted_at timestamptz not null, received_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,event_id), check(interacted_at<=received_at)
-)$sql_60_2$;
+)$sql_61_2$;
 
 -- broadcast-policy.sql: source statement 3
-execute $sql_60_3$create index if not exists broadcast_events_latest on public.broadcast_messaging_events(tenant_id,customer_id,interacted_at desc)$sql_60_3$;
+execute $sql_61_3$create index if not exists broadcast_events_latest on public.broadcast_messaging_events(tenant_id,customer_id,interacted_at desc)$sql_61_3$;
 
 -- broadcast-policy.sql: source statement 4
-execute $sql_60_4$create table if not exists public.broadcast_runs (
+execute $sql_61_4$create table if not exists public.broadcast_runs (
  broadcast_id uuid primary key references public.broadcasts(id), lease uuid not null,
  locked_until timestamptz not null, actor_id uuid not null, updated_at timestamptz not null default clock_timestamp()
-)$sql_60_4$;
+)$sql_61_4$;
 
 -- broadcast-policy.sql: source statement 5
-execute $sql_60_5$create table if not exists public.broadcast_deliveries (
+execute $sql_61_5$create table if not exists public.broadcast_deliveries (
  broadcast_id uuid not null references public.broadcasts(id), customer_id uuid not null references public.customers(id), tenant_id uuid not null references public.tenants(id),
  status text not null check(status in ('claimed','accepted','delivered','read','failed','unknown','skipped')),
  reason text, provider_message_id text, lease uuid not null, monthly integer not null default 0, topup integer not null default 0,
  transport_started_at timestamptz, accepted_at timestamptz, created_at timestamptz not null default clock_timestamp(), updated_at timestamptz not null default clock_timestamp(),
  primary key(broadcast_id,customer_id), check(monthly>=0 and topup>=0)
-)$sql_60_5$;
+)$sql_61_5$;
 
 -- broadcast-policy.sql: source statement 6
-execute $sql_60_6$create unique index if not exists broadcast_provider_receipt on public.broadcast_deliveries(provider_message_id) where provider_message_id is not null$sql_60_6$;
+execute $sql_61_6$create unique index if not exists broadcast_provider_receipt on public.broadcast_deliveries(provider_message_id) where provider_message_id is not null$sql_61_6$;
 
 -- broadcast-policy.sql: source statement 7
-execute $sql_60_7$alter table public.broadcast_messaging_events enable row level security$sql_60_7$;
+execute $sql_61_7$alter table public.broadcast_messaging_events enable row level security$sql_61_7$;
 
 -- broadcast-policy.sql: source statement 8
-execute $sql_60_8$alter table public.broadcast_runs enable row level security$sql_60_8$;
+execute $sql_61_8$alter table public.broadcast_runs enable row level security$sql_61_8$;
 
 -- broadcast-policy.sql: source statement 9
-execute $sql_60_9$alter table public.broadcast_deliveries enable row level security$sql_60_9$;
+execute $sql_61_9$alter table public.broadcast_deliveries enable row level security$sql_61_9$;
 
 -- broadcast-policy.sql: source statement 10
-execute $sql_60_10$revoke all on public.broadcast_messaging_events,public.broadcast_runs,public.broadcast_deliveries from public,anon,authenticated$sql_60_10$;
+execute $sql_61_10$revoke all on public.broadcast_messaging_events,public.broadcast_runs,public.broadcast_deliveries from public,anon,authenticated$sql_61_10$;
 
 -- broadcast-policy.sql: source statement 11
-execute $sql_60_11$grant all on public.broadcast_messaging_events,public.broadcast_runs,public.broadcast_deliveries to service_role$sql_60_11$;
+execute $sql_61_11$grant all on public.broadcast_messaging_events,public.broadcast_runs,public.broadcast_deliveries to service_role$sql_61_11$;
 
 -- broadcast-policy.sql: source statement 12
-execute $sql_60_12$create or replace function public.freeze_broadcast_content() returns trigger language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_61_12$create or replace function public.freeze_broadcast_content() returns trigger language plpgsql set search_path=pg_catalog,public as $$
 begin
  if old.status<>'draft' and (new.tenant_id,new.name,new.message,new.audience_segment,new.audience_tags,new.audience_window,new.message_tag)
   is distinct from (old.tenant_id,old.name,old.message,old.audience_segment,old.audience_tags,old.audience_window,old.message_tag) then
   raise exception 'Started campaign content is immutable' using errcode='40001';
  end if;
  return new;
-end $$$sql_60_12$;
+end $$$sql_61_12$;
 
 -- broadcast-policy.sql: source statement 13
-execute $sql_60_13$drop trigger if exists freeze_broadcast_content on public.broadcasts$sql_60_13$;
+execute $sql_61_13$drop trigger if exists freeze_broadcast_content on public.broadcasts$sql_61_13$;
 
 -- broadcast-policy.sql: source statement 14
-execute $sql_60_14$create trigger freeze_broadcast_content before update on public.broadcasts for each row execute function public.freeze_broadcast_content()$sql_60_14$;
+execute $sql_61_14$create trigger freeze_broadcast_content before update on public.broadcasts for each row execute function public.freeze_broadcast_content()$sql_61_14$;
 
 -- broadcast-policy.sql: source statement 15
-execute $sql_60_15$create or replace function public.claim_broadcast_run(p_broadcast uuid,p_actor uuid) returns uuid
+execute $sql_61_15$create or replace function public.claim_broadcast_run(p_broadcast uuid,p_actor uuid) returns uuid
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare b public.broadcasts;r public.broadcast_runs;token uuid:=gen_random_uuid();
 begin
@@ -7490,11 +7553,11 @@ begin
  on conflict(broadcast_id) do update set lease=excluded.lease,locked_until=excluded.locked_until,actor_id=excluded.actor_id,updated_at=clock_timestamp();
  update public.broadcasts set status='sending',started_at=coalesce(started_at,clock_timestamp()),last_error=null where id=b.id;
  return token;
-end $$$sql_60_15$;
+end $$$sql_61_15$;
 
 -- broadcast-policy.sql: source statement 16
 begin
-execute $sql_60_16$create or replace function public.broadcast_recipient_reason(p_broadcast uuid,p_customer uuid) returns text
+execute $sql_61_16$create or replace function public.broadcast_recipient_reason(p_broadcast uuid,p_customer uuid) returns text
 language plpgsql stable security definer set search_path=pg_catalog,public as $$
 declare b public.broadcasts;c public.customers;t public.tenants;ev public.broadcast_messaging_events;
 begin
@@ -7515,14 +7578,14 @@ begin
  if ev.interacted_at>clock_timestamp() then return 'invalid_interaction';end if;
  if ev.interacted_at<=clock_timestamp()-interval '24 hours' then return 'outside_window';end if;
  return 'eligible';
-end $$$sql_60_16$;
+end $$$sql_61_16$;
 exception when invalid_function_definition then
   -- A newer signature of broadcast_recipient_reason(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- broadcast-policy.sql: source statement 17
-execute $sql_60_17$create or replace function public.claim_broadcast_recipient(p_broadcast uuid,p_customer uuid,p_lease uuid) returns text
+execute $sql_61_17$create or replace function public.claim_broadcast_recipient(p_broadcast uuid,p_customer uuid,p_lease uuid) returns text
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare b public.broadcasts;why text;m integer;u integer;
 begin
@@ -7539,10 +7602,10 @@ begin
  if coalesce(m,0)+coalesce(u,0)<>1 then return 'credits_exhausted';end if;
  insert into public.broadcast_deliveries(broadcast_id,customer_id,tenant_id,status,lease,monthly,topup) values(b.id,p_customer,b.tenant_id,'claimed',p_lease,m,u);
  return 'claimed';
-end $$$sql_60_17$;
+end $$$sql_61_17$;
 
 -- broadcast-policy.sql: source statement 18
-execute $sql_60_18$create or replace function public.settle_broadcast_recipient(p_broadcast uuid,p_customer uuid,p_lease uuid,p_result text,p_reason text default null,p_receipt text default null) returns void
+execute $sql_61_18$create or replace function public.settle_broadcast_recipient(p_broadcast uuid,p_customer uuid,p_lease uuid,p_result text,p_reason text default null,p_receipt text default null) returns void
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare d public.broadcast_deliveries;
 begin
@@ -7552,10 +7615,10 @@ begin
  if p_result in ('failed','skipped') then perform public.refund_broadcast_credits(d.tenant_id,d.monthly,d.topup);end if;
  update public.broadcast_deliveries set status=p_result,reason=p_reason,provider_message_id=p_receipt,
   accepted_at=case when p_result='accepted' then clock_timestamp() else null end,updated_at=clock_timestamp() where broadcast_id=p_broadcast and customer_id=p_customer;
-end $$$sql_60_18$;
+end $$$sql_61_18$;
 
 -- broadcast-policy.sql: source statement 19
-execute $sql_60_19$create or replace function public.begin_broadcast_transport(p_broadcast uuid,p_customer uuid,p_lease uuid) returns boolean
+execute $sql_61_19$create or replace function public.begin_broadcast_transport(p_broadcast uuid,p_customer uuid,p_lease uuid) returns boolean
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare why text;
 begin
@@ -7570,22 +7633,22 @@ begin
  if why<>'eligible' then perform public.settle_broadcast_recipient(p_broadcast,p_customer,p_lease,'skipped',why);return false;end if;
  update public.broadcast_deliveries set transport_started_at=clock_timestamp() where broadcast_id=p_broadcast and customer_id=p_customer;
  return true;
-end $$$sql_60_19$;
+end $$$sql_61_19$;
 
 -- broadcast-policy.sql: source statement 20
-execute $sql_60_20$revoke all on function public.claim_broadcast_run(uuid,uuid),public.broadcast_recipient_reason(uuid,uuid),public.claim_broadcast_recipient(uuid,uuid,uuid),public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text),public.begin_broadcast_transport(uuid,uuid,uuid) from public,anon,authenticated$sql_60_20$;
+execute $sql_61_20$revoke all on function public.claim_broadcast_run(uuid,uuid),public.broadcast_recipient_reason(uuid,uuid),public.claim_broadcast_recipient(uuid,uuid,uuid),public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text),public.begin_broadcast_transport(uuid,uuid,uuid) from public,anon,authenticated$sql_61_20$;
 
 -- broadcast-policy.sql: source statement 21
-execute $sql_60_21$grant execute on function public.claim_broadcast_run(uuid,uuid),public.broadcast_recipient_reason(uuid,uuid),public.claim_broadcast_recipient(uuid,uuid,uuid),public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text),public.begin_broadcast_transport(uuid,uuid,uuid) to service_role$sql_60_21$;
+execute $sql_61_21$grant execute on function public.claim_broadcast_run(uuid,uuid),public.broadcast_recipient_reason(uuid,uuid),public.claim_broadcast_recipient(uuid,uuid,uuid),public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text),public.begin_broadcast_transport(uuid,uuid,uuid) to service_role$sql_61_21$;
 
 -- broadcast-policy.sql: source statement 22
-execute $sql_60_22$notify pgrst,'reload schema'$sql_60_22$;
+execute $sql_61_22$notify pgrst,'reload schema'$sql_61_22$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('broadcast-policy.sql','66cab5c036ed8aa9f68d2171411d64161f6d0a5835e4259ca751a0504c3117df','a45cf7c24ef5f6d31ef31868029bd3e9216370bc5c582b911b80a4ed74071233');
-end $migration_60$;
+end $migration_61$;
 
--- 62. broadcast-recipient-eligibility.sql
-do $migration_61$
+-- 63. broadcast-recipient-eligibility.sql
+do $migration_62$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='broadcast-recipient-eligibility.sql';
@@ -7596,7 +7659,7 @@ begin
     return;
   end if;
 -- broadcast-recipient-eligibility.sql: source statement 2
-execute $sql_61_2$create or replace function public.broadcast_recipient_reason(p_broadcast uuid,p_customer uuid) returns text
+execute $sql_62_2$create or replace function public.broadcast_recipient_reason(p_broadcast uuid,p_customer uuid) returns text
 language plpgsql stable security definer set search_path=pg_catalog,public as $$
 declare b public.broadcasts;c public.customers;t public.tenants;ev public.broadcast_messaging_events;
 begin
@@ -7617,19 +7680,19 @@ begin
  if ev.interacted_at>clock_timestamp() then return 'invalid_interaction';end if;
  if ev.interacted_at<=clock_timestamp()-interval '24 hours' then return 'outside_window';end if;
  return 'eligible';
-end $$$sql_61_2$;
+end $$$sql_62_2$;
 
 -- broadcast-recipient-eligibility.sql: source statement 3
-execute $sql_61_3$revoke execute on function public.broadcast_recipient_reason(uuid,uuid) from public,anon,authenticated$sql_61_3$;
+execute $sql_62_3$revoke execute on function public.broadcast_recipient_reason(uuid,uuid) from public,anon,authenticated$sql_62_3$;
 
 -- broadcast-recipient-eligibility.sql: source statement 4
-execute $sql_61_4$grant execute on function public.broadcast_recipient_reason(uuid,uuid) to service_role$sql_61_4$;
+execute $sql_62_4$grant execute on function public.broadcast_recipient_reason(uuid,uuid) to service_role$sql_62_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('broadcast-recipient-eligibility.sql','7a84eb92d28c218f7253d800a5fc1a5d2127d33d66339436cae63a162fb464e8','6ea5e1f9044db876fc8d0f07d8da52668f9897fa684851092eab347710e4a74c');
-end $migration_61$;
+end $migration_62$;
 
--- 63. broadcast-recipient-selection.sql
-do $migration_62$
+-- 64. broadcast-recipient-selection.sql
+do $migration_63$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='broadcast-recipient-selection.sql';
@@ -7640,33 +7703,33 @@ begin
     return;
   end if;
 -- broadcast-recipient-selection.sql: source statement 2
-execute $sql_62_2$alter table public.broadcasts add column if not exists selected_customer_ids uuid[]$sql_62_2$;
+execute $sql_63_2$alter table public.broadcasts add column if not exists selected_customer_ids uuid[]$sql_63_2$;
 
 -- broadcast-recipient-selection.sql: source statement 3
-execute $sql_62_3$create or replace function public.guard_broadcast_selection() returns trigger
+execute $sql_63_3$create or replace function public.guard_broadcast_selection() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if old.status<>'draft' and new.selected_customer_ids is distinct from old.selected_customer_ids then
   raise exception 'Started campaign recipients are immutable' using errcode='40001';
  end if;
  return new;
-end $$$sql_62_3$;
+end $$$sql_63_3$;
 
 -- broadcast-recipient-selection.sql: source statement 4
-execute $sql_62_4$drop trigger if exists broadcast_selection_immutable on public.broadcasts$sql_62_4$;
+execute $sql_63_4$drop trigger if exists broadcast_selection_immutable on public.broadcasts$sql_63_4$;
 
 -- broadcast-recipient-selection.sql: source statement 5
-execute $sql_62_5$create trigger broadcast_selection_immutable before update on public.broadcasts
-for each row execute function public.guard_broadcast_selection()$sql_62_5$;
+execute $sql_63_5$create trigger broadcast_selection_immutable before update on public.broadcasts
+for each row execute function public.guard_broadcast_selection()$sql_63_5$;
 
 -- broadcast-recipient-selection.sql: source statement 6
-execute $sql_62_6$notify pgrst,'reload schema'$sql_62_6$;
+execute $sql_63_6$notify pgrst,'reload schema'$sql_63_6$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('broadcast-recipient-selection.sql','70026dfbbefb9b41b890c32cd03c89aa71fe3fcec79499229b0e0bff9aaca2e2','bdd1581c239a6ebc20048d32d342e6697d98ada245dd01260feacde8fe44278f');
-end $migration_62$;
+end $migration_63$;
 
--- 64. broadcast-inbound-sync.sql
-do $migration_63$
+-- 65. broadcast-inbound-sync.sql
+do $migration_64$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='broadcast-inbound-sync.sql';
@@ -7677,11 +7740,11 @@ begin
     return;
   end if;
 -- broadcast-inbound-sync.sql: source statement 2
-execute $sql_63_2$create index if not exists facebook_webhook_message_id_lookup on public.facebook_webhook_events
- (page_id,((payload->'message')->>'mid')) where kind='message'$sql_63_2$;
+execute $sql_64_2$create index if not exists facebook_webhook_message_id_lookup on public.facebook_webhook_events
+ (page_id,((payload->'message')->>'mid')) where kind='message'$sql_64_2$;
 
 -- broadcast-inbound-sync.sql: source statement 3
-execute $sql_63_3$create or replace function public.sync_broadcast_inbound_message() returns trigger
+execute $sql_64_3$create or replace function public.sync_broadcast_inbound_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.sender<>'customer' or new.external_id is null then return new;end if;
@@ -7696,23 +7759,23 @@ begin
    and public.facebook_inbound_message_at(e.payload,e.page_id,e.created_at)=new.created_at)
  on conflict(tenant_id,event_id) do nothing;
  return new;
-end $$$sql_63_3$;
+end $$$sql_64_3$;
 
 -- broadcast-inbound-sync.sql: source statement 4
-execute $sql_63_4$revoke all on function public.sync_broadcast_inbound_message() from public,anon,authenticated,service_role$sql_63_4$;
+execute $sql_64_4$revoke all on function public.sync_broadcast_inbound_message() from public,anon,authenticated,service_role$sql_64_4$;
 
 -- broadcast-inbound-sync.sql: source statement 5
-execute $sql_63_5$drop trigger if exists broadcast_inbound_message_sync on public.messages$sql_63_5$;
+execute $sql_64_5$drop trigger if exists broadcast_inbound_message_sync on public.messages$sql_64_5$;
 
 -- broadcast-inbound-sync.sql: source statement 6
-execute $sql_63_6$create trigger broadcast_inbound_message_sync after insert on public.messages
-for each row execute function public.sync_broadcast_inbound_message()$sql_63_6$;
+execute $sql_64_6$create trigger broadcast_inbound_message_sync after insert on public.messages
+for each row execute function public.sync_broadcast_inbound_message()$sql_64_6$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('broadcast-inbound-sync.sql','6f8046fee506562087aaeaf3f8747231a433832ffed4387efd7e3ece76aa605a','074351e109ac3b2191bc1eece9356c5ea28a58cb5b165a078e63413ad876beba');
-end $migration_63$;
+end $migration_64$;
 
--- 65. inbox-messenger-window.sql
-do $migration_64$
+-- 66. inbox-messenger-window.sql
+do $migration_65$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-messenger-window.sql';
@@ -7723,17 +7786,17 @@ begin
     return;
   end if;
 -- inbox-messenger-window.sql: source statement 2
-execute $sql_64_2$create or replace function public.inbox_verified_inbound_at(p_tenant uuid,p_customer uuid)
+execute $sql_65_2$create or replace function public.inbox_verified_inbound_at(p_tenant uuid,p_customer uuid)
 returns timestamptz language sql stable set search_path=pg_catalog,public as $$
  select max(e.interacted_at) from public.broadcast_messaging_events e
  join public.tenants t on t.id=e.tenant_id and t.page_id=e.page_id
  where e.tenant_id=p_tenant and e.customer_id=p_customer and e.kind='inbound_message'
  and e.interacted_at<=statement_timestamp();
-$$$sql_64_2$;
+$$$sql_65_2$;
 
 -- inbox-messenger-window.sql: source statement 3
 begin
-execute $sql_64_3$create or replace function public.start_inbox_delivery(p_customer uuid,p_actor uuid default null) returns uuid
+execute $sql_65_3$create or replace function public.start_inbox_delivery(p_customer uuid,p_actor uuid default null) returns uuid
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;lease uuid:=gen_random_uuid();inbound_at timestamptz;
 begin
@@ -7754,14 +7817,14 @@ begin
  if c.outbound_lock_until>clock_timestamp() then raise exception 'Delivery busy' using errcode='55P03';end if;
  update public.customers set outbound_lock=lease,outbound_lock_until=clock_timestamp()+interval '2 minutes' where id=p_customer;
  return lease;
-end $$$sql_64_3$;
+end $$$sql_65_3$;
 exception when invalid_function_definition then
   -- A newer signature of start_inbox_delivery(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- inbox-messenger-window.sql: source statement 4
-execute $sql_64_4$create or replace function public.guard_inbox_automation_window() returns trigger
+execute $sql_65_4$create or replace function public.guard_inbox_automation_window() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare inbound_at timestamptz;
 begin
@@ -7770,16 +7833,16 @@ begin
   if inbound_at is null or inbound_at<=clock_timestamp()-interval '24 hours' then raise exception 'Messaging window closed' using errcode='P0424';end if;
  end if;
  return new;
-end $$$sql_64_4$;
+end $$$sql_65_4$;
 
 -- inbox-messenger-window.sql: source statement 5
-execute $sql_64_5$drop trigger if exists inbox_automation_window on public.customers$sql_64_5$;
+execute $sql_65_5$drop trigger if exists inbox_automation_window on public.customers$sql_65_5$;
 
 -- inbox-messenger-window.sql: source statement 6
-execute $sql_64_6$create trigger inbox_automation_window before update of bot_enabled on public.customers for each row execute function public.guard_inbox_automation_window()$sql_64_6$;
+execute $sql_65_6$create trigger inbox_automation_window before update of bot_enabled on public.customers for each row execute function public.guard_inbox_automation_window()$sql_65_6$;
 
 -- inbox-messenger-window.sql: source statement 7
-execute $sql_64_7$create or replace function public.guard_agent_dispatch_window() returns trigger
+execute $sql_65_7$create or replace function public.guard_agent_dispatch_window() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare inbound_at timestamptz;
 begin
@@ -7789,36 +7852,36 @@ begin
   if inbound_at is null or inbound_at<=clock_timestamp()-interval '24 hours' then raise exception 'Messaging window closed' using errcode='P0424';end if;
  end if;
  return new;
-end $$$sql_64_7$;
+end $$$sql_65_7$;
 
 -- inbox-messenger-window.sql: source statement 8
-execute $sql_64_8$drop trigger if exists agent_dispatch_window on public.agent_message_jobs$sql_64_8$;
+execute $sql_65_8$drop trigger if exists agent_dispatch_window on public.agent_message_jobs$sql_65_8$;
 
 -- inbox-messenger-window.sql: source statement 9
-execute $sql_64_9$create trigger agent_dispatch_window before update of dispatch_started_at on public.agent_message_jobs for each row execute function public.guard_agent_dispatch_window()$sql_64_9$;
+execute $sql_65_9$create trigger agent_dispatch_window before update of dispatch_started_at on public.agent_message_jobs for each row execute function public.guard_agent_dispatch_window()$sql_65_9$;
 
 -- inbox-messenger-window.sql: source statement 10
-execute $sql_64_10$revoke all on function public.inbox_verified_inbound_at(uuid,uuid),public.start_inbox_delivery(uuid,uuid),public.guard_inbox_automation_window(),public.guard_agent_dispatch_window() from public,anon,authenticated$sql_64_10$;
+execute $sql_65_10$revoke all on function public.inbox_verified_inbound_at(uuid,uuid),public.start_inbox_delivery(uuid,uuid),public.guard_inbox_automation_window(),public.guard_agent_dispatch_window() from public,anon,authenticated$sql_65_10$;
 
 -- inbox-messenger-window.sql: source statement 11
-execute $sql_64_11$grant execute on function public.inbox_verified_inbound_at(uuid,uuid),public.start_inbox_delivery(uuid,uuid) to service_role$sql_64_11$;
+execute $sql_65_11$grant execute on function public.inbox_verified_inbound_at(uuid,uuid),public.start_inbox_delivery(uuid,uuid) to service_role$sql_65_11$;
 
 -- inbox-messenger-window.sql: source statement 12
-execute $sql_64_12$notify pgrst,'reload schema'$sql_64_12$;
+execute $sql_65_12$notify pgrst,'reload schema'$sql_65_12$;
 
 -- inbox-messenger-window.sql: source statement 13
-execute $sql_64_13$create index if not exists inbox_automation_expiry on public.customers(last_message_at,id) where platform='facebook' and bot_enabled$sql_64_13$;
+execute $sql_65_13$create index if not exists inbox_automation_expiry on public.customers(last_message_at,id) where platform='facebook' and bot_enabled$sql_65_13$;
 
 -- inbox-messenger-window.sql: source statement 14
-execute $sql_64_14$create or replace function public.inbox_automation_window_open(p_customer uuid,p_tenant uuid default null)
+execute $sql_65_14$create or replace function public.inbox_automation_window_open(p_customer uuid,p_tenant uuid default null)
 returns boolean language sql stable set search_path=pg_catalog,public as $$
  select exists(select 1 from public.customers c join public.tenants t on t.id=c.tenant_id and t.is_active
  where c.id=p_customer and (p_tenant is null or c.tenant_id=p_tenant)
  and (c.platform<>'facebook' or public.inbox_verified_inbound_at(c.tenant_id,c.id)>statement_timestamp()-interval '24 hours'));
-$$$sql_64_14$;
+$$$sql_65_14$;
 
 -- inbox-messenger-window.sql: source statement 15
-execute $sql_64_15$create or replace function public.expire_inbox_automation(p_customer uuid) returns boolean
+execute $sql_65_15$create or replace function public.expire_inbox_automation(p_customer uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;inbound_at timestamptz;
 begin
@@ -7830,10 +7893,10 @@ begin
  update public.customers set bot_enabled=false,conversation_version=conversation_version+1,handover_at=coalesce(handover_at,clock_timestamp()) where id=c.id;
  insert into public.conversation_events(tenant_id,customer_id,action,previous_assignee,next_assignee) values(c.tenant_id,c.id,'pause',c.assigned_user_id,c.assigned_user_id);
  return true;
-end $$$sql_64_15$;
+end $$$sql_65_15$;
 
 -- inbox-messenger-window.sql: source statement 16
-execute $sql_64_16$create or replace function public.expire_inbox_automation_windows(p_limit integer default 200) returns integer
+execute $sql_65_16$create or replace function public.expire_inbox_automation_windows(p_limit integer default 200) returns integer
 language plpgsql set search_path=pg_catalog,public as $$
 declare customer uuid;changed integer:=0;
 begin
@@ -7845,19 +7908,19 @@ begin
   if public.expire_inbox_automation(customer) then changed:=changed+1;end if;
  end loop;
  return changed;
-end $$$sql_64_16$;
+end $$$sql_65_16$;
 
 -- inbox-messenger-window.sql: source statement 17
-execute $sql_64_17$revoke all on function public.inbox_automation_window_open(uuid,uuid),public.expire_inbox_automation(uuid),public.expire_inbox_automation_windows(integer) from public,anon,authenticated$sql_64_17$;
+execute $sql_65_17$revoke all on function public.inbox_automation_window_open(uuid,uuid),public.expire_inbox_automation(uuid),public.expire_inbox_automation_windows(integer) from public,anon,authenticated$sql_65_17$;
 
 -- inbox-messenger-window.sql: source statement 18
-execute $sql_64_18$grant execute on function public.inbox_automation_window_open(uuid,uuid),public.expire_inbox_automation(uuid),public.expire_inbox_automation_windows(integer) to service_role$sql_64_18$;
+execute $sql_65_18$grant execute on function public.inbox_automation_window_open(uuid,uuid),public.expire_inbox_automation(uuid),public.expire_inbox_automation_windows(integer) to service_role$sql_65_18$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-messenger-window.sql','ebcb83ce0712072589de616ed3770d2b034b2aefa1a9fefc73285e08943004d4','4ebe59d252e016e5d62eb28617e9a08d27847550f925f0273d18cc456c43e77e');
-end $migration_64$;
+end $migration_65$;
 
--- 66. smart-follow-up-presend.sql
-do $migration_65$
+-- 67. smart-follow-up-presend.sql
+do $migration_66$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='smart-follow-up-presend.sql';
@@ -7868,29 +7931,29 @@ begin
     return;
   end if;
 -- smart-follow-up-presend.sql: source statement 2
-execute $sql_65_2$alter table public.follow_up_jobs add column if not exists send_authorized_at timestamptz$sql_65_2$;
+execute $sql_66_2$alter table public.follow_up_jobs add column if not exists send_authorized_at timestamptz$sql_66_2$;
 
 -- smart-follow-up-presend.sql: source statement 3
-execute $sql_65_3$create index if not exists slips_followup_presend on public.slips(tenant_id,customer_id,created_at)$sql_65_3$;
+execute $sql_66_3$create index if not exists slips_followup_presend on public.slips(tenant_id,customer_id,created_at)$sql_66_3$;
 
 -- smart-follow-up-presend.sql: source statement 4
-execute $sql_65_4$create or replace function public.sync_payment_follow_up_switch() returns trigger
+execute $sql_66_4$create or replace function public.sync_payment_follow_up_switch() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  update public.follow_up_workflows set enabled=new.enabled,version=version+1
  where tenant_id=new.tenant_id and kind='payment' and enabled is distinct from new.enabled;
  return new;
-end $$$sql_65_4$;
+end $$$sql_66_4$;
 
 -- smart-follow-up-presend.sql: source statement 5
-execute $sql_65_5$drop trigger if exists payment_follow_up_master_switch on public.follow_up_policies$sql_65_5$;
+execute $sql_66_5$drop trigger if exists payment_follow_up_master_switch on public.follow_up_policies$sql_66_5$;
 
 -- smart-follow-up-presend.sql: source statement 6
-execute $sql_65_6$create trigger payment_follow_up_master_switch after insert or update of enabled on public.follow_up_policies
-for each row execute function public.sync_payment_follow_up_switch()$sql_65_6$;
+execute $sql_66_6$create trigger payment_follow_up_master_switch after insert or update of enabled on public.follow_up_policies
+for each row execute function public.sync_payment_follow_up_switch()$sql_66_6$;
 
 -- smart-follow-up-presend.sql: source statement 8
-execute $sql_65_8$create or replace function public.hold_payment_follow_up_for_slip() returns trigger
+execute $sql_66_8$create or replace function public.hold_payment_follow_up_for_slip() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  update public.follow_up_jobs j set status='requires_review',reason='slip_received',claim_token=null,claim_until=null
@@ -7901,18 +7964,18 @@ begin
  and j.status in ('scheduled','pending','processing','requires_review')
  and (j.status<>'requires_review' or j.reason is distinct from 'slip_received');
  return new;
-end $$$sql_65_8$;
+end $$$sql_66_8$;
 
 -- smart-follow-up-presend.sql: source statement 9
-execute $sql_65_9$drop trigger if exists slips_hold_payment_follow_up on public.slips$sql_65_9$;
+execute $sql_66_9$drop trigger if exists slips_hold_payment_follow_up on public.slips$sql_66_9$;
 
 -- smart-follow-up-presend.sql: source statement 10
-execute $sql_65_10$create trigger slips_hold_payment_follow_up after insert on public.slips
-for each row execute function public.hold_payment_follow_up_for_slip()$sql_65_10$;
+execute $sql_66_10$create trigger slips_hold_payment_follow_up after insert on public.slips
+for each row execute function public.hold_payment_follow_up_for_slip()$sql_66_10$;
 
 -- smart-follow-up-presend.sql: source statement 11
 begin
-execute $sql_65_11$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_66_11$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;c public.customers;o public.orders;t public.tenants;
  w public.follow_up_workflows;p public.follow_up_policies;block_reason text;next_status text:='cancelled';
@@ -7961,24 +8024,24 @@ begin
  insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason)
  values(j.tenant_id,j.id,'precheck_passed',case when j.kind='payment' then 'unpaid_confirmed' else 'eligibility_confirmed' end);
  return jsonb_build_object('status','ready');
-end $$$sql_65_11$;
+end $$$sql_66_11$;
 exception when invalid_function_definition then
   -- A newer signature of authorize_follow_up_dispatch(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- smart-follow-up-presend.sql: source statement 12
-execute $sql_65_12$revoke all on function public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated$sql_65_12$;
+execute $sql_66_12$revoke all on function public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated$sql_66_12$;
 
 -- smart-follow-up-presend.sql: source statement 13
-execute $sql_65_13$grant execute on function public.authorize_follow_up_dispatch(uuid,uuid) to service_role$sql_65_13$;
+execute $sql_66_13$grant execute on function public.authorize_follow_up_dispatch(uuid,uuid) to service_role$sql_66_13$;
 
 -- smart-follow-up-presend.sql: source statement 14
-execute $sql_65_14$revoke all on function public.sync_payment_follow_up_switch(),public.hold_payment_follow_up_for_slip() from public,anon,authenticated,service_role$sql_65_14$;
+execute $sql_66_14$revoke all on function public.sync_payment_follow_up_switch(),public.hold_payment_follow_up_for_slip() from public,anon,authenticated,service_role$sql_66_14$;
 
 -- smart-follow-up-presend.sql: source statement 15
 begin
-execute $sql_65_15$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_66_15$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 <<preflight>>
 declare j public.follow_up_jobs;c public.customers;w public.follow_up_workflows;p public.follow_up_policies;t public.tenants;o public.orders;
@@ -8055,20 +8118,20 @@ begin
  insert into public.messages(customer_id,sender,external_id,body,delivery_status) values(c.id,'bot','followup:'||j.id::text,rendered,'pending') returning id into msg;
  update public.follow_up_jobs set dispatch_started_at=clock_timestamp(),message_id=msg,delivery_lease=lease,reserved_monthly=reservation.monthly,reserved_topup=reservation.topup where id=j.id;
  return jsonb_build_object('status','ready','text',rendered,'customerId',c.id,'psid',c.platform_user_id,'tenantId',j.tenant_id,'messageId',msg);
-end $$$sql_65_15$;
+end $$$sql_66_15$;
 exception when invalid_function_definition then
   -- A newer signature of prepare_follow_up(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- smart-follow-up-presend.sql: source statement 16
-execute $sql_65_16$notify pgrst,'reload schema'$sql_65_16$;
+execute $sql_66_16$notify pgrst,'reload schema'$sql_66_16$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('smart-follow-up-presend.sql','a8e00ad6cc324074a95b008038812e9ee5968d6037304f83f50581ac67544c23','978fd4adf4cb9e1f16c8a1f21783ab4c7c43dedb66d7c11c7df20fe6ad36f9e4');
-end $migration_65$;
+end $migration_66$;
 
--- 67. manual-follow-ups.sql
-do $migration_66$
+-- 68. manual-follow-ups.sql
+do $migration_67$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='manual-follow-ups.sql';
@@ -8079,16 +8142,16 @@ begin
     return;
   end if;
 -- manual-follow-ups.sql: source statement 2
-execute $sql_66_2$alter table public.follow_up_jobs add column if not exists manual_without_order boolean not null default false$sql_66_2$;
+execute $sql_67_2$alter table public.follow_up_jobs add column if not exists manual_without_order boolean not null default false$sql_67_2$;
 
 -- manual-follow-ups.sql: source statement 3
-execute $sql_66_3$create unique index if not exists follow_up_manual_open_step
+execute $sql_67_3$create unique index if not exists follow_up_manual_open_step
  on public.follow_up_jobs(tenant_id,customer_id,kind,step)
- where manual_without_order and status in ('pending','processing','requires_review')$sql_66_3$;
+ where manual_without_order and status in ('pending','processing','requires_review')$sql_67_3$;
 
 -- manual-follow-ups.sql: source statement 4
 begin
-execute $sql_66_4$create or replace function public.add_manual_follow_up(p_tenant uuid,p_actor uuid,p_customer uuid,p_kind text,p_reference uuid default null)
+execute $sql_67_4$create or replace function public.add_manual_follow_up(p_tenant uuid,p_actor uuid,p_customer uuid,p_kind text,p_reference uuid default null)
 returns setof public.follow_up_jobs
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare source uuid; existing_ids uuid[]; c public.customers; w public.follow_up_workflows; st jsonb; n integer:=0; anchor timestamptz:=clock_timestamp();
@@ -8140,20 +8203,20 @@ begin
   and ((p_kind='interested' and j.source_message_id=source and j.product_id=p_reference)
     or (p_kind<>'interested' and j.order_id=p_reference))
   and j.status in ('pending','requires_review') order by j.step;
-end $$$sql_66_4$;
+end $$$sql_67_4$;
 exception when invalid_function_definition then
   -- A newer signature of add_manual_follow_up(uuid,uuid,uuid,text,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- manual-follow-ups.sql: source statement 5
-execute $sql_66_5$revoke all on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) from public,anon,authenticated$sql_66_5$;
+execute $sql_67_5$revoke all on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) from public,anon,authenticated$sql_67_5$;
 
 -- manual-follow-ups.sql: source statement 6
-execute $sql_66_6$grant execute on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) to service_role$sql_66_6$;
+execute $sql_67_6$grant execute on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) to service_role$sql_67_6$;
 
 -- manual-follow-ups.sql: source statement 7
-execute $sql_66_7$do $$
+execute $sql_67_7$do $$
 declare definition text; updated text;
 begin
  definition:=pg_get_functiondef('public.prepare_follow_up(uuid,uuid)'::regprocedure);
@@ -8186,13 +8249,13 @@ begin
   end if;
   execute updated;
  end if;
-end $$$sql_66_7$;
+end $$$sql_67_7$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('manual-follow-ups.sql','82d1d5153964c81dc9a655d53febf693b821d0c7e2c2b111b6d0886dfef3cd4c','34d34f06c0a32579c6dc4a80583c4c15040b1919b8f2bd7e6638848adb06e165');
-end $migration_66$;
+end $migration_67$;
 
--- 68. follow-up-simplified.sql
-do $migration_67$
+-- 69. follow-up-simplified.sql
+do $migration_68$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='follow-up-simplified.sql';
@@ -8204,7 +8267,7 @@ begin
   end if;
 -- follow-up-simplified.sql: source statement 2
 begin
-execute $sql_67_2$create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid) returns boolean
+execute $sql_68_2$create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
  select exists(select 1 from public.customers c join public.tenants t on t.id=c.tenant_id
  where c.id=p_customer and c.tenant_id=p_tenant and t.is_active and
@@ -8212,21 +8275,21 @@ language sql stable security definer set search_path=pg_catalog,public as $$
  where e.tenant_id=t.id and e.customer_id=c.id and e.page_id=t.page_id and e.kind='inbound_message')
  >statement_timestamp()-interval '24 hours' and (select max(e.interacted_at) from public.broadcast_messaging_events e
  where e.tenant_id=t.id and e.customer_id=c.id and e.page_id=t.page_id and e.kind='inbound_message')<=statement_timestamp()))
-$$$sql_67_2$;
+$$$sql_68_2$;
 exception when invalid_function_definition then
   -- A newer signature of follow_up_window_open(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- follow-up-simplified.sql: source statement 3
-execute $sql_67_3$revoke all on function public.follow_up_window_open(uuid,uuid) from public,anon,authenticated$sql_67_3$;
+execute $sql_68_3$revoke all on function public.follow_up_window_open(uuid,uuid) from public,anon,authenticated$sql_68_3$;
 
 -- follow-up-simplified.sql: source statement 4
-execute $sql_67_4$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_67_4$;
+execute $sql_68_4$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_68_4$;
 
 -- follow-up-simplified.sql: source statement 5
 begin
-execute $sql_67_5$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_68_5$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 <<preflight>>
 declare j public.follow_up_jobs;c public.customers;w public.follow_up_workflows;t public.tenants;o public.orders;
@@ -8289,7 +8352,7 @@ begin
  insert into public.messages(customer_id,sender,external_id,body,delivery_status) values(c.id,'bot','followup:'||j.id::text,rendered,'pending') returning id into msg;
  update public.follow_up_jobs set dispatch_started_at=clock_timestamp(),message_id=msg,delivery_lease=lease,reserved_monthly=reservation.monthly,reserved_topup=reservation.topup where id=j.id;
  return jsonb_build_object('status','ready','text',rendered,'customerId',c.id,'psid',c.platform_user_id,'tenantId',j.tenant_id,'messageId',msg);
-end $$$sql_67_5$;
+end $$$sql_68_5$;
 exception when invalid_function_definition then
   -- A newer signature of prepare_follow_up(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
@@ -8297,7 +8360,7 @@ end;
 
 -- follow-up-simplified.sql: source statement 6
 begin
-execute $sql_67_6$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_68_6$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;c public.customers;o public.orders;t public.tenants;
  w public.follow_up_workflows;block_reason text;next_status text:='cancelled';
@@ -8346,14 +8409,14 @@ begin
  insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason)
  values(j.tenant_id,j.id,'precheck_passed',case when j.kind='payment' then 'unpaid_confirmed' else 'eligibility_confirmed' end);
  return jsonb_build_object('status','ready');
-end $$$sql_67_6$;
+end $$$sql_68_6$;
 exception when invalid_function_definition then
   -- A newer signature of authorize_follow_up_dispatch(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- follow-up-simplified.sql: source statement 7
-execute $sql_67_7$create or replace function public.add_manual_follow_up(p_tenant uuid,p_actor uuid,p_customer uuid,p_kind text,p_reference uuid default null)
+execute $sql_68_7$create or replace function public.add_manual_follow_up(p_tenant uuid,p_actor uuid,p_customer uuid,p_kind text,p_reference uuid default null)
 returns setof public.follow_up_jobs
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare c public.customers; w public.follow_up_workflows; st jsonb; n integer:=0; anchor timestamptz:=clock_timestamp();
@@ -8395,10 +8458,10 @@ begin
   return query select j.* from public.follow_up_jobs j where j.tenant_id=p_tenant and j.customer_id=p_customer
    and j.kind=p_kind and j.manual_without_order and j.status in ('pending','processing','requires_review') order by j.step;
   return;
-end $$$sql_67_7$;
+end $$$sql_68_7$;
 
 -- follow-up-simplified.sql: source statement 8
-execute $sql_67_8$create or replace function public.enqueue_follow_up(p_tenant uuid,p_customer uuid,p_kind text,p_order uuid default null,p_source uuid default null,p_product uuid default null) returns void
+execute $sql_68_8$create or replace function public.enqueue_follow_up(p_tenant uuid,p_customer uuid,p_kind text,p_order uuid default null,p_source uuid default null,p_product uuid default null) returns void
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare w public.follow_up_workflows;c public.customers;anchor timestamptz;st jsonb;n integer:=0;source_sequence bigint;
 begin
@@ -8426,13 +8489,13 @@ begin
    case when w.use_ai then 'requires_review' else 'pending' end,case when w.use_ai then 'ai_draft' else null end)
   on conflict do nothing;
  end loop;
-end $$$sql_67_8$;
+end $$$sql_68_8$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('follow-up-simplified.sql','0378bc48899e42e1ead60cff24450c33bc5c3eb8239ecdc4677cf1c92c07c1ab','c1463162272b2eb3b5248a42dd663baf9bc2371c23f300c70916df0921f4b86b');
-end $migration_67$;
+end $migration_68$;
 
--- 69. follow-up-step-settings.sql
-do $migration_68$
+-- 70. follow-up-step-settings.sql
+do $migration_69$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='follow-up-step-settings.sql';
@@ -8443,7 +8506,7 @@ begin
     return;
   end if;
 -- follow-up-step-settings.sql: source statement 2
-execute $sql_68_2$create or replace function public.save_follow_up_workflow(p_tenant uuid,p_actor uuid,p_kind text,p_version integer,p_index integer,p_steps jsonb,p_config jsonb) returns jsonb
+execute $sql_69_2$create or replace function public.save_follow_up_workflow(p_tenant uuid,p_actor uuid,p_kind text,p_version integer,p_index integer,p_steps jsonb,p_config jsonb) returns jsonb
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare w public.follow_up_workflows; merged jsonb; st jsonb; previous integer:=0; delay integer;
 begin
@@ -8479,19 +8542,19 @@ begin
  update public.follow_up_jobs set status='cancelled',reason='workflow_changed',claim_token=null,claim_until=null
  where tenant_id=p_tenant and workflow_id=w.id and (status in ('pending','requires_review') or status='processing' and dispatch_started_at is null);
  return to_jsonb(w);
-end $$$sql_68_2$;
+end $$$sql_69_2$;
 
 -- follow-up-step-settings.sql: source statement 3
-execute $sql_68_3$revoke all on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) from public,anon,authenticated$sql_68_3$;
+execute $sql_69_3$revoke all on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) from public,anon,authenticated$sql_69_3$;
 
 -- follow-up-step-settings.sql: source statement 4
-execute $sql_68_4$grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) to service_role$sql_68_4$;
+execute $sql_69_4$grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) to service_role$sql_69_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('follow-up-step-settings.sql','514c5e1c51f7031bd1e62875e30f7cd39f65b363fab8a56bb40b1cfdc39f59fa','96bedcb1959a8d864b018de761fb35e8d989b42450060ca784c2f7143af13a0e');
-end $migration_68$;
+end $migration_69$;
 
--- 70. follow-up-manual-dispatch-fix.sql
-do $migration_69$
+-- 71. follow-up-manual-dispatch-fix.sql
+do $migration_70$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='follow-up-manual-dispatch-fix.sql';
@@ -8503,7 +8566,7 @@ begin
   end if;
 -- follow-up-manual-dispatch-fix.sql: source statement 2
 begin
-execute $sql_69_2$create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid) returns boolean
+execute $sql_70_2$create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid) returns boolean
 language sql stable security definer set search_path=pg_catalog,public as $$
  select exists(select 1 from public.customers c join public.tenants t on t.id=c.tenant_id
  where c.id=p_customer and c.tenant_id=p_tenant and t.is_active and
@@ -8511,21 +8574,21 @@ language sql stable security definer set search_path=pg_catalog,public as $$
  where e.tenant_id=t.id and e.customer_id=c.id and e.page_id=t.page_id and e.kind='inbound_message')
  >statement_timestamp()-interval '24 hours' and (select max(e.interacted_at) from public.broadcast_messaging_events e
  where e.tenant_id=t.id and e.customer_id=c.id and e.page_id=t.page_id and e.kind='inbound_message')<=statement_timestamp()))
-$$$sql_69_2$;
+$$$sql_70_2$;
 exception when invalid_function_definition then
   -- A newer signature of follow_up_window_open(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- follow-up-manual-dispatch-fix.sql: source statement 3
-execute $sql_69_3$revoke all on function public.follow_up_window_open(uuid,uuid) from public,anon,authenticated$sql_69_3$;
+execute $sql_70_3$revoke all on function public.follow_up_window_open(uuid,uuid) from public,anon,authenticated$sql_70_3$;
 
 -- follow-up-manual-dispatch-fix.sql: source statement 4
-execute $sql_69_4$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_69_4$;
+execute $sql_70_4$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_70_4$;
 
 -- follow-up-manual-dispatch-fix.sql: source statement 5
 begin
-execute $sql_69_5$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_70_5$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 <<preflight>>
 declare j public.follow_up_jobs;c public.customers;w public.follow_up_workflows;t public.tenants;o public.orders;
@@ -8588,7 +8651,7 @@ begin
  insert into public.messages(customer_id,sender,external_id,body,delivery_status) values(c.id,'bot','followup:'||j.id::text,rendered,'pending') returning id into msg;
  update public.follow_up_jobs set dispatch_started_at=clock_timestamp(),message_id=msg,delivery_lease=lease,reserved_monthly=reservation.monthly,reserved_topup=reservation.topup where id=j.id;
  return jsonb_build_object('status','ready','text',rendered,'customerId',c.id,'psid',c.platform_user_id,'tenantId',j.tenant_id,'messageId',msg);
-end $$$sql_69_5$;
+end $$$sql_70_5$;
 exception when invalid_function_definition then
   -- A newer signature of prepare_follow_up(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
@@ -8596,7 +8659,7 @@ end;
 
 -- follow-up-manual-dispatch-fix.sql: source statement 6
 begin
-execute $sql_69_6$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_70_6$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;c public.customers;o public.orders;t public.tenants;
  w public.follow_up_workflows;block_reason text;next_status text:='cancelled';
@@ -8645,26 +8708,26 @@ begin
  insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason)
  values(j.tenant_id,j.id,'precheck_passed',case when j.kind='payment' then 'unpaid_confirmed' else 'eligibility_confirmed' end);
  return jsonb_build_object('status','ready');
-end $$$sql_69_6$;
+end $$$sql_70_6$;
 exception when invalid_function_definition then
   -- A newer signature of authorize_follow_up_dispatch(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- follow-up-manual-dispatch-fix.sql: source statement 7
-execute $sql_69_7$revoke all on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated$sql_69_7$;
+execute $sql_70_7$revoke all on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated$sql_70_7$;
 
 -- follow-up-manual-dispatch-fix.sql: source statement 8
-execute $sql_69_8$grant execute on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) to service_role$sql_69_8$;
+execute $sql_70_8$grant execute on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) to service_role$sql_70_8$;
 
 -- follow-up-manual-dispatch-fix.sql: source statement 9
-execute $sql_69_9$notify pgrst,'reload schema'$sql_69_9$;
+execute $sql_70_9$notify pgrst,'reload schema'$sql_70_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('follow-up-manual-dispatch-fix.sql','686e7d60ade6ac2a0adf2813fa6ad295c37fd30df2ce80de5b210552bc0dd8d3','c05b6fe3c8261f43a521871557de3f2436712570afbbfd6d536340e403de1bc5');
-end $migration_69$;
+end $migration_70$;
 
--- 71. follow-up-24h-window.sql
-do $migration_70$
+-- 72. follow-up-24h-window.sql
+do $migration_71$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='follow-up-24h-window.sql';
@@ -8675,13 +8738,13 @@ begin
     return;
   end if;
 -- follow-up-24h-window.sql: source statement 2
-execute $sql_70_2$alter table public.customers add column if not exists last_interaction_at timestamptz$sql_70_2$;
+execute $sql_71_2$alter table public.customers add column if not exists last_interaction_at timestamptz$sql_71_2$;
 
 -- follow-up-24h-window.sql: source statement 3
-execute $sql_70_3$alter table public.customers add column if not exists window_expires_at timestamptz$sql_70_3$;
+execute $sql_71_3$alter table public.customers add column if not exists window_expires_at timestamptz$sql_71_3$;
 
 -- follow-up-24h-window.sql: source statement 4
-execute $sql_70_4$create or replace function public.sync_facebook_customer_window() returns trigger
+execute $sql_71_4$create or replace function public.sync_facebook_customer_window() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.platform='facebook' then
@@ -8689,17 +8752,17 @@ begin
    else new.last_interaction_at+interval '86400 seconds' end;
  end if;
  return new;
-end $$$sql_70_4$;
+end $$$sql_71_4$;
 
 -- follow-up-24h-window.sql: source statement 5
-execute $sql_70_5$drop trigger if exists customers_facebook_window on public.customers$sql_70_5$;
+execute $sql_71_5$drop trigger if exists customers_facebook_window on public.customers$sql_71_5$;
 
 -- follow-up-24h-window.sql: source statement 6
-execute $sql_70_6$create trigger customers_facebook_window before insert or update of last_interaction_at
- on public.customers for each row execute function public.sync_facebook_customer_window()$sql_70_6$;
+execute $sql_71_6$create trigger customers_facebook_window before insert or update of last_interaction_at
+ on public.customers for each row execute function public.sync_facebook_customer_window()$sql_71_6$;
 
 -- follow-up-24h-window.sql: source statement 7
-execute $sql_70_7$create or replace function public.sync_facebook_evidence_window() returns trigger
+execute $sql_71_7$create or replace function public.sync_facebook_evidence_window() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.kind='inbound_message' and new.interacted_at<=clock_timestamp() then
@@ -8709,17 +8772,17 @@ begin
    and (c.last_interaction_at is null or c.last_interaction_at<new.interacted_at);
  end if;
  return new;
-end $$$sql_70_7$;
+end $$$sql_71_7$;
 
 -- follow-up-24h-window.sql: source statement 8
-execute $sql_70_8$drop trigger if exists broadcast_inbound_customer_window on public.broadcast_messaging_events$sql_70_8$;
+execute $sql_71_8$drop trigger if exists broadcast_inbound_customer_window on public.broadcast_messaging_events$sql_71_8$;
 
 -- follow-up-24h-window.sql: source statement 9
-execute $sql_70_9$create trigger broadcast_inbound_customer_window after insert or update
- on public.broadcast_messaging_events for each row execute function public.sync_facebook_evidence_window()$sql_70_9$;
+execute $sql_71_9$create trigger broadcast_inbound_customer_window after insert or update
+ on public.broadcast_messaging_events for each row execute function public.sync_facebook_evidence_window()$sql_71_9$;
 
 -- follow-up-24h-window.sql: source statement 11
-execute $sql_70_11$create or replace function public.follow_up_window_expires_at(p_tenant uuid,p_customer uuid)
+execute $sql_71_11$create or replace function public.follow_up_window_expires_at(p_tenant uuid,p_customer uuid)
 returns timestamptz language sql stable security definer set search_path=pg_catalog,public as $$
  select least(c.window_expires_at,e.inbound_at+interval '86400 seconds')
  from public.customers c join public.tenants t on t.id=c.tenant_id and t.is_active
@@ -8728,16 +8791,16 @@ returns timestamptz language sql stable security definer set search_path=pg_cata
  where c.id=p_customer and c.tenant_id=p_tenant and c.platform='facebook'
   and c.window_expires_at is not null and c.last_interaction_at<=statement_timestamp()
   and e.inbound_at<=statement_timestamp()
-$$$sql_70_11$;
+$$$sql_71_11$;
 
 -- follow-up-24h-window.sql: source statement 12
-execute $sql_70_12$create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid)
+execute $sql_71_12$create or replace function public.follow_up_window_open(p_tenant uuid,p_customer uuid)
 returns boolean language sql stable security definer set search_path=pg_catalog,public as $$
  select coalesce(public.follow_up_window_expires_at(p_tenant,p_customer)>statement_timestamp(),false)
-$$$sql_70_12$;
+$$$sql_71_12$;
 
 -- follow-up-24h-window.sql: source statement 13
-execute $sql_70_13$create or replace function public.complete_follow_up(p_job uuid,p_claim uuid,p_result text,p_provider text default null,p_reason text default null) returns boolean
+execute $sql_71_13$create or replace function public.complete_follow_up(p_job uuid,p_claim uuid,p_result text,p_provider text default null,p_reason text default null) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;
 begin
@@ -8761,10 +8824,10 @@ begin
   reserved_monthly=0,reserved_topup=0 where id=j.id;
  perform public.end_inbox_delivery(j.customer_id,j.delivery_lease);
  return true;
-end $$$sql_70_13$;
+end $$$sql_71_13$;
 
 -- follow-up-24h-window.sql: source statement 14
-execute $sql_70_14$create or replace function public.expire_follow_up_if_outside_window(p_job uuid,p_claim uuid) returns boolean
+execute $sql_71_14$create or replace function public.expire_follow_up_if_outside_window(p_job uuid,p_claim uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;
 begin
@@ -8778,19 +8841,19 @@ begin
  if public.follow_up_window_open(j.tenant_id,j.customer_id) then return false;end if;
  update public.follow_up_jobs set status='cancelled',reason='outside_24h_window',claim_token=null,claim_until=null where id=j.id;
  return true;
-end $$$sql_70_14$;
+end $$$sql_71_14$;
 
 -- follow-up-24h-window.sql: source statement 15
-execute $sql_70_15$revoke all on function public.sync_facebook_customer_window(),public.sync_facebook_evidence_window() from public,anon,authenticated,service_role$sql_70_15$;
+execute $sql_71_15$revoke all on function public.sync_facebook_customer_window(),public.sync_facebook_evidence_window() from public,anon,authenticated,service_role$sql_71_15$;
 
 -- follow-up-24h-window.sql: source statement 16
-execute $sql_70_16$revoke all on function public.follow_up_window_expires_at(uuid,uuid),public.follow_up_window_open(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.expire_follow_up_if_outside_window(uuid,uuid) from public,anon,authenticated$sql_70_16$;
+execute $sql_71_16$revoke all on function public.follow_up_window_expires_at(uuid,uuid),public.follow_up_window_open(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.expire_follow_up_if_outside_window(uuid,uuid) from public,anon,authenticated$sql_71_16$;
 
 -- follow-up-24h-window.sql: source statement 17
-execute $sql_70_17$grant execute on function public.follow_up_window_expires_at(uuid,uuid),public.follow_up_window_open(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.expire_follow_up_if_outside_window(uuid,uuid) to service_role$sql_70_17$;
+execute $sql_71_17$grant execute on function public.follow_up_window_expires_at(uuid,uuid),public.follow_up_window_open(uuid,uuid),public.complete_follow_up(uuid,uuid,text,text,text),public.expire_follow_up_if_outside_window(uuid,uuid) to service_role$sql_71_17$;
 
 -- follow-up-24h-window.sql: source statement 18
-execute $sql_70_18$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_71_18$create or replace function public.prepare_follow_up(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 <<preflight>>
 declare j public.follow_up_jobs;c public.customers;w public.follow_up_workflows;t public.tenants;o public.orders;
@@ -8853,10 +8916,10 @@ begin
  insert into public.messages(customer_id,sender,external_id,body,delivery_status) values(c.id,'bot','followup:'||j.id::text,rendered,'pending') returning id into msg;
  update public.follow_up_jobs set dispatch_started_at=clock_timestamp(),message_id=msg,delivery_lease=lease,reserved_monthly=reservation.monthly,reserved_topup=reservation.topup where id=j.id;
  return jsonb_build_object('status','ready','text',rendered,'customerId',c.id,'psid',c.platform_user_id,'tenantId',j.tenant_id,'messageId',msg);
-end $$$sql_70_18$;
+end $$$sql_71_18$;
 
 -- follow-up-24h-window.sql: source statement 19
-execute $sql_70_19$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
+execute $sql_71_19$create or replace function public.authorize_follow_up_dispatch(p_job uuid,p_claim uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs;c public.customers;o public.orders;t public.tenants;
  w public.follow_up_workflows;block_reason text;next_status text:='cancelled';
@@ -8905,22 +8968,22 @@ begin
  insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason)
  values(j.tenant_id,j.id,'precheck_passed',case when j.kind='payment' then 'unpaid_confirmed' else 'eligibility_confirmed' end);
  return jsonb_build_object('status','ready','windowExpiresAt',public.follow_up_window_expires_at(j.tenant_id,j.customer_id));
-end $$$sql_70_19$;
+end $$$sql_71_19$;
 
 -- follow-up-24h-window.sql: source statement 20
-execute $sql_70_20$revoke all on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated$sql_70_20$;
+execute $sql_71_20$revoke all on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) from public,anon,authenticated$sql_71_20$;
 
 -- follow-up-24h-window.sql: source statement 21
-execute $sql_70_21$grant execute on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) to service_role$sql_70_21$;
+execute $sql_71_21$grant execute on function public.prepare_follow_up(uuid,uuid),public.authorize_follow_up_dispatch(uuid,uuid) to service_role$sql_71_21$;
 
 -- follow-up-24h-window.sql: source statement 22
-execute $sql_70_22$notify pgrst,'reload schema'$sql_70_22$;
+execute $sql_71_22$notify pgrst,'reload schema'$sql_71_22$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('follow-up-24h-window.sql','76caf6b5706c82b2bc43a202e7628cb1d1b2c4b846034479f9e731c441ebcda1','18871aeb28c2b8fd9fac9a16588904281380c733721168135fa49d3733eaaacd');
-end $migration_70$;
+end $migration_71$;
 
--- 72. follow-up-approval-mode.sql
-do $migration_71$
+-- 73. follow-up-approval-mode.sql
+do $migration_72$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='follow-up-approval-mode.sql';
@@ -8931,11 +8994,11 @@ begin
     return;
   end if;
 -- follow-up-approval-mode.sql: source statement 2
-execute $sql_71_2$alter table public.follow_up_policies add column if not exists approval_mode text
- not null default 'manual_review' check(approval_mode in ('manual_review','auto_approve'))$sql_71_2$;
+execute $sql_72_2$alter table public.follow_up_policies add column if not exists approval_mode text
+ not null default 'manual_review' check(approval_mode in ('manual_review','auto_approve'))$sql_72_2$;
 
 -- follow-up-approval-mode.sql: source statement 3
-execute $sql_71_3$create or replace function public.set_follow_up_approval_mode(p_tenant uuid,p_actor uuid,p_mode text)
+execute $sql_72_3$create or replace function public.set_follow_up_approval_mode(p_tenant uuid,p_actor uuid,p_mode text)
 returns text language plpgsql set search_path=pg_catalog,public as $$
 begin
  if not public.has_tenant_feature(p_tenant,'customer_follow_up') or not (
@@ -8952,10 +9015,10 @@ begin
  insert into public.follow_up_policies(tenant_id,approval_mode) values(p_tenant,p_mode)
  on conflict(tenant_id) do update set approval_mode=excluded.approval_mode;
  return p_mode;
-end $$$sql_71_3$;
+end $$$sql_72_3$;
 
 -- follow-up-approval-mode.sql: source statement 4
-execute $sql_71_4$create or replace function public.apply_follow_up_approval_mode() returns trigger
+execute $sql_72_4$create or replace function public.apply_follow_up_approval_mode() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare mode text;
 begin
@@ -8966,17 +9029,17 @@ begin
   new.reason:=case when new.ai_approved then null else 'ai_draft' end;
  end if;
  return new;
-end $$$sql_71_4$;
+end $$$sql_72_4$;
 
 -- follow-up-approval-mode.sql: source statement 5
-execute $sql_71_5$drop trigger if exists follow_up_approval_mode on public.follow_up_jobs$sql_71_5$;
+execute $sql_72_5$drop trigger if exists follow_up_approval_mode on public.follow_up_jobs$sql_72_5$;
 
 -- follow-up-approval-mode.sql: source statement 6
-execute $sql_71_6$create trigger follow_up_approval_mode before insert on public.follow_up_jobs
- for each row execute function public.apply_follow_up_approval_mode()$sql_71_6$;
+execute $sql_72_6$create trigger follow_up_approval_mode before insert on public.follow_up_jobs
+ for each row execute function public.apply_follow_up_approval_mode()$sql_72_6$;
 
 -- follow-up-approval-mode.sql: source statement 7
-execute $sql_71_7$create or replace function public.retry_rejected_follow_up(p_job uuid,p_tenant uuid,p_actor uuid)
+execute $sql_72_7$create or replace function public.retry_rejected_follow_up(p_job uuid,p_tenant uuid,p_actor uuid)
 returns text language plpgsql set search_path=pg_catalog,public as $$
 declare j public.follow_up_jobs; m public.messages;
 begin
@@ -9014,25 +9077,25 @@ begin
  insert into public.follow_up_execution_logs(tenant_id,job_id,status,reason,actor_id)
  values(p_tenant,j.id,'admin_action','retry_confirmed_refusal',p_actor);
  return 'pending';
-end $$$sql_71_7$;
+end $$$sql_72_7$;
 
 -- follow-up-approval-mode.sql: source statement 8
-execute $sql_71_8$revoke all on function public.apply_follow_up_approval_mode() from public,anon,authenticated,service_role$sql_71_8$;
+execute $sql_72_8$revoke all on function public.apply_follow_up_approval_mode() from public,anon,authenticated,service_role$sql_72_8$;
 
 -- follow-up-approval-mode.sql: source statement 9
-execute $sql_71_9$revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text),public.retry_rejected_follow_up(uuid,uuid,uuid) from public,anon,authenticated$sql_71_9$;
+execute $sql_72_9$revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text),public.retry_rejected_follow_up(uuid,uuid,uuid) from public,anon,authenticated$sql_72_9$;
 
 -- follow-up-approval-mode.sql: source statement 10
-execute $sql_71_10$grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text),public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role$sql_71_10$;
+execute $sql_72_10$grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text),public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role$sql_72_10$;
 
 -- follow-up-approval-mode.sql: source statement 11
-execute $sql_71_11$notify pgrst,'reload schema'$sql_71_11$;
+execute $sql_72_11$notify pgrst,'reload schema'$sql_72_11$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('follow-up-approval-mode.sql','3717e1cf71a8884a771484919e06243c1cf0940fcc57bf080250c117787192af','53f81f07be504e99d4afbe8fab1f25c6f859f218470b280ceea2dc44760f74a4');
-end $migration_71$;
+end $migration_72$;
 
--- 73. dashboard-performance.sql
-do $migration_72$
+-- 74. dashboard-performance.sql
+do $migration_73$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='dashboard-performance.sql';
@@ -9043,52 +9106,52 @@ begin
     return;
   end if;
 -- dashboard-performance.sql: source statement 2
-execute $sql_72_2$create index if not exists overview_slips_time on public.slips(tenant_id,created_at desc,id)$sql_72_2$;
+execute $sql_73_2$create index if not exists overview_slips_time on public.slips(tenant_id,created_at desc,id)$sql_73_2$;
 
 -- dashboard-performance.sql: source statement 3
-execute $sql_72_3$create index if not exists overview_customers_time on public.customers(tenant_id,last_message_at desc,id)$sql_72_3$;
+execute $sql_73_3$create index if not exists overview_customers_time on public.customers(tenant_id,last_message_at desc,id)$sql_73_3$;
 
 -- dashboard-performance.sql: source statement 4
-execute $sql_72_4$create index if not exists overview_messages_latest on public.messages(customer_id,created_at desc,id desc) include(sender)$sql_72_4$;
+execute $sql_73_4$create index if not exists overview_messages_latest on public.messages(customer_id,created_at desc,id desc) include(sender)$sql_73_4$;
 
 -- dashboard-performance.sql: source statement 5
-execute $sql_72_5$create index if not exists overview_messages_inbound on public.messages(customer_id,created_at) where sender='customer'$sql_72_5$;
+execute $sql_73_5$create index if not exists overview_messages_inbound on public.messages(customer_id,created_at) where sender='customer'$sql_73_5$;
 
 -- dashboard-performance.sql: source statement 6
-execute $sql_72_6$create index if not exists overview_agent_time on public.agent_message_jobs(tenant_id,created_at) include(route,status,customer_id)$sql_72_6$;
+execute $sql_73_6$create index if not exists overview_agent_time on public.agent_message_jobs(tenant_id,created_at) include(route,status,customer_id)$sql_73_6$;
 
 -- dashboard-performance.sql: source statement 7
-execute $sql_72_7$create index if not exists commerce_products_page on public.products(tenant_id,created_at desc,id) where not commerce_archived$sql_72_7$;
+execute $sql_73_7$create index if not exists commerce_products_page on public.products(tenant_id,created_at desc,id) where not commerce_archived$sql_73_7$;
 
 -- dashboard-performance.sql: source statement 8
-execute $sql_72_8$create index if not exists commerce_products_low_stock on public.products(tenant_id,stock,id) where not commerce_archived and is_active and stock<=3$sql_72_8$;
+execute $sql_73_8$create index if not exists commerce_products_low_stock on public.products(tenant_id,stock,id) where not commerce_archived and is_active and stock<=3$sql_73_8$;
 
 -- dashboard-performance.sql: source statement 9
-execute $sql_72_9$create index if not exists commerce_orders_page on public.commerce_orders(tenant_id,created_at desc,id)$sql_72_9$;
+execute $sql_73_9$create index if not exists commerce_orders_page on public.commerce_orders(tenant_id,created_at desc,id)$sql_73_9$;
 
 -- dashboard-performance.sql: source statement 10
-execute $sql_72_10$create index if not exists commerce_orders_status_page on public.commerce_orders(tenant_id,status,created_at desc,id)$sql_72_10$;
+execute $sql_73_10$create index if not exists commerce_orders_status_page on public.commerce_orders(tenant_id,status,created_at desc,id)$sql_73_10$;
 
 -- dashboard-performance.sql: source statement 11
-execute $sql_72_11$create index if not exists commerce_orders_paid_time on public.commerce_orders(tenant_id,paid_at) include(total,status)$sql_72_11$;
+execute $sql_73_11$create index if not exists commerce_orders_paid_time on public.commerce_orders(tenant_id,paid_at) include(total,status)$sql_73_11$;
 
 -- dashboard-performance.sql: source statement 12
-execute $sql_72_12$create index if not exists commerce_customers_page on public.commerce_customers(tenant_id,created_at desc,id)$sql_72_12$;
+execute $sql_73_12$create index if not exists commerce_customers_page on public.commerce_customers(tenant_id,created_at desc,id)$sql_73_12$;
 
 -- dashboard-performance.sql: source statement 13
-execute $sql_72_13$create index if not exists commerce_items_tenant_order on public.commerce_order_items(tenant_id,order_id)$sql_72_13$;
+execute $sql_73_13$create index if not exists commerce_items_tenant_order on public.commerce_order_items(tenant_id,order_id)$sql_73_13$;
 
 -- dashboard-performance.sql: source statement 14
-execute $sql_72_14$create index if not exists commerce_audit_entity on public.commerce_audit(tenant_id,entity_id,created_at desc,id)$sql_72_14$;
+execute $sql_73_14$create index if not exists commerce_audit_entity on public.commerce_audit(tenant_id,entity_id,created_at desc,id)$sql_73_14$;
 
 -- dashboard-performance.sql: source statement 15
-execute $sql_72_15$create index if not exists commerce_categories_page on public.commerce_categories(tenant_id,name,id)$sql_72_15$;
+execute $sql_73_15$create index if not exists commerce_categories_page on public.commerce_categories(tenant_id,name,id)$sql_73_15$;
 
 -- dashboard-performance.sql: source statement 16
-execute $sql_72_16$create index if not exists commerce_pages_page on public.commerce_pages(tenant_id,id)$sql_72_16$;
+execute $sql_73_16$create index if not exists commerce_pages_page on public.commerce_pages(tenant_id,id)$sql_73_16$;
 
 -- dashboard-performance.sql: source statement 17
-execute $sql_72_17$create or replace function public.overview_dashboard_stats(p_tenant uuid,p_from timestamptz,p_to timestamptz,p_previous timestamptz,p_page integer,p_query text)
+execute $sql_73_17$create or replace function public.overview_dashboard_stats(p_tenant uuid,p_from timestamptz,p_to timestamptz,p_previous timestamptz,p_page integer,p_query text)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare answer jsonb;slip_access boolean;chat_access boolean;ai_access boolean;
 begin
@@ -9165,10 +9228,10 @@ begin
   'ai',(select jsonb_build_object('replies',count(*) filter(where route='AI' and status='sent'),'conversations',count(distinct customer_id) filter(where route='AI' and status='sent'),'handoffs',count(*) filter(where route='ADMIN'),'usage',null,'limit',null) from jobs)
  ) into answer;
  return answer;
-end $$$sql_72_17$;
+end $$$sql_73_17$;
 
 -- dashboard-performance.sql: source statement 18
-execute $sql_72_18$create or replace function public.commerce_dashboard_stats(p_tenant uuid)
+execute $sql_73_18$create or replace function public.commerce_dashboard_stats(p_tenant uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb;l public.commerce_limits;today timestamptz:=date_trunc('day',now() at time zone 'Asia/Bangkok') at time zone 'Asia/Bangkok';
 begin
@@ -9191,10 +9254,10 @@ begin
   'report',case when l.reports then jsonb_build_object('monthly',coalesce((select jsonb_agg(to_jsonb(m) order by month desc) from monthly m),'[]')) end
  ) into result;
  return result;
-end $$$sql_72_18$;
+end $$$sql_73_18$;
 
 -- dashboard-performance.sql: source statement 19
-execute $sql_72_19$create or replace function public.commerce_dashboard_page(p_tenant uuid,p_product_page integer default 1,p_order_page integer default 1,p_customer_page integer default 1,p_category_page integer default 1,p_page_page integer default 1,p_query text default '',p_category uuid default null,p_sort text default 'new',p_status text default 'all')
+execute $sql_73_19$create or replace function public.commerce_dashboard_page(p_tenant uuid,p_product_page integer default 1,p_order_page integer default 1,p_customer_page integer default 1,p_category_page integer default 1,p_page_page integer default 1,p_query text default '',p_category uuid default null,p_sort text default 'new',p_status text default 'all')
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare answer jsonb;
 begin
@@ -9230,22 +9293,22 @@ begin
   'counts',jsonb_build_object('products',(select count(*) from product_matches),'orders',(select count(*) from order_matches),'customers',(select count(*) from public.commerce_customers where tenant_id=p_tenant),'categories',(select count(*) from public.commerce_categories where tenant_id=p_tenant),'pages',(select count(*) from public.commerce_pages where tenant_id=p_tenant))
  ) into answer;
  return answer;
-end $$$sql_72_19$;
+end $$$sql_73_19$;
 
 -- dashboard-performance.sql: source statement 20
-execute $sql_72_20$revoke all on function public.overview_dashboard_stats(uuid,timestamptz,timestamptz,timestamptz,integer,text),public.commerce_dashboard_stats(uuid),public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) from public,anon,authenticated$sql_72_20$;
+execute $sql_73_20$revoke all on function public.overview_dashboard_stats(uuid,timestamptz,timestamptz,timestamptz,integer,text),public.commerce_dashboard_stats(uuid),public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) from public,anon,authenticated$sql_73_20$;
 
 -- dashboard-performance.sql: source statement 21
-execute $sql_72_21$grant execute on function public.overview_dashboard_stats(uuid,timestamptz,timestamptz,timestamptz,integer,text),public.commerce_dashboard_stats(uuid),public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) to service_role$sql_72_21$;
+execute $sql_73_21$grant execute on function public.overview_dashboard_stats(uuid,timestamptz,timestamptz,timestamptz,integer,text),public.commerce_dashboard_stats(uuid),public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) to service_role$sql_73_21$;
 
 -- dashboard-performance.sql: source statement 22
-execute $sql_72_22$notify pgrst,'reload schema'$sql_72_22$;
+execute $sql_73_22$notify pgrst,'reload schema'$sql_73_22$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('dashboard-performance.sql','46d2e45b9ba06db45bd485a127affc7165b8231858c5b8ac9effb619a531bb08','87871cb3623b3153a08fd585394dda0fbd296c4fb670e50791ee09527b2c29c5');
-end $migration_72$;
+end $migration_73$;
 
--- 74. dashboard-read-models.sql
-do $migration_73$
+-- 75. dashboard-read-models.sql
+do $migration_74$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='dashboard-read-models.sql';
@@ -9256,22 +9319,22 @@ begin
     return;
   end if;
 -- dashboard-read-models.sql: source statement 2
-execute $sql_73_2$create index if not exists inbox_customers_recent on public.customers(tenant_id,last_message_at desc nulls last,id desc)$sql_73_2$;
+execute $sql_74_2$create index if not exists inbox_customers_recent on public.customers(tenant_id,last_message_at desc nulls last,id desc)$sql_74_2$;
 
 -- dashboard-read-models.sql: source statement 3
-execute $sql_73_3$create index if not exists dashboard_valid_customer_slips on public.slips(tenant_id,customer_id) include(amount) where status='valid'$sql_73_3$;
+execute $sql_74_3$create index if not exists dashboard_valid_customer_slips on public.slips(tenant_id,customer_id) include(amount) where status='valid'$sql_74_3$;
 
 -- dashboard-read-models.sql: source statement 4
-execute $sql_73_4$create index if not exists overview_slips_time on public.slips(tenant_id,created_at desc,id)$sql_73_4$;
+execute $sql_74_4$create index if not exists overview_slips_time on public.slips(tenant_id,created_at desc,id)$sql_74_4$;
 
 -- dashboard-read-models.sql: source statement 5
-execute $sql_73_5$create index if not exists dashboard_agent_period on public.agent_message_jobs(tenant_id,created_at desc,id) include(route,status,customer_id,updated_at)$sql_73_5$;
+execute $sql_74_5$create index if not exists dashboard_agent_period on public.agent_message_jobs(tenant_id,created_at desc,id) include(route,status,customer_id,updated_at)$sql_74_5$;
 
 -- dashboard-read-models.sql: source statement 6
-execute $sql_73_6$create index if not exists dashboard_agent_lifetime on public.agent_message_jobs(tenant_id,customer_id) where route='AI' and status='sent'$sql_73_6$;
+execute $sql_74_6$create index if not exists dashboard_agent_lifetime on public.agent_message_jobs(tenant_id,customer_id) where route='AI' and status='sent'$sql_74_6$;
 
 -- dashboard-read-models.sql: source statement 7
-execute $sql_73_7$create or replace function public.customer_directory(
+execute $sql_74_7$create or replace function public.customer_directory(
   p_tenant uuid,
   p_page integer default 1,
   p_query text default '',
@@ -9328,10 +9391,10 @@ begin
    ), '[]'::jsonb)
  ) into answer;
  return answer;
-end $$$sql_73_7$;
+end $$$sql_74_7$;
 
 -- dashboard-read-models.sql: source statement 8
-execute $sql_73_8$create or replace function public.agent_overview_stats(
+execute $sql_74_8$create or replace function public.agent_overview_stats(
   p_tenant uuid,
   p_days integer,
   p_now timestamptz
@@ -9387,10 +9450,10 @@ begin
    ), '[]'::jsonb)
  ) into answer from metrics m;
  return answer;
-end $$$sql_73_8$;
+end $$$sql_74_8$;
 
 -- dashboard-read-models.sql: source statement 9
-execute $sql_73_9$create or replace function public.basic_overview_stats(p_tenant uuid, p_now timestamptz)
+execute $sql_74_9$create or replace function public.basic_overview_stats(p_tenant uuid, p_now timestamptz)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare answer jsonb;start_at timestamptz;
 begin
@@ -9436,19 +9499,19 @@ begin
    ), '[]'::jsonb)
  ) into answer;
  return answer;
-end $$$sql_73_9$;
+end $$$sql_74_9$;
 
 -- dashboard-read-models.sql: source statement 10
-execute $sql_73_10$revoke all on function public.customer_directory(uuid,integer,text,text,text),public.agent_overview_stats(uuid,integer,timestamptz),public.basic_overview_stats(uuid,timestamptz) from public,anon,authenticated$sql_73_10$;
+execute $sql_74_10$revoke all on function public.customer_directory(uuid,integer,text,text,text),public.agent_overview_stats(uuid,integer,timestamptz),public.basic_overview_stats(uuid,timestamptz) from public,anon,authenticated$sql_74_10$;
 
 -- dashboard-read-models.sql: source statement 11
-execute $sql_73_11$grant execute on function public.customer_directory(uuid,integer,text,text,text),public.agent_overview_stats(uuid,integer,timestamptz),public.basic_overview_stats(uuid,timestamptz) to service_role$sql_73_11$;
+execute $sql_74_11$grant execute on function public.customer_directory(uuid,integer,text,text,text),public.agent_overview_stats(uuid,integer,timestamptz),public.basic_overview_stats(uuid,timestamptz) to service_role$sql_74_11$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('dashboard-read-models.sql','19e4d0615b5b7470f7754b4071a957d7d6765e92a06bd4ecaae7933c09ea1e80','daca680061c44493d8ec6c139716a5a7e58aca1c20cddab9231ce59f94cf72cf');
-end $migration_73$;
+end $migration_74$;
 
--- 75. premium-overview.sql
-do $migration_74$
+-- 76. premium-overview.sql
+do $migration_75$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='premium-overview.sql';
@@ -9459,7 +9522,7 @@ begin
     return;
   end if;
 -- premium-overview.sql: source statement 2
-execute $sql_74_2$create or replace function public.premium_overview_summary(
+execute $sql_75_2$create or replace function public.premium_overview_summary(
  p_tenant uuid,p_from timestamptz,p_to timestamptz,p_previous timestamptz default null,
  p_page integer default 1,p_query text default ''
 ) returns jsonb language plpgsql stable security definer set search_path=pg_catalog,public as $$
@@ -9533,28 +9596,28 @@ begin
   'slips',coalesce(slip_data->'slips','[]'),'slipMatches',coalesce(slip_data->'slipMatches','0'),'chats',coalesce(chat_data->'chats','[]'),'chatMatches',coalesce(chat_data->'chatMatches','0'),'ai',ai_data)
  into result from public.tenants where id=p_tenant;
  return result;
-end $$$sql_74_2$;
+end $$$sql_75_2$;
 
 -- premium-overview.sql: source statement 3
-execute $sql_74_3$revoke all on function public.premium_overview_summary(uuid,timestamptz,timestamptz,timestamptz,integer,text) from public,anon,authenticated$sql_74_3$;
+execute $sql_75_3$revoke all on function public.premium_overview_summary(uuid,timestamptz,timestamptz,timestamptz,integer,text) from public,anon,authenticated$sql_75_3$;
 
 -- premium-overview.sql: source statement 4
-execute $sql_74_4$grant execute on function public.premium_overview_summary(uuid,timestamptz,timestamptz,timestamptz,integer,text) to service_role$sql_74_4$;
+execute $sql_75_4$grant execute on function public.premium_overview_summary(uuid,timestamptz,timestamptz,timestamptz,integer,text) to service_role$sql_75_4$;
 
 -- premium-overview.sql: source statement 5
-execute $sql_74_5$create index if not exists slips_tenant on public.slips(tenant_id,created_at desc)$sql_74_5$;
+execute $sql_75_5$create index if not exists slips_tenant on public.slips(tenant_id,created_at desc)$sql_75_5$;
 
 -- premium-overview.sql: source statement 6
-execute $sql_74_6$create index if not exists customers_tenant on public.customers(tenant_id,last_message_at desc)$sql_74_6$;
+execute $sql_75_6$create index if not exists customers_tenant on public.customers(tenant_id,last_message_at desc)$sql_75_6$;
 
 -- premium-overview.sql: source statement 7
-execute $sql_74_7$notify pgrst,'reload schema'$sql_74_7$;
+execute $sql_75_7$notify pgrst,'reload schema'$sql_75_7$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('premium-overview.sql','2feb5e32d3a8bd095148f421dd7489433cb7acef247772897eed8ce0368932ad','19d97393eda4ebd1de925886ce3add41af56164a2541e8e4e0b6f377f861f273');
-end $migration_74$;
+end $migration_75$;
 
--- 76. inbox-realtime.sql
-do $migration_75$
+-- 77. inbox-realtime.sql
+do $migration_76$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-realtime.sql';
@@ -9565,7 +9628,7 @@ begin
     return;
   end if;
 -- inbox-realtime.sql: source statement 2
-execute $sql_75_2$do $$
+execute $sql_76_2$do $$
 declare name text;
 begin
  if not exists(select 1 from pg_publication where pubname='supabase_realtime') then
@@ -9576,13 +9639,13 @@ begin
    execute format('alter publication supabase_realtime add table public.%I',name);
   end if;
  end loop;
-end $$$sql_75_2$;
+end $$$sql_76_2$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-realtime.sql','aca5276b1ea1b665035ac261dae5a534dfb1d60d762bf020fdb6c6e82a8ff415','a7dc1d4c93f7995e27731bd59a078c4430650c0b627c9f4c14a80c5357d607f7');
-end $migration_75$;
+end $migration_76$;
 
--- 77. inbox-load-indexes.sql
-do $migration_76$
+-- 78. inbox-load-indexes.sql
+do $migration_77$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-load-indexes.sql';
@@ -9593,46 +9656,46 @@ begin
     return;
   end if;
 -- inbox-load-indexes.sql: source statement 1
-execute $sql_76_1$create index if not exists inbox_customers_recent on public.customers
- (tenant_id,last_message_at desc nulls last,id desc)$sql_76_1$;
+execute $sql_77_1$create index if not exists inbox_customers_recent on public.customers
+ (tenant_id,last_message_at desc nulls last,id desc)$sql_77_1$;
 
 -- inbox-load-indexes.sql: source statement 2
-execute $sql_76_2$create index if not exists overview_messages_latest on public.messages
- (customer_id,created_at desc,id desc) include(sender)$sql_76_2$;
+execute $sql_77_2$create index if not exists overview_messages_latest on public.messages
+ (customer_id,created_at desc,id desc) include(sender)$sql_77_2$;
 
 -- inbox-load-indexes.sql: source statement 3
-execute $sql_76_3$create index if not exists inbox_recent_inbound on public.messages
- (created_at desc,id desc) where sender='customer'$sql_76_3$;
+execute $sql_77_3$create index if not exists inbox_recent_inbound on public.messages
+ (created_at desc,id desc) where sender='customer'$sql_77_3$;
 
 -- inbox-load-indexes.sql: source statement 4
-execute $sql_76_4$create index if not exists inbox_slips_recent on public.slips
- (tenant_id,customer_id,created_at desc)$sql_76_4$;
+execute $sql_77_4$create index if not exists inbox_slips_recent on public.slips
+ (tenant_id,customer_id,created_at desc)$sql_77_4$;
 
 -- inbox-load-indexes.sql: source statement 5
-execute $sql_76_5$create index if not exists inbox_comments_recent on public.comments
- (tenant_id,created_at desc)$sql_76_5$;
+execute $sql_77_5$create index if not exists inbox_comments_recent on public.comments
+ (tenant_id,created_at desc)$sql_77_5$;
 
 -- inbox-load-indexes.sql: source statement 6
-execute $sql_76_6$create index if not exists inbox_reads_by_user on public.conversation_reads
- (user_id,customer_id) include(read_seq)$sql_76_6$;
+execute $sql_77_6$create index if not exists inbox_reads_by_user on public.conversation_reads
+ (user_id,customer_id) include(read_seq)$sql_77_6$;
 
 -- inbox-load-indexes.sql: source statement 7
-execute $sql_76_7$create index if not exists broadcast_page_recent on public.broadcast_messaging_events
- (tenant_id,page_id,kind,interacted_at desc,event_id)$sql_76_7$;
+execute $sql_77_7$create index if not exists broadcast_page_recent on public.broadcast_messaging_events
+ (tenant_id,page_id,kind,interacted_at desc,event_id)$sql_77_7$;
 
 -- inbox-load-indexes.sql: source statement 8
-execute $sql_76_8$create index if not exists broadcast_customer_recent on public.broadcast_messaging_events
- (tenant_id,page_id,customer_id,kind,interacted_at desc,event_id)$sql_76_8$;
+execute $sql_77_8$create index if not exists broadcast_customer_recent on public.broadcast_messaging_events
+ (tenant_id,page_id,customer_id,kind,interacted_at desc,event_id)$sql_77_8$;
 
 -- inbox-load-indexes.sql: source statement 9
-execute $sql_76_9$create index if not exists facebook_webhook_message_id_lookup on public.facebook_webhook_events
- (page_id,((payload->'message')->>'mid')) where kind='message'$sql_76_9$;
+execute $sql_77_9$create index if not exists facebook_webhook_message_id_lookup on public.facebook_webhook_events
+ (page_id,((payload->'message')->>'mid')) where kind='message'$sql_77_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-load-indexes.sql','125a60686bd94ec4ee414d122986ab0be170a40dcb1553c269546c07db17c4e1','cee506871122e657bfbf6b2a12533272fee5b44607176d4c29298b0aaf404e42');
-end $migration_76$;
+end $migration_77$;
 
--- 78. facebook-inbox-recovery.sql
-do $migration_77$
+-- 79. facebook-inbox-recovery.sql
+do $migration_78$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-inbox-recovery.sql';
@@ -9643,7 +9706,7 @@ begin
     return;
   end if;
 -- facebook-inbox-recovery.sql: source statement 2
-execute $sql_77_2$do $$
+execute $sql_78_2$do $$
 declare missing text;
 begin
   foreach missing in array array[
@@ -9660,10 +9723,10 @@ begin
   if to_regprocedure('public.persist_facebook_webhook_record(uuid,uuid,uuid)') is null then
     raise exception 'Missing prerequisite function: persist_facebook_webhook_record';
   end if;
-end $$$sql_77_2$;
+end $$$sql_78_2$;
 
 -- facebook-inbox-recovery.sql: source statement 3
-execute $sql_77_3$create or replace function public.ensure_facebook_customer_fallback_name()
+execute $sql_78_3$create or replace function public.ensure_facebook_customer_fallback_name()
 returns trigger
 language plpgsql
 set search_path=pg_catalog,public
@@ -9675,41 +9738,41 @@ begin
     new.display_name := 'ลูกค้า Facebook (' || right(new.platform_user_id,4) || ')';
   end if;
   return new;
-end $$$sql_77_3$;
+end $$$sql_78_3$;
 
 -- facebook-inbox-recovery.sql: source statement 4
-execute $sql_77_4$drop trigger if exists customers_facebook_fallback_name on public.customers$sql_77_4$;
+execute $sql_78_4$drop trigger if exists customers_facebook_fallback_name on public.customers$sql_78_4$;
 
 -- facebook-inbox-recovery.sql: source statement 5
-execute $sql_77_5$create trigger customers_facebook_fallback_name
+execute $sql_78_5$create trigger customers_facebook_fallback_name
 before insert or update on public.customers
-for each row execute function public.ensure_facebook_customer_fallback_name()$sql_77_5$;
+for each row execute function public.ensure_facebook_customer_fallback_name()$sql_78_5$;
 
 -- facebook-inbox-recovery.sql: source statement 7
-execute $sql_77_7$create index if not exists customers_tenant_last_message_idx
-  on public.customers(tenant_id,last_message_at desc,id desc)$sql_77_7$;
+execute $sql_78_7$create index if not exists customers_tenant_last_message_idx
+  on public.customers(tenant_id,last_message_at desc,id desc)$sql_78_7$;
 
 -- facebook-inbox-recovery.sql: source statement 8
-execute $sql_77_8$create index if not exists messages_customer_created_idx
-  on public.messages(customer_id,created_at desc,id desc)$sql_77_8$;
+execute $sql_78_8$create index if not exists messages_customer_created_idx
+  on public.messages(customer_id,created_at desc,id desc)$sql_78_8$;
 
 -- facebook-inbox-recovery.sql: source statement 9
-execute $sql_77_9$grant select,insert,update on public.customers to service_role$sql_77_9$;
+execute $sql_78_9$grant select,insert,update on public.customers to service_role$sql_78_9$;
 
 -- facebook-inbox-recovery.sql: source statement 10
-execute $sql_77_10$grant select,insert,update on public.messages to service_role$sql_77_10$;
+execute $sql_78_10$grant select,insert,update on public.messages to service_role$sql_78_10$;
 
 -- facebook-inbox-recovery.sql: source statement 11
-execute $sql_77_11$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_77_11$;
+execute $sql_78_11$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_78_11$;
 
 -- facebook-inbox-recovery.sql: source statement 12
-execute $sql_77_12$notify pgrst,'reload schema'$sql_77_12$;
+execute $sql_78_12$notify pgrst,'reload schema'$sql_78_12$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-inbox-recovery.sql','17c99c5c455e76c04989398dd7e7246f348d3a2758ad5cc8ca76b85f83db97b2','1eb9f1832583ddae48cd6adda766c7c3828e48d5c9401f2b0b96442977e6a1ad');
-end $migration_77$;
+end $migration_78$;
 
--- 79. live-cf-variants.sql
-do $migration_78$
+-- 80. live-cf-variants.sql
+do $migration_79$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-cf-variants.sql';
@@ -9720,36 +9783,36 @@ begin
     return;
   end if;
 -- live-cf-variants.sql: source statement 2
-execute $sql_78_2$alter table public.commerce_variants add column if not exists variant_code text$sql_78_2$;
+execute $sql_79_2$alter table public.commerce_variants add column if not exists variant_code text$sql_79_2$;
 
 -- live-cf-variants.sql: source statement 3
-execute $sql_78_3$create unique index if not exists commerce_variant_tenant_code
+execute $sql_79_3$create unique index if not exists commerce_variant_tenant_code
   on public.commerce_variants(tenant_id, lower(variant_code))
-  where variant_code is not null and length(trim(variant_code)) > 0$sql_78_3$;
+  where variant_code is not null and length(trim(variant_code)) > 0$sql_79_3$;
 
 -- live-cf-variants.sql: source statement 4
-execute $sql_78_4$alter table public.orders add column if not exists variant_id uuid
-  references public.commerce_variants(id)$sql_78_4$;
+execute $sql_79_4$alter table public.orders add column if not exists variant_id uuid
+  references public.commerce_variants(id)$sql_79_4$;
 
 -- live-cf-variants.sql: source statement 5
-execute $sql_78_5$alter table public.orders add column if not exists variant_label text$sql_78_5$;
+execute $sql_79_5$alter table public.orders add column if not exists variant_label text$sql_79_5$;
 
 -- live-cf-variants.sql: source statement 6
-execute $sql_78_6$alter table public.orders add column if not exists source text$sql_78_6$;
+execute $sql_79_6$alter table public.orders add column if not exists source text$sql_79_6$;
 
 -- live-cf-variants.sql: source statement 7
-execute $sql_78_7$alter table public.orders add column if not exists source_id text$sql_78_7$;
+execute $sql_79_7$alter table public.orders add column if not exists source_id text$sql_79_7$;
 
 -- live-cf-variants.sql: source statement 8
-execute $sql_78_8$alter table public.orders add column if not exists source_code text$sql_78_8$;
+execute $sql_79_8$alter table public.orders add column if not exists source_code text$sql_79_8$;
 
 -- live-cf-variants.sql: source statement 9
-execute $sql_78_9$create unique index if not exists orders_one_per_source
+execute $sql_79_9$create unique index if not exists orders_one_per_source
   on public.orders(tenant_id, source, source_id)
-  where source is not null and source_id is not null$sql_78_9$;
+  where source is not null and source_id is not null$sql_79_9$;
 
 -- live-cf-variants.sql: source statement 10
-execute $sql_78_10$create or replace function public.commerce_save_product(
+execute $sql_79_10$create or replace function public.commerce_save_product(
   p_tenant uuid,p_actor uuid,p_id uuid,p_value jsonb,p_version integer default null
 ) returns uuid language plpgsql security definer set search_path=pg_catalog,public as $$
 declare r public.products;l public.commerce_limits;v jsonb;vid uuid;pid uuid:=coalesce(p_id,gen_random_uuid());kept uuid[]:='{}';
@@ -9793,11 +9856,11 @@ begin
  insert into public.commerce_audit(tenant_id,actor_id,entity_id,action)
  values(p_tenant,p_actor,pid,'product_saved');
  return pid;
-end $$$sql_78_10$;
+end $$$sql_79_10$;
 
 -- live-cf-variants.sql: source statement 11
 begin
-execute $sql_78_11$create or replace function public.on_order_status() returns trigger
+execute $sql_79_11$create or replace function public.on_order_status() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status=old.status then return new;end if;
@@ -9809,24 +9872,24 @@ begin
   update public.products set stock=stock+1 where id=new.product_id;
  end if;
  return new;
-end $$$sql_78_11$;
+end $$$sql_79_11$;
 exception when invalid_function_definition then
   -- A newer signature of on_order_status() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-cf-variants.sql: source statement 12
-execute $sql_78_12$drop trigger if exists orders_status_change on public.orders$sql_78_12$;
+execute $sql_79_12$drop trigger if exists orders_status_change on public.orders$sql_79_12$;
 
 -- live-cf-variants.sql: source statement 13
-execute $sql_78_13$create trigger orders_status_change before update of status on public.orders
- for each row execute function public.on_order_status()$sql_78_13$;
+execute $sql_79_13$create trigger orders_status_change before update of status on public.orders
+ for each row execute function public.on_order_status()$sql_79_13$;
 
 -- live-cf-variants.sql: source statement 14
-execute $sql_78_14$drop function if exists public.place_cf_order(uuid,uuid,uuid,text)$sql_78_14$;
+execute $sql_79_14$drop function if exists public.place_cf_order(uuid,uuid,uuid,text)$sql_79_14$;
 
 -- live-cf-variants.sql: source statement 15
-execute $sql_78_15$create or replace function public.place_cf_order_core(
+execute $sql_79_15$create or replace function public.place_cf_order_core(
  p_tenant uuid,p_customer uuid,p_message uuid,p_code text,p_source text,p_source_id text
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
@@ -9896,19 +9959,19 @@ begin
  values(p_tenant,p_customer,p.id,p.name,p.price,p_message,p_source,p_source_id,lower(trim(p_code))
  ) returning id into new_id;
  return query select 'created'::text,new_id,p.name,p.code,p.price,null::text;
-end $$$sql_78_15$;
+end $$$sql_79_15$;
 
 -- live-cf-variants.sql: source statement 16
-execute $sql_78_16$create or replace function public.place_cf_order(
+execute $sql_79_16$create or replace function public.place_cf_order(
  p_tenant uuid,p_customer uuid,p_message uuid,p_code text
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
 ) language sql security definer set search_path=pg_catalog,public as $$
  select * from public.place_cf_order_core(p_tenant,p_customer,p_message,p_code,null,null)
-$$$sql_78_16$;
+$$$sql_79_16$;
 
 -- live-cf-variants.sql: source statement 17
-execute $sql_78_17$create or replace function public.place_cf_order(
+execute $sql_79_17$create or replace function public.place_cf_order(
  p_tenant_id uuid,p_code text,p_customer_psid text,p_source text,p_source_id text
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
@@ -9924,36 +9987,36 @@ begin
  return query select * from public.place_cf_order_core(
   p_tenant_id,customer_id,null,p_code,p_source,p_source_id
  );
-end $$$sql_78_17$;
+end $$$sql_79_17$;
 
 -- live-cf-variants.sql: source statement 18
-execute $sql_78_18$revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text)
- from public,anon,authenticated$sql_78_18$;
+execute $sql_79_18$revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text)
+ from public,anon,authenticated$sql_79_18$;
 
 -- live-cf-variants.sql: source statement 19
-execute $sql_78_19$revoke all on function public.place_cf_order(uuid,uuid,uuid,text)
- from public,anon,authenticated$sql_78_19$;
+execute $sql_79_19$revoke all on function public.place_cf_order(uuid,uuid,uuid,text)
+ from public,anon,authenticated$sql_79_19$;
 
 -- live-cf-variants.sql: source statement 20
-execute $sql_78_20$revoke all on function public.place_cf_order(uuid,text,text,text,text)
- from public,anon,authenticated$sql_78_20$;
+execute $sql_79_20$revoke all on function public.place_cf_order(uuid,text,text,text,text)
+ from public,anon,authenticated$sql_79_20$;
 
 -- live-cf-variants.sql: source statement 21
-execute $sql_78_21$grant execute on function public.place_cf_order(uuid,uuid,uuid,text)
- to service_role$sql_78_21$;
+execute $sql_79_21$grant execute on function public.place_cf_order(uuid,uuid,uuid,text)
+ to service_role$sql_79_21$;
 
 -- live-cf-variants.sql: source statement 22
-execute $sql_78_22$grant execute on function public.place_cf_order(uuid,text,text,text,text)
- to service_role$sql_78_22$;
+execute $sql_79_22$grant execute on function public.place_cf_order(uuid,text,text,text,text)
+ to service_role$sql_79_22$;
 
 -- live-cf-variants.sql: source statement 23
-execute $sql_78_23$notify pgrst,'reload schema'$sql_78_23$;
+execute $sql_79_23$notify pgrst,'reload schema'$sql_79_23$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-cf-variants.sql','a370e2e8b6358f365a5335ecae56045919dd28ed001f7d9388f7a8bedc809184','76d033c8d7df54314df3ec983143fa1194d4fbf29c3f261507c29fedbdec00f1');
-end $migration_78$;
+end $migration_79$;
 
--- 80. live-cf-mode.sql
-do $migration_79$
+-- 81. live-cf-mode.sql
+do $migration_80$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-cf-mode.sql';
@@ -9964,36 +10027,36 @@ begin
     return;
   end if;
 -- live-cf-mode.sql: source statement 2
-execute $sql_79_2$alter table public.comment_rules add column if not exists mode text not null default 'general'
-  check (mode in ('general','live_cf'))$sql_79_2$;
+execute $sql_80_2$alter table public.comment_rules add column if not exists mode text not null default 'general'
+  check (mode in ('general','live_cf'))$sql_80_2$;
 
 -- live-cf-mode.sql: source statement 3
-execute $sql_79_3$alter table public.comment_rules add column if not exists live_product_id uuid references public.products(id)$sql_79_3$;
+execute $sql_80_3$alter table public.comment_rules add column if not exists live_product_id uuid references public.products(id)$sql_80_3$;
 
 -- live-cf-mode.sql: source statement 4
-execute $sql_79_4$alter table public.comment_rules add column if not exists live_variant_id uuid references public.commerce_variants(id)$sql_79_4$;
+execute $sql_80_4$alter table public.comment_rules add column if not exists live_variant_id uuid references public.commerce_variants(id)$sql_80_4$;
 
 -- live-cf-mode.sql: source statement 5
-execute $sql_79_5$alter table public.comment_rules add column if not exists live_stock_limit integer
-  check (live_stock_limit between 1 and 1000000)$sql_79_5$;
+execute $sql_80_5$alter table public.comment_rules add column if not exists live_stock_limit integer
+  check (live_stock_limit between 1 and 1000000)$sql_80_5$;
 
 -- live-cf-mode.sql: source statement 6
-execute $sql_79_6$alter table public.comment_rules add column if not exists live_post_id text$sql_79_6$;
+execute $sql_80_6$alter table public.comment_rules add column if not exists live_post_id text$sql_80_6$;
 
 -- live-cf-mode.sql: source statement 7
-execute $sql_79_7$alter table public.orders add column if not exists live_rule_id uuid
-  references public.comment_rules(id) on delete set null$sql_79_7$;
+execute $sql_80_7$alter table public.orders add column if not exists live_rule_id uuid
+  references public.comment_rules(id) on delete set null$sql_80_7$;
 
 -- live-cf-mode.sql: source statement 8
-execute $sql_79_8$create index if not exists orders_live_rule on public.orders(tenant_id,live_rule_id,status)$sql_79_8$;
+execute $sql_80_8$create index if not exists orders_live_rule on public.orders(tenant_id,live_rule_id,status)$sql_80_8$;
 
 -- live-cf-mode.sql: source statement 9
-execute $sql_79_9$create unique index if not exists orders_one_facebook_comment
+execute $sql_80_9$create unique index if not exists orders_one_facebook_comment
   on public.orders(tenant_id,source_id)
-  where source in ('facebook_comment','live_comment') and source_id is not null$sql_79_9$;
+  where source in ('facebook_comment','live_comment') and source_id is not null$sql_80_9$;
 
 -- live-cf-mode.sql: source statement 10
-execute $sql_79_10$create or replace function public.validate_live_cf_rule() returns trigger
+execute $sql_80_10$create or replace function public.validate_live_cf_rule() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare p public.products; v public.commerce_variants; normalized text[];
 begin
@@ -10049,21 +10112,21 @@ begin
   raise exception 'กฎนี้มีออเดอร์แล้ว กรุณาสร้างกฎใหม่เมื่อเปลี่ยนสินค้า' using errcode='23514';
  end if;
  return new;
-end $$$sql_79_10$;
+end $$$sql_80_10$;
 
 -- live-cf-mode.sql: source statement 11
-execute $sql_79_11$drop trigger if exists validate_live_cf_rule on public.comment_rules$sql_79_11$;
+execute $sql_80_11$drop trigger if exists validate_live_cf_rule on public.comment_rules$sql_80_11$;
 
 -- live-cf-mode.sql: source statement 12
-execute $sql_79_12$create trigger validate_live_cf_rule before insert or update on public.comment_rules
- for each row execute function public.validate_live_cf_rule()$sql_79_12$;
+execute $sql_80_12$create trigger validate_live_cf_rule before insert or update on public.comment_rules
+ for each row execute function public.validate_live_cf_rule()$sql_80_12$;
 
 -- live-cf-mode.sql: source statement 13
-execute $sql_79_13$revoke all on function public.validate_live_cf_rule() from public,anon,authenticated$sql_79_13$;
+execute $sql_80_13$revoke all on function public.validate_live_cf_rule() from public,anon,authenticated$sql_80_13$;
 
 -- live-cf-mode.sql: source statement 14
 begin
-execute $sql_79_14$create or replace function public.on_order_status() returns trigger
+execute $sql_80_14$create or replace function public.on_order_status() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status=old.status then return new;end if;
@@ -10075,7 +10138,7 @@ begin
   end if;
  end if;
  return new;
-end $$$sql_79_14$;
+end $$$sql_80_14$;
 exception when invalid_function_definition then
   -- A newer signature of on_order_status() is already installed. Its final definition below is mandatory.
   null;
@@ -10083,7 +10146,7 @@ end;
 
 -- live-cf-mode.sql: source statement 15
 begin
-execute $sql_79_15$create or replace function public.place_live_cf_order(
+execute $sql_80_15$create or replace function public.place_live_cf_order(
  p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
@@ -10142,20 +10205,20 @@ begin
  returning id into new_id;
  insert into public.commerce_audit(tenant_id,entity_id,action,detail) values(p_tenant,new_id,'live_cf_order',r.id::text);
  return query select 'created'::text,new_id,p.name,p_code,price,label;
-end $$$sql_79_15$;
+end $$$sql_80_15$;
 exception when invalid_function_definition then
   -- A newer signature of place_live_cf_order(uuid,uuid,uuid,text,text,text,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-cf-mode.sql: source statement 16
-execute $sql_79_16$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated$sql_79_16$;
+execute $sql_80_16$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated$sql_80_16$;
 
 -- live-cf-mode.sql: source statement 17
-execute $sql_79_17$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_79_17$;
+execute $sql_80_17$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_80_17$;
 
 -- live-cf-mode.sql: source statement 18
-execute $sql_79_18$do $$ begin
+execute $sql_80_18$do $$ begin
  if exists(select 1 from pg_publication where pubname='supabase_realtime') then
   if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='products') then
    alter publication supabase_realtime add table public.products;
@@ -10164,16 +10227,16 @@ execute $sql_79_18$do $$ begin
    alter publication supabase_realtime add table public.commerce_variants;
   end if;
  end if;
-end $$$sql_79_18$;
+end $$$sql_80_18$;
 
 -- live-cf-mode.sql: source statement 19
-execute $sql_79_19$notify pgrst,'reload schema'$sql_79_19$;
+execute $sql_80_19$notify pgrst,'reload schema'$sql_80_19$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-cf-mode.sql','536347d3bd60c59c5713f1003ee83c7323aa795f8c916a95be925908123c1add','91f67f49d0e22fcdba1f1a77d9fb169c5a66b14ac83d53eb8e001f6580cd966c');
-end $migration_79$;
+end $migration_80$;
 
--- 81. live-cf-setup.sql
-do $migration_80$
+-- 82. live-cf-setup.sql
+do $migration_81$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-cf-setup.sql';
@@ -10184,41 +10247,41 @@ begin
     return;
   end if;
 -- live-cf-setup.sql: source statement 2
-execute $sql_80_2$alter table public.comment_rules add column if not exists live_bank_account_id uuid
-  references public.bank_accounts(id) on delete set null$sql_80_2$;
+execute $sql_81_2$alter table public.comment_rules add column if not exists live_bank_account_id uuid
+  references public.bank_accounts(id) on delete set null$sql_81_2$;
 
 -- live-cf-setup.sql: source statement 3
-execute $sql_80_3$alter table public.comment_rules add column if not exists live_deduct_stock boolean not null default true$sql_80_3$;
+execute $sql_81_3$alter table public.comment_rules add column if not exists live_deduct_stock boolean not null default true$sql_81_3$;
 
 -- live-cf-setup.sql: source statement 4
-execute $sql_80_4$alter table public.orders add column if not exists live_bank_account_id uuid
-  references public.bank_accounts(id) on delete set null$sql_80_4$;
+execute $sql_81_4$alter table public.orders add column if not exists live_bank_account_id uuid
+  references public.bank_accounts(id) on delete set null$sql_81_4$;
 
 -- live-cf-setup.sql: source statement 5
-execute $sql_80_5$alter table public.orders add column if not exists live_stock_deducted boolean not null default true$sql_80_5$;
+execute $sql_81_5$alter table public.orders add column if not exists live_stock_deducted boolean not null default true$sql_81_5$;
 
 -- live-cf-setup.sql: source statement 6
-execute $sql_80_6$create table if not exists public.live_cf_webhook_receipts (
+execute $sql_81_6$create table if not exists public.live_cf_webhook_receipts (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   page_id text not null,
   comment_id text not null,
   live_rule_id uuid references public.comment_rules(id) on delete set null,
   created_at timestamptz not null default clock_timestamp(),
   primary key(tenant_id,page_id,comment_id)
-)$sql_80_6$;
+)$sql_81_6$;
 
 -- live-cf-setup.sql: source statement 7
-execute $sql_80_7$alter table public.live_cf_webhook_receipts enable row level security$sql_80_7$;
+execute $sql_81_7$alter table public.live_cf_webhook_receipts enable row level security$sql_81_7$;
 
 -- live-cf-setup.sql: source statement 8
-execute $sql_80_8$revoke all on public.live_cf_webhook_receipts from public,anon,authenticated$sql_80_8$;
+execute $sql_81_8$revoke all on public.live_cf_webhook_receipts from public,anon,authenticated$sql_81_8$;
 
 -- live-cf-setup.sql: source statement 9
-execute $sql_80_9$grant select,insert on public.live_cf_webhook_receipts to service_role$sql_80_9$;
+execute $sql_81_9$grant select,insert on public.live_cf_webhook_receipts to service_role$sql_81_9$;
 
 -- live-cf-setup.sql: source statement 10
 begin
-execute $sql_80_10$create or replace function public.validate_live_cf_setup_rule() returns trigger
+execute $sql_81_10$create or replace function public.validate_live_cf_setup_rule() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare p public.products;v public.commerce_variants;b public.bank_accounts;normalized text[];
 begin
@@ -10263,28 +10326,28 @@ begin
     or regexp_replace(r.live_post_id,'^.*_','')=regexp_replace(new.live_post_id,'^.*_',''))
  ) then raise exception 'Active Live CF code already exists' using errcode='23514';end if;
  return new;
-end $$$sql_80_10$;
+end $$$sql_81_10$;
 exception when invalid_function_definition then
   -- A newer signature of validate_live_cf_setup_rule() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-cf-setup.sql: source statement 11
-execute $sql_80_11$drop trigger if exists validate_live_cf_rule on public.comment_rules$sql_80_11$;
+execute $sql_81_11$drop trigger if exists validate_live_cf_rule on public.comment_rules$sql_81_11$;
 
 -- live-cf-setup.sql: source statement 12
-execute $sql_80_12$drop trigger if exists validate_live_cf_setup_rule on public.comment_rules$sql_80_12$;
+execute $sql_81_12$drop trigger if exists validate_live_cf_setup_rule on public.comment_rules$sql_81_12$;
 
 -- live-cf-setup.sql: source statement 13
-execute $sql_80_13$create trigger validate_live_cf_setup_rule before insert or update on public.comment_rules
- for each row execute function public.validate_live_cf_setup_rule()$sql_80_13$;
+execute $sql_81_13$create trigger validate_live_cf_setup_rule before insert or update on public.comment_rules
+ for each row execute function public.validate_live_cf_setup_rule()$sql_81_13$;
 
 -- live-cf-setup.sql: source statement 14
-execute $sql_80_14$revoke all on function public.validate_live_cf_setup_rule() from public,anon,authenticated$sql_80_14$;
+execute $sql_81_14$revoke all on function public.validate_live_cf_setup_rule() from public,anon,authenticated$sql_81_14$;
 
 -- live-cf-setup.sql: source statement 15
 begin
-execute $sql_80_15$create or replace function public.on_order_status() returns trigger
+execute $sql_81_15$create or replace function public.on_order_status() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status=old.status then return new;end if;
@@ -10296,7 +10359,7 @@ begin
   end if;
  end if;
  return new;
-end $$$sql_80_15$;
+end $$$sql_81_15$;
 exception when invalid_function_definition then
   -- A newer signature of on_order_status() is already installed. Its final definition below is mandatory.
   null;
@@ -10304,7 +10367,7 @@ end;
 
 -- live-cf-setup.sql: source statement 16
 begin
-execute $sql_80_16$create or replace function public.place_cf_order(
+execute $sql_81_16$create or replace function public.place_cf_order(
  p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
@@ -10354,40 +10417,40 @@ begin
  values(p_tenant,p_customer,p.id,p.name,price,r.live_variant_id,label,'live_comment',p_comment,lower(trim(p_code)),r.id,r.live_bank_account_id,r.live_deduct_stock) returning id into new_id;
  insert into public.commerce_audit(tenant_id,entity_id,action,detail) values(p_tenant,new_id,'live_cf_order',r.id::text);
  return query select 'created'::text,new_id,p.name,p_code,price,label;
-end $$$sql_80_16$;
+end $$$sql_81_16$;
 exception when invalid_function_definition then
   -- A newer signature of place_cf_order(uuid,uuid,uuid,text,text,text,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-cf-setup.sql: source statement 17
-execute $sql_80_17$create or replace function public.place_live_cf_order(
+execute $sql_81_17$create or replace function public.place_live_cf_order(
  p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
 ) returns table(r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text)
 language sql security definer set search_path=pg_catalog,public as $$
  select * from public.place_cf_order(p_tenant,p_customer,p_rule,p_code,p_comment,p_post,p_page)
-$$$sql_80_17$;
+$$$sql_81_17$;
 
 -- live-cf-setup.sql: source statement 18
-execute $sql_80_18$revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated$sql_80_18$;
+execute $sql_81_18$revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated$sql_81_18$;
 
 -- live-cf-setup.sql: source statement 19
-execute $sql_80_19$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated$sql_80_19$;
+execute $sql_81_19$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public,anon,authenticated$sql_81_19$;
 
 -- live-cf-setup.sql: source statement 20
-execute $sql_80_20$grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_80_20$;
+execute $sql_81_20$grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_81_20$;
 
 -- live-cf-setup.sql: source statement 21
-execute $sql_80_21$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_80_21$;
+execute $sql_81_21$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_81_21$;
 
 -- live-cf-setup.sql: source statement 22
-execute $sql_80_22$notify pgrst,'reload schema'$sql_80_22$;
+execute $sql_81_22$notify pgrst,'reload schema'$sql_81_22$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-cf-setup.sql','589ea9c1e4ca903a23339123036c3d82639419639283bbabd3f004d4734a9c3f','05dfcefd0d101569a99dd462230fc8fd87ce2a43476027432e201410644b4ad0');
-end $migration_80$;
+end $migration_81$;
 
--- 82. messenger-product-lookup.sql
-do $migration_81$
+-- 83. messenger-product-lookup.sql
+do $migration_82$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='messenger-product-lookup.sql';
@@ -10398,7 +10461,7 @@ begin
     return;
   end if;
 -- messenger-product-lookup.sql: source statement 2
-execute $sql_81_2$create or replace function public.messenger_product_lookup(p_tenant uuid, p_code text)
+execute $sql_82_2$create or replace function public.messenger_product_lookup(p_tenant uuid, p_code text)
 returns table (
   id uuid, name text, price numeric, description text, images jsonb,
   store_slug text, sales_page_url text, variant_id uuid, variant_label text
@@ -10437,19 +10500,19 @@ language sql stable security definer set search_path = pg_catalog, public as $$
   )
   -- Overlapping aliases are ambiguous: leave the question with normal chat/staff.
   select * from candidates where (select count(*) from candidates) = 1;
-$$$sql_81_2$;
+$$$sql_82_2$;
 
 -- messenger-product-lookup.sql: source statement 3
-execute $sql_81_3$revoke all on function public.messenger_product_lookup(uuid, text) from public, anon, authenticated$sql_81_3$;
+execute $sql_82_3$revoke all on function public.messenger_product_lookup(uuid, text) from public, anon, authenticated$sql_82_3$;
 
 -- messenger-product-lookup.sql: source statement 4
-execute $sql_81_4$grant execute on function public.messenger_product_lookup(uuid, text) to service_role$sql_81_4$;
+execute $sql_82_4$grant execute on function public.messenger_product_lookup(uuid, text) to service_role$sql_82_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('messenger-product-lookup.sql','2dd1cd7eee223dc082d72696bb2cdf80bea7bd4bfa3c8c393d59f0b84431617b','d7dc47ee4ae0c13a90593a213044a0f6dd4f99075e09726bfab58b1ccb9140c0');
-end $migration_81$;
+end $migration_82$;
 
--- 83. slip-confirmation-template.sql
-do $migration_82$
+-- 84. slip-confirmation-template.sql
+do $migration_83$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='slip-confirmation-template.sql';
@@ -10460,39 +10523,39 @@ begin
     return;
   end if;
 -- slip-confirmation-template.sql: source statement 2
-execute $sql_82_2$create table if not exists public.slip_settings (
+execute $sql_83_2$create table if not exists public.slip_settings (
   tenant_id uuid primary key references public.tenants(id) on delete cascade,
   slip_confirmation_template text check (length(slip_confirmation_template) <= 2000),
   updated_at timestamptz not null default now()
-)$sql_82_2$;
+)$sql_83_2$;
 
 -- slip-confirmation-template.sql: source statement 3
-execute $sql_82_3$alter table public.slip_settings enable row level security$sql_82_3$;
+execute $sql_83_3$alter table public.slip_settings enable row level security$sql_83_3$;
 
 -- slip-confirmation-template.sql: source statement 4
-execute $sql_82_4$drop policy if exists member_read on public.slip_settings$sql_82_4$;
+execute $sql_83_4$drop policy if exists member_read on public.slip_settings$sql_83_4$;
 
 -- slip-confirmation-template.sql: source statement 5
-execute $sql_82_5$create policy member_read on public.slip_settings for select to authenticated
-  using (public.can_access_tenant(tenant_id))$sql_82_5$;
+execute $sql_83_5$create policy member_read on public.slip_settings for select to authenticated
+  using (public.can_access_tenant(tenant_id))$sql_83_5$;
 
 -- slip-confirmation-template.sql: source statement 6
-execute $sql_82_6$revoke all on public.slip_settings from public, anon, authenticated$sql_82_6$;
+execute $sql_83_6$revoke all on public.slip_settings from public, anon, authenticated$sql_83_6$;
 
 -- slip-confirmation-template.sql: source statement 7
-execute $sql_82_7$grant select on public.slip_settings to authenticated$sql_82_7$;
+execute $sql_83_7$grant select on public.slip_settings to authenticated$sql_83_7$;
 
 -- slip-confirmation-template.sql: source statement 8
-execute $sql_82_8$grant select, insert, update, delete on public.slip_settings to service_role$sql_82_8$;
+execute $sql_83_8$grant select, insert, update, delete on public.slip_settings to service_role$sql_83_8$;
 
 -- slip-confirmation-template.sql: source statement 9
-execute $sql_82_9$notify pgrst, 'reload schema'$sql_82_9$;
+execute $sql_83_9$notify pgrst, 'reload schema'$sql_83_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('slip-confirmation-template.sql','81c5fbea2256012194b8eee2a4b8234a95067344c3948ab74205d24de79160e2','591e7c6185b3c102ecc0e7045ffaeb6f0b3b7bf4b7fd1f0e19247995b1b8778f');
-end $migration_82$;
+end $migration_83$;
 
--- 84. standalone-slips.sql
-do $migration_83$
+-- 85. standalone-slips.sql
+do $migration_84$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='standalone-slips.sql';
@@ -10503,7 +10566,7 @@ begin
     return;
   end if;
 -- standalone-slips.sql: source statement 2
-execute $sql_83_2$create table if not exists public.standalone_slips (
+execute $sql_84_2$create table if not exists public.standalone_slips (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id) on delete restrict,
   trans_ref text not null check(length(trim(trans_ref)) between 1 and 200 and trans_ref=trim(trans_ref)),
@@ -10520,66 +10583,66 @@ execute $sql_83_2$create table if not exists public.standalone_slips (
   created_at timestamptz not null default now(),
   constraint uq_standalone_slip_ref unique(tenant_id,trans_ref),
   constraint uq_standalone_slip_image unique(tenant_id,image_sha256)
-)$sql_83_2$;
+)$sql_84_2$;
 
 -- standalone-slips.sql: source statement 3
-execute $sql_83_3$alter table public.standalone_slips add column if not exists customer_id uuid references public.customers(id) on delete set null$sql_83_3$;
+execute $sql_84_3$alter table public.standalone_slips add column if not exists customer_id uuid references public.customers(id) on delete set null$sql_84_3$;
 
 -- standalone-slips.sql: source statement 4
-execute $sql_83_4$alter table public.standalone_slips add column if not exists message_id uuid references public.messages(id) on delete set null$sql_83_4$;
+execute $sql_84_4$alter table public.standalone_slips add column if not exists message_id uuid references public.messages(id) on delete set null$sql_84_4$;
 
 -- standalone-slips.sql: source statement 5
-execute $sql_83_5$alter table public.standalone_slips add column if not exists image_sha256 text check(image_sha256 is null or image_sha256~'^[0-9a-f]{64}$')$sql_83_5$;
+execute $sql_84_5$alter table public.standalone_slips add column if not exists image_sha256 text check(image_sha256 is null or image_sha256~'^[0-9a-f]{64}$')$sql_84_5$;
 
 -- standalone-slips.sql: source statement 6
-execute $sql_83_6$create unique index if not exists uq_standalone_slip_image on public.standalone_slips(tenant_id,image_sha256)$sql_83_6$;
+execute $sql_84_6$create unique index if not exists uq_standalone_slip_image on public.standalone_slips(tenant_id,image_sha256)$sql_84_6$;
 
 -- standalone-slips.sql: source statement 7
-execute $sql_83_7$create unique index if not exists uq_standalone_slip_ref on public.standalone_slips(tenant_id,trans_ref)$sql_83_7$;
+execute $sql_84_7$create unique index if not exists uq_standalone_slip_ref on public.standalone_slips(tenant_id,trans_ref)$sql_84_7$;
 
 -- standalone-slips.sql: source statement 8
-execute $sql_83_8$create index if not exists standalone_slips_tenant_created on public.standalone_slips(tenant_id,created_at desc)$sql_83_8$;
+execute $sql_84_8$create index if not exists standalone_slips_tenant_created on public.standalone_slips(tenant_id,created_at desc)$sql_84_8$;
 
 -- standalone-slips.sql: source statement 9
-execute $sql_83_9$alter table public.standalone_slips enable row level security$sql_83_9$;
+execute $sql_84_9$alter table public.standalone_slips enable row level security$sql_84_9$;
 
 -- standalone-slips.sql: source statement 10
-execute $sql_83_10$revoke all on public.standalone_slips from public,anon,authenticated,service_role$sql_83_10$;
+execute $sql_84_10$revoke all on public.standalone_slips from public,anon,authenticated,service_role$sql_84_10$;
 
 -- standalone-slips.sql: source statement 11
-execute $sql_83_11$grant select,insert on public.standalone_slips to service_role$sql_83_11$;
+execute $sql_84_11$grant select,insert on public.standalone_slips to service_role$sql_84_11$;
 
 -- standalone-slips.sql: source statement 12
-execute $sql_83_12$grant select on public.standalone_slips to authenticated$sql_83_12$;
+execute $sql_84_12$grant select on public.standalone_slips to authenticated$sql_84_12$;
 
 -- standalone-slips.sql: source statement 13
-execute $sql_83_13$drop policy if exists member_read on public.standalone_slips$sql_83_13$;
+execute $sql_84_13$drop policy if exists member_read on public.standalone_slips$sql_84_13$;
 
 -- standalone-slips.sql: source statement 14
-execute $sql_83_14$create policy member_read on public.standalone_slips for select to authenticated
-  using(public.can_access_tenant(tenant_id))$sql_83_14$;
+execute $sql_84_14$create policy member_read on public.standalone_slips for select to authenticated
+  using(public.can_access_tenant(tenant_id))$sql_84_14$;
 
 -- standalone-slips.sql: source statement 15
-execute $sql_83_15$alter table public.payment_transfer_ledger drop constraint if exists payment_transfer_ledger_source_check$sql_83_15$;
+execute $sql_84_15$alter table public.payment_transfer_ledger drop constraint if exists payment_transfer_ledger_source_check$sql_84_15$;
 
 -- standalone-slips.sql: source statement 16
-execute $sql_83_16$alter table public.payment_transfer_ledger add constraint payment_transfer_ledger_source_check
-  check(source in ('package','sale','billing','standalone'))$sql_83_16$;
+execute $sql_84_16$alter table public.payment_transfer_ledger add constraint payment_transfer_ledger_source_check
+  check(source in ('package','sale','billing','standalone'))$sql_84_16$;
 
 -- standalone-slips.sql: source statement 18
-execute $sql_83_18$insert into public.payment_transfer_ledger(trans_ref,source,source_id)
-  select trans_ref,'standalone',id from public.standalone_slips on conflict do nothing$sql_83_18$;
+execute $sql_84_18$insert into public.payment_transfer_ledger(trans_ref,source,source_id)
+  select trans_ref,'standalone',id from public.standalone_slips on conflict do nothing$sql_84_18$;
 
 -- standalone-slips.sql: source statement 19
-execute $sql_83_19$do $$ begin
+execute $sql_84_19$do $$ begin
   if exists(
     select 1 from public.standalone_slips s left join public.payment_transfer_ledger l on l.trans_ref=s.trans_ref
     where l.source is distinct from 'standalone' or l.source_id is distinct from s.id
   ) then raise exception 'Existing standalone transfers conflict with the payment ledger; review before installing';end if;
-end $$$sql_83_19$;
+end $$$sql_84_19$;
 
 -- standalone-slips.sql: source statement 20
-execute $sql_83_20$create or replace function public.guard_standalone_slip() returns trigger
+execute $sql_84_20$create or replace function public.guard_standalone_slip() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
   if not exists(select 1 from public.tenants where id=new.tenant_id and is_active) then
@@ -10594,26 +10657,26 @@ begin
   ) then raise exception 'Standalone message scope mismatch' using errcode='42501';end if;
   perform public.claim_payment_transfer(new.trans_ref,'standalone',new.id);
   return new;
-end $$$sql_83_20$;
+end $$$sql_84_20$;
 
 -- standalone-slips.sql: source statement 21
-execute $sql_83_21$drop trigger if exists standalone_slip_transfer_guard on public.standalone_slips$sql_83_21$;
+execute $sql_84_21$drop trigger if exists standalone_slip_transfer_guard on public.standalone_slips$sql_84_21$;
 
 -- standalone-slips.sql: source statement 22
-execute $sql_83_22$create trigger standalone_slip_transfer_guard before insert on public.standalone_slips
-  for each row execute function public.guard_standalone_slip()$sql_83_22$;
+execute $sql_84_22$create trigger standalone_slip_transfer_guard before insert on public.standalone_slips
+  for each row execute function public.guard_standalone_slip()$sql_84_22$;
 
 -- standalone-slips.sql: source statement 23
-execute $sql_83_23$revoke all on function public.guard_standalone_slip() from public,anon,authenticated$sql_83_23$;
+execute $sql_84_23$revoke all on function public.guard_standalone_slip() from public,anon,authenticated$sql_84_23$;
 
 -- standalone-slips.sql: source statement 24
-execute $sql_83_24$notify pgrst,'reload schema'$sql_83_24$;
+execute $sql_84_24$notify pgrst,'reload schema'$sql_84_24$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('standalone-slips.sql','7c4a15f753634dc091c75dfacbbddbffe4a567e636402f8864b4c6b7d6d980a7','96608fd194cf79cae1e2972b7bb8e8e93dc199b75029eb8305dc2576f9a2227b');
-end $migration_83$;
+end $migration_84$;
 
--- 85. tenant-ai-quota.sql
-do $migration_84$
+-- 86. tenant-ai-quota.sql
+do $migration_85$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='tenant-ai-quota.sql';
@@ -10624,62 +10687,62 @@ begin
     return;
   end if;
 -- tenant-ai-quota.sql: source statement 2
-execute $sql_84_2$alter table public.tenants add column if not exists ai_quota_limit integer default 1000$sql_84_2$;
+execute $sql_85_2$alter table public.tenants add column if not exists ai_quota_limit integer default 1000$sql_85_2$;
 
 -- tenant-ai-quota.sql: source statement 3
-execute $sql_84_3$alter table public.tenants add column if not exists ai_quota_used integer default 0$sql_84_3$;
+execute $sql_85_3$alter table public.tenants add column if not exists ai_quota_used integer default 0$sql_85_3$;
 
 -- tenant-ai-quota.sql: source statement 4
-execute $sql_84_4$alter table public.tenants alter column ai_quota_limit set default 1000$sql_84_4$;
+execute $sql_85_4$alter table public.tenants alter column ai_quota_limit set default 1000$sql_85_4$;
 
 -- tenant-ai-quota.sql: source statement 5
-execute $sql_84_5$alter table public.tenants alter column ai_quota_used set default 0$sql_84_5$;
+execute $sql_85_5$alter table public.tenants alter column ai_quota_used set default 0$sql_85_5$;
 
 -- tenant-ai-quota.sql: source statement 6
-execute $sql_84_6$update public.tenants set ai_quota_limit=coalesce(ai_quota_limit,1000),ai_quota_used=coalesce(ai_quota_used,0)
- where ai_quota_limit is null or ai_quota_used is null$sql_84_6$;
+execute $sql_85_6$update public.tenants set ai_quota_limit=coalesce(ai_quota_limit,1000),ai_quota_used=coalesce(ai_quota_used,0)
+ where ai_quota_limit is null or ai_quota_used is null$sql_85_6$;
 
 -- tenant-ai-quota.sql: source statement 7
-execute $sql_84_7$alter table public.tenants alter column ai_quota_limit set not null$sql_84_7$;
+execute $sql_85_7$alter table public.tenants alter column ai_quota_limit set not null$sql_85_7$;
 
 -- tenant-ai-quota.sql: source statement 8
-execute $sql_84_8$alter table public.tenants alter column ai_quota_used set not null$sql_84_8$;
+execute $sql_85_8$alter table public.tenants alter column ai_quota_used set not null$sql_85_8$;
 
 -- tenant-ai-quota.sql: source statement 9
-execute $sql_84_9$do $$begin
+execute $sql_85_9$do $$begin
  if not exists(select 1 from pg_constraint where conrelid='public.tenants'::regclass and conname='tenants_ai_quota_nonnegative') then
   alter table public.tenants add constraint tenants_ai_quota_nonnegative check(ai_quota_limit>=0 and ai_quota_used>=0);
  end if;
-end $$$sql_84_9$;
+end $$$sql_85_9$;
 
 -- tenant-ai-quota.sql: source statement 10
-execute $sql_84_10$alter table public.conversation_events add column if not exists reason text$sql_84_10$;
+execute $sql_85_10$alter table public.conversation_events add column if not exists reason text$sql_85_10$;
 
 -- tenant-ai-quota.sql: source statement 11
-execute $sql_84_11$create table if not exists public.tenant_ai_reply_reservations(
+execute $sql_85_11$create table if not exists public.tenant_ai_reply_reservations(
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id) on delete cascade,
  customer_id uuid not null references public.customers(id) on delete cascade,
  source_message_id uuid not null references public.messages(id),external_id text not null,
  status text not null default 'reserved' check(status in ('reserved','dispatching','unknown','sent','released')),
  created_at timestamptz not null default clock_timestamp(),completed_at timestamptz,
  unique(tenant_id,source_message_id),unique(tenant_id,external_id)
-)$sql_84_11$;
+)$sql_85_11$;
 
 -- tenant-ai-quota.sql: source statement 12
-execute $sql_84_12$create index if not exists tenant_ai_reply_capacity on public.tenant_ai_reply_reservations(tenant_id,status)
- where status in ('reserved','dispatching','unknown')$sql_84_12$;
+execute $sql_85_12$create index if not exists tenant_ai_reply_capacity on public.tenant_ai_reply_reservations(tenant_id,status)
+ where status in ('reserved','dispatching','unknown')$sql_85_12$;
 
 -- tenant-ai-quota.sql: source statement 13
-execute $sql_84_13$alter table public.tenant_ai_reply_reservations enable row level security$sql_84_13$;
+execute $sql_85_13$alter table public.tenant_ai_reply_reservations enable row level security$sql_85_13$;
 
 -- tenant-ai-quota.sql: source statement 14
-execute $sql_84_14$revoke all on public.tenant_ai_reply_reservations from public,anon,authenticated$sql_84_14$;
+execute $sql_85_14$revoke all on public.tenant_ai_reply_reservations from public,anon,authenticated$sql_85_14$;
 
 -- tenant-ai-quota.sql: source statement 15
-execute $sql_84_15$grant all on public.tenant_ai_reply_reservations to service_role$sql_84_15$;
+execute $sql_85_15$grant all on public.tenant_ai_reply_reservations to service_role$sql_85_15$;
 
 -- tenant-ai-quota.sql: source statement 16
-execute $sql_84_16$create or replace function public.guard_tenant_ai_quota() returns trigger
+execute $sql_85_16$create or replace function public.guard_tenant_ai_quota() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if current_user in ('anon','authenticated') and
@@ -10688,17 +10751,17 @@ begin
   raise exception 'AI quota is server managed' using errcode='42501';
  end if;
  return new;
-end $$$sql_84_16$;
+end $$$sql_85_16$;
 
 -- tenant-ai-quota.sql: source statement 17
-execute $sql_84_17$drop trigger if exists tenants_ai_quota_server_only on public.tenants$sql_84_17$;
+execute $sql_85_17$drop trigger if exists tenants_ai_quota_server_only on public.tenants$sql_85_17$;
 
 -- tenant-ai-quota.sql: source statement 18
-execute $sql_84_18$create trigger tenants_ai_quota_server_only before insert or update on public.tenants
- for each row execute function public.guard_tenant_ai_quota()$sql_84_18$;
+execute $sql_85_18$create trigger tenants_ai_quota_server_only before insert or update on public.tenants
+ for each row execute function public.guard_tenant_ai_quota()$sql_85_18$;
 
 -- tenant-ai-quota.sql: source statement 19
-execute $sql_84_19$create or replace function public.reserve_tenant_ai_reply(p_tenant uuid,p_customer uuid,p_message uuid)
+execute $sql_85_19$create or replace function public.reserve_tenant_ai_reply(p_tenant uuid,p_customer uuid,p_message uuid)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare t public.tenants;reservation uuid;held bigint;
 begin
@@ -10718,10 +10781,10 @@ begin
  insert into public.tenant_ai_reply_reservations(tenant_id,customer_id,source_message_id,external_id)
  values(p_tenant,p_customer,p_message,'reply:'||p_message::text) returning id into reservation;
  return jsonb_build_object('status','reserved','id',reservation);
-end $$$sql_84_19$;
+end $$$sql_85_19$;
 
 -- tenant-ai-quota.sql: source statement 20
-execute $sql_84_20$create or replace function public.authorize_tenant_ai_reply(p_reservation uuid)
+execute $sql_85_20$create or replace function public.authorize_tenant_ai_reply(p_reservation uuid)
 returns text language plpgsql set search_path=pg_catalog,public as $$
 declare r public.tenant_ai_reply_reservations;t public.tenants;held bigint;
 begin
@@ -10734,10 +10797,10 @@ begin
  if t.ai_quota_used::bigint+held>=t.ai_quota_limit then return 'quota_exceeded';end if;
  update public.tenant_ai_reply_reservations set status='dispatching' where id=r.id;
  return 'authorized';
-end $$$sql_84_20$;
+end $$$sql_85_20$;
 
 -- tenant-ai-quota.sql: source statement 21
-execute $sql_84_21$create or replace function public.account_tenant_ai_reply() returns trigger
+execute $sql_85_21$create or replace function public.account_tenant_ai_reply() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare r public.tenant_ai_reply_reservations;
 begin
@@ -10757,17 +10820,17 @@ begin
   update public.tenant_ai_reply_reservations set status='unknown' where id=r.id;
  end if;
  return new;
-end $$$sql_84_21$;
+end $$$sql_85_21$;
 
 -- tenant-ai-quota.sql: source statement 22
-execute $sql_84_22$drop trigger if exists messages_account_tenant_ai_reply on public.messages$sql_84_22$;
+execute $sql_85_22$drop trigger if exists messages_account_tenant_ai_reply on public.messages$sql_85_22$;
 
 -- tenant-ai-quota.sql: source statement 23
-execute $sql_84_23$create trigger messages_account_tenant_ai_reply after insert or update of delivery_status on public.messages
- for each row execute function public.account_tenant_ai_reply()$sql_84_23$;
+execute $sql_85_23$create trigger messages_account_tenant_ai_reply after insert or update of delivery_status on public.messages
+ for each row execute function public.account_tenant_ai_reply()$sql_85_23$;
 
 -- tenant-ai-quota.sql: source statement 24
-execute $sql_84_24$create or replace function public.settle_tenant_ai_reply(p_reservation uuid)
+execute $sql_85_24$create or replace function public.settle_tenant_ai_reply(p_reservation uuid)
 returns text language plpgsql set search_path=pg_catalog,public as $$
 declare r public.tenant_ai_reply_reservations;delivery text;
 begin
@@ -10788,10 +10851,10 @@ begin
  -- Pending/unknown sends may have reached Meta: keep the capacity held for review.
  update public.tenant_ai_reply_reservations set status='unknown' where id=r.id;
  return 'unknown';
-end $$$sql_84_24$;
+end $$$sql_85_24$;
 
 -- tenant-ai-quota.sql: source statement 25
-execute $sql_84_25$create or replace function public.handover_tenant_ai_quota(p_tenant uuid,p_customer uuid,p_message uuid)
+execute $sql_85_25$create or replace function public.handover_tenant_ai_quota(p_tenant uuid,p_customer uuid,p_message uuid)
 returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers;
 begin
@@ -10804,19 +10867,19 @@ begin
   insert into public.conversation_events(tenant_id,customer_id,action,reason) values(p_tenant,c.id,'handover','quota_exceeded');
  end if;
  return true;
-end $$$sql_84_25$;
+end $$$sql_85_25$;
 
 -- tenant-ai-quota.sql: source statement 26
-execute $sql_84_26$revoke all on function public.guard_tenant_ai_quota(),public.account_tenant_ai_reply() from public,anon,authenticated,service_role$sql_84_26$;
+execute $sql_85_26$revoke all on function public.guard_tenant_ai_quota(),public.account_tenant_ai_reply() from public,anon,authenticated,service_role$sql_85_26$;
 
 -- tenant-ai-quota.sql: source statement 27
-execute $sql_84_27$revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) from public,anon,authenticated$sql_84_27$;
+execute $sql_85_27$revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) from public,anon,authenticated$sql_85_27$;
 
 -- tenant-ai-quota.sql: source statement 28
-execute $sql_84_28$grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role$sql_84_28$;
+execute $sql_85_28$grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid),public.authorize_tenant_ai_reply(uuid),public.settle_tenant_ai_reply(uuid),public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role$sql_85_28$;
 
 -- tenant-ai-quota.sql: source statement 29
-execute $sql_84_29$do $$
+execute $sql_85_29$do $$
 declare definition text;proof text;
 begin
  if to_regprocedure('public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid)') is not null then
@@ -10828,16 +10891,16 @@ begin
    execute definition;
   end if;
  end if;
-end $$$sql_84_29$;
+end $$$sql_85_29$;
 
 -- tenant-ai-quota.sql: source statement 30
-execute $sql_84_30$notify pgrst,'reload schema'$sql_84_30$;
+execute $sql_85_30$notify pgrst,'reload schema'$sql_85_30$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('tenant-ai-quota.sql','673b0b070a71b1aee8d59d3e7ecb77f993d389c425f67e534a2318a7ceace9e9','a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3');
-end $migration_84$;
+end $migration_85$;
 
--- 86. vision-master-switch.sql
-do $migration_85$
+-- 87. vision-master-switch.sql
+do $migration_86$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='vision-master-switch.sql';
@@ -10848,7 +10911,7 @@ begin
     return;
   end if;
 -- vision-master-switch.sql: source statement 2
-execute $sql_85_2$do $$
+execute $sql_86_2$do $$
 declare signature text; definition text;
 begin
  foreach signature in array array['public.claim_vision_job(uuid)',
@@ -10864,10 +10927,10 @@ begin
   end if;
   execute definition;
  end loop;
-end $$$sql_85_2$;
+end $$$sql_86_2$;
 
 -- vision-master-switch.sql: source statement 3
-execute $sql_85_3$create or replace function public.save_vision_settings(p_tenant uuid,p_actor uuid,p_enabled boolean,p_mode text,p_confidence numeric,p_handoff boolean) returns void
+execute $sql_86_3$create or replace function public.save_vision_settings(p_tenant uuid,p_actor uuid,p_enabled boolean,p_mode text,p_confidence numeric,p_handoff boolean) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner')
@@ -10881,10 +10944,10 @@ begin
  on conflict(tenant_id) do update set enabled=excluded.enabled,mode='rules',confidence_threshold=0.8,handoff_enabled=true;
  insert into public.vision_audit_logs(tenant_id,actor_id,event,detail)
  values(p_tenant,p_actor,'settings_updated',case when p_enabled then 'enabled' else 'disabled' end);
-end $$$sql_85_3$;
+end $$$sql_86_3$;
 
 -- vision-master-switch.sql: source statement 4
-execute $sql_85_4$create or replace function public.handover_vision_job(p_job uuid,p_claim uuid,p_reason text)
+execute $sql_86_4$create or replace function public.handover_vision_job(p_job uuid,p_claim uuid,p_reason text)
 returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare j public.vision_jobs;c public.customers;
 begin
@@ -10904,22 +10967,22 @@ begin
  update public.vision_jobs set status='requires_review',reason=left(coalesce(nullif(p_reason,''),'VISION_ANALYSIS_FAILED'),200),
   claim_token=null,claim_until=null,updated_at=clock_timestamp() where id=j.id;
  return true;
-end $$$sql_85_4$;
+end $$$sql_86_4$;
 
 -- vision-master-switch.sql: source statement 5
-execute $sql_85_5$revoke all on function public.handover_vision_job(uuid,uuid,text),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public,anon,authenticated$sql_85_5$;
+execute $sql_86_5$revoke all on function public.handover_vision_job(uuid,uuid,text),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public,anon,authenticated$sql_86_5$;
 
 -- vision-master-switch.sql: source statement 6
-execute $sql_85_6$grant execute on function public.handover_vision_job(uuid,uuid,text),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_85_6$;
+execute $sql_86_6$grant execute on function public.handover_vision_job(uuid,uuid,text),public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_86_6$;
 
 -- vision-master-switch.sql: source statement 7
-execute $sql_85_7$notify pgrst,'reload schema'$sql_85_7$;
+execute $sql_86_7$notify pgrst,'reload schema'$sql_86_7$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('vision-master-switch.sql','59ad5e7e4032c8ca944ddfd3727164461ea7292b548a38114defb05f1fe381fe','137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6');
-end $migration_85$;
+end $migration_86$;
 
--- 87. live-cf-customer-variants.sql
-do $migration_86$
+-- 88. live-cf-customer-variants.sql
+do $migration_87$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-cf-customer-variants.sql';
@@ -10930,16 +10993,16 @@ begin
     return;
   end if;
 -- live-cf-customer-variants.sql: source statement 2
-execute $sql_86_2$alter table public.comment_rules add column if not exists live_customer_select_variant boolean not null default false$sql_86_2$;
+execute $sql_87_2$alter table public.comment_rules add column if not exists live_customer_select_variant boolean not null default false$sql_87_2$;
 
 -- live-cf-customer-variants.sql: source statement 3
-execute $sql_86_3$alter table public.orders add column if not exists live_variant_selection_required boolean not null default false$sql_86_3$;
+execute $sql_87_3$alter table public.orders add column if not exists live_variant_selection_required boolean not null default false$sql_87_3$;
 
 -- live-cf-customer-variants.sql: source statement 4
-execute $sql_86_4$alter table public.orders add column if not exists live_variant_confirmed_at timestamptz$sql_86_4$;
+execute $sql_87_4$alter table public.orders add column if not exists live_variant_confirmed_at timestamptz$sql_87_4$;
 
 -- live-cf-customer-variants.sql: source statement 5
-execute $sql_86_5$create or replace function public.validate_live_cf_setup_rule() returns trigger
+execute $sql_87_5$create or replace function public.validate_live_cf_setup_rule() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare p public.products;v public.commerce_variants;b public.bank_accounts;normalized text[];
 begin
@@ -10985,11 +11048,11 @@ begin
     or regexp_replace(r.live_post_id,'^.*_','')=regexp_replace(new.live_post_id,'^.*_',''))
  ) then raise exception 'Active Live CF code already exists' using errcode='23514';end if;
  return new;
-end $$$sql_86_5$;
+end $$$sql_87_5$;
 
 -- live-cf-customer-variants.sql: source statement 6
 begin
-execute $sql_86_6$create or replace function public.place_cf_order(
+execute $sql_87_6$create or replace function public.place_cf_order(
  p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
@@ -11039,14 +11102,14 @@ begin
  values(p_tenant,p_customer,p.id,p.name,price,r.live_variant_id,label,'live_comment',p_comment,lower(trim(p_code)),r.id,r.live_bank_account_id,r.live_deduct_stock,r.live_customer_select_variant and exists(select 1 from public.commerce_variants where product_id=p.id and tenant_id=p_tenant and is_active)) returning id into new_id;
  insert into public.commerce_audit(tenant_id,entity_id,action,detail) values(p_tenant,new_id,'live_cf_order',r.id::text);
  return query select 'created'::text,new_id,p.name,p_code,price,label;
-end $$$sql_86_6$;
+end $$$sql_87_6$;
 exception when invalid_function_definition then
   -- A newer signature of place_cf_order(uuid,uuid,uuid,text,text,text,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-cf-customer-variants.sql: source statement 7
-execute $sql_86_7$create or replace function public.confirm_live_cf_variant(p_order uuid,p_variant uuid)
+execute $sql_87_7$create or replace function public.confirm_live_cf_variant(p_order uuid,p_variant uuid)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,public as $$
 declare o public.orders;p public.products;v public.commerce_variants;t uuid;
 begin
@@ -11082,17 +11145,17 @@ begin
  return jsonb_build_object('variant_id',o.variant_id,'variant_label',o.variant_label,'amount',o.amount,'confirmed_at',o.live_variant_confirmed_at,
   'payment_total',(select coalesce(sum(amount),0) from public.orders where tenant_id=t and customer_id=o.customer_id and status='pending_payment'),
   'remaining_selections',(select count(*) from public.orders where tenant_id=t and customer_id=o.customer_id and status='pending_payment' and live_variant_selection_required and live_variant_confirmed_at is null));
-end $$$sql_86_7$;
+end $$$sql_87_7$;
 
 -- live-cf-customer-variants.sql: source statement 8
-execute $sql_86_8$revoke all on function public.confirm_live_cf_variant(uuid,uuid) from public,anon,authenticated$sql_86_8$;
+execute $sql_87_8$revoke all on function public.confirm_live_cf_variant(uuid,uuid) from public,anon,authenticated$sql_87_8$;
 
 -- live-cf-customer-variants.sql: source statement 9
-execute $sql_86_9$grant execute on function public.confirm_live_cf_variant(uuid,uuid) to service_role$sql_86_9$;
+execute $sql_87_9$grant execute on function public.confirm_live_cf_variant(uuid,uuid) to service_role$sql_87_9$;
 
 -- live-cf-customer-variants.sql: source statement 10
 begin
-execute $sql_86_10$create or replace function public.guard_live_cf_variant_payment() returns trigger
+execute $sql_87_10$create or replace function public.guard_live_cf_variant_payment() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare s record;total numeric;
 begin
@@ -11112,25 +11175,25 @@ begin
   if total is null or s.amount is null or round(s.amount*100)<>round(total*100) then raise exception 'LIVE_CF_PAYMENT_AMOUNT_CHANGED';end if;
  end if;
  return new;
-end $$$sql_86_10$;
+end $$$sql_87_10$;
 exception when invalid_function_definition then
   -- A newer signature of guard_live_cf_variant_payment() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-cf-customer-variants.sql: source statement 11
-execute $sql_86_11$drop trigger if exists orders_live_cf_variant_guard on public.orders$sql_86_11$;
+execute $sql_87_11$drop trigger if exists orders_live_cf_variant_guard on public.orders$sql_87_11$;
 
 -- live-cf-customer-variants.sql: source statement 12
-execute $sql_86_12$create trigger orders_live_cf_variant_guard before update on public.orders
- for each row execute function public.guard_live_cf_variant_payment()$sql_86_12$;
+execute $sql_87_12$create trigger orders_live_cf_variant_guard before update on public.orders
+ for each row execute function public.guard_live_cf_variant_payment()$sql_87_12$;
 
 -- live-cf-customer-variants.sql: source statement 13
-execute $sql_86_13$revoke all on function public.guard_live_cf_variant_payment() from public,anon,authenticated$sql_86_13$;
+execute $sql_87_13$revoke all on function public.guard_live_cf_variant_payment() from public,anon,authenticated$sql_87_13$;
 
 -- live-cf-customer-variants.sql: source statement 14
 begin
-execute $sql_86_14$create or replace function public.guard_live_cf_variant_slip() returns trigger
+execute $sql_87_14$create or replace function public.guard_live_cf_variant_slip() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare total numeric;
 begin
@@ -11146,27 +11209,27 @@ begin
  select sum(amount) into total from public.orders where tenant_id=new.tenant_id and customer_id=new.customer_id and status='pending_payment';
  if total is null or new.amount is null or round(new.amount*100)<>round(total*100) then raise exception 'LIVE_CF_PAYMENT_AMOUNT_CHANGED';end if;
  return new;
-end $$$sql_86_14$;
+end $$$sql_87_14$;
 exception when invalid_function_definition then
   -- A newer signature of guard_live_cf_variant_slip() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-cf-customer-variants.sql: source statement 15
-execute $sql_86_15$drop trigger if exists slips_live_cf_selection_guard on public.slips$sql_86_15$;
+execute $sql_87_15$drop trigger if exists slips_live_cf_selection_guard on public.slips$sql_87_15$;
 
 -- live-cf-customer-variants.sql: source statement 16
-execute $sql_86_16$create trigger slips_live_cf_selection_guard before insert or update on public.slips
- for each row execute function public.guard_live_cf_variant_slip()$sql_86_16$;
+execute $sql_87_16$create trigger slips_live_cf_selection_guard before insert or update on public.slips
+ for each row execute function public.guard_live_cf_variant_slip()$sql_87_16$;
 
 -- live-cf-customer-variants.sql: source statement 17
-execute $sql_86_17$revoke all on function public.guard_live_cf_variant_slip() from public,anon,authenticated$sql_86_17$;
+execute $sql_87_17$revoke all on function public.guard_live_cf_variant_slip() from public,anon,authenticated$sql_87_17$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-cf-customer-variants.sql','9c7cc9a0379ab9c20d056f017dfb87b7c48c175f6a3c57ab65d61d364042365b','c620b8852bf6067a70bc0cb265a285e3d9fddd0d05d55e9ed5a8a6c72fa6df29');
-end $migration_86$;
+end $migration_87$;
 
--- 88. live-auctions.sql
-do $migration_87$
+-- 89. live-auctions.sql
+do $migration_88$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auctions.sql';
@@ -11177,7 +11240,7 @@ begin
     return;
   end if;
 -- live-auctions.sql: source statement 2
-execute $sql_87_2$create table if not exists public.auctions (
+execute $sql_88_2$create table if not exists public.auctions (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  page_id text not null, live_post_id text not null check(live_post_id ~ '^[0-9]+$'),
@@ -11194,16 +11257,16 @@ execute $sql_87_2$create table if not exists public.auctions (
  closed_at timestamptz, close_event_id uuid references public.facebook_webhook_events(id),
  order_id uuid unique references public.orders(id),
  created_at timestamptz not null default clock_timestamp()
-)$sql_87_2$;
+)$sql_88_2$;
 
 -- live-auctions.sql: source statement 3
-execute $sql_87_3$create unique index if not exists auctions_one_active on public.auctions(page_id,live_post_id) where status='active'$sql_87_3$;
+execute $sql_88_3$create unique index if not exists auctions_one_active on public.auctions(page_id,live_post_id) where status='active'$sql_88_3$;
 
 -- live-auctions.sql: source statement 4
-execute $sql_87_4$create index if not exists auctions_tenant_recent on public.auctions(tenant_id,created_at desc)$sql_87_4$;
+execute $sql_88_4$create index if not exists auctions_tenant_recent on public.auctions(tenant_id,created_at desc)$sql_88_4$;
 
 -- live-auctions.sql: source statement 5
-execute $sql_87_5$create table if not exists public.auction_bids (
+execute $sql_88_5$create table if not exists public.auction_bids (
  id uuid primary key default gen_random_uuid(),
  auction_id uuid not null references public.auctions(id) on delete cascade,
  event_id uuid not null unique references public.facebook_webhook_events(id),
@@ -11212,13 +11275,13 @@ execute $sql_87_5$create table if not exists public.auction_bids (
  status text not null, result jsonb not null,
  created_at timestamptz not null default clock_timestamp(),
  unique(auction_id,comment_id)
-)$sql_87_5$;
+)$sql_88_5$;
 
 -- live-auctions.sql: source statement 6
-execute $sql_87_6$create index if not exists auction_bids_recent on public.auction_bids(auction_id,created_at desc)$sql_87_6$;
+execute $sql_88_6$create index if not exists auction_bids_recent on public.auction_bids(auction_id,created_at desc)$sql_88_6$;
 
 -- live-auctions.sql: source statement 7
-execute $sql_87_7$create table if not exists public.auction_deliveries (
+execute $sql_88_7$create table if not exists public.auction_deliveries (
  id uuid primary key default gen_random_uuid(),
  auction_id uuid not null references public.auctions(id) on delete cascade,
  channel text not null check(channel in ('public','private')),
@@ -11226,42 +11289,42 @@ execute $sql_87_7$create table if not exists public.auction_deliveries (
  status text not null default 'pending' check(status in ('pending','sending','sent','requires_review')),
  started_at timestamptz, completed_at timestamptz, error_code text,
  unique(auction_id,channel)
-)$sql_87_7$;
+)$sql_88_7$;
 
 -- live-auctions.sql: source statement 8
-execute $sql_87_8$create table if not exists public.auction_payment_proofs (
+execute $sql_88_8$create table if not exists public.auction_payment_proofs (
  order_id uuid primary key references public.orders(id),
  tenant_id uuid not null references public.tenants(id),
  slip_id uuid not null unique references public.slips(id),
  created_at timestamptz not null default clock_timestamp()
-)$sql_87_8$;
+)$sql_88_8$;
 
 -- live-auctions.sql: source statement 9
-execute $sql_87_9$alter table public.auctions enable row level security$sql_87_9$;
+execute $sql_88_9$alter table public.auctions enable row level security$sql_88_9$;
 
 -- live-auctions.sql: source statement 10
-execute $sql_87_10$alter table public.auction_bids enable row level security$sql_87_10$;
+execute $sql_88_10$alter table public.auction_bids enable row level security$sql_88_10$;
 
 -- live-auctions.sql: source statement 11
-execute $sql_87_11$alter table public.auction_deliveries enable row level security$sql_87_11$;
+execute $sql_88_11$alter table public.auction_deliveries enable row level security$sql_88_11$;
 
 -- live-auctions.sql: source statement 12
-execute $sql_87_12$alter table public.auction_payment_proofs enable row level security$sql_87_12$;
+execute $sql_88_12$alter table public.auction_payment_proofs enable row level security$sql_88_12$;
 
 -- live-auctions.sql: source statement 13
-execute $sql_87_13$revoke all on public.auctions,public.auction_bids,public.auction_deliveries from public,anon,authenticated$sql_87_13$;
+execute $sql_88_13$revoke all on public.auctions,public.auction_bids,public.auction_deliveries from public,anon,authenticated$sql_88_13$;
 
 -- live-auctions.sql: source statement 14
-execute $sql_87_14$grant all on public.auctions,public.auction_bids,public.auction_deliveries to service_role$sql_87_14$;
+execute $sql_88_14$grant all on public.auctions,public.auction_bids,public.auction_deliveries to service_role$sql_88_14$;
 
 -- live-auctions.sql: source statement 15
-execute $sql_87_15$revoke all on public.auction_payment_proofs from public,anon,authenticated$sql_87_15$;
+execute $sql_88_15$revoke all on public.auction_payment_proofs from public,anon,authenticated$sql_88_15$;
 
 -- live-auctions.sql: source statement 16
-execute $sql_87_16$grant all on public.auction_payment_proofs to service_role$sql_87_16$;
+execute $sql_88_16$grant all on public.auction_payment_proofs to service_role$sql_88_16$;
 
 -- live-auctions.sql: source statement 17
-execute $sql_87_17$create or replace function public.submit_auction_payment_proof(p_order uuid,p_image text)
+execute $sql_88_17$create or replace function public.submit_auction_payment_proof(p_order uuid,p_image text)
 returns uuid language plpgsql set search_path=pg_catalog,public as $$
 declare o public.orders; sid uuid;
 begin
@@ -11274,10 +11337,10 @@ begin
   values(o.tenant_id,o.customer_id,p_image,o.amount,'error','หลักฐานชำระประมูล: รอเจ้าของร้านตรวจสอบและอนุมัติด้วยตนเอง') returning id into sid;
  insert into public.auction_payment_proofs(order_id,tenant_id,slip_id) values(o.id,o.tenant_id,sid);
  return sid;
-end $$$sql_87_17$;
+end $$$sql_88_17$;
 
 -- live-auctions.sql: source statement 18
-execute $sql_87_18$create or replace function public.approve_auction_payment_proof(p_slip uuid,p_tenant uuid,p_actor uuid)
+execute $sql_88_18$create or replace function public.approve_auction_payment_proof(p_slip uuid,p_tenant uuid,p_actor uuid)
 returns timestamptz language plpgsql set search_path=pg_catalog,public as $$
 declare s public.slips; o public.orders; approved timestamptz;
 begin
@@ -11295,10 +11358,10 @@ begin
  update public.slips set approved_at=approved,approved_by=coalesce(approved_by,p_actor) where id=s.id;
  update public.orders set status='paid',paid_at=approved,slip_id=s.id where id=o.id and status='pending_payment';
  return approved;
-end $$$sql_87_18$;
+end $$$sql_88_18$;
 
 -- live-auctions.sql: source statement 19
-execute $sql_87_19$create or replace function public.auction_comment_ordering() returns trigger
+execute $sql_88_19$create or replace function public.auction_comment_ordering() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.kind='change' and new.payload->>'field' in ('feed','live_comments')
@@ -11306,18 +11369,18 @@ begin
   new.ordering_key:='comments:'||new.page_id;
  end if;
  return new;
-end $$$sql_87_19$;
+end $$$sql_88_19$;
 
 -- live-auctions.sql: source statement 20
-execute $sql_87_20$drop trigger if exists auction_comment_ordering on public.facebook_webhook_events$sql_87_20$;
+execute $sql_88_20$drop trigger if exists auction_comment_ordering on public.facebook_webhook_events$sql_88_20$;
 
 -- live-auctions.sql: source statement 21
-execute $sql_87_21$create trigger auction_comment_ordering before insert on public.facebook_webhook_events
- for each row execute function public.auction_comment_ordering()$sql_87_21$;
+execute $sql_88_21$create trigger auction_comment_ordering before insert on public.facebook_webhook_events
+ for each row execute function public.auction_comment_ordering()$sql_88_21$;
 
 -- live-auctions.sql: source statement 23
 begin
-execute $sql_87_23$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_88_23$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; c public.customers; oid uuid;
 begin
@@ -11342,7 +11405,7 @@ begin
    select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
  end if;
  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
-end $$$sql_87_23$;
+end $$$sql_88_23$;
 exception when invalid_function_definition then
   -- A newer signature of finalize_live_auction(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -11350,7 +11413,7 @@ end;
 
 -- live-auctions.sql: source statement 24
 begin
-execute $sql_87_24$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_88_24$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; prior jsonb; r jsonb;
  sender text; cid text; bidder text; amount numeric; minimum numeric; outcome text; host boolean;
@@ -11402,35 +11465,35 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),amount,p_kind='OPENING_BID',outcome,r);
  return r;
-end $$$sql_87_24$;
+end $$$sql_88_24$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auctions.sql: source statement 25
-execute $sql_87_25$revoke all on function public.auction_comment_ordering(),public.finalize_live_auction(uuid,uuid,uuid,boolean),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_87_25$;
+execute $sql_88_25$revoke all on function public.auction_comment_ordering(),public.finalize_live_auction(uuid,uuid,uuid,boolean),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_88_25$;
 
 -- live-auctions.sql: source statement 26
-execute $sql_87_26$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_87_26$;
+execute $sql_88_26$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_88_26$;
 
 -- live-auctions.sql: source statement 27
-execute $sql_87_27$revoke all on function public.submit_auction_payment_proof(uuid,text) from public,anon,authenticated$sql_87_27$;
+execute $sql_88_27$revoke all on function public.submit_auction_payment_proof(uuid,text) from public,anon,authenticated$sql_88_27$;
 
 -- live-auctions.sql: source statement 28
-execute $sql_87_28$grant execute on function public.submit_auction_payment_proof(uuid,text) to service_role$sql_87_28$;
+execute $sql_88_28$grant execute on function public.submit_auction_payment_proof(uuid,text) to service_role$sql_88_28$;
 
 -- live-auctions.sql: source statement 29
-execute $sql_87_29$revoke all on function public.approve_auction_payment_proof(uuid,uuid,uuid) from public,anon,authenticated$sql_87_29$;
+execute $sql_88_29$revoke all on function public.approve_auction_payment_proof(uuid,uuid,uuid) from public,anon,authenticated$sql_88_29$;
 
 -- live-auctions.sql: source statement 30
-execute $sql_87_30$grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) to service_role$sql_87_30$;
+execute $sql_88_30$grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) to service_role$sql_88_30$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auctions.sql','a9db4f872fcd501ce2a254c804e901b489440fdaf4747bda2aa7594857447aef','910202f12dfb75ce136dc66fe2d95ea645f9de96b03a69ef8e1b92b0fa89eeec');
-end $migration_87$;
+end $migration_88$;
 
--- 89. customer-tabs.sql
-do $migration_88$
+-- 90. customer-tabs.sql
+do $migration_89$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='customer-tabs.sql';
@@ -11441,15 +11504,15 @@ begin
     return;
   end if;
 -- customer-tabs.sql: source statement 2
-execute $sql_88_2$create table if not exists public.live_sessions (
+execute $sql_89_2$create table if not exists public.live_sessions (
  id uuid primary key default gen_random_uuid(), tenant_id uuid not null references public.tenants(id),
  page_id text not null, live_post_id text not null, ended_at timestamptz,
  reminders_enabled boolean not null default true, created_at timestamptz not null default clock_timestamp(),
  unique(tenant_id,page_id,live_post_id)
-)$sql_88_2$;
+)$sql_89_2$;
 
 -- customer-tabs.sql: source statement 3
-execute $sql_88_3$create table if not exists public.customer_tabs (
+execute $sql_89_3$create table if not exists public.customer_tabs (
  id uuid primary key default gen_random_uuid(), tenant_id uuid not null references public.tenants(id),
  customer_id uuid not null references public.customers(id), customer_fb_id text not null,
  page_id text not null, live_session_id uuid not null references public.live_sessions(id),
@@ -11461,78 +11524,78 @@ execute $sql_88_3$create table if not exists public.customer_tabs (
  status text not null default 'open' check(status in ('open','pending_payment','fully_paid')),
  revision bigint not null default 0, created_at timestamptz not null default clock_timestamp(),
  updated_at timestamptz not null default clock_timestamp(), unique(live_session_id,customer_id)
-)$sql_88_3$;
+)$sql_89_3$;
 
 -- customer-tabs.sql: source statement 4
-execute $sql_88_4$alter table public.orders add column if not exists customer_tab_id uuid references public.customer_tabs(id)$sql_88_4$;
+execute $sql_89_4$alter table public.orders add column if not exists customer_tab_id uuid references public.customer_tabs(id)$sql_89_4$;
 
 -- customer-tabs.sql: source statement 5
-execute $sql_88_5$alter table public.orders add column if not exists live_session_id uuid references public.live_sessions(id)$sql_88_5$;
+execute $sql_89_5$alter table public.orders add column if not exists live_session_id uuid references public.live_sessions(id)$sql_89_5$;
 
 -- customer-tabs.sql: source statement 6
-execute $sql_88_6$alter table public.orders add column if not exists live_post_id text$sql_88_6$;
+execute $sql_89_6$alter table public.orders add column if not exists live_post_id text$sql_89_6$;
 
 -- customer-tabs.sql: source statement 7
-execute $sql_88_7$alter table public.orders add column if not exists item_amount numeric(12,2)$sql_88_7$;
+execute $sql_89_7$alter table public.orders add column if not exists item_amount numeric(12,2)$sql_89_7$;
 
 -- customer-tabs.sql: source statement 8
-execute $sql_88_8$alter table public.orders add column if not exists paid_amount numeric(12,2) not null default 0$sql_88_8$;
+execute $sql_89_8$alter table public.orders add column if not exists paid_amount numeric(12,2) not null default 0$sql_89_8$;
 
 -- customer-tabs.sql: source statement 9
-execute $sql_88_9$alter table public.slips add column if not exists customer_tab_id uuid references public.customer_tabs(id)$sql_88_9$;
+execute $sql_89_9$alter table public.slips add column if not exists customer_tab_id uuid references public.customer_tabs(id)$sql_89_9$;
 
 -- customer-tabs.sql: source statement 10
-execute $sql_88_10$create table if not exists public.customer_tab_items (
+execute $sql_89_10$create table if not exists public.customer_tab_items (
  order_id uuid primary key references public.orders(id), tab_id uuid not null references public.customer_tabs(id),
  item_name text not null, variant_label text, amount numeric(12,2) not null check(amount>0),
  cancelled boolean not null default false, closed_at timestamptz not null default clock_timestamp()
-)$sql_88_10$;
+)$sql_89_10$;
 
 -- customer-tabs.sql: source statement 11
-execute $sql_88_11$create table if not exists public.customer_tab_payments (
+execute $sql_89_11$create table if not exists public.customer_tab_payments (
  id uuid primary key default gen_random_uuid(), tab_id uuid not null references public.customer_tabs(id),
  slip_id uuid not null unique references public.slips(id), trans_ref text not null unique,
  amount numeric(12,2) not null check(amount>0), transferred_at timestamptz not null,
  created_at timestamptz not null default clock_timestamp()
-)$sql_88_11$;
+)$sql_89_11$;
 
 -- customer-tabs.sql: source statement 12
-execute $sql_88_12$create table if not exists public.customer_tab_slip_attempts (
+execute $sql_89_12$create table if not exists public.customer_tab_slip_attempts (
  slip_id uuid primary key references public.slips(id), tenant_id uuid not null references public.tenants(id),
  image_sha256 text not null, created_at timestamptz not null default clock_timestamp(),
  unique(tenant_id,image_sha256)
-)$sql_88_12$;
+)$sql_89_12$;
 
 -- customer-tabs.sql: source statement 13
-execute $sql_88_13$create table if not exists public.customer_tab_reminders (
+execute $sql_89_13$create table if not exists public.customer_tab_reminders (
  id uuid primary key default gen_random_uuid(), tab_id uuid not null references public.customer_tabs(id),
  stage text not null, run_at timestamptz not null,
  status text not null default 'pending' check(status in ('pending','processing','sent','cancelled','blocked','requires_review')),
  claim_token uuid, started_at timestamptz, completed_at timestamptz, error_code text,
  created_at timestamptz not null default clock_timestamp(), unique(tab_id,stage)
-)$sql_88_13$;
+)$sql_89_13$;
 
 -- customer-tabs.sql: source statement 14
-execute $sql_88_14$create index if not exists customer_tabs_customer on public.customer_tabs(tenant_id,customer_id,created_at desc)$sql_88_14$;
+execute $sql_89_14$create index if not exists customer_tabs_customer on public.customer_tabs(tenant_id,customer_id,created_at desc)$sql_89_14$;
 
 -- customer-tabs.sql: source statement 15
-execute $sql_88_15$create index if not exists customer_tabs_debt on public.customer_tabs(tenant_id,remaining_amount) where remaining_amount>0$sql_88_15$;
+execute $sql_89_15$create index if not exists customer_tabs_debt on public.customer_tabs(tenant_id,remaining_amount) where remaining_amount>0$sql_89_15$;
 
 -- customer-tabs.sql: source statement 16
-execute $sql_88_16$create index if not exists customer_tab_items_tab on public.customer_tab_items(tab_id,closed_at,order_id)$sql_88_16$;
+execute $sql_89_16$create index if not exists customer_tab_items_tab on public.customer_tab_items(tab_id,closed_at,order_id)$sql_89_16$;
 
 -- customer-tabs.sql: source statement 17
-execute $sql_88_17$create index if not exists customer_tab_reminders_due on public.customer_tab_reminders(run_at) where status='pending'$sql_88_17$;
+execute $sql_89_17$create index if not exists customer_tab_reminders_due on public.customer_tab_reminders(run_at) where status='pending'$sql_89_17$;
 
 -- customer-tabs.sql: source statement 18
-execute $sql_88_18$do $$declare t text;begin foreach t in array array['live_sessions','customer_tabs','customer_tab_items','customer_tab_payments','customer_tab_slip_attempts','customer_tab_reminders'] loop
+execute $sql_89_18$do $$declare t text;begin foreach t in array array['live_sessions','customer_tabs','customer_tab_items','customer_tab_payments','customer_tab_slip_attempts','customer_tab_reminders'] loop
  execute format('alter table public.%I enable row level security',t);
  execute format('revoke all on public.%I from public,anon,authenticated',t);
  execute format('grant all on public.%I to service_role',t);
-end loop;end $$$sql_88_18$;
+end loop;end $$$sql_89_18$;
 
 -- customer-tabs.sql: source statement 19
-execute $sql_88_19$create or replace function public.refresh_customer_tab(p_tab uuid) returns void
+execute $sql_89_19$create or replace function public.refresh_customer_tab(p_tab uuid) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare t public.customer_tabs; item record; balance numeric; fee numeric; line numeric; assigned numeric; previous text;
 begin
@@ -11556,11 +11619,11 @@ begin
  end loop;
  perform set_config('app.refreshing_customer_tab',coalesce(previous,''),true);
  if t.remaining_amount=0 then update public.customer_tab_reminders set status='cancelled' where tab_id=t.id and status in ('pending','blocked');end if;
-end $$$sql_88_19$;
+end $$$sql_89_19$;
 
 -- customer-tabs.sql: source statement 20
 begin
-execute $sql_88_20$create or replace function public.attach_customer_tab_order() returns trigger
+execute $sql_89_20$create or replace function public.attach_customer_tab_order() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers; a public.auctions; r public.comment_rules; sess uuid; bill public.customer_tabs;
  page text; post text; shipping numeric:=0; bank uuid; unit numeric;
@@ -11609,7 +11672,7 @@ begin
  new.customer_tab_id:=bill.id;new.live_session_id:=sess;new.live_post_id:=post;new.item_amount:=unit;
  new.amount:=unit+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
  return new;
-end $$$sql_88_20$;
+end $$$sql_89_20$;
 exception when invalid_function_definition then
   -- A newer signature of attach_customer_tab_order() is already installed. Its final definition below is mandatory.
   null;
@@ -11617,7 +11680,7 @@ end;
 
 -- customer-tabs.sql: source statement 21
 begin
-execute $sql_88_21$create or replace function public.sync_customer_tab_order() returns trigger
+execute $sql_89_21$create or replace function public.sync_customer_tab_order() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.customer_tab_id is null or current_setting('app.refreshing_customer_tab',true)='1' then return new;end if;
@@ -11629,26 +11692,26 @@ begin
   on conflict(order_id) do update set item_name=excluded.item_name,variant_label=excluded.variant_label,amount=excluded.amount,cancelled=excluded.cancelled;
  perform public.refresh_customer_tab(new.customer_tab_id);
  return new;
-end $$$sql_88_21$;
+end $$$sql_89_21$;
 exception when invalid_function_definition then
   -- A newer signature of sync_customer_tab_order() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- customer-tabs.sql: source statement 22
-execute $sql_88_22$drop trigger if exists customer_tab_order_guard on public.orders$sql_88_22$;
+execute $sql_89_22$drop trigger if exists customer_tab_order_guard on public.orders$sql_89_22$;
 
 -- customer-tabs.sql: source statement 23
-execute $sql_88_23$create trigger customer_tab_order_guard before insert or update on public.orders for each row execute function public.attach_customer_tab_order()$sql_88_23$;
+execute $sql_89_23$create trigger customer_tab_order_guard before insert or update on public.orders for each row execute function public.attach_customer_tab_order()$sql_89_23$;
 
 -- customer-tabs.sql: source statement 24
-execute $sql_88_24$drop trigger if exists customer_tab_order_sync on public.orders$sql_88_24$;
+execute $sql_89_24$drop trigger if exists customer_tab_order_sync on public.orders$sql_89_24$;
 
 -- customer-tabs.sql: source statement 25
-execute $sql_88_25$create trigger customer_tab_order_sync after insert or update on public.orders for each row execute function public.sync_customer_tab_order()$sql_88_25$;
+execute $sql_89_25$create trigger customer_tab_order_sync after insert or update on public.orders for each row execute function public.sync_customer_tab_order()$sql_89_25$;
 
 -- customer-tabs.sql: source statement 26
-execute $sql_88_26$create or replace function public.claim_customer_tab_slip(p_tab uuid,p_customer uuid,p_hash text,p_image text,p_message uuid default null)
+execute $sql_89_26$create or replace function public.claim_customer_tab_slip(p_tab uuid,p_customer uuid,p_hash text,p_image text,p_message uuid default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare t public.customer_tabs; s public.slips; sid uuid;
 begin
@@ -11664,10 +11727,10 @@ begin
   values(t.tenant_id,t.customer_id,t.id,p_message,p_image,t.remaining_amount) returning id into sid;
  insert into public.customer_tab_slip_attempts(slip_id,tenant_id,image_sha256) values(sid,t.tenant_id,p_hash);
  return jsonb_build_object('claimed',true,'slipId',sid,'imagePath',p_image);
-end $$$sql_88_26$;
+end $$$sql_89_26$;
 
 -- customer-tabs.sql: source statement 27
-execute $sql_88_27$create or replace function public.complete_customer_tab_slip(p_slip uuid,p_tenant uuid,p_customer uuid,p_verdict text,p_amount numeric,p_ref text,p_paid_at timestamptz,p_raw jsonb,p_note text)
+execute $sql_89_27$create or replace function public.complete_customer_tab_slip(p_slip uuid,p_tenant uuid,p_customer uuid,p_verdict text,p_amount numeric,p_ref text,p_paid_at timestamptz,p_raw jsonb,p_note text)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.slips; t public.customer_tabs;
 begin
@@ -11690,10 +11753,10 @@ begin
  end if;
  select * into t from public.customer_tabs where id=t.id;
  return jsonb_build_object('tabId',t.id,'totalAmount',t.total_amount,'paidAmount',t.paid_amount,'remainingAmount',t.remaining_amount,'status',t.status);
-end $$$sql_88_27$;
+end $$$sql_89_27$;
 
 -- customer-tabs.sql: source statement 28
-execute $sql_88_28$create or replace function public.guard_customer_tab_slip() returns trigger
+execute $sql_89_28$create or replace function public.guard_customer_tab_slip() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if tg_op='UPDATE' and old.customer_tab_id is not null and (new.customer_tab_id is distinct from old.customer_tab_id
@@ -11705,19 +11768,19 @@ begin
  if new.status='valid' and (tg_op='INSERT' or old.status<>'valid') and coalesce(current_setting('app.completing_customer_tab_slip',true),'')<>'1' then
   raise exception 'TAB_PAYMENT_LEDGER_REQUIRED';end if;
  return new;
-end $$$sql_88_28$;
+end $$$sql_89_28$;
 
 -- customer-tabs.sql: source statement 29
-execute $sql_88_29$drop trigger if exists customer_tab_slip_guard on public.slips$sql_88_29$;
+execute $sql_89_29$drop trigger if exists customer_tab_slip_guard on public.slips$sql_89_29$;
 
 -- customer-tabs.sql: source statement 30
-execute $sql_88_30$create trigger customer_tab_slip_guard before insert or update on public.slips for each row execute function public.guard_customer_tab_slip()$sql_88_30$;
+execute $sql_89_30$create trigger customer_tab_slip_guard before insert or update on public.slips for each row execute function public.guard_customer_tab_slip()$sql_89_30$;
 
 -- customer-tabs.sql: source statement 31
-execute $sql_88_31$revoke all on function public.guard_customer_tab_slip() from public,anon,authenticated$sql_88_31$;
+execute $sql_89_31$revoke all on function public.guard_customer_tab_slip() from public,anon,authenticated$sql_89_31$;
 
 -- customer-tabs.sql: source statement 32
-execute $sql_88_32$create or replace function public.end_customer_tab_live(p_session uuid,p_tenant uuid,p_reminders boolean default true)
+execute $sql_89_32$create or replace function public.end_customer_tab_live(p_session uuid,p_tenant uuid,p_reminders boolean default true)
 returns void language plpgsql set search_path=pg_catalog,public as $$
 declare sess public.live_sessions; ended timestamptz;
 begin
@@ -11733,10 +11796,10 @@ begin
    select id,'next_morning',((date_trunc('day',ended at time zone 'Asia/Bangkok')+interval '1 day 9 hours') at time zone 'Asia/Bangkok')
     from public.customer_tabs where live_session_id=sess.id and remaining_amount>0 on conflict(tab_id,stage) do nothing;
  else update public.customer_tab_reminders set status='cancelled' where tab_id in(select id from public.customer_tabs where live_session_id=sess.id) and status in ('pending','blocked');end if;
-end $$$sql_88_32$;
+end $$$sql_89_32$;
 
 -- customer-tabs.sql: source statement 33
-execute $sql_88_33$create or replace function public.queue_customer_tab_reminders(p_tenant uuid,p_customer uuid,p_request uuid) returns integer
+execute $sql_89_33$create or replace function public.queue_customer_tab_reminders(p_tenant uuid,p_customer uuid,p_request uuid) returns integer
 language plpgsql set search_path=pg_catalog,public as $$
 declare count_jobs integer;
 begin
@@ -11746,11 +11809,11 @@ begin
    where tenant_id=p_tenant and (p_customer is null or customer_id=p_customer) and remaining_amount>0
   on conflict(tab_id,stage) do nothing;
  get diagnostics count_jobs=row_count;return count_jobs;
-end $$$sql_88_33$;
+end $$$sql_89_33$;
 
 -- customer-tabs.sql: source statement 34
 begin
-execute $sql_88_34$create or replace function public.claim_customer_tab_reminder() returns setof public.customer_tab_reminders
+execute $sql_89_34$create or replace function public.claim_customer_tab_reminder() returns setof public.customer_tab_reminders
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  update public.customer_tab_reminders set status='requires_review',error_code='LEASE_EXPIRED' where status='processing' and started_at<clock_timestamp()-interval '5 minutes';
@@ -11758,26 +11821,26 @@ begin
   where job.status='pending' and job.run_at<=clock_timestamp() and bill.remaining_amount>0 order by job.run_at,job.id for update of job skip locked limit 1)
  update public.customer_tab_reminders job set status='processing',claim_token=gen_random_uuid(),started_at=clock_timestamp()
   from next_job where job.id=next_job.id returning job.*;
-end $$$sql_88_34$;
+end $$$sql_89_34$;
 exception when invalid_function_definition then
   -- A newer signature of claim_customer_tab_reminder() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- customer-tabs.sql: source statement 35
-execute $sql_88_35$revoke all on function public.refresh_customer_tab(uuid),public.attach_customer_tab_order(),public.sync_customer_tab_order(),public.claim_customer_tab_slip(uuid,uuid,text,text,uuid),public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text),public.end_customer_tab_live(uuid,uuid,boolean),public.claim_customer_tab_reminder() from public,anon,authenticated$sql_88_35$;
+execute $sql_89_35$revoke all on function public.refresh_customer_tab(uuid),public.attach_customer_tab_order(),public.sync_customer_tab_order(),public.claim_customer_tab_slip(uuid,uuid,text,text,uuid),public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text),public.end_customer_tab_live(uuid,uuid,boolean),public.claim_customer_tab_reminder() from public,anon,authenticated$sql_89_35$;
 
 -- customer-tabs.sql: source statement 36
-execute $sql_88_36$grant execute on function public.refresh_customer_tab(uuid),public.claim_customer_tab_slip(uuid,uuid,text,text,uuid),public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text),public.end_customer_tab_live(uuid,uuid,boolean),public.claim_customer_tab_reminder() to service_role$sql_88_36$;
+execute $sql_89_36$grant execute on function public.refresh_customer_tab(uuid),public.claim_customer_tab_slip(uuid,uuid,text,text,uuid),public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text),public.end_customer_tab_live(uuid,uuid,boolean),public.claim_customer_tab_reminder() to service_role$sql_89_36$;
 
 -- customer-tabs.sql: source statement 37
-execute $sql_88_37$revoke all on function public.queue_customer_tab_reminders(uuid,uuid,uuid) from public,anon,authenticated$sql_88_37$;
+execute $sql_89_37$revoke all on function public.queue_customer_tab_reminders(uuid,uuid,uuid) from public,anon,authenticated$sql_89_37$;
 
 -- customer-tabs.sql: source statement 38
-execute $sql_88_38$grant execute on function public.queue_customer_tab_reminders(uuid,uuid,uuid) to service_role$sql_88_38$;
+execute $sql_89_38$grant execute on function public.queue_customer_tab_reminders(uuid,uuid,uuid) to service_role$sql_89_38$;
 
 -- customer-tabs.sql: source statement 39
-execute $sql_88_39$create or replace function public.place_cf_order(
+execute $sql_89_39$create or replace function public.place_cf_order(
  p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text
@@ -11827,10 +11890,10 @@ begin
  values(p_tenant,p_customer,p.id,p.name,price,r.live_variant_id,label,'live_comment',p_comment,lower(trim(p_code)),r.id,r.live_bank_account_id,r.live_deduct_stock,r.live_customer_select_variant and exists(select 1 from public.commerce_variants where product_id=p.id and tenant_id=p_tenant and is_active),p_post) returning id into new_id;
  insert into public.commerce_audit(tenant_id,entity_id,action,detail) values(p_tenant,new_id,'live_cf_order',r.id::text);
  return query select 'created'::text,new_id,p.name,p_code,price,label;
-end $$$sql_88_39$;
+end $$$sql_89_39$;
 
 -- customer-tabs.sql: source statement 40
-execute $sql_88_40$create or replace function public.guard_live_cf_variant_slip() returns trigger
+execute $sql_89_40$create or replace function public.guard_live_cf_variant_slip() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare total numeric;
 begin
@@ -11850,10 +11913,10 @@ begin
  select sum(amount) into total from public.orders where tenant_id=new.tenant_id and customer_id=new.customer_id and status='pending_payment';
  if total is null or new.amount is null or round(new.amount*100)<>round(total*100) then raise exception 'LIVE_CF_PAYMENT_AMOUNT_CHANGED';end if;
  return new;
-end $$$sql_88_40$;
+end $$$sql_89_40$;
 
 -- customer-tabs.sql: source statement 41
-execute $sql_88_41$create or replace function public.guard_live_cf_variant_payment() returns trigger
+execute $sql_89_41$create or replace function public.guard_live_cf_variant_payment() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare s record;total numeric;
 begin
@@ -11877,13 +11940,13 @@ begin
   if total is null or s.amount is null or round(s.amount*100)<>round(total*100) then raise exception 'LIVE_CF_PAYMENT_AMOUNT_CHANGED';end if;
  end if;
  return new;
-end $$$sql_88_41$;
+end $$$sql_89_41$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('customer-tabs.sql','f5380d06acaa02ff3ed2dc6d8b2c701eed4209babf5cb21cbe7a996d5e5c71ac','16b91f3b78245a76dacaa59840e6b4fa966193e938a71d36d56489c3a2e2e48a');
-end $migration_88$;
+end $migration_89$;
 
--- 90. auction-experience.sql
-do $migration_89$
+-- 91. auction-experience.sql
+do $migration_90$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='auction-experience.sql';
@@ -11894,16 +11957,16 @@ begin
     return;
   end if;
 -- auction-experience.sql: source statement 2
-execute $sql_89_2$alter table public.auctions
+execute $sql_90_2$alter table public.auctions
  add column if not exists private_reply_enabled boolean not null default true,
  add column if not exists public_reply_enabled boolean not null default true,
  add column if not exists private_reply_template text not null default 'ยินดีด้วยครับ! คุณชนะประมูล {product_name} ราคา {price} บาท ยอดค้างชำระสุทธิ {total} บาท',
  add column if not exists bid_reply_template text not null default '✅ ยืนยันคุณ {bidder_name} ขึ้นนำ {product_name} ที่ {price} บาท เคาะขั้นต่ำ +{min_step} บาท',
- add column if not exists close_reply_template text not null default '❌ ปิดประมูล {product_name} ผู้ชนะ: {bidder_name} ราคา {price} บาท'$sql_89_2$;
+ add column if not exists close_reply_template text not null default '❌ ปิดประมูล {product_name} ผู้ชนะ: {bidder_name} ราคา {price} บาท'$sql_90_2$;
 
 -- auction-experience.sql: source statement 3
 begin
-execute $sql_89_3$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_90_3$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
 begin
@@ -11946,14 +12009,14 @@ begin
    select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
  end if;
  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
-end $$$sql_89_3$;
+end $$$sql_90_3$;
 exception when invalid_function_definition then
   -- A newer signature of finalize_live_auction(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- auction-experience.sql: source statement 4
-execute $sql_89_4$create or replace function public.auction_inbox_status(p_tenant uuid,p_customers uuid[])
+execute $sql_90_4$create or replace function public.auction_inbox_status(p_tenant uuid,p_customers uuid[])
 returns table(customer_id uuid,item_name text,remaining_amount numeric) language sql stable
 set search_path=pg_catalog,public as $$
  select distinct on (o.customer_id) o.customer_id,a.item_name,
@@ -11964,19 +12027,19 @@ set search_path=pg_catalog,public as $$
  left join public.customer_tabs t on t.id=o.customer_tab_id and t.tenant_id=p_tenant
  where a.tenant_id=p_tenant and o.customer_id=any(p_customers) and a.status='closed'
  order by o.customer_id,a.closed_at desc,a.id desc
-$$$sql_89_4$;
+$$$sql_90_4$;
 
 -- auction-experience.sql: source statement 5
-execute $sql_89_5$revoke all on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.auction_inbox_status(uuid,uuid[]) from public,anon,authenticated$sql_89_5$;
+execute $sql_90_5$revoke all on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.auction_inbox_status(uuid,uuid[]) from public,anon,authenticated$sql_90_5$;
 
 -- auction-experience.sql: source statement 6
-execute $sql_89_6$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.auction_inbox_status(uuid,uuid[]) to service_role$sql_89_6$;
+execute $sql_90_6$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.auction_inbox_status(uuid,uuid[]) to service_role$sql_90_6$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('auction-experience.sql','2d66bde2c764bdb9e057e40aacea576bbcc73184c62cd9f7f5ccb7fdf73552c2','d63ebe3b3f87fa9678fdc0f92762b65f9a652a0fb15c4e36f06cd0cbe1b318f8');
-end $migration_89$;
+end $migration_90$;
 
--- 91. live-session-dashboard.sql
-do $migration_90$
+-- 92. live-session-dashboard.sql
+do $migration_91$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-session-dashboard.sql';
@@ -11987,59 +12050,59 @@ begin
     return;
   end if;
 -- live-session-dashboard.sql: source statement 2
-execute $sql_90_2$alter table public.live_sessions
+execute $sql_91_2$alter table public.live_sessions
  add column if not exists cost_amount numeric(14,2) not null default 0 check(cost_amount>=0),
  add column if not exists ad_spent numeric(14,2) not null default 0 check(ad_spent>=0),
  add column if not exists shipping_cost numeric(14,2) not null default 0 check(shipping_cost>=0),
  add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0),
- add column if not exists financial_revision bigint not null default 0$sql_90_2$;
+ add column if not exists financial_revision bigint not null default 0$sql_91_2$;
 
 -- live-session-dashboard.sql: source statement 3
-execute $sql_90_3$alter table public.customer_tab_reminders
+execute $sql_91_3$alter table public.customer_tab_reminders
  add column if not exists message_template text,
  add column if not exists requested_by uuid references auth.users(id),
- add column if not exists send_after timestamptz$sql_90_3$;
+ add column if not exists send_after timestamptz$sql_91_3$;
 
 -- live-session-dashboard.sql: source statement 4
-execute $sql_90_4$alter table public.customer_tabs add column if not exists shipping_override boolean not null default false$sql_90_4$;
+execute $sql_91_4$alter table public.customer_tabs add column if not exists shipping_override boolean not null default false$sql_91_4$;
 
 -- live-session-dashboard.sql: source statement 5
-execute $sql_90_5$create table if not exists public.live_session_changes (
+execute $sql_91_5$create table if not exists public.live_session_changes (
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),
  session_id uuid not null references public.live_sessions(id),actor_id uuid not null references auth.users(id),
  request_id uuid not null,payload jsonb not null,result jsonb not null,created_at timestamptz not null default clock_timestamp(),
  unique(tenant_id,request_id)
-)$sql_90_5$;
+)$sql_91_5$;
 
 -- live-session-dashboard.sql: source statement 6
-execute $sql_90_6$create table if not exists public.live_reminder_dispatch_slots (
+execute $sql_91_6$create table if not exists public.live_reminder_dispatch_slots (
  page_id text primary key,next_allowed_at timestamptz not null default '-infinity'
-)$sql_90_6$;
+)$sql_91_6$;
 
 -- live-session-dashboard.sql: source statement 7
-execute $sql_90_7$alter table public.live_session_changes enable row level security$sql_90_7$;
+execute $sql_91_7$alter table public.live_session_changes enable row level security$sql_91_7$;
 
 -- live-session-dashboard.sql: source statement 8
-execute $sql_90_8$alter table public.live_reminder_dispatch_slots enable row level security$sql_90_8$;
+execute $sql_91_8$alter table public.live_reminder_dispatch_slots enable row level security$sql_91_8$;
 
 -- live-session-dashboard.sql: source statement 9
-execute $sql_90_9$revoke all on public.live_session_changes,public.live_reminder_dispatch_slots from public,anon,authenticated$sql_90_9$;
+execute $sql_91_9$revoke all on public.live_session_changes,public.live_reminder_dispatch_slots from public,anon,authenticated$sql_91_9$;
 
 -- live-session-dashboard.sql: source statement 10
-execute $sql_90_10$grant all on public.live_session_changes,public.live_reminder_dispatch_slots to service_role$sql_90_10$;
+execute $sql_91_10$grant all on public.live_session_changes,public.live_reminder_dispatch_slots to service_role$sql_91_10$;
 
 -- live-session-dashboard.sql: source statement 11
-execute $sql_90_11$create index if not exists live_session_changes_history on public.live_session_changes(session_id,created_at desc)$sql_90_11$;
+execute $sql_91_11$create index if not exists live_session_changes_history on public.live_session_changes(session_id,created_at desc)$sql_91_11$;
 
 -- live-session-dashboard.sql: source statement 12
-execute $sql_90_12$create index if not exists auctions_session_history on public.auctions(tenant_id,page_id,live_post_id,closed_at desc)$sql_90_12$;
+execute $sql_91_12$create index if not exists auctions_session_history on public.auctions(tenant_id,page_id,live_post_id,closed_at desc)$sql_91_12$;
 
 -- live-session-dashboard.sql: source statement 13
-execute $sql_90_13$create index if not exists facebook_live_session_comments on public.facebook_webhook_events(page_id,(regexp_replace(payload->'value'->>'post_id','^.*_','')))
- where kind='change' and payload->'value'->>'verb'='add'$sql_90_13$;
+execute $sql_91_13$create index if not exists facebook_live_session_comments on public.facebook_webhook_events(page_id,(regexp_replace(payload->'value'->>'post_id','^.*_','')))
+ where kind='change' and payload->'value'->>'verb'='add'$sql_91_13$;
 
 -- live-session-dashboard.sql: source statement 15
-execute $sql_90_15$create or replace function public.ensure_auction_live_session() returns trigger
+execute $sql_91_15$create or replace function public.ensure_auction_live_session() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare ended timestamptz;
 begin
@@ -12047,21 +12110,21 @@ begin
  select ended_at into ended from public.live_sessions where tenant_id=new.tenant_id and page_id=new.page_id and live_post_id=new.live_post_id for update;
  if ended is not null then raise exception 'LIVE_SESSION_ENDED';end if;
  return new;
-end $$$sql_90_15$;
+end $$$sql_91_15$;
 
 -- live-session-dashboard.sql: source statement 16
-execute $sql_90_16$drop trigger if exists auction_live_session on public.auctions$sql_90_16$;
+execute $sql_91_16$drop trigger if exists auction_live_session on public.auctions$sql_91_16$;
 
 -- live-session-dashboard.sql: source statement 17
-execute $sql_90_17$create trigger auction_live_session before insert on public.auctions for each row execute function public.ensure_auction_live_session()$sql_90_17$;
+execute $sql_91_17$create trigger auction_live_session before insert on public.auctions for each row execute function public.ensure_auction_live_session()$sql_91_17$;
 
 -- live-session-dashboard.sql: source statement 18
-execute $sql_90_18$alter table public.customer_tab_items add column if not exists auction_id uuid references public.auctions(id),
- add column if not exists winning_bid_id uuid references public.auction_bids(id)$sql_90_18$;
+execute $sql_91_18$alter table public.customer_tab_items add column if not exists auction_id uuid references public.auctions(id),
+ add column if not exists winning_bid_id uuid references public.auction_bids(id)$sql_91_18$;
 
 -- live-session-dashboard.sql: source statement 20
 begin
-execute $sql_90_20$create or replace function public.stamp_customer_tab_proof() returns trigger
+execute $sql_91_20$create or replace function public.stamp_customer_tab_proof() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.auction_id is null then
@@ -12069,21 +12132,21 @@ begin
    left join public.auction_bids b on b.auction_id=a.id and b.comment_id=a.leading_comment_id where o.id=new.order_id and o.source='live_auction';
  end if;
  return new;
-end $$$sql_90_20$;
+end $$$sql_91_20$;
 exception when invalid_function_definition then
   -- A newer signature of stamp_customer_tab_proof() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-session-dashboard.sql: source statement 21
-execute $sql_90_21$drop trigger if exists customer_tab_proof on public.customer_tab_items$sql_90_21$;
+execute $sql_91_21$drop trigger if exists customer_tab_proof on public.customer_tab_items$sql_91_21$;
 
 -- live-session-dashboard.sql: source statement 22
-execute $sql_90_22$create trigger customer_tab_proof before insert on public.customer_tab_items for each row execute function public.stamp_customer_tab_proof()$sql_90_22$;
+execute $sql_91_22$create trigger customer_tab_proof before insert on public.customer_tab_items for each row execute function public.stamp_customer_tab_proof()$sql_91_22$;
 
 -- live-session-dashboard.sql: source statement 23
 begin
-execute $sql_90_23$create or replace function public.attach_customer_tab_order() returns trigger
+execute $sql_91_23$create or replace function public.attach_customer_tab_order() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers; a public.auctions; r public.comment_rules; sess uuid; bill public.customer_tabs;
  page text; post text; shipping numeric:=0; bank uuid; unit numeric;
@@ -12132,22 +12195,22 @@ begin
  new.customer_tab_id:=bill.id;new.live_session_id:=sess;new.live_post_id:=post;new.item_amount:=unit;
  new.amount:=unit+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
  return new;
-end $$$sql_90_23$;
+end $$$sql_91_23$;
 exception when invalid_function_definition then
   -- A newer signature of attach_customer_tab_order() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-session-dashboard.sql: source statement 24
-execute $sql_90_24$create or replace function public.live_comment_time(p_value jsonb,p_fallback timestamptz)
+execute $sql_91_24$create or replace function public.live_comment_time(p_value jsonb,p_fallback timestamptz)
 returns timestamptz language sql immutable set search_path=pg_catalog,public as $$
  select case when p_value->>'created_time' ~ '^[0-9]{10}$'
  then to_timestamp((p_value->>'created_time')::double precision) else p_fallback end
-$$$sql_90_24$;
+$$$sql_91_24$;
 
 -- live-session-dashboard.sql: source statement 25
 begin
-execute $sql_90_25$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_91_25$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; metrics jsonb; rounds jsonb; bills jsonb;
 begin
@@ -12195,14 +12258,14 @@ begin
   from public.customer_tabs t join public.customers c on c.id=t.customer_id and c.tenant_id=p_tenant where t.live_session_id=s.id
  ) rows;
  return jsonb_build_object('session',to_jsonb(s),'metrics',metrics,'rounds',rounds,'tabs',bills);
-end $$$sql_90_25$;
+end $$$sql_91_25$;
 exception when invalid_function_definition then
   -- A newer signature of live_session_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-session-dashboard.sql: source statement 26
-execute $sql_90_26$create or replace function public.live_session_tab_proof(p_tenant uuid,p_session uuid,p_tab uuid)
+execute $sql_91_26$create or replace function public.live_session_tab_proof(p_tenant uuid,p_session uuid,p_tab uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare t public.customer_tabs; items jsonb; payments jsonb;
 begin
@@ -12221,11 +12284,11 @@ begin
  select coalesce(jsonb_agg(jsonb_build_object('slipId',slip_id,'amount',amount,'at',transferred_at) order by transferred_at),'[]') into payments
   from public.customer_tab_payments where tab_id=t.id;
  return jsonb_build_object('tab',to_jsonb(t),'items',items,'payments',payments);
-end $$$sql_90_26$;
+end $$$sql_91_26$;
 
 -- live-session-dashboard.sql: source statement 27
 begin
-execute $sql_90_27$create or replace function public.manage_live_session(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_91_27$create or replace function public.manage_live_session(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.live_session_changes; t public.customer_tabs; target public.customer_tabs;
  a public.auctions; o public.orders; b public.auction_bids; c public.customers;
@@ -12335,14 +12398,14 @@ begin
  result:=jsonb_build_object('ok',true,'orderId',oid);
  insert into public.live_session_changes(tenant_id,session_id,actor_id,request_id,payload,result) values(p_tenant,s.id,p_actor,p_request,p_input,result);
  return result;
-end $$$sql_90_27$;
+end $$$sql_91_27$;
 exception when invalid_function_definition then
   -- A newer signature of manage_live_session(uuid,uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-session-dashboard.sql: source statement 28
-execute $sql_90_28$create or replace function public.queue_live_session_reminders(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_tabs uuid[],p_template text)
+execute $sql_91_28$create or replace function public.queue_live_session_reminders(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_tabs uuid[],p_template text)
 returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare prior public.live_session_changes; payload jsonb; n integer;
 begin
@@ -12368,10 +12431,10 @@ begin
  get diagnostics n=row_count;
  insert into public.live_session_changes(tenant_id,session_id,actor_id,request_id,payload,result) values(p_tenant,p_session,p_actor,p_request,payload,jsonb_build_object('queued',n));
  return n;
-end $$$sql_90_28$;
+end $$$sql_91_28$;
 
 -- live-session-dashboard.sql: source statement 29
-execute $sql_90_29$create or replace function public.claim_customer_tab_reminder() returns setof public.customer_tab_reminders
+execute $sql_91_29$create or replace function public.claim_customer_tab_reminder() returns setof public.customer_tab_reminders
 language plpgsql set search_path=pg_catalog,public as $$
 declare job public.customer_tab_reminders; page text; slot timestamptz;
 begin
@@ -12390,10 +12453,10 @@ begin
  slot:=greatest(slot,clock_timestamp());
  update public.live_reminder_dispatch_slots set next_allowed_at=slot+interval '5 seconds' where page_id=page;
  return query update public.customer_tab_reminders set status='processing',claim_token=gen_random_uuid(),started_at=clock_timestamp(),send_after=slot where id=job.id returning *;
-end $$$sql_90_29$;
+end $$$sql_91_29$;
 
 -- live-session-dashboard.sql: source statement 30
-execute $sql_90_30$create or replace function public.finish_live_reminder_slot() returns trigger
+execute $sql_91_30$create or replace function public.finish_live_reminder_slot() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if old.status='processing' and new.status<>'processing' and old.send_after is not null then
@@ -12401,25 +12464,25 @@ begin
    where page_id=(select page_id from public.customer_tabs where id=new.tab_id);
  end if;
  return new;
-end $$$sql_90_30$;
+end $$$sql_91_30$;
 
 -- live-session-dashboard.sql: source statement 31
-execute $sql_90_31$drop trigger if exists live_reminder_slot_finished on public.customer_tab_reminders$sql_90_31$;
+execute $sql_91_31$drop trigger if exists live_reminder_slot_finished on public.customer_tab_reminders$sql_91_31$;
 
 -- live-session-dashboard.sql: source statement 32
-execute $sql_90_32$create trigger live_reminder_slot_finished after update on public.customer_tab_reminders for each row execute function public.finish_live_reminder_slot()$sql_90_32$;
+execute $sql_91_32$create trigger live_reminder_slot_finished after update on public.customer_tab_reminders for each row execute function public.finish_live_reminder_slot()$sql_91_32$;
 
 -- live-session-dashboard.sql: source statement 33
-execute $sql_90_33$revoke all on function public.finish_live_reminder_slot(),public.ensure_auction_live_session(),public.stamp_customer_tab_proof(),public.live_comment_time(jsonb,timestamptz),public.live_session_dashboard(uuid,uuid),public.live_session_tab_proof(uuid,uuid,uuid),public.manage_live_session(uuid,uuid,uuid,uuid,jsonb),public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text),public.claim_customer_tab_reminder() from public,anon,authenticated$sql_90_33$;
+execute $sql_91_33$revoke all on function public.finish_live_reminder_slot(),public.ensure_auction_live_session(),public.stamp_customer_tab_proof(),public.live_comment_time(jsonb,timestamptz),public.live_session_dashboard(uuid,uuid),public.live_session_tab_proof(uuid,uuid,uuid),public.manage_live_session(uuid,uuid,uuid,uuid,jsonb),public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text),public.claim_customer_tab_reminder() from public,anon,authenticated$sql_91_33$;
 
 -- live-session-dashboard.sql: source statement 34
-execute $sql_90_34$grant execute on function public.live_comment_time(jsonb,timestamptz),public.live_session_dashboard(uuid,uuid),public.live_session_tab_proof(uuid,uuid,uuid),public.manage_live_session(uuid,uuid,uuid,uuid,jsonb),public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text),public.claim_customer_tab_reminder() to service_role$sql_90_34$;
+execute $sql_91_34$grant execute on function public.live_comment_time(jsonb,timestamptz),public.live_session_dashboard(uuid,uuid),public.live_session_tab_proof(uuid,uuid,uuid),public.manage_live_session(uuid,uuid,uuid,uuid,jsonb),public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text),public.claim_customer_tab_reminder() to service_role$sql_91_34$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-session-dashboard.sql','a10104da4d14a19ede93d0771d82c75f274fed8bfc131773598cf5ad2ddad6de','6df53de0151779b4c1d95751c69cf5beb517456d59721411bd8e24e6d9455b2c');
-end $migration_90$;
+end $migration_91$;
 
--- 92. shipping-fulfillment.sql
-do $migration_91$
+-- 93. shipping-fulfillment.sql
+do $migration_92$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='shipping-fulfillment.sql';
@@ -12430,19 +12493,19 @@ begin
     return;
   end if;
 -- shipping-fulfillment.sql: source statement 2
-execute $sql_91_2$create table if not exists public.shipping_settings (
+execute $sql_92_2$create table if not exists public.shipping_settings (
  tenant_id uuid primary key references public.tenants(id),sender_name text not null default '',sender_phone text not null default '',
  sender_address text not null default '',default_courier text not null default 'Bee Move',revision bigint not null default 0
-)$sql_91_2$;
+)$sql_92_2$;
 
 -- shipping-fulfillment.sql: source statement 3
-execute $sql_91_3$create table if not exists public.shipping_profiles (
+execute $sql_92_3$create table if not exists public.shipping_profiles (
  tenant_id uuid not null references public.tenants(id),customer_id uuid not null references public.customers(id),
  address jsonb not null,confirmed_at timestamptz,pending_candidate_id uuid,primary key(tenant_id,customer_id)
-)$sql_91_3$;
+)$sql_92_3$;
 
 -- shipping-fulfillment.sql: source statement 4
-execute $sql_91_4$create table if not exists public.shipping_shipments (
+execute $sql_92_4$create table if not exists public.shipping_shipments (
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),customer_id uuid not null references public.customers(id),
  customer_tab_id uuid references public.customer_tabs(id),live_session_id uuid references public.live_sessions(id),
  recipient_name text not null default '',phone_number text not null default '',shipping_address text not null default '',
@@ -12452,52 +12515,52 @@ execute $sql_91_4$create table if not exists public.shipping_shipments (
  address_confirmed_at timestamptz,label_printed_at timestamptz,label_print_count integer not null default 0,
  address_candidate_id uuid,revision bigint not null default 0,paid_amount numeric(14,2) not null default 0,
  created_at timestamptz not null default clock_timestamp(),shipped_at timestamptz
-)$sql_91_4$;
+)$sql_92_4$;
 
 -- shipping-fulfillment.sql: source statement 5
-execute $sql_91_5$create unique index if not exists shipping_one_open_tab on public.shipping_shipments(customer_tab_id) where customer_tab_id is not null and fulfillment_status not in ('shipped','cancelled')$sql_91_5$;
+execute $sql_92_5$create unique index if not exists shipping_one_open_tab on public.shipping_shipments(customer_tab_id) where customer_tab_id is not null and fulfillment_status not in ('shipped','cancelled')$sql_92_5$;
 
 -- shipping-fulfillment.sql: source statement 6
-execute $sql_91_6$create index if not exists shipping_tenant_queue on public.shipping_shipments(tenant_id,fulfillment_status,created_at desc)$sql_91_6$;
+execute $sql_92_6$create index if not exists shipping_tenant_queue on public.shipping_shipments(tenant_id,fulfillment_status,created_at desc)$sql_92_6$;
 
 -- shipping-fulfillment.sql: source statement 7
-execute $sql_91_7$create index if not exists shipping_customer_queue on public.shipping_shipments(tenant_id,customer_id,created_at desc)$sql_91_7$;
+execute $sql_92_7$create index if not exists shipping_customer_queue on public.shipping_shipments(tenant_id,customer_id,created_at desc)$sql_92_7$;
 
 -- shipping-fulfillment.sql: source statement 8
-execute $sql_91_8$create table if not exists public.shipping_shipment_items (
+execute $sql_92_8$create table if not exists public.shipping_shipment_items (
  order_id uuid primary key references public.orders(id),shipment_id uuid not null references public.shipping_shipments(id),
  item_name text not null,amount numeric(12,2) not null,cancelled boolean not null default false
-)$sql_91_8$;
+)$sql_92_8$;
 
 -- shipping-fulfillment.sql: source statement 9
-execute $sql_91_9$create index if not exists shipping_items_parcel on public.shipping_shipment_items(shipment_id)$sql_91_9$;
+execute $sql_92_9$create index if not exists shipping_items_parcel on public.shipping_shipment_items(shipment_id)$sql_92_9$;
 
 -- shipping-fulfillment.sql: source statement 10
-execute $sql_91_10$create table if not exists public.shipping_address_candidates (
+execute $sql_92_10$create table if not exists public.shipping_address_candidates (
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),customer_id uuid not null references public.customers(id),
  source_message_id uuid not null unique references public.messages(id),address jsonb not null,
  status text not null default 'pending' check(status in ('pending','confirmed','superseded')),
  notified_at timestamptz,created_at timestamptz not null default clock_timestamp(),confirmed_message_id uuid references public.messages(id)
-)$sql_91_10$;
+)$sql_92_10$;
 
 -- shipping-fulfillment.sql: source statement 11
-execute $sql_91_11$create unique index if not exists shipping_one_pending_address on public.shipping_address_candidates(tenant_id,customer_id) where status='pending'$sql_91_11$;
+execute $sql_92_11$create unique index if not exists shipping_one_pending_address on public.shipping_address_candidates(tenant_id,customer_id) where status='pending'$sql_92_11$;
 
 -- shipping-fulfillment.sql: source statement 12
-execute $sql_91_12$create table if not exists public.shipping_print_batches (
+execute $sql_92_12$create table if not exists public.shipping_print_batches (
  id uuid primary key default gen_random_uuid(),tenant_id uuid not null references public.tenants(id),actor_id uuid not null references auth.users(id),
  format text not null check(format in ('thermal','a4','csv')),sender jsonb not null,sender_revision bigint not null,shipments jsonb not null,
  created_at timestamptz not null default clock_timestamp(),opened_at timestamptz
-)$sql_91_12$;
+)$sql_92_12$;
 
 -- shipping-fulfillment.sql: source statement 13
-execute $sql_91_13$create table if not exists public.shipping_action_receipts (
+execute $sql_92_13$create table if not exists public.shipping_action_receipts (
  tenant_id uuid not null references public.tenants(id),request_id uuid not null,actor_id uuid not null references auth.users(id),
  payload jsonb not null,result jsonb not null,created_at timestamptz not null default clock_timestamp(),primary key(tenant_id,request_id)
-)$sql_91_13$;
+)$sql_92_13$;
 
 -- shipping-fulfillment.sql: source statement 14
-execute $sql_91_14$do $$declare tab text;begin
+execute $sql_92_14$do $$declare tab text;begin
  foreach tab in array array['customer_tabs','orders'] loop
   execute format('alter table public.%I add column if not exists shipping_shipment_id uuid references public.shipping_shipments(id),
    add column if not exists recipient_name text,add column if not exists phone_number text,add column if not exists shipping_address text,
@@ -12510,10 +12573,10 @@ execute $sql_91_14$do $$declare tab text;begin
   execute format('revoke all on public.%I from public,anon,authenticated',tab);
   execute format('grant all on public.%I to service_role',tab);
  end loop;
-end $$$sql_91_14$;
+end $$$sql_92_14$;
 
 -- shipping-fulfillment.sql: source statement 15
-execute $sql_91_15$create or replace function public.shipping_address_valid(v jsonb) returns boolean language sql immutable set search_path=pg_catalog,public as $$
+execute $sql_92_15$create or replace function public.shipping_address_valid(v jsonb) returns boolean language sql immutable set search_path=pg_catalog,public as $$
  select jsonb_typeof(v)='object' and coalesce(length(trim(v->>'recipient_name')) between 2 and 200,false)
  and coalesce(v->>'phone_number' ~ '^0[1-9][0-9]{7,8}$',false)
  and coalesce(length(trim(v->>'shipping_address')) between 10 and 1200,false)
@@ -12521,19 +12584,19 @@ execute $sql_91_15$create or replace function public.shipping_address_valid(v js
  and coalesce(length(trim(v->>'district')) between 1 and 100,false)
  and coalesce(length(trim(v->>'province')) between 1 and 100,false)
  and coalesce(v->>'zipcode' ~ '^[1-9][0-9]{4}$',false)
-$$$sql_91_15$;
+$$$sql_92_15$;
 
 -- shipping-fulfillment.sql: source statement 16
-execute $sql_91_16$create or replace function public.shipping_payment_ready(p_shipment uuid) returns boolean language sql stable set search_path=pg_catalog,public as $$
+execute $sql_92_16$create or replace function public.shipping_payment_ready(p_shipment uuid) returns boolean language sql stable set search_path=pg_catalog,public as $$
  select coalesce((select s.fulfillment_status='shipped' or (
   exists(select 1 from public.shipping_shipment_items i join public.orders o on o.id=i.order_id where i.shipment_id=s.id and not i.cancelled and o.status='paid')
   and not exists(select 1 from public.shipping_shipment_items i join public.orders o on o.id=i.order_id where i.shipment_id=s.id and not i.cancelled and (o.status<>'paid' or o.paid_amount<o.amount and o.customer_tab_id is not null))
   and (s.customer_tab_id is null or exists(select 1 from public.customer_tabs t where t.id=s.customer_tab_id and t.total_amount>0 and t.remaining_amount=0)))
  from public.shipping_shipments s where s.id=p_shipment),false)
-$$$sql_91_16$;
+$$$sql_92_16$;
 
 -- shipping-fulfillment.sql: source statement 17
-execute $sql_91_17$create or replace function public.shipping_mirror_fields() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_92_17$create or replace function public.shipping_mirror_fields() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  update public.orders set shipping_shipment_id=new.id,recipient_name=new.recipient_name,phone_number=new.phone_number,shipping_address=new.shipping_address,
   tracking_number=new.tracking_number,courier_name=new.courier_name,fulfillment_status=new.fulfillment_status,label_printed_at=new.label_printed_at
@@ -12542,16 +12605,16 @@ begin
   tracking_number=new.tracking_number,courier_name=new.courier_name,fulfillment_status=new.fulfillment_status,label_printed_at=new.label_printed_at
   where id=new.customer_tab_id and shipping_shipment_id=new.id;
  return new;
-end $$$sql_91_17$;
+end $$$sql_92_17$;
 
 -- shipping-fulfillment.sql: source statement 18
-execute $sql_91_18$drop trigger if exists shipping_mirror on public.shipping_shipments$sql_91_18$;
+execute $sql_92_18$drop trigger if exists shipping_mirror on public.shipping_shipments$sql_92_18$;
 
 -- shipping-fulfillment.sql: source statement 19
-execute $sql_91_19$create trigger shipping_mirror after update on public.shipping_shipments for each row execute function public.shipping_mirror_fields()$sql_91_19$;
+execute $sql_92_19$create trigger shipping_mirror after update on public.shipping_shipments for each row execute function public.shipping_mirror_fields()$sql_92_19$;
 
 -- shipping-fulfillment.sql: source statement 20
-execute $sql_91_20$create or replace function public.reconcile_shipping(p_tab uuid,p_order uuid default null) returns void
+execute $sql_92_20$create or replace function public.reconcile_shipping(p_tab uuid,p_order uuid default null) returns void
 language plpgsql set search_path=pg_catalog,public as $$
 declare t public.customer_tabs;o public.orders;s public.shipping_shipments;p public.shipping_profiles;tid uuid;cid uuid;ready boolean;cash numeric;ses uuid;changed integer:=0;added integer:=0;desired text;
 begin
@@ -12593,63 +12656,63 @@ begin
  if changed>0 or added>0 or s.paid_amount<>cash or s.fulfillment_status<>desired then
   update public.shipping_shipments set paid_amount=cash,label_printed_at=null,revision=revision+1,fulfillment_status=desired where id=s.id;
  end if;
-end $$$sql_91_20$;
+end $$$sql_92_20$;
 
 -- shipping-fulfillment.sql: source statement 21
-execute $sql_91_21$create or replace function public.shipping_order_changed() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_92_21$create or replace function public.shipping_order_changed() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if tg_op='UPDATE' then
   if new.status=old.status and new.amount=old.amount and new.paid_amount=old.paid_amount and new.product_name=old.product_name then return new;end if;
  end if;
  perform public.reconcile_shipping(new.customer_tab_id,case when new.customer_tab_id is null then new.id else null end);
  return new;
-end $$$sql_91_21$;
+end $$$sql_92_21$;
 
 -- shipping-fulfillment.sql: source statement 22
-execute $sql_91_22$drop trigger if exists shipping_order_sync on public.orders$sql_91_22$;
+execute $sql_92_22$drop trigger if exists shipping_order_sync on public.orders$sql_92_22$;
 
 -- shipping-fulfillment.sql: source statement 23
-execute $sql_91_23$create trigger shipping_order_sync after insert or update of status,amount,paid_amount,product_name on public.orders for each row execute function public.shipping_order_changed()$sql_91_23$;
+execute $sql_92_23$create trigger shipping_order_sync after insert or update of status,amount,paid_amount,product_name on public.orders for each row execute function public.shipping_order_changed()$sql_92_23$;
 
 -- shipping-fulfillment.sql: source statement 24
-execute $sql_91_24$create or replace function public.shipping_balance_changed() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_92_24$create or replace function public.shipping_balance_changed() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.total_amount is distinct from old.total_amount or new.paid_amount is distinct from old.paid_amount then perform public.reconcile_shipping(new.id);end if;
  return new;
-end $$$sql_91_24$;
+end $$$sql_92_24$;
 
 -- shipping-fulfillment.sql: source statement 25
-execute $sql_91_25$drop trigger if exists shipping_tab_sync on public.customer_tabs$sql_91_25$;
+execute $sql_92_25$drop trigger if exists shipping_tab_sync on public.customer_tabs$sql_92_25$;
 
 -- shipping-fulfillment.sql: source statement 26
-execute $sql_91_26$create trigger shipping_tab_sync after update of total_amount,paid_amount on public.customer_tabs for each row execute function public.shipping_balance_changed()$sql_91_26$;
+execute $sql_92_26$create trigger shipping_tab_sync after update of total_amount,paid_amount on public.customer_tabs for each row execute function public.shipping_balance_changed()$sql_92_26$;
 
 -- shipping-fulfillment.sql: source statement 27
-execute $sql_91_27$create or replace function public.shipping_guard_dispatched() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_92_27$create or replace function public.shipping_guard_dispatched() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if exists(select 1 from public.shipping_shipments where id=old.shipping_shipment_id and fulfillment_status='shipped') and
   (new.customer_id<>old.customer_id or new.customer_tab_id is distinct from old.customer_tab_id or new.amount<>old.amount or new.item_amount is distinct from old.item_amount
    or new.product_name<>old.product_name or new.status not in ('paid','shipped') or old.status='shipped' and new.status<>'shipped') then raise exception 'SHIPPING_ALREADY_DISPATCHED' using errcode='40001';end if;
  return new;
-end $$$sql_91_27$;
+end $$$sql_92_27$;
 
 -- shipping-fulfillment.sql: source statement 28
-execute $sql_91_28$drop trigger if exists shipping_dispatched_order_guard on public.orders$sql_91_28$;
+execute $sql_92_28$drop trigger if exists shipping_dispatched_order_guard on public.orders$sql_92_28$;
 
 -- shipping-fulfillment.sql: source statement 29
-execute $sql_91_29$create trigger shipping_dispatched_order_guard before update on public.orders for each row execute function public.shipping_guard_dispatched()$sql_91_29$;
+execute $sql_92_29$create trigger shipping_dispatched_order_guard before update on public.orders for each row execute function public.shipping_guard_dispatched()$sql_92_29$;
 
 -- shipping-fulfillment.sql: source statement 30
-execute $sql_91_30$create or replace function public.shipping_snapshot(p_tenant uuid,p_ids uuid[] default null,p_session uuid default null) returns jsonb
+execute $sql_92_30$create or replace function public.shipping_snapshot(p_tenant uuid,p_ids uuid[] default null,p_session uuid default null) returns jsonb
 language sql stable set search_path=pg_catalog,public as $$
  select coalesce(jsonb_agg(to_jsonb(s)||jsonb_build_object('customer_name',coalesce(nullif(c.display_name,''),c.platform_user_id),
   'payment_ready',public.shipping_payment_ready(s.id),'items',coalesce((select jsonb_agg(jsonb_build_object('order_id',i.order_id,'item_name',i.item_name,'amount',i.amount) order by i.order_id) from public.shipping_shipment_items i where i.shipment_id=s.id and not i.cancelled),'[]')) order by s.created_at desc,s.id),'[]')
  from public.shipping_shipments s join public.customers c on c.id=s.customer_id and c.tenant_id=p_tenant
  where s.tenant_id=p_tenant and (p_ids is null or s.id=any(p_ids)) and (p_session is null or s.live_session_id=p_session)
-$$$sql_91_30$;
+$$$sql_92_30$;
 
 -- shipping-fulfillment.sql: source statement 31
-execute $sql_91_31$create or replace function public.manage_shipping(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb) returns jsonb
+execute $sql_92_31$create or replace function public.manage_shipping(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare old public.shipping_action_receipts;cfg public.shipping_settings;s public.shipping_shipments;b public.shipping_print_batches;
  ids uuid[];op text:=p_input->>'action';v jsonb;addr jsonb;result jsonb;batch uuid;replay boolean:=false;
@@ -12753,10 +12816,10 @@ begin
  if replay then return old.result;end if;
  insert into public.shipping_action_receipts(tenant_id,request_id,actor_id,payload,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_91_31$;
+end $$$sql_92_31$;
 
 -- shipping-fulfillment.sql: source statement 32
-execute $sql_91_32$create or replace function public.capture_shipping_address(p_tenant uuid,p_customer uuid,p_message uuid,p_address jsonb)
+execute $sql_92_32$create or replace function public.capture_shipping_address(p_tenant uuid,p_customer uuid,p_message uuid,p_address jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare p public.shipping_profiles;c public.shipping_address_candidates;s public.shipping_shipments;found_ready boolean:=false;
 begin
@@ -12784,10 +12847,10 @@ begin
   address_confirmed_at=null,address_candidate_id=c.id,fulfillment_status='pending_address',label_printed_at=null,revision=revision+1
   where tenant_id=p_tenant and customer_id=p_customer and fulfillment_status not in ('shipped','cancelled');
  return jsonb_build_object('handled',true,'candidateId',c.id,'address',p_address);
-end $$$sql_91_32$;
+end $$$sql_92_32$;
 
 -- shipping-fulfillment.sql: source statement 33
-execute $sql_91_33$create or replace function public.confirm_shipping_address(p_tenant uuid,p_customer uuid,p_message uuid,p_candidate uuid default null)
+execute $sql_92_33$create or replace function public.confirm_shipping_address(p_tenant uuid,p_customer uuid,p_message uuid,p_candidate uuid default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare p public.shipping_profiles;c public.shipping_address_candidates;msg public.messages;
 begin
@@ -12806,25 +12869,25 @@ begin
   fulfillment_status=case when public.shipping_payment_ready(id) then 'ready_to_ship' else 'pending_address' end,revision=revision+1,label_printed_at=null
   where tenant_id=p_tenant and customer_id=p_customer and address_candidate_id=c.id and fulfillment_status not in ('shipped','cancelled');
  return jsonb_build_object('handled',true,'confirmed',true);
-end $$$sql_91_33$;
+end $$$sql_92_33$;
 
 -- shipping-fulfillment.sql: source statement 34
-execute $sql_91_34$do $$declare r record;begin
+execute $sql_92_34$do $$declare r record;begin
  for r in select id from public.customer_tabs where total_amount>0 and remaining_amount=0 order by id loop perform public.reconcile_shipping(r.id);end loop;
  for r in select id from public.orders where customer_tab_id is null and status='paid' order by id loop perform public.reconcile_shipping(null,r.id);end loop;
-end $$$sql_91_34$;
+end $$$sql_92_34$;
 
 -- shipping-fulfillment.sql: source statement 35
-execute $sql_91_35$revoke all on function public.shipping_address_valid(jsonb),public.shipping_payment_ready(uuid),public.shipping_mirror_fields(),public.reconcile_shipping(uuid,uuid),public.shipping_order_changed(),public.shipping_balance_changed(),public.shipping_guard_dispatched(),public.shipping_snapshot(uuid,uuid[],uuid),public.manage_shipping(uuid,uuid,uuid,jsonb),public.capture_shipping_address(uuid,uuid,uuid,jsonb),public.confirm_shipping_address(uuid,uuid,uuid,uuid) from public,anon,authenticated$sql_91_35$;
+execute $sql_92_35$revoke all on function public.shipping_address_valid(jsonb),public.shipping_payment_ready(uuid),public.shipping_mirror_fields(),public.reconcile_shipping(uuid,uuid),public.shipping_order_changed(),public.shipping_balance_changed(),public.shipping_guard_dispatched(),public.shipping_snapshot(uuid,uuid[],uuid),public.manage_shipping(uuid,uuid,uuid,jsonb),public.capture_shipping_address(uuid,uuid,uuid,jsonb),public.confirm_shipping_address(uuid,uuid,uuid,uuid) from public,anon,authenticated$sql_92_35$;
 
 -- shipping-fulfillment.sql: source statement 36
-execute $sql_91_36$grant execute on function public.shipping_address_valid(jsonb),public.shipping_payment_ready(uuid),public.reconcile_shipping(uuid,uuid),public.shipping_snapshot(uuid,uuid[],uuid),public.manage_shipping(uuid,uuid,uuid,jsonb),public.capture_shipping_address(uuid,uuid,uuid,jsonb),public.confirm_shipping_address(uuid,uuid,uuid,uuid) to service_role$sql_91_36$;
+execute $sql_92_36$grant execute on function public.shipping_address_valid(jsonb),public.shipping_payment_ready(uuid),public.reconcile_shipping(uuid,uuid),public.shipping_snapshot(uuid,uuid[],uuid),public.manage_shipping(uuid,uuid,uuid,jsonb),public.capture_shipping_address(uuid,uuid,uuid,jsonb),public.confirm_shipping_address(uuid,uuid,uuid,uuid) to service_role$sql_92_36$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('shipping-fulfillment.sql','febe4140ce6fc95f7aef8b5475db0a9d9ff072b0fa6358ffab58a54c930a6d02','abc1f380707a3baf1bb18df305b7e06f1be6dbaf3e7eb148a8e20ecfcac486fe');
-end $migration_91$;
+end $migration_92$;
 
--- 93. shipping-integrations.sql
-do $migration_92$
+-- 94. shipping-integrations.sql
+do $migration_93$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='shipping-integrations.sql';
@@ -12835,7 +12898,7 @@ begin
     return;
   end if;
 -- shipping-integrations.sql: source statement 2
-execute $sql_92_2$create table if not exists public.shipping_integrations (
+execute $sql_93_2$create table if not exists public.shipping_integrations (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  provider text not null check(provider in ('dmove','flash_express','jnt','thailand_post')),
@@ -12850,25 +12913,25 @@ execute $sql_92_2$create table if not exists public.shipping_integrations (
  created_at timestamptz not null default clock_timestamp(),
  updated_at timestamptz not null default clock_timestamp(),
  unique(tenant_id,provider)
-)$sql_92_2$;
+)$sql_93_2$;
 
 -- shipping-integrations.sql: source statement 3
-execute $sql_92_3$create unique index if not exists shipping_one_default_integration
- on public.shipping_integrations(tenant_id) where is_default and is_active$sql_92_3$;
+execute $sql_93_3$create unique index if not exists shipping_one_default_integration
+ on public.shipping_integrations(tenant_id) where is_default and is_active$sql_93_3$;
 
 -- shipping-integrations.sql: source statement 4
-execute $sql_92_4$alter table public.shipping_shipments
+execute $sql_93_4$alter table public.shipping_shipments
  add column if not exists tracking_url text,
- add column if not exists label_pdf_url text$sql_92_4$;
+ add column if not exists label_pdf_url text$sql_93_4$;
 
 -- shipping-integrations.sql: source statement 5
-execute $sql_92_5$alter table public.orders
+execute $sql_93_5$alter table public.orders
  add column if not exists tracking_url text,
- add column if not exists label_pdf_url text$sql_92_5$;
+ add column if not exists label_pdf_url text$sql_93_5$;
 
 -- shipping-integrations.sql: source statement 6
 begin
-execute $sql_92_6$create or replace function public.save_shipping_integration(
+execute $sql_93_6$create or replace function public.save_shipping_integration(
  p_tenant uuid,p_provider text,p_endpoint text,p_credentials text,p_sender jsonb,
  p_tracking_template text,p_weight numeric,p_active boolean,p_default boolean
 ) returns void language plpgsql set search_path=pg_catalog,public as $$
@@ -12903,14 +12966,14 @@ begin
   update public.shipping_integrations set is_default=false,updated_at=clock_timestamp()
    where tenant_id=p_tenant and provider=p_provider;
  end if;
-end $$$sql_92_6$;
+end $$$sql_93_6$;
 exception when invalid_function_definition then
   -- A newer signature of save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- shipping-integrations.sql: source statement 7
-execute $sql_92_7$create table if not exists public.shipping_provider_jobs (
+execute $sql_93_7$create table if not exists public.shipping_provider_jobs (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  shipment_id uuid not null references public.shipping_shipments(id),
@@ -12928,32 +12991,32 @@ execute $sql_92_7$create table if not exists public.shipping_provider_jobs (
  created_at timestamptz not null default clock_timestamp(),
  updated_at timestamptz not null default clock_timestamp(),
  unique(tenant_id,request_id,shipment_id)
-)$sql_92_7$;
+)$sql_93_7$;
 
 -- shipping-integrations.sql: source statement 8
-execute $sql_92_8$create index if not exists shipping_provider_jobs_pending
- on public.shipping_provider_jobs(tenant_id,status,created_at desc)$sql_92_8$;
+execute $sql_93_8$create index if not exists shipping_provider_jobs_pending
+ on public.shipping_provider_jobs(tenant_id,status,created_at desc)$sql_93_8$;
 
 -- shipping-integrations.sql: source statement 9
-execute $sql_92_9$create unique index if not exists shipping_provider_jobs_tracking
+execute $sql_93_9$create unique index if not exists shipping_provider_jobs_tracking
  on public.shipping_provider_jobs(tenant_id,provider,tracking_number)
- where tracking_number is not null$sql_92_9$;
+ where tracking_number is not null$sql_93_9$;
 
 -- shipping-integrations.sql: source statement 10
-execute $sql_92_10$alter table public.shipping_integrations enable row level security$sql_92_10$;
+execute $sql_93_10$alter table public.shipping_integrations enable row level security$sql_93_10$;
 
 -- shipping-integrations.sql: source statement 11
-execute $sql_92_11$alter table public.shipping_provider_jobs enable row level security$sql_92_11$;
+execute $sql_93_11$alter table public.shipping_provider_jobs enable row level security$sql_93_11$;
 
 -- shipping-integrations.sql: source statement 12
-execute $sql_92_12$revoke all on public.shipping_integrations,public.shipping_provider_jobs from public,anon,authenticated$sql_92_12$;
+execute $sql_93_12$revoke all on public.shipping_integrations,public.shipping_provider_jobs from public,anon,authenticated$sql_93_12$;
 
 -- shipping-integrations.sql: source statement 13
-execute $sql_92_13$grant all on public.shipping_integrations,public.shipping_provider_jobs to service_role$sql_92_13$;
+execute $sql_93_13$grant all on public.shipping_integrations,public.shipping_provider_jobs to service_role$sql_93_13$;
 
 -- shipping-integrations.sql: source statement 14
 begin
-execute $sql_92_14$create or replace function public.begin_shipping_provider_job(
+execute $sql_93_14$create or replace function public.begin_shipping_provider_job(
  p_tenant uuid,p_actor uuid,p_request uuid,p_shipment uuid,p_provider text
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.shipping_shipments;j public.shipping_provider_jobs;
@@ -12992,14 +13055,14 @@ begin
  insert into public.shipping_provider_jobs(tenant_id,shipment_id,actor_id,request_id,provider)
   values(p_tenant,p_shipment,p_actor,p_request,p_provider) returning * into j;
  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,'claimed',true);
-end $$$sql_92_14$;
+end $$$sql_93_14$;
 exception when invalid_function_definition then
   -- A newer signature of begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- shipping-integrations.sql: source statement 15
-execute $sql_92_15$create or replace function public.complete_shipping_provider_job(
+execute $sql_93_15$create or replace function public.complete_shipping_provider_job(
  p_job uuid,p_tracking text,p_courier text,p_tracking_url text,p_label_url text
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare j public.shipping_provider_jobs;s public.shipping_shipments;
@@ -13031,47 +13094,47 @@ begin
   updated_at=clock_timestamp() where id=j.id;
  return jsonb_build_object('jobId',j.id,'status','created','trackingNumber',p_tracking,
   'trackingUrl',p_tracking_url,'labelPdfUrl',p_label_url,'courierName',p_courier);
-end $$$sql_92_15$;
+end $$$sql_93_15$;
 
 -- shipping-integrations.sql: source statement 16
-execute $sql_92_16$create or replace function public.finish_shipping_provider_job(
+execute $sql_93_16$create or replace function public.finish_shipping_provider_job(
  p_job uuid,p_status text,p_error text default null
 ) returns void language plpgsql set search_path=pg_catalog,public as $$
 begin
  if p_status not in ('failed','uncertain') then raise exception 'SHIPPING_PROVIDER_STATUS_INVALID';end if;
  update public.shipping_provider_jobs set status=p_status,error_code=left(p_error,80),
   updated_at=clock_timestamp() where id=p_job and status='creating';
-end $$$sql_92_16$;
+end $$$sql_93_16$;
 
 -- shipping-integrations.sql: source statement 17
-execute $sql_92_17$create or replace function public.mark_shipping_tracking_notification(p_job uuid,p_status text)
+execute $sql_93_17$create or replace function public.mark_shipping_tracking_notification(p_job uuid,p_status text)
 returns void language plpgsql set search_path=pg_catalog,public as $$
 begin
  if p_status not in ('sent','failed') then raise exception 'SHIPPING_NOTIFICATION_STATUS_INVALID';end if;
  update public.shipping_provider_jobs set notification_status=p_status,updated_at=clock_timestamp()
   where id=p_job and status='created';
  if not found then raise exception 'SHIPPING_JOB_NOT_FOUND' using errcode='P0002';end if;
-end $$$sql_92_17$;
+end $$$sql_93_17$;
 
 -- shipping-integrations.sql: source statement 18
-execute $sql_92_18$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
+execute $sql_93_18$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
  public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text),
  public.complete_shipping_provider_job(uuid,text,text,text,text),
  public.finish_shipping_provider_job(uuid,text,text),
- public.mark_shipping_tracking_notification(uuid,text) from public,anon,authenticated$sql_92_18$;
+ public.mark_shipping_tracking_notification(uuid,text) from public,anon,authenticated$sql_93_18$;
 
 -- shipping-integrations.sql: source statement 19
-execute $sql_92_19$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
+execute $sql_93_19$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
  public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text),
  public.complete_shipping_provider_job(uuid,text,text,text,text),
  public.finish_shipping_provider_job(uuid,text,text),
- public.mark_shipping_tracking_notification(uuid,text) to service_role$sql_92_19$;
+ public.mark_shipping_tracking_notification(uuid,text) to service_role$sql_93_19$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('shipping-integrations.sql','6af15d09df91ba5b823845fa09b848b4a6d68d4df8dc99af62dfeabfabf25fb0','fc4b9961c01fe943eb8eb78e6978b4cf9c9f3d0d7ccbe33cb1257b0801c268ec');
-end $migration_92$;
+end $migration_93$;
 
--- 94. live-order-types.sql
-do $migration_93$
+-- 95. live-order-types.sql
+do $migration_94$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-order-types.sql';
@@ -13082,17 +13145,17 @@ begin
     return;
   end if;
 -- live-order-types.sql: source statement 2
-execute $sql_93_2$alter table public.orders add column if not exists order_type text generated always as (
+execute $sql_94_2$alter table public.orders add column if not exists order_type text generated always as (
  case when source='live_auction' then 'auction'
  when source in ('live_comment','facebook_comment') or source_code is not null then 'cf' else null end
-) stored$sql_93_2$;
+) stored$sql_94_2$;
 
 -- live-order-types.sql: source statement 3
-execute $sql_93_3$alter table public.customer_tab_items add column if not exists order_type text check(order_type in ('auction','cf')),
- add column if not exists source_code text$sql_93_3$;
+execute $sql_94_3$alter table public.customer_tab_items add column if not exists order_type text check(order_type in ('auction','cf')),
+ add column if not exists source_code text$sql_94_3$;
 
 -- live-order-types.sql: source statement 4
-execute $sql_93_4$create or replace function public.stamp_live_item_type() returns trigger
+execute $sql_94_4$create or replace function public.stamp_live_item_type() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  select o.order_type,o.source_code into new.order_type,new.source_code from public.orders o
@@ -13100,20 +13163,20 @@ begin
   where o.id=new.order_id and o.customer_tab_id=t.id;
  if not found then raise exception 'TAB_ITEM_SCOPE' using errcode='42501';end if;
  return new;
-end $$$sql_93_4$;
+end $$$sql_94_4$;
 
 -- live-order-types.sql: source statement 5
-execute $sql_93_5$drop trigger if exists customer_tab_item_type on public.customer_tab_items$sql_93_5$;
+execute $sql_94_5$drop trigger if exists customer_tab_item_type on public.customer_tab_items$sql_94_5$;
 
 -- live-order-types.sql: source statement 6
-execute $sql_93_6$create trigger customer_tab_item_type before insert or update on public.customer_tab_items for each row execute function public.stamp_live_item_type()$sql_93_6$;
+execute $sql_94_6$create trigger customer_tab_item_type before insert or update on public.customer_tab_items for each row execute function public.stamp_live_item_type()$sql_94_6$;
 
 -- live-order-types.sql: source statement 8
-execute $sql_93_8$revoke all on function public.stamp_live_item_type() from public,anon,authenticated$sql_93_8$;
+execute $sql_94_8$revoke all on function public.stamp_live_item_type() from public,anon,authenticated$sql_94_8$;
 
 -- live-order-types.sql: source statement 9
 begin
-execute $sql_93_9$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_94_9$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; metrics jsonb; rounds jsonb; bills jsonb;
 begin
@@ -13161,17 +13224,17 @@ begin
   from public.customer_tabs t join public.customers c on c.id=t.customer_id and c.tenant_id=p_tenant where t.live_session_id=s.id
  ) rows;
  return jsonb_build_object('session',to_jsonb(s),'metrics',metrics,'rounds',rounds,'tabs',bills);
-end $$$sql_93_9$;
+end $$$sql_94_9$;
 exception when invalid_function_definition then
   -- A newer signature of live_session_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-order-types.sql','a5c7d2e07f62879141a4be3437291b490cda34001ef69016d0215673c74c5a15','eb6171db344172c6b92c8fe04ee96f2a71afb4d15c1af599f59dab0c57a54d01');
-end $migration_93$;
+end $migration_94$;
 
--- 95. live-auction-dashboard.sql
-do $migration_94$
+-- 96. live-auction-dashboard.sql
+do $migration_95$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-dashboard.sql';
@@ -13182,35 +13245,35 @@ begin
     return;
   end if;
 -- live-auction-dashboard.sql: source statement 2
-execute $sql_94_2$alter table public.live_sessions add column if not exists auction_settings jsonb,
- add column if not exists automation_revision integer not null default 0$sql_94_2$;
+execute $sql_95_2$alter table public.live_sessions add column if not exists auction_settings jsonb,
+ add column if not exists automation_revision integer not null default 0$sql_95_2$;
 
 -- live-auction-dashboard.sql: source statement 3
-execute $sql_94_3$alter table public.auctions add column if not exists session_automation jsonb$sql_94_3$;
+execute $sql_95_3$alter table public.auctions add column if not exists session_automation jsonb$sql_95_3$;
 
 -- live-auction-dashboard.sql: source statement 4
-execute $sql_94_4$create index if not exists live_auction_comment_events on public.facebook_webhook_events(page_id,created_at desc)
- where kind='change' and payload->'value'->>'verb'='add' and payload->'value'->>'item' in ('comment','live_comment')$sql_94_4$;
+execute $sql_95_4$create index if not exists live_auction_comment_events on public.facebook_webhook_events(page_id,created_at desc)
+ where kind='change' and payload->'value'->>'verb'='add' and payload->'value'->>'item' in ('comment','live_comment')$sql_95_4$;
 
 -- live-auction-dashboard.sql: source statement 5
-execute $sql_94_5$create table if not exists public.auction_session_requests (
+execute $sql_95_5$create table if not exists public.auction_session_requests (
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  request_id uuid not null, actor_id uuid not null, input jsonb not null, result jsonb not null,
  created_at timestamptz not null default clock_timestamp(), primary key(tenant_id,request_id)
-)$sql_94_5$;
+)$sql_95_5$;
 
 -- live-auction-dashboard.sql: source statement 6
-execute $sql_94_6$alter table public.auction_session_requests enable row level security$sql_94_6$;
+execute $sql_95_6$alter table public.auction_session_requests enable row level security$sql_95_6$;
 
 -- live-auction-dashboard.sql: source statement 7
-execute $sql_94_7$revoke all on public.auction_session_requests from public,anon,authenticated$sql_94_7$;
+execute $sql_95_7$revoke all on public.auction_session_requests from public,anon,authenticated$sql_95_7$;
 
 -- live-auction-dashboard.sql: source statement 8
-execute $sql_94_8$grant all on public.auction_session_requests to service_role$sql_94_8$;
+execute $sql_95_8$grant all on public.auction_session_requests to service_role$sql_95_8$;
 
 -- live-auction-dashboard.sql: source statement 9
 begin
-execute $sql_94_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_95_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.auction_session_requests; settings jsonb:=p_input->'settings'; result jsonb; page text;
 begin
@@ -13261,7 +13324,7 @@ begin
  result:=jsonb_build_object('id',s.id,'revision',s.automation_revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_94_9$;
+end $$$sql_95_9$;
 exception when invalid_function_definition then
   -- A newer signature of configure_auction_session(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -13269,7 +13332,7 @@ end;
 
 -- live-auction-dashboard.sql: source statement 10
 begin
-execute $sql_94_10$create or replace function public.inherit_auction_session_settings() returns trigger
+execute $sql_95_10$create or replace function public.inherit_auction_session_settings() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare settings jsonb;
 begin
@@ -13281,21 +13344,21 @@ begin
   new.private_reply_template:=settings->>'privateText';new.bid_reply_template:=settings->>'bidText';new.close_reply_template:=settings->>'closeText';
  end if;
  return new;
-end $$$sql_94_10$;
+end $$$sql_95_10$;
 exception when invalid_function_definition then
   -- A newer signature of inherit_auction_session_settings() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-dashboard.sql: source statement 11
-execute $sql_94_11$drop trigger if exists auction_session_settings on public.auctions$sql_94_11$;
+execute $sql_95_11$drop trigger if exists auction_session_settings on public.auctions$sql_95_11$;
 
 -- live-auction-dashboard.sql: source statement 12
-execute $sql_94_12$create trigger auction_session_settings before insert on public.auctions for each row execute function public.inherit_auction_session_settings()$sql_94_12$;
+execute $sql_95_12$create trigger auction_session_settings before insert on public.auctions for each row execute function public.inherit_auction_session_settings()$sql_95_12$;
 
 -- live-auction-dashboard.sql: source statement 13
 begin
-execute $sql_94_13$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_95_13$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; result jsonb; slips jsonb; commenters jsonb;
 begin
@@ -13322,23 +13385,23 @@ begin
   group by v->'from'->>'id' order by max(created_at) desc limit 500
  ) records;
  return result||jsonb_build_object('slips',slips,'commenters',commenters);
-end $$$sql_94_13$;
+end $$$sql_95_13$;
 exception when invalid_function_definition then
   -- A newer signature of live_auction_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-dashboard.sql: source statement 14
-execute $sql_94_14$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.inherit_auction_session_settings(),public.live_auction_dashboard(uuid,uuid) from public,anon,authenticated$sql_94_14$;
+execute $sql_95_14$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.inherit_auction_session_settings(),public.live_auction_dashboard(uuid,uuid) from public,anon,authenticated$sql_95_14$;
 
 -- live-auction-dashboard.sql: source statement 15
-execute $sql_94_15$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.live_auction_dashboard(uuid,uuid) to service_role$sql_94_15$;
+execute $sql_95_15$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb),public.live_auction_dashboard(uuid,uuid) to service_role$sql_95_15$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-dashboard.sql','796c27727868b87ae7782c18a371dd3f5f613b4b6ed8f20764612fccb90c95e1','7b17bf54411dc1c84510ecf2a204c12dafe82c56d28b960be0061e4898bb679e');
-end $migration_94$;
+end $migration_95$;
 
--- 96. live-auction-instant-winners.sql
-do $migration_95$
+-- 97. live-auction-instant-winners.sql
+do $migration_96$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-instant-winners.sql';
@@ -13349,7 +13412,7 @@ begin
     return;
   end if;
 -- live-auction-instant-winners.sql: source statement 4
-execute $sql_95_4$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_96_4$create or replace function public.live_auction_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; result jsonb; slips jsonb; commenters jsonb; matched_people bigint;
 begin
@@ -13390,13 +13453,13 @@ begin
  ) select count(distinct fb_id) into matched_people from matched where fb_id is not null and fb_id<>s.page_id;
  result:=jsonb_set(result,'{metrics}',(result->'metrics')||jsonb_build_object('matchedPeople',matched_people));
  return result||jsonb_build_object('slips',slips,'commenters',commenters);
-end $$$sql_95_4$;
+end $$$sql_96_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-instant-winners.sql','5a085d82bf4a201c0a149e2c5c3b30a95d9c8e691c6ccba76a1cdd0888c6557a','d0788ad3f0cd0a402db298a6fedcdc6c1620e2f2e35a15f580f8153e081e7f65');
-end $migration_95$;
+end $migration_96$;
 
--- 97. live-auction-customer-workspace.sql
-do $migration_96$
+-- 98. live-auction-customer-workspace.sql
+do $migration_97$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-customer-workspace.sql';
@@ -13407,25 +13470,25 @@ begin
     return;
   end if;
 -- live-auction-customer-workspace.sql: source statement 2
-execute $sql_96_2$create table if not exists public.live_session_customer_notes (
+execute $sql_97_2$create table if not exists public.live_session_customer_notes (
  session_id uuid not null references public.live_sessions(id) on delete cascade,
  tenant_id uuid not null references public.tenants(id) on delete cascade,
  fb_id text not null check(fb_id ~ '^[0-9]{1,64}$'),
  note text not null default '' check(length(note)<=500), revision integer not null default 1,
  updated_at timestamptz not null default clock_timestamp(), primary key(session_id,fb_id)
-)$sql_96_2$;
+)$sql_97_2$;
 
 -- live-auction-customer-workspace.sql: source statement 3
-execute $sql_96_3$alter table public.live_session_customer_notes enable row level security$sql_96_3$;
+execute $sql_97_3$alter table public.live_session_customer_notes enable row level security$sql_97_3$;
 
 -- live-auction-customer-workspace.sql: source statement 4
-execute $sql_96_4$revoke all on public.live_session_customer_notes from public,anon,authenticated$sql_96_4$;
+execute $sql_97_4$revoke all on public.live_session_customer_notes from public,anon,authenticated$sql_97_4$;
 
 -- live-auction-customer-workspace.sql: source statement 5
-execute $sql_96_5$grant all on public.live_session_customer_notes to service_role$sql_96_5$;
+execute $sql_97_5$grant all on public.live_session_customer_notes to service_role$sql_97_5$;
 
 -- live-auction-customer-workspace.sql: source statement 6
-execute $sql_96_6$create or replace function public.live_auction_matched_customers(p_tenant uuid,p_session uuid)
+execute $sql_97_6$create or replace function public.live_auction_matched_customers(p_tenant uuid,p_session uuid)
 returns table(fb_id text) language sql stable set search_path=pg_catalog,public as $$
  with s as (select * from public.live_sessions where id=p_session and tenant_id=p_tenant)
  select b.bidder_id from public.auction_bids b join public.auctions a on a.id=b.auction_id join s on a.page_id=s.page_id and a.live_post_id=s.live_post_id
@@ -13438,10 +13501,10 @@ returns table(fb_id text) language sql stable set search_path=pg_catalog,public 
  regexp_replace(e.payload->'value'->>'post_id','^.*_','')=s.live_post_id or e.payload->'value'->>'video_id'=s.live_post_id
  or e.payload->'value'->>'live_video_id'=s.live_post_id or exists(select 1 from public.auctions a where a.tenant_id=p_tenant
   and a.page_id=s.page_id and a.live_post_id=s.live_post_id and e.payload->'value'->>'post_id'=any(a.live_post_aliases)))
-$$$sql_96_6$;
+$$$sql_97_6$;
 
 -- live-auction-customer-workspace.sql: source statement 7
-execute $sql_96_7$create or replace function public.live_auction_customer_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_97_7$create or replace function public.live_auction_customer_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; ids text[]; tabs jsonb; people jsonb;
 begin
@@ -13457,10 +13520,10 @@ begin
  from jsonb_array_elements(result->'commenters') with ordinality rows(x,pos)
  left join public.live_session_customer_notes n on n.session_id=p_session and n.fb_id=x->>'fbId' and n.tenant_id=p_tenant;
  return result||jsonb_build_object('tabs',tabs,'commenters',people);
-end $$$sql_96_7$;
+end $$$sql_97_7$;
 
 -- live-auction-customer-workspace.sql: source statement 8
-execute $sql_96_8$create or replace function public.save_auction_customer_note(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_fb_id text,p_note text,p_revision integer)
+execute $sql_97_8$create or replace function public.save_auction_customer_note(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_fb_id text,p_note text,p_revision integer)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare payload jsonb; prior public.auction_session_requests; current public.live_session_customer_notes; snapshot jsonb; result jsonb;
 begin
@@ -13485,11 +13548,11 @@ begin
  result:=jsonb_build_object('note',current.note,'revision',current.revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,payload,result);
  return result;
-end $$$sql_96_8$;
+end $$$sql_97_8$;
 
 -- live-auction-customer-workspace.sql: source statement 9
 begin
-execute $sql_96_9$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
+execute $sql_97_9$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare snapshot jsonb; person jsonb; fb text; name text; cid uuid;
 begin
@@ -13507,29 +13570,29 @@ begin
  end loop;
  -- Importing commenters must not manufacture a Messenger inbound window or a payment.
  return public.live_auction_customer_dashboard(p_tenant,p_session);
-end $$$sql_96_9$;
+end $$$sql_97_9$;
 exception when invalid_function_definition then
   -- A newer signature of collect_auction_session_customers(uuid,uuid,text[]) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-customer-workspace.sql: source statement 10
-execute $sql_96_10$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]),public.live_auction_matched_customers(uuid,uuid),public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public,anon,authenticated$sql_96_10$;
+execute $sql_97_10$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]),public.live_auction_matched_customers(uuid,uuid),public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public,anon,authenticated$sql_97_10$;
 
 -- live-auction-customer-workspace.sql: source statement 11
-execute $sql_96_11$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_96_11$;
+execute $sql_97_11$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_97_11$;
 
 -- live-auction-customer-workspace.sql: source statement 12
-execute $sql_96_12$grant execute on function public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_96_12$;
+execute $sql_97_12$grant execute on function public.live_auction_customer_dashboard(uuid,uuid),public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_97_12$;
 
 -- live-auction-customer-workspace.sql: source statement 13
-execute $sql_96_13$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_96_13$;
+execute $sql_97_13$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_97_13$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-customer-workspace.sql','12a96656e8ad33ac866177ef0a5ceb8161fcc8ec1a9511706f8fa0bf59db884d','dff1722d7bd0ef6404ac4d3c9e32a516d137f13a8dac3ce8cd3c9d5ea5fd5d34');
-end $migration_96$;
+end $migration_97$;
 
--- 98. live-auction-thai-workflow.sql
-do $migration_97$
+-- 99. live-auction-thai-workflow.sql
+do $migration_98$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-thai-workflow.sql';
@@ -13541,7 +13604,7 @@ begin
   end if;
 -- live-auction-thai-workflow.sql: source statement 2
 begin
-execute $sql_97_2$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+execute $sql_98_2$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select settings||jsonb_build_object(
   'keywords',case when settings->'keywords'='["1","11","111","11111","+1","+10"]'::jsonb then '["1"]'::jsonb else settings->'keywords' end,
@@ -13549,14 +13612,14 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'countEnabled',false,'heartCloses',false,'closeEnabled',true,
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end)
-$$$sql_97_2$;
+$$$sql_98_2$;
 exception when invalid_function_definition then
   -- A newer signature of normalize_auction_thai_settings(jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-thai-workflow.sql: source statement 5
-execute $sql_97_5$create or replace function public.inherit_auction_session_settings() returns trigger
+execute $sql_98_5$create or replace function public.inherit_auction_session_settings() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare settings jsonb;
 begin
@@ -13568,11 +13631,11 @@ begin
   new.private_reply_template:=settings->>'privateText';new.bid_reply_template:=settings->>'bidText';new.close_reply_template:=settings->>'closeText';
  end if;
  return new;
-end $$$sql_97_5$;
+end $$$sql_98_5$;
 
 -- live-auction-thai-workflow.sql: source statement 6
 begin
-execute $sql_97_6$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
+execute $sql_98_6$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
 language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; active jsonb;
 begin
@@ -13581,21 +13644,21 @@ begin
  join public.live_sessions s on s.id=p_session and s.tenant_id=p_tenant and s.page_id=a.page_id and s.live_post_id=a.live_post_id
  where a.tenant_id=p_tenant and a.status='active' order by a.created_at desc limit 1;
  return result||jsonb_build_object('activeAuction',active);
-end $$$sql_97_6$;
+end $$$sql_98_6$;
 exception when invalid_function_definition then
   -- A newer signature of live_auction_thai_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-thai-workflow.sql: source statement 7
-execute $sql_97_7$revoke all on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_97_7$;
+execute $sql_98_7$revoke all on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_98_7$;
 
 -- live-auction-thai-workflow.sql: source statement 8
-execute $sql_97_8$grant execute on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_97_8$;
+execute $sql_98_8$grant execute on function public.normalize_auction_thai_settings(jsonb),public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_98_8$;
 
 -- live-auction-thai-workflow.sql: source statement 9
 begin
-execute $sql_97_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_98_9$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.auction_session_requests; settings jsonb:=public.normalize_auction_thai_settings(p_input->'settings'); result jsonb; page text;
 begin
@@ -13647,7 +13710,7 @@ begin
  result:=jsonb_build_object('id',s.id,'revision',s.automation_revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_97_9$;
+end $$$sql_98_9$;
 exception when invalid_function_definition then
   -- A newer signature of configure_auction_session(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -13655,7 +13718,7 @@ end;
 
 -- live-auction-thai-workflow.sql: source statement 10
 begin
-execute $sql_97_10$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_98_10$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
 begin
@@ -13700,14 +13763,14 @@ begin
    select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
  end if;
  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
-end $$$sql_97_10$;
+end $$$sql_98_10$;
 exception when invalid_function_definition then
   -- A newer signature of finalize_live_auction(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-thai-workflow.sql: source statement 11
-execute $sql_97_11$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
+execute $sql_98_11$create or replace function public.collect_auction_session_customers(p_tenant uuid,p_session uuid,p_fb_ids text[])
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare snapshot jsonb; person jsonb; fb text; name text; cid uuid;
 begin
@@ -13725,11 +13788,11 @@ begin
  end loop;
  -- Importing commenters must not manufacture a Messenger inbound window or a payment.
  return public.live_auction_thai_dashboard(p_tenant,p_session);
-end $$$sql_97_11$;
+end $$$sql_98_11$;
 
 -- live-auction-thai-workflow.sql: source statement 12
 begin
-execute $sql_97_12$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_98_12$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; prior jsonb; r jsonb;
  sender text; cid text; bidder text; amount numeric; minimum numeric; outcome text; host boolean;
@@ -13789,17 +13852,17 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),amount,p_kind='OPENING_BID',outcome,r);
  return r;
-end $$$sql_97_12$;
+end $$$sql_98_12$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-thai-workflow.sql','34fe6fc91588c5f04bf747976914472d998112412ef637ea449cc1ab27d3b4d6','23e73cd12f7536b5bb63f80528c2f451d9d9f27b5a839be358aaac8588f6ad59');
-end $migration_97$;
+end $migration_98$;
 
--- 99. live-auction-customer-columns.sql
-do $migration_98$
+-- 100. live-auction-customer-columns.sql
+do $migration_99$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-customer-columns.sql';
@@ -13811,7 +13874,7 @@ begin
   end if;
 -- live-auction-customer-columns.sql: source statement 1
 begin
-execute $sql_98_1$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
+execute $sql_99_1$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid) returns jsonb
 language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; active jsonb; people jsonb; s public.live_sessions;
 begin
@@ -13836,23 +13899,23 @@ begin
  from jsonb_array_elements(result->'commenters') with ordinality rows(x,pos)
  left join latest on latest.fb_id=x->>'fbId';
  return result||jsonb_build_object('activeAuction',active,'commenters',people);
-end $$$sql_98_1$;
+end $$$sql_99_1$;
 exception when invalid_function_definition then
   -- A newer signature of live_auction_thai_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-customer-columns.sql: source statement 2
-execute $sql_98_2$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_98_2$;
+execute $sql_99_2$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_99_2$;
 
 -- live-auction-customer-columns.sql: source statement 3
-execute $sql_98_3$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_98_3$;
+execute $sql_99_3$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_99_3$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-customer-columns.sql','193605a75ceaaaff5d04fb3c07c00bb77fcb3e88a220e2d1faa0530464227d23','a0e96f4c674e920d1974403d19e64ed225e8b2cf2c9a3a625473e8b2767a8bc9');
-end $migration_98$;
+end $migration_99$;
 
--- 100. live-auction-close-presets.sql
-do $migration_99$
+-- 101. live-auction-close-presets.sql
+do $migration_100$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-close-presets.sql';
@@ -13864,8 +13927,8 @@ begin
   end if;
 -- live-auction-close-presets.sql: source statement 2
 begin
-execute $sql_99_2$create or replace function public.default_auction_close_keywords() returns jsonb
-language sql immutable set search_path=pg_catalog,public as $$ select '["ปิด","จบ","พอ","321","3 2 1","x","X","❌","🛑","⛔","🚫","✖️","🏁","🚩","🔨","🔔","⏰","❤️","🖤"]'::jsonb $$$sql_99_2$;
+execute $sql_100_2$create or replace function public.default_auction_close_keywords() returns jsonb
+language sql immutable set search_path=pg_catalog,public as $$ select '["ปิด","จบ","พอ","321","3 2 1","x","X","❌","🛑","⛔","🚫","✖️","🏁","🚩","🔨","🔔","⏰","❤️","🖤"]'::jsonb $$$sql_100_2$;
 exception when invalid_function_definition then
   -- A newer signature of default_auction_close_keywords() is already installed. Its final definition below is mandatory.
   null;
@@ -13873,13 +13936,13 @@ end;
 
 -- live-auction-close-presets.sql: source statement 3
 begin
-execute $sql_99_3$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
+execute $sql_100_3$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
 language sql immutable set search_path=pg_catalog,public as $$
  select exists(select 1 from jsonb_array_elements_text(keywords) k
  where length(translate(trim(k),U&'\FE0E\FE0F',''))>0 and position(
   translate(lower(regexp_replace(normalize(trim(k),NFKC),'\s+',' ','g')),U&'\FE0E\FE0F','')
   in translate(lower(regexp_replace(normalize(trim(coalesce(message,'')),NFKC),'\s+',' ','g')),U&'\FE0E\FE0F',''))>0)
-$$$sql_99_3$;
+$$$sql_100_3$;
 exception when invalid_function_definition then
   -- A newer signature of auction_close_keyword_matches(text,jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -13887,7 +13950,7 @@ end;
 
 -- live-auction-close-presets.sql: source statement 4
 begin
-execute $sql_99_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+execute $sql_100_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select settings||jsonb_build_object(
   'keywords',case when settings->'keywords'='["1","11","111","11111","+1","+10"]'::jsonb then '["1"]'::jsonb else settings->'keywords' end,
@@ -13895,7 +13958,7 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'closeKeywordPresetsVersion',1,'countEnabled',false,'heartCloses',false,'closeEnabled',true,
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end)
-$$$sql_99_4$;
+$$$sql_100_4$;
 exception when invalid_function_definition then
   -- A newer signature of normalize_auction_thai_settings(jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -13903,7 +13966,7 @@ end;
 
 -- live-auction-close-presets.sql: source statement 7
 begin
-execute $sql_99_7$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_100_7$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; prior jsonb; r jsonb;
  sender text; cid text; bidder text; amount numeric; minimum numeric; outcome text; host boolean;
@@ -13963,23 +14026,23 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),amount,p_kind='OPENING_BID',outcome,r);
  return r;
-end $$$sql_99_7$;
+end $$$sql_100_7$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-close-presets.sql: source statement 8
-execute $sql_99_8$revoke all on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) from public,anon,authenticated$sql_99_8$;
+execute $sql_100_8$revoke all on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) from public,anon,authenticated$sql_100_8$;
 
 -- live-auction-close-presets.sql: source statement 9
-execute $sql_99_9$grant execute on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) to service_role$sql_99_9$;
+execute $sql_100_9$grant execute on function public.default_auction_close_keywords(),public.auction_close_keyword_matches(text,jsonb),public.normalize_auction_thai_settings(jsonb) to service_role$sql_100_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-close-presets.sql','027974180f12827afc3de9dd4bdb1a22a2936126fa8b499b53bb07c68b41a94d','e40d3d01a50c6c99c399043f94540a4368ccfdbe43a206d814338ae7666c5db3');
-end $migration_99$;
+end $migration_100$;
 
--- 101. live-auction-unlimited-keywords.sql
-do $migration_100$
+-- 102. live-auction-unlimited-keywords.sql
+do $migration_101$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-unlimited-keywords.sql';
@@ -13991,7 +14054,7 @@ begin
   end if;
 -- live-auction-unlimited-keywords.sql: source statement 2
 begin
-execute $sql_100_2$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_101_2$create or replace function public.configure_auction_session(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.auction_session_requests; settings jsonb:=public.normalize_auction_thai_settings(p_input->'settings'); result jsonb; page text;
 begin
@@ -14044,17 +14107,17 @@ begin
  result:=jsonb_build_object('id',s.id,'revision',s.automation_revision);
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_100_2$;
+end $$$sql_101_2$;
 exception when invalid_function_definition then
   -- A newer signature of configure_auction_session(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-unlimited-keywords.sql','bffdac922804024666ad0d2db6830382711d53df15a4a5b0d2ce8fb8bf208897','ba2dee345322ca688b2976bec107f1d64b5c94ed725e9c450d7599666b6488c3');
-end $migration_100$;
+end $migration_101$;
 
--- 102. live-auction-winner-confirmation.sql
-do $migration_101$
+-- 103. live-auction-winner-confirmation.sql
+do $migration_102$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-winner-confirmation.sql';
@@ -14065,23 +14128,23 @@ begin
     return;
   end if;
 -- live-auction-winner-confirmation.sql: source statement 2
-execute $sql_101_2$alter table public.auctions add column if not exists winner_confirmation_comment_id text$sql_101_2$;
+execute $sql_102_2$alter table public.auctions add column if not exists winner_confirmation_comment_id text$sql_102_2$;
 
 -- live-auction-winner-confirmation.sql: source statement 3
-execute $sql_101_3$alter table public.auctions add column if not exists winner_confirmation_event_id uuid references public.facebook_webhook_events(id)$sql_101_3$;
+execute $sql_102_3$alter table public.auctions add column if not exists winner_confirmation_event_id uuid references public.facebook_webhook_events(id)$sql_102_3$;
 
 -- live-auction-winner-confirmation.sql: source statement 4
-execute $sql_101_4$alter table public.auctions add column if not exists winner_confirmed_at timestamptz$sql_101_4$;
+execute $sql_102_4$alter table public.auctions add column if not exists winner_confirmed_at timestamptz$sql_102_4$;
 
 -- live-auction-winner-confirmation.sql: source statement 5
-execute $sql_101_5$alter table public.auction_deliveries drop constraint if exists auction_deliveries_status_check$sql_101_5$;
+execute $sql_102_5$alter table public.auction_deliveries drop constraint if exists auction_deliveries_status_check$sql_102_5$;
 
 -- live-auction-winner-confirmation.sql: source statement 6
-execute $sql_101_6$alter table public.auction_deliveries add constraint auction_deliveries_status_check
- check(status in ('awaiting_confirmation','pending','sending','sent','requires_review'))$sql_101_6$;
+execute $sql_102_6$alter table public.auction_deliveries add constraint auction_deliveries_status_check
+ check(status in ('awaiting_confirmation','pending','sending','sent','requires_review'))$sql_102_6$;
 
 -- live-auction-winner-confirmation.sql: source statement 7
-execute $sql_101_7$create or replace function public.hold_auction_winner_notifications() returns trigger
+execute $sql_102_7$create or replace function public.hold_auction_winner_notifications() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.status='pending' and exists(select 1 from public.auctions a where a.id=new.auction_id
@@ -14089,18 +14152,18 @@ begin
   new.status:='awaiting_confirmation';
  end if;
  return new;
-end $$$sql_101_7$;
+end $$$sql_102_7$;
 
 -- live-auction-winner-confirmation.sql: source statement 8
-execute $sql_101_8$drop trigger if exists auction_winner_confirmation_gate on public.auction_deliveries$sql_101_8$;
+execute $sql_102_8$drop trigger if exists auction_winner_confirmation_gate on public.auction_deliveries$sql_102_8$;
 
 -- live-auction-winner-confirmation.sql: source statement 9
-execute $sql_101_9$create trigger auction_winner_confirmation_gate before insert on public.auction_deliveries
- for each row execute function public.hold_auction_winner_notifications()$sql_101_9$;
+execute $sql_102_9$create trigger auction_winner_confirmation_gate before insert on public.auction_deliveries
+ for each row execute function public.hold_auction_winner_notifications()$sql_102_9$;
 
 -- live-auction-winner-confirmation.sql: source statement 11
 begin
-execute $sql_101_11$create or replace function public.confirm_live_auction_winner(p_auction uuid,p_tenant uuid,p_event uuid)
+execute $sql_102_11$create or replace function public.confirm_live_auction_winner(p_auction uuid,p_tenant uuid,p_event uuid)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; cid text; sender text;
 begin
@@ -14148,23 +14211,23 @@ begin
  update public.auction_deliveries set status='pending',comment_id=cid
   where auction_id=a.id and status='awaiting_confirmation';
  return jsonb_build_object('status','confirmed','orderId',a.order_id);
-end $$$sql_101_11$;
+end $$$sql_102_11$;
 exception when invalid_function_definition then
   -- A newer signature of confirm_live_auction_winner(uuid,uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-winner-confirmation.sql: source statement 12
-execute $sql_101_12$revoke all on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) from public,anon,authenticated$sql_101_12$;
+execute $sql_102_12$revoke all on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) from public,anon,authenticated$sql_102_12$;
 
 -- live-auction-winner-confirmation.sql: source statement 13
-execute $sql_101_13$grant execute on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_101_13$;
+execute $sql_102_13$grant execute on function public.hold_auction_winner_notifications(),public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_102_13$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-winner-confirmation.sql','2f858d9ce9ccb510e54eb5bcceb55d2da7a9745101ca139787d50499c4721abe','47e7d6763ce50cd5feb959f2282c7b8341dac01a33df6d6b7c007cca4186b259');
-end $migration_101$;
+end $migration_102$;
 
--- 103. live-auction-payment-auto-verify.sql
-do $migration_102$
+-- 104. live-auction-payment-auto-verify.sql
+do $migration_103$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-payment-auto-verify.sql';
@@ -14176,7 +14239,7 @@ begin
   end if;
 -- live-auction-payment-auto-verify.sql: source statement 2
 begin
-execute $sql_102_2$create or replace function public.complete_auction_customer_tab_slip(
+execute $sql_103_2$create or replace function public.complete_auction_customer_tab_slip(
  p_slip uuid,p_tenant uuid,p_customer uuid,p_sender text,p_amount numeric,
  p_ref text,p_paid_at timestamptz,p_raw jsonb,p_note text
 )
@@ -14209,27 +14272,27 @@ begin
  return public.complete_customer_tab_slip(
   p_slip,p_tenant,p_customer,'valid',p_amount,p_ref,p_paid_at,p_raw,p_note
  );
-end $$$sql_102_2$;
+end $$$sql_103_2$;
 exception when invalid_function_definition then
   -- A newer signature of complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-payment-auto-verify.sql: source statement 3
-execute $sql_102_3$revoke all on function public.complete_auction_customer_tab_slip(
+execute $sql_103_3$revoke all on function public.complete_auction_customer_tab_slip(
  uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text
-) from public,anon,authenticated$sql_102_3$;
+) from public,anon,authenticated$sql_103_3$;
 
 -- live-auction-payment-auto-verify.sql: source statement 4
-execute $sql_102_4$grant execute on function public.complete_auction_customer_tab_slip(
+execute $sql_103_4$grant execute on function public.complete_auction_customer_tab_slip(
  uuid,uuid,uuid,text,numeric,text,timestamptz,jsonb,text
-) to service_role$sql_102_4$;
+) to service_role$sql_103_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-payment-auto-verify.sql','f8eb2b330fc2314a62235ad26eafbf60ec0ce009a53a94dcee12758843f415b4','34850c09fb21356f5d4e18b797f569f90a0d7ce05f08755d4c3b90a48689096a');
-end $migration_102$;
+end $migration_103$;
 
--- 104. facebook-webhook-comment-ordering.sql
-do $migration_103$
+-- 105. facebook-webhook-comment-ordering.sql
+do $migration_104$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-webhook-comment-ordering.sql';
@@ -14240,7 +14303,7 @@ begin
     return;
   end if;
 -- facebook-webhook-comment-ordering.sql: source statement 2
-execute $sql_103_2$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
+execute $sql_104_2$create or replace function public.enqueue_facebook_webhook(p_raw text,p_hash text,p_events jsonb) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare receipt uuid; item jsonb; accepted integer:=0; affected integer;
 begin
@@ -14262,19 +14325,19 @@ begin
   get diagnostics affected=row_count;accepted:=accepted+affected;
  end loop;
  return jsonb_build_object('id',receipt,'accepted',accepted);
-end $$$sql_103_2$;
+end $$$sql_104_2$;
 
 -- facebook-webhook-comment-ordering.sql: source statement 3
-execute $sql_103_3$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb) from public,anon,authenticated$sql_103_3$;
+execute $sql_104_3$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb) from public,anon,authenticated$sql_104_3$;
 
 -- facebook-webhook-comment-ordering.sql: source statement 4
-execute $sql_103_4$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb) to service_role$sql_103_4$;
+execute $sql_104_4$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb) to service_role$sql_104_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-webhook-comment-ordering.sql','44d316710f134f9d5de7b096753ec8706fceab050177af7a61ebb4c54268f331','fc95a23e41f2d2fb46548cdc4ac306538dca0ae681433328fe555f184e6d4787');
-end $migration_103$;
+end $migration_104$;
 
--- 105. live-auction-workspace.sql
-do $migration_104$
+-- 106. live-auction-workspace.sql
+do $migration_105$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-workspace.sql';
@@ -14285,27 +14348,27 @@ begin
     return;
   end if;
 -- live-auction-workspace.sql: source statement 2
-execute $sql_104_2$alter table public.live_sessions add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0)$sql_104_2$;
+execute $sql_105_2$alter table public.live_sessions add column if not exists other_fees numeric(14,2) not null default 0 check(other_fees>=0)$sql_105_2$;
 
 -- live-auction-workspace.sql: source statement 3
-execute $sql_104_3$create table if not exists public.auction_workspace_requests (
+execute $sql_105_3$create table if not exists public.auction_workspace_requests (
  tenant_id uuid not null references public.tenants(id), request_id uuid not null,
  actor_id uuid not null references auth.users(id), input jsonb not null, result jsonb not null,
  created_at timestamptz not null default clock_timestamp(), primary key(tenant_id,request_id)
-)$sql_104_3$;
+)$sql_105_3$;
 
 -- live-auction-workspace.sql: source statement 4
-execute $sql_104_4$alter table public.auction_workspace_requests enable row level security$sql_104_4$;
+execute $sql_105_4$alter table public.auction_workspace_requests enable row level security$sql_105_4$;
 
 -- live-auction-workspace.sql: source statement 5
-execute $sql_104_5$revoke all on public.auction_workspace_requests from public,anon,authenticated$sql_104_5$;
+execute $sql_105_5$revoke all on public.auction_workspace_requests from public,anon,authenticated$sql_105_5$;
 
 -- live-auction-workspace.sql: source statement 6
-execute $sql_104_6$grant all on public.auction_workspace_requests to service_role$sql_104_6$;
+execute $sql_105_6$grant all on public.auction_workspace_requests to service_role$sql_105_6$;
 
 -- live-auction-workspace.sql: source statement 7
 begin
-execute $sql_104_7$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_105_7$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare prior public.auction_workspace_requests; s public.live_sessions; a public.auctions;
  settings jsonb; result jsonb; page text; round_id uuid;
@@ -14380,23 +14443,23 @@ begin
  result:=jsonb_build_object('sessionId',s.id,'auctionId',round_id,'revision',s.automation_revision,'financialRevision',s.financial_revision);
  insert into public.auction_workspace_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_104_7$;
+end $$$sql_105_7$;
 exception when invalid_function_definition then
   -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-workspace.sql: source statement 8
-execute $sql_104_8$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_104_8$;
+execute $sql_105_8$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_105_8$;
 
 -- live-auction-workspace.sql: source statement 9
-execute $sql_104_9$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_104_9$;
+execute $sql_105_9$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_105_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-workspace.sql','0f978176bc9cdf79211723e6163ffae3dad80938914956272584658c36cffbc9','9b31439a5bce859ea20bb1bbc7790571d7b4c24f604af5940b8486351e425cc9');
-end $migration_104$;
+end $migration_105$;
 
--- 106. live-auction-empty-keyword-defaults.sql
-do $migration_105$
+-- 107. live-auction-empty-keyword-defaults.sql
+do $migration_106$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-empty-keyword-defaults.sql';
@@ -14407,7 +14470,7 @@ begin
     return;
   end if;
 -- live-auction-empty-keyword-defaults.sql: source statement 2
-execute $sql_105_2$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_106_2$create or replace function public.live_auction_thai_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare result jsonb; active jsonb; people jsonb; s public.live_sessions;
 begin
@@ -14437,15 +14500,15 @@ begin
   into people from jsonb_array_elements(result->'commenters') with ordinality rows(x,pos)
   left join latest on latest.fb_id=x->>'fbId';
  return result||jsonb_build_object('activeAuction',active,'commenters',people);
-end $$$sql_105_2$;
+end $$$sql_106_2$;
 
 -- live-auction-empty-keyword-defaults.sql: source statement 3
-execute $sql_105_3$create or replace function public.default_auction_close_keywords() returns jsonb
-language sql immutable set search_path=pg_catalog,public as $$ select '[]'::jsonb $$$sql_105_3$;
+execute $sql_106_3$create or replace function public.default_auction_close_keywords() returns jsonb
+language sql immutable set search_path=pg_catalog,public as $$ select '[]'::jsonb $$$sql_106_3$;
 
 -- live-auction-empty-keyword-defaults.sql: source statement 4
 begin
-execute $sql_105_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+execute $sql_106_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select settings||jsonb_build_object(
   'keywords',coalesce(settings->'keywords','[]'::jsonb),
@@ -14453,14 +14516,14 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'closeKeywordPresetsVersion',1,'countEnabled',false,'heartCloses',false,'closeEnabled',true,
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end)
-$$$sql_105_4$;
+$$$sql_106_4$;
 exception when invalid_function_definition then
   -- A newer signature of normalize_auction_thai_settings(jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-empty-keyword-defaults.sql: source statement 5
-execute $sql_105_5$create or replace function public.configure_auction_session(
+execute $sql_106_5$create or replace function public.configure_auction_session(
  p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare
@@ -14550,25 +14613,25 @@ begin
  insert into public.auction_session_requests(tenant_id,request_id,actor_id,input,result)
   values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_105_5$;
+end $$$sql_106_5$;
 
 -- live-auction-empty-keyword-defaults.sql: source statement 8
-execute $sql_105_8$revoke all on function public.default_auction_close_keywords(),
+execute $sql_106_8$revoke all on function public.default_auction_close_keywords(),
  public.normalize_auction_thai_settings(jsonb),
  public.configure_auction_session(uuid,uuid,uuid,jsonb),
- public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_105_8$;
+ public.live_auction_thai_dashboard(uuid,uuid) from public,anon,authenticated$sql_106_8$;
 
 -- live-auction-empty-keyword-defaults.sql: source statement 9
-execute $sql_105_9$grant execute on function public.default_auction_close_keywords(),
+execute $sql_106_9$grant execute on function public.default_auction_close_keywords(),
  public.normalize_auction_thai_settings(jsonb),
  public.configure_auction_session(uuid,uuid,uuid,jsonb),
- public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_105_9$;
+ public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_106_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-empty-keyword-defaults.sql','4eaf313ac381faa9de922ea23c56de337b45b494861ad51e14c8e27be5eca4c8','576e5cfcc37ca82ba6c914e2d813424e6e6e55c7d0f9a9bbde3653cba7d12845');
-end $migration_105$;
+end $migration_106$;
 
--- 107. live-auction-production-readiness.sql
-do $migration_106$
+-- 108. live-auction-production-readiness.sql
+do $migration_107$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-production-readiness.sql';
@@ -14580,7 +14643,7 @@ begin
   end if;
 -- live-auction-production-readiness.sql: source statement 2
 begin
-execute $sql_106_2$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_107_2$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; metrics jsonb; rounds jsonb; bills jsonb;
 begin
@@ -14628,14 +14691,14 @@ begin
   from public.customer_tabs t join public.customers c on c.id=t.customer_id and c.tenant_id=p_tenant where t.live_session_id=s.id
  ) rows;
  return jsonb_build_object('session',to_jsonb(s),'metrics',metrics,'rounds',rounds,'tabs',bills);
-end $$$sql_106_2$;
+end $$$sql_107_2$;
 exception when invalid_function_definition then
   -- A newer signature of live_session_dashboard(uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-production-readiness.sql: source statement 3
-execute $sql_106_3$create or replace function public.manage_live_session(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_107_3$create or replace function public.manage_live_session(p_tenant uuid,p_session uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions; prior public.live_session_changes; t public.customer_tabs; target public.customer_tabs;
  a public.auctions; o public.orders; b public.auction_bids; c public.customers;
@@ -14746,11 +14809,11 @@ begin
  result:=jsonb_build_object('ok',true,'orderId',oid);
  insert into public.live_session_changes(tenant_id,session_id,actor_id,request_id,payload,result) values(p_tenant,s.id,p_actor,p_request,p_input,result);
  return result;
-end $$$sql_106_3$;
+end $$$sql_107_3$;
 
 -- live-auction-production-readiness.sql: source statement 4
 begin
-execute $sql_106_4$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_107_4$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare prior public.auction_workspace_requests; s public.live_sessions; a public.auctions;
  settings jsonb; result jsonb; page text; round_id uuid;
@@ -14832,45 +14895,45 @@ begin
  result:=jsonb_build_object('sessionId',s.id,'auctionId',round_id,'revision',s.automation_revision,'financialRevision',s.financial_revision);
  insert into public.auction_workspace_requests(tenant_id,request_id,actor_id,input,result) values(p_tenant,p_request,p_actor,p_input,result);
  return result;
-end $$$sql_106_4$;
+end $$$sql_107_4$;
 exception when invalid_function_definition then
   -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-production-readiness.sql: source statement 5
-execute $sql_106_5$drop trigger if exists auction_winner_confirmation_gate on public.auction_deliveries$sql_106_5$;
+execute $sql_107_5$drop trigger if exists auction_winner_confirmation_gate on public.auction_deliveries$sql_107_5$;
 
 -- live-auction-production-readiness.sql: source statement 6
-execute $sql_106_6$drop function if exists public.hold_auction_winner_notifications()$sql_106_6$;
+execute $sql_107_6$drop function if exists public.hold_auction_winner_notifications()$sql_107_6$;
 
 -- live-auction-production-readiness.sql: source statement 7
-execute $sql_106_7$create or replace function public.confirm_live_auction_winner(p_auction uuid,p_tenant uuid,p_event uuid)
+execute $sql_107_7$create or replace function public.confirm_live_auction_winner(p_auction uuid,p_tenant uuid,p_event uuid)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 begin
  if not exists(select 1 from public.auctions where id=p_auction and tenant_id=p_tenant) then
   raise exception 'AUCTION_NOT_FOUND' using errcode='P0002';
  end if;
  return jsonb_build_object('status','not_required');
-end $$$sql_106_7$;
+end $$$sql_107_7$;
 
 -- live-auction-production-readiness.sql: source statement 9
-execute $sql_106_9$alter table public.shipping_integrations drop constraint if exists shipping_integrations_provider_check$sql_106_9$;
+execute $sql_107_9$alter table public.shipping_integrations drop constraint if exists shipping_integrations_provider_check$sql_107_9$;
 
 -- live-auction-production-readiness.sql: source statement 10
-execute $sql_106_10$alter table public.shipping_integrations add constraint shipping_integrations_provider_check
- check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_106_10$;
+execute $sql_107_10$alter table public.shipping_integrations add constraint shipping_integrations_provider_check
+ check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_107_10$;
 
 -- live-auction-production-readiness.sql: source statement 11
-execute $sql_106_11$alter table public.shipping_provider_jobs drop constraint if exists shipping_provider_jobs_provider_check$sql_106_11$;
+execute $sql_107_11$alter table public.shipping_provider_jobs drop constraint if exists shipping_provider_jobs_provider_check$sql_107_11$;
 
 -- live-auction-production-readiness.sql: source statement 12
-execute $sql_106_12$alter table public.shipping_provider_jobs add constraint shipping_provider_jobs_provider_check
- check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_106_12$;
+execute $sql_107_12$alter table public.shipping_provider_jobs add constraint shipping_provider_jobs_provider_check
+ check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_107_12$;
 
 -- live-auction-production-readiness.sql: source statement 13
 begin
-execute $sql_106_13$create or replace function public.save_shipping_integration(
+execute $sql_107_13$create or replace function public.save_shipping_integration(
  p_tenant uuid,p_provider text,p_endpoint text,p_credentials text,p_sender jsonb,
  p_tracking_template text,p_weight numeric,p_active boolean,p_default boolean
 ) returns void language plpgsql set search_path=pg_catalog,public as $$
@@ -14906,7 +14969,7 @@ begin
   update public.shipping_integrations set is_default=false,updated_at=clock_timestamp()
    where tenant_id=p_tenant and provider=p_provider;
  end if;
-end $$$sql_106_13$;
+end $$$sql_107_13$;
 exception when invalid_function_definition then
   -- A newer signature of save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -14914,7 +14977,7 @@ end;
 
 -- live-auction-production-readiness.sql: source statement 14
 begin
-execute $sql_106_14$create or replace function public.begin_shipping_provider_job(
+execute $sql_107_14$create or replace function public.begin_shipping_provider_job(
  p_tenant uuid,p_actor uuid,p_request uuid,p_shipment uuid,p_provider text
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.shipping_shipments;j public.shipping_provider_jobs;
@@ -14953,14 +15016,14 @@ begin
  insert into public.shipping_provider_jobs(tenant_id,shipment_id,actor_id,request_id,provider)
   values(p_tenant,p_shipment,p_actor,p_request,p_provider) returning * into j;
  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,'claimed',true);
-end $$$sql_106_14$;
+end $$$sql_107_14$;
 exception when invalid_function_definition then
   -- A newer signature of begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-production-readiness.sql: source statement 15
-execute $sql_106_15$create table if not exists public.shipping_tracking_deliveries (
+execute $sql_107_15$create table if not exists public.shipping_tracking_deliveries (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id),
  shipment_id uuid not null references public.shipping_shipments(id),
@@ -14972,22 +15035,22 @@ execute $sql_106_15$create table if not exists public.shipping_tracking_deliveri
  next_attempt_at timestamptz not null default clock_timestamp(),
  created_at timestamptz not null default clock_timestamp(),
  unique(shipment_id,tracking_number)
-)$sql_106_15$;
+)$sql_107_15$;
 
 -- live-auction-production-readiness.sql: source statement 16
-execute $sql_106_16$create index if not exists shipping_tracking_deliveries_pending on public.shipping_tracking_deliveries(status,next_attempt_at,created_at)$sql_106_16$;
+execute $sql_107_16$create index if not exists shipping_tracking_deliveries_pending on public.shipping_tracking_deliveries(status,next_attempt_at,created_at)$sql_107_16$;
 
 -- live-auction-production-readiness.sql: source statement 17
-execute $sql_106_17$alter table public.shipping_tracking_deliveries enable row level security$sql_106_17$;
+execute $sql_107_17$alter table public.shipping_tracking_deliveries enable row level security$sql_107_17$;
 
 -- live-auction-production-readiness.sql: source statement 18
-execute $sql_106_18$revoke all on public.shipping_tracking_deliveries from public,anon,authenticated$sql_106_18$;
+execute $sql_107_18$revoke all on public.shipping_tracking_deliveries from public,anon,authenticated$sql_107_18$;
 
 -- live-auction-production-readiness.sql: source statement 19
-execute $sql_106_19$grant all on public.shipping_tracking_deliveries to service_role$sql_106_19$;
+execute $sql_107_19$grant all on public.shipping_tracking_deliveries to service_role$sql_107_19$;
 
 -- live-auction-production-readiness.sql: source statement 20
-execute $sql_106_20$create or replace function public.queue_shipping_tracking_delivery() returns trigger
+execute $sql_107_20$create or replace function public.queue_shipping_tracking_delivery() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.fulfillment_status='shipped' and nullif(trim(new.tracking_number),'') is not null then
@@ -14997,26 +15060,26 @@ begin
     where shipping_tracking_deliveries.status='pending';
  end if;
  return new;
-end $$$sql_106_20$;
+end $$$sql_107_20$;
 
 -- live-auction-production-readiness.sql: source statement 21
-execute $sql_106_21$drop trigger if exists shipping_tracking_outbox on public.shipping_shipments$sql_106_21$;
+execute $sql_107_21$drop trigger if exists shipping_tracking_outbox on public.shipping_shipments$sql_107_21$;
 
 -- live-auction-production-readiness.sql: source statement 22
-execute $sql_106_22$create trigger shipping_tracking_outbox after insert or update of fulfillment_status,tracking_number,tracking_url
- on public.shipping_shipments for each row execute function public.queue_shipping_tracking_delivery()$sql_106_22$;
+execute $sql_107_22$create trigger shipping_tracking_outbox after insert or update of fulfillment_status,tracking_number,tracking_url
+ on public.shipping_shipments for each row execute function public.queue_shipping_tracking_delivery()$sql_107_22$;
 
 -- live-auction-production-readiness.sql: source statement 23
-execute $sql_106_23$revoke all on function public.queue_shipping_tracking_delivery() from public,anon,authenticated$sql_106_23$;
+execute $sql_107_23$revoke all on function public.queue_shipping_tracking_delivery() from public,anon,authenticated$sql_107_23$;
 
 -- live-auction-production-readiness.sql: source statement 24
-execute $sql_106_24$grant execute on function public.queue_shipping_tracking_delivery() to service_role$sql_106_24$;
+execute $sql_107_24$grant execute on function public.queue_shipping_tracking_delivery() to service_role$sql_107_24$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-production-readiness.sql','b3d06ca2db368d1a423f12ecc305b2f5e3bd18877aa778fc8b523d8143d8de86','0f984ce2bc41b09e47c5c98359f745afefdb911b76e5a979d86731a84815844b');
-end $migration_106$;
+end $migration_107$;
 
--- 108. live-auction-on-demand.sql
-do $migration_107$
+-- 109. live-auction-on-demand.sql
+do $migration_108$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-on-demand.sql';
@@ -15027,10 +15090,10 @@ begin
     return;
   end if;
 -- live-auction-on-demand.sql: source statement 2
-execute $sql_107_2$alter table public.orders add column if not exists live_auction_id uuid references public.auctions(id)$sql_107_2$;
+execute $sql_108_2$alter table public.orders add column if not exists live_auction_id uuid references public.auctions(id)$sql_108_2$;
 
 -- live-auction-on-demand.sql: source statement 3
-execute $sql_107_3$create table if not exists public.auction_winner_claims (
+execute $sql_108_3$create table if not exists public.auction_winner_claims (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id),
  auction_id uuid not null references public.auctions(id),
@@ -15042,42 +15105,42 @@ execute $sql_107_3$create table if not exists public.auction_winner_claims (
  revision bigint not null default 0,
  updated_at timestamptz not null default clock_timestamp(),
  unique(auction_id,bidder_id)
-)$sql_107_3$;
+)$sql_108_3$;
 
 -- live-auction-on-demand.sql: source statement 4
-execute $sql_107_4$alter table public.auction_winner_claims enable row level security$sql_107_4$;
+execute $sql_108_4$alter table public.auction_winner_claims enable row level security$sql_108_4$;
 
 -- live-auction-on-demand.sql: source statement 5
-execute $sql_107_5$revoke all on public.auction_winner_claims from public,anon,authenticated$sql_107_5$;
+execute $sql_108_5$revoke all on public.auction_winner_claims from public,anon,authenticated$sql_108_5$;
 
 -- live-auction-on-demand.sql: source statement 6
-execute $sql_107_6$grant all on public.auction_winner_claims to service_role$sql_107_6$;
+execute $sql_108_6$grant all on public.auction_winner_claims to service_role$sql_108_6$;
 
 -- live-auction-on-demand.sql: source statement 7
-execute $sql_107_7$alter table public.auction_deliveries add column if not exists claim_id uuid references public.auction_winner_claims(id),
- add column if not exists claim_revision bigint$sql_107_7$;
+execute $sql_108_7$alter table public.auction_deliveries add column if not exists claim_id uuid references public.auction_winner_claims(id),
+ add column if not exists claim_revision bigint$sql_108_7$;
 
 -- live-auction-on-demand.sql: source statement 8
-execute $sql_107_8$alter table public.auction_deliveries drop constraint if exists auction_deliveries_auction_id_channel_key$sql_107_8$;
+execute $sql_108_8$alter table public.auction_deliveries drop constraint if exists auction_deliveries_auction_id_channel_key$sql_108_8$;
 
 -- live-auction-on-demand.sql: source statement 9
-execute $sql_107_9$alter table public.auction_deliveries drop constraint if exists auction_deliveries_status_check$sql_107_9$;
+execute $sql_108_9$alter table public.auction_deliveries drop constraint if exists auction_deliveries_status_check$sql_108_9$;
 
 -- live-auction-on-demand.sql: source statement 10
-execute $sql_107_10$alter table public.auction_deliveries add constraint auction_deliveries_status_check
- check(status in ('awaiting_confirmation','pending','sending','sent','requires_review','superseded'))$sql_107_10$;
+execute $sql_108_10$alter table public.auction_deliveries add constraint auction_deliveries_status_check
+ check(status in ('awaiting_confirmation','pending','sending','sent','requires_review','superseded'))$sql_108_10$;
 
 -- live-auction-on-demand.sql: source statement 11
-execute $sql_107_11$create unique index if not exists auction_legacy_delivery_once on public.auction_deliveries(auction_id,channel) where claim_id is null$sql_107_11$;
+execute $sql_108_11$create unique index if not exists auction_legacy_delivery_once on public.auction_deliveries(auction_id,channel) where claim_id is null$sql_108_11$;
 
 -- live-auction-on-demand.sql: source statement 12
-execute $sql_107_12$create unique index if not exists auction_claim_delivery_once on public.auction_deliveries(claim_id,claim_revision,channel) where claim_id is not null$sql_107_12$;
+execute $sql_108_12$create unique index if not exists auction_claim_delivery_once on public.auction_deliveries(claim_id,claim_revision,channel) where claim_id is not null$sql_108_12$;
 
 -- live-auction-on-demand.sql: source statement 13
-execute $sql_107_13$create index if not exists auction_bidder_highest on public.auction_bids(auction_id,bidder_id,bid_amount desc) where bid_amount>0$sql_107_13$;
+execute $sql_108_13$create index if not exists auction_bidder_highest on public.auction_bids(auction_id,bidder_id,bid_amount desc) where bid_amount>0$sql_108_13$;
 
 -- live-auction-on-demand.sql: source statement 14
-execute $sql_107_14$create or replace function public.claim_auction_bill_delivery(p_delivery uuid,p_revision bigint)
+execute $sql_108_14$create or replace function public.claim_auction_bill_delivery(p_delivery uuid,p_revision bigint)
 returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare d public.auction_deliveries;a public.auctions;c public.auction_winner_claims;
 begin
@@ -15090,27 +15153,27 @@ begin
   or (d.channel='private' and not a.private_reply_enabled) then return false;end if;
  update public.auction_deliveries set status='sending',started_at=clock_timestamp() where id=d.id and status='pending';
  return found;
-end $$$sql_107_14$;
+end $$$sql_108_14$;
 
 -- live-auction-on-demand.sql: source statement 15
-execute $sql_107_15$revoke all on function public.claim_auction_bill_delivery(uuid,bigint) from public,anon,authenticated$sql_107_15$;
+execute $sql_108_15$revoke all on function public.claim_auction_bill_delivery(uuid,bigint) from public,anon,authenticated$sql_108_15$;
 
 -- live-auction-on-demand.sql: source statement 16
-execute $sql_107_16$grant execute on function public.claim_auction_bill_delivery(uuid,bigint) to service_role$sql_107_16$;
+execute $sql_108_16$grant execute on function public.claim_auction_bill_delivery(uuid,bigint) to service_role$sql_108_16$;
 
 -- live-auction-on-demand.sql: source statement 17
-execute $sql_107_17$create or replace function public.auction_numeric_price(p_text text) returns numeric
+execute $sql_108_17$create or replace function public.auction_numeric_price(p_text text) returns numeric
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare value text:=lower(regexp_replace(normalize(trim(coalesce(p_text,'')),NFKC),'\s+',' ','g')); amount numeric;
 begin
  if value !~ '^(\d{1,9}|\d{1,3}(,\d{3}){1,2})(\.\d{1,2})?(\s*บาท)?$' then return null;end if;
  amount:=regexp_replace(value,'บาท|,|\s','','g')::numeric;
  return case when amount>0 and amount<=999999999 then amount else null end;
-end $$$sql_107_17$;
+end $$$sql_108_17$;
 
 -- live-auction-on-demand.sql: source statement 18
 begin
-execute $sql_107_18$create or replace function public.process_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_108_18$create or replace function public.process_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; prior jsonb; r jsonb;
  sender text; cid text; bidder text; amount numeric; minimum numeric; outcome text; host boolean;
@@ -15170,7 +15233,7 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),amount,p_kind='OPENING_BID',outcome,r);
  return r;
-end $$$sql_107_18$;
+end $$$sql_108_18$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
@@ -15178,7 +15241,7 @@ end;
 
 -- live-auction-on-demand.sql: source statement 19
 begin
-execute $sql_107_19$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_108_19$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
 begin
@@ -15223,7 +15286,7 @@ begin
    select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
  end if;
  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
-end $$$sql_107_19$;
+end $$$sql_108_19$;
 exception when invalid_function_definition then
   -- A newer signature of finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -15231,7 +15294,7 @@ end;
 
 -- live-auction-on-demand.sql: source statement 20
 begin
-execute $sql_107_20$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_108_20$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;
 begin
@@ -15245,7 +15308,7 @@ begin
    closed_at=clock_timestamp(),close_event_id=p_event where id=a.id returning * into a;
  end if;
  return jsonb_build_object('status',a.status,'orderId',null);
-end $$$sql_107_20$;
+end $$$sql_108_20$;
 exception when invalid_function_definition then
   -- A newer signature of finalize_live_auction(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -15253,7 +15316,7 @@ end;
 
 -- live-auction-on-demand.sql: source statement 21
 begin
-execute $sql_107_21$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+execute $sql_108_21$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select case when coalesce(settings->>'winnerFlow','on_demand') in ('on_demand','highest_bid') then settings||jsonb_build_object(
   'winnerFlow',coalesce(settings->>'winnerFlow','on_demand'),
@@ -15262,7 +15325,7 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'closeKeywordPresetsVersion',1,'countEnabled',false,'heartCloses',false,'closeEnabled',true,
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end) else null end
-$$$sql_107_21$;
+$$$sql_108_21$;
 exception when invalid_function_definition then
   -- A newer signature of normalize_auction_thai_settings(jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -15270,7 +15333,7 @@ end;
 
 -- live-auction-on-demand.sql: source statement 22
 begin
-execute $sql_107_22$create or replace function public.attach_customer_tab_order() returns trigger
+execute $sql_108_22$create or replace function public.attach_customer_tab_order() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare c public.customers; a public.auctions; r public.comment_rules; sess uuid; bill public.customer_tabs;
  page text; post text; shipping numeric:=0; bank uuid; unit numeric;
@@ -15319,14 +15382,14 @@ begin
  new.customer_tab_id:=bill.id;new.live_session_id:=sess;new.live_post_id:=post;new.item_amount:=unit;
  new.amount:=unit+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
  return new;
-end $$$sql_107_22$;
+end $$$sql_108_22$;
 exception when invalid_function_definition then
   -- A newer signature of attach_customer_tab_order() is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-on-demand.sql: source statement 23
-execute $sql_107_23$create or replace function public.stamp_customer_tab_proof() returns trigger
+execute $sql_108_23$create or replace function public.stamp_customer_tab_proof() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.auction_id is null then
@@ -15334,10 +15397,10 @@ begin
    left join public.auction_bids b on b.auction_id=a.id and b.comment_id=a.leading_comment_id where o.id=new.order_id and o.source='live_auction';
  end if;
  return new;
-end $$$sql_107_23$;
+end $$$sql_108_23$;
 
 -- live-auction-on-demand.sql: source statement 24
-execute $sql_107_24$create or replace function public.complete_auction_customer_tab_slip(
+execute $sql_108_24$create or replace function public.complete_auction_customer_tab_slip(
  p_slip uuid,p_tenant uuid,p_customer uuid,p_sender text,p_amount numeric,
  p_ref text,p_paid_at timestamptz,p_raw jsonb,p_note text
 )
@@ -15376,17 +15439,17 @@ begin
  return public.complete_customer_tab_slip(
   p_slip,p_tenant,p_customer,'valid',p_amount,p_ref,p_paid_at,p_raw,p_note
  );
-end $$$sql_107_24$;
+end $$$sql_108_24$;
 
 -- live-auction-on-demand.sql: source statement 25
-execute $sql_107_25$revoke all on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text),public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_107_25$;
+execute $sql_108_25$revoke all on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text),public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_108_25$;
 
 -- live-auction-on-demand.sql: source statement 26
-execute $sql_107_26$grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text),public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_107_26$;
+execute $sql_108_26$grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text),public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_108_26$;
 
 -- live-auction-on-demand.sql: source statement 27
 begin
-execute $sql_107_27$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_108_27$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
  sender text;cid text;bidder text;amount numeric;minimum numeric;outcome text;
@@ -15503,14 +15566,14 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),case when confirming or host then null else amount end,false,outcome,r);
  return r;
-end $$$sql_107_27$;
+end $$$sql_108_27$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-on-demand.sql: source statement 28
-execute $sql_107_28$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
+execute $sql_108_28$create or replace function public.live_session_dashboard(p_tenant uuid,p_session uuid)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions; metrics jsonb; rounds jsonb; bills jsonb;
 begin
@@ -15559,19 +15622,19 @@ begin
   from public.customer_tabs t join public.customers c on c.id=t.customer_id and c.tenant_id=p_tenant where t.live_session_id=s.id
  ) rows;
  return jsonb_build_object('session',to_jsonb(s),'metrics',metrics,'rounds',rounds,'tabs',bills);
-end $$$sql_107_28$;
+end $$$sql_108_28$;
 
 -- live-auction-on-demand.sql: source statement 34
-execute $sql_107_34$revoke all on function public.auction_numeric_price(text),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_107_34$;
+execute $sql_108_34$revoke all on function public.auction_numeric_price(text),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_108_34$;
 
 -- live-auction-on-demand.sql: source statement 35
-execute $sql_107_35$grant execute on function public.auction_numeric_price(text),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_107_35$;
+execute $sql_108_35$grant execute on function public.auction_numeric_price(text),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_108_35$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-on-demand.sql','c76dd169e02e48670b7b175a4ea10144bc5979b00a22add193356cd907d55928','a091f91d7daa0e19c1db6caeff82ae104ae90a6cd27b0a655b54e8b07a76fa49');
-end $migration_107$;
+end $migration_108$;
 
--- 109. live-auction-split-summary.sql
-do $migration_108$
+-- 110. live-auction-split-summary.sql
+do $migration_109$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-split-summary.sql';
@@ -15582,32 +15645,32 @@ begin
     return;
   end if;
 -- live-auction-split-summary.sql: source statement 2
-execute $sql_108_2$alter table public.auction_deliveries
+execute $sql_109_2$alter table public.auction_deliveries
  add column if not exists private_plan jsonb,
  add column if not exists latest_sent_at timestamptz,
  add column if not exists latest_recipient_id text,
- add column if not exists next_attempt_at timestamptz not null default '-infinity'$sql_108_2$;
+ add column if not exists next_attempt_at timestamptz not null default '-infinity'$sql_109_2$;
 
 -- live-auction-split-summary.sql: source statement 3
-execute $sql_108_3$do $$ begin
+execute $sql_109_3$do $$ begin
  if to_regprocedure('public.normalize_auction_settings_before_split(jsonb)') is null then
   alter function public.normalize_auction_thai_settings(jsonb) rename to normalize_auction_settings_before_split;
  end if;
-end $$$sql_108_3$;
+end $$$sql_109_3$;
 
 -- live-auction-split-summary.sql: source statement 4
-execute $sql_108_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
+execute $sql_109_4$create or replace function public.normalize_auction_thai_settings(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select case when settings ? 'auto_accumulate_summary' and jsonb_typeof(settings->'auto_accumulate_summary')<>'boolean'
   then null else public.normalize_auction_settings_before_split(settings)||jsonb_build_object(
    'auto_accumulate_summary',coalesce(settings->'auto_accumulate_summary','true'::jsonb)) end
-$$$sql_108_4$;
+$$$sql_109_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-split-summary.sql','674b24aaf17d4913797c3e85a4ced3fc4965639802a4920629263c2019e46bd3','ecebe98f42520036601611179211f30028fd29fd11616b6de93711a51e119ebf');
-end $migration_108$;
+end $migration_109$;
 
--- 110. shipping-integrations-beemove.sql
-do $migration_109$
+-- 111. shipping-integrations-beemove.sql
+do $migration_110$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='shipping-integrations-beemove.sql';
@@ -15618,25 +15681,25 @@ begin
     return;
   end if;
 -- shipping-integrations-beemove.sql: source statement 2
-execute $sql_109_2$alter table public.shipping_integrations
- drop constraint if exists shipping_integrations_provider_check$sql_109_2$;
+execute $sql_110_2$alter table public.shipping_integrations
+ drop constraint if exists shipping_integrations_provider_check$sql_110_2$;
 
 -- shipping-integrations-beemove.sql: source statement 3
-execute $sql_109_3$alter table public.shipping_integrations
+execute $sql_110_3$alter table public.shipping_integrations
  add constraint shipping_integrations_provider_check
- check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_109_3$;
+ check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_110_3$;
 
 -- shipping-integrations-beemove.sql: source statement 4
-execute $sql_109_4$alter table public.shipping_provider_jobs
- drop constraint if exists shipping_provider_jobs_provider_check$sql_109_4$;
+execute $sql_110_4$alter table public.shipping_provider_jobs
+ drop constraint if exists shipping_provider_jobs_provider_check$sql_110_4$;
 
 -- shipping-integrations-beemove.sql: source statement 5
-execute $sql_109_5$alter table public.shipping_provider_jobs
+execute $sql_110_5$alter table public.shipping_provider_jobs
  add constraint shipping_provider_jobs_provider_check
- check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_109_5$;
+ check(provider in ('beemove','dmove','flash_express','jnt','thailand_post'))$sql_110_5$;
 
 -- shipping-integrations-beemove.sql: source statement 6
-execute $sql_109_6$create or replace function public.save_shipping_integration(
+execute $sql_110_6$create or replace function public.save_shipping_integration(
  p_tenant uuid,p_provider text,p_endpoint text,p_credentials text,p_sender jsonb,
  p_tracking_template text,p_weight numeric,p_active boolean,p_default boolean
 ) returns void language plpgsql set search_path=pg_catalog,public as $$
@@ -15671,10 +15734,10 @@ begin
   update public.shipping_integrations set is_default=false,updated_at=clock_timestamp()
    where tenant_id=p_tenant and provider=p_provider;
  end if;
-end $$$sql_109_6$;
+end $$$sql_110_6$;
 
 -- shipping-integrations-beemove.sql: source statement 7
-execute $sql_109_7$create or replace function public.begin_shipping_provider_job(
+execute $sql_110_7$create or replace function public.begin_shipping_provider_job(
  p_tenant uuid,p_actor uuid,p_request uuid,p_shipment uuid,p_provider text
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.shipping_shipments;j public.shipping_provider_jobs;
@@ -15713,33 +15776,33 @@ begin
  insert into public.shipping_provider_jobs(tenant_id,shipment_id,actor_id,request_id,provider)
   values(p_tenant,p_shipment,p_actor,p_request,p_provider) returning * into j;
  return jsonb_build_object('jobId',j.id,'status',j.status,'idempotencyKey',j.idempotency_key,'claimed',true);
-end $$$sql_109_7$;
+end $$$sql_110_7$;
 
 -- shipping-integrations-beemove.sql: source statement 8
-execute $sql_109_8$alter table public.shipping_integrations enable row level security$sql_109_8$;
+execute $sql_110_8$alter table public.shipping_integrations enable row level security$sql_110_8$;
 
 -- shipping-integrations-beemove.sql: source statement 9
-execute $sql_109_9$alter table public.shipping_provider_jobs enable row level security$sql_109_9$;
+execute $sql_110_9$alter table public.shipping_provider_jobs enable row level security$sql_110_9$;
 
 -- shipping-integrations-beemove.sql: source statement 10
-execute $sql_109_10$revoke all on public.shipping_integrations,public.shipping_provider_jobs from public,anon,authenticated$sql_109_10$;
+execute $sql_110_10$revoke all on public.shipping_integrations,public.shipping_provider_jobs from public,anon,authenticated$sql_110_10$;
 
 -- shipping-integrations-beemove.sql: source statement 11
-execute $sql_109_11$grant all on public.shipping_integrations,public.shipping_provider_jobs to service_role$sql_109_11$;
+execute $sql_110_11$grant all on public.shipping_integrations,public.shipping_provider_jobs to service_role$sql_110_11$;
 
 -- shipping-integrations-beemove.sql: source statement 12
-execute $sql_109_12$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
- public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public,anon,authenticated$sql_109_12$;
+execute $sql_110_12$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
+ public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public,anon,authenticated$sql_110_12$;
 
 -- shipping-integrations-beemove.sql: source statement 13
-execute $sql_109_13$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
- public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role$sql_109_13$;
+execute $sql_110_13$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean),
+ public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role$sql_110_13$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('shipping-integrations-beemove.sql','8bce2ab929c2549cc300f3ecf05a55a5a2a683e98b85aa876ddd77118b6b1639','d9d57a631be5139cd85320e430030d3791dba88caac9d83602c939bd810a409a');
-end $migration_109$;
+end $migration_110$;
 
--- 111. vision-product-catalog.sql
-do $migration_110$
+-- 112. vision-product-catalog.sql
+do $migration_111$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='vision-product-catalog.sql';
@@ -15750,7 +15813,7 @@ begin
     return;
   end if;
 -- vision-product-catalog.sql: source statement 2
-execute $sql_110_2$do $$
+execute $sql_111_2$do $$
 declare signature text; definition text;
 begin
  foreach signature in array array[
@@ -15769,16 +15832,16 @@ begin
   end if;
   execute definition;
  end loop;
-end $$$sql_110_2$;
+end $$$sql_111_2$;
 
 -- vision-product-catalog.sql: source statement 3
-execute $sql_110_3$notify pgrst,'reload schema'$sql_110_3$;
+execute $sql_111_3$notify pgrst,'reload schema'$sql_111_3$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('vision-product-catalog.sql','aa668854836f26bbda56981dd8bff9687cf76c2aabb6140dc108ed047c353f37','9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a');
-end $migration_110$;
+end $migration_111$;
 
--- 112. live-customer-item-labels.sql
-do $migration_111$
+-- 113. live-customer-item-labels.sql
+do $migration_112$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-customer-item-labels.sql';
@@ -15789,7 +15852,7 @@ begin
     return;
   end if;
 -- live-customer-item-labels.sql: source statement 2
-execute $sql_111_2$do $$
+execute $sql_112_2$do $$
 declare signature text; definition text;
 begin
  foreach signature in array array['public.live_session_dashboard(uuid,uuid)', 'public.live_session_tab_proof(uuid,uuid,uuid)'] loop
@@ -15798,16 +15861,16 @@ begin
    '''name'',case when i.order_type=''auction'' then ''[ประมูล] ''||i.item_name when i.order_type=''cf'' then ''[CF''||case when i.source_code is not null then ''-''||upper(i.source_code) else '''' end||''] ''||i.item_name else i.item_name end');
   execute definition;
  end loop;
-end $$$sql_111_2$;
+end $$$sql_112_2$;
 
 -- live-customer-item-labels.sql: source statement 3
-execute $sql_111_3$notify pgrst,'reload schema'$sql_111_3$;
+execute $sql_112_3$notify pgrst,'reload schema'$sql_112_3$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-customer-item-labels.sql','88ad6da5c55d04a1dfa5059a7d6ae412cafbe89257643f8b18881e92dd175b80','6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de');
-end $migration_111$;
+end $migration_112$;
 
--- 113. live-cf-order-post.sql
-do $migration_112$
+-- 114. live-cf-order-post.sql
+do $migration_113$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-cf-order-post.sql';
@@ -15818,7 +15881,7 @@ begin
     return;
   end if;
 -- live-cf-order-post.sql: source statement 2
-execute $sql_112_2$do $$
+execute $sql_113_2$do $$
 declare definition text;
 begin
  definition:=pg_get_functiondef('public.place_cf_order(uuid,uuid,uuid,text,text,text,text)'::regprocedure);
@@ -15832,16 +15895,16 @@ begin
   raise exception 'Unrecognized Live CF order insertion; no changes applied';
  end if;
  execute definition;
-end $$$sql_112_2$;
+end $$$sql_113_2$;
 
 -- live-cf-order-post.sql: source statement 3
-execute $sql_112_3$notify pgrst,'reload schema'$sql_112_3$;
+execute $sql_113_3$notify pgrst,'reload schema'$sql_113_3$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-cf-order-post.sql','15dd663c68fd9a0666e42fda3bd7c9969f34fb6ae921d9d2337b72d44e873993','0cc8add5f89d61723bafe7fbd8cf4d53486e74459bfdd331131d9c4929c82605');
-end $migration_112$;
+end $migration_113$;
 
--- 114. live-auction-highest-confirmation.sql
-do $migration_113$
+-- 115. live-auction-highest-confirmation.sql
+do $migration_114$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-highest-confirmation.sql';
@@ -15852,16 +15915,16 @@ begin
     return;
   end if;
 -- live-auction-highest-confirmation.sql: source statement 2
-execute $sql_113_2$do $$declare definition text;begin
+execute $sql_114_2$do $$declare definition text;begin
  definition:=pg_get_functiondef('public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)'::regprocedure);
  if position('process_live_auction_comment_legacy' in definition)=0 then
   execute replace(definition,'FUNCTION public.process_live_auction_comment(', 'FUNCTION public.process_live_auction_comment_legacy(');
  end if;
-end $$$sql_113_2$;
+end $$$sql_114_2$;
 
 -- live-auction-highest-confirmation.sql: source statement 3
 begin
-execute $sql_113_3$create or replace function public.process_live_auction_comment(
+execute $sql_114_3$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
@@ -15913,28 +15976,28 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
  values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
  return r;
-end $$$sql_113_3$;
+end $$$sql_114_3$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-highest-confirmation.sql: source statement 4
-execute $sql_113_4$revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text),
- public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_113_4$;
+execute $sql_114_4$revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text),
+ public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_114_4$;
 
 -- live-auction-highest-confirmation.sql: source statement 5
-execute $sql_113_5$grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text),
- public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_113_5$;
+execute $sql_114_5$grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text),
+ public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_114_5$;
 
 -- live-auction-highest-confirmation.sql: source statement 6
-execute $sql_113_6$notify pgrst,'reload schema'$sql_113_6$;
+execute $sql_114_6$notify pgrst,'reload schema'$sql_114_6$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-highest-confirmation.sql','1f839d204867f6e702f7e43f698d69b05331a1421e0681b23dfb0370fd30b40e','84447330d4b8d575a6437144bea213d14437c28219d5b2923aca8a5e1ca818f1');
-end $migration_113$;
+end $migration_114$;
 
--- 115. live-auction-dynamic-tags.sql
-do $migration_114$
+-- 116. live-auction-dynamic-tags.sql
+do $migration_115$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-dynamic-tags.sql';
@@ -15945,14 +16008,14 @@ begin
     return;
   end if;
 -- live-auction-dynamic-tags.sql: source statement 2
-execute $sql_114_2$alter table public.auctions add column if not exists winner_locked_at timestamptz$sql_114_2$;
+execute $sql_115_2$alter table public.auctions add column if not exists winner_locked_at timestamptz$sql_115_2$;
 
 -- live-auction-dynamic-tags.sql: source statement 3
 begin
-execute $sql_114_3$create or replace function public.normalize_auction_tag(value text) returns text
+execute $sql_115_3$create or replace function public.normalize_auction_tag(value text) returns text
 language sql immutable set search_path=pg_catalog,public as $$
  select translate(lower(btrim(regexp_replace(normalize(coalesce(value,''),NFKC),'\s+',' ','g'))),U&'\FE0E\FE0F','')
-$$$sql_114_3$;
+$$$sql_115_3$;
 exception when invalid_function_definition then
   -- A newer signature of normalize_auction_tag(text) is already installed. Its final definition below is mandatory.
   null;
@@ -15960,12 +16023,12 @@ end;
 
 -- live-auction-dynamic-tags.sql: source statement 4
 begin
-execute $sql_114_4$create or replace function public.auction_comment_tags(settings jsonb,field text,fallback text) returns text[]
+execute $sql_115_4$create or replace function public.auction_comment_tags(settings jsonb,field text,fallback text) returns text[]
 language sql immutable set search_path=pg_catalog,public as $$
  select coalesce(array_agg(distinct token) filter(where token<>''),array[fallback])
  from (select public.normalize_auction_tag(tag) token from jsonb_array_elements_text(
   case when jsonb_typeof(settings->field)='array' then settings->field else '[]'::jsonb end) tag) tags
-$$$sql_114_4$;
+$$$sql_115_4$;
 exception when invalid_function_definition then
   -- A newer signature of auction_comment_tags(jsonb,text,text) is already installed. Its final definition below is mandatory.
   null;
@@ -15973,17 +16036,17 @@ end;
 
 -- live-auction-dynamic-tags.sql: source statement 5
 begin
-execute $sql_114_5$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
+execute $sql_115_5$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
 language sql immutable set search_path=pg_catalog,public as $$
  select public.normalize_auction_tag(message)=any(public.auction_comment_tags(jsonb_build_object('closeKeywords',keywords),'closeKeywords','ปิด'))
-$$$sql_114_5$;
+$$$sql_115_5$;
 exception when invalid_function_definition then
   -- A newer signature of auction_close_keyword_matches(text,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-dynamic-tags.sql: source statement 6
-execute $sql_114_6$do $$declare definition text;begin
+execute $sql_115_6$do $$declare definition text;begin
  definition:=pg_get_functiondef('public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean)'::regprocedure);
  if position('a.winner_locked_at' in definition)=0 then
   definition:=replace(definition,
@@ -15992,11 +16055,11 @@ execute $sql_114_6$do $$declare definition text;begin
   if position('a.winner_locked_at' in definition)=0 then raise exception 'Unrecognized auction finalizer';end if;
   execute definition;
  end if;
-end $$$sql_114_6$;
+end $$$sql_115_6$;
 
 -- live-auction-dynamic-tags.sql: source statement 7
 begin
-execute $sql_114_7$create or replace function public.process_live_auction_comment(
+execute $sql_115_7$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
@@ -16063,28 +16126,28 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
  values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
  return r;
-end $$$sql_114_7$;
+end $$$sql_115_7$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-dynamic-tags.sql: source statement 8
-execute $sql_114_8$revoke all on function public.normalize_auction_tag(text),public.auction_comment_tags(jsonb,text,text),
- public.auction_close_keyword_matches(text,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_114_8$;
+execute $sql_115_8$revoke all on function public.normalize_auction_tag(text),public.auction_comment_tags(jsonb,text,text),
+ public.auction_close_keyword_matches(text,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_115_8$;
 
 -- live-auction-dynamic-tags.sql: source statement 9
-execute $sql_114_9$grant execute on function public.normalize_auction_tag(text),public.auction_comment_tags(jsonb,text,text),
- public.auction_close_keyword_matches(text,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_114_9$;
+execute $sql_115_9$grant execute on function public.normalize_auction_tag(text),public.auction_comment_tags(jsonb,text,text),
+ public.auction_close_keyword_matches(text,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_115_9$;
 
 -- live-auction-dynamic-tags.sql: source statement 10
-execute $sql_114_10$notify pgrst,'reload schema'$sql_114_10$;
+execute $sql_115_10$notify pgrst,'reload schema'$sql_115_10$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-dynamic-tags.sql','dd8a4c8f0ad8a9fd8578570129b783140fa1fc053e7d8f8aab8e4acd4a17af67','519739b3173ff89175f57388066e5b73bf2317b8486cfa1e45ff7d3524a935bd');
-end $migration_114$;
+end $migration_115$;
 
--- 116. facebook-comment-configuration.sql
-do $migration_115$
+-- 117. facebook-comment-configuration.sql
+do $migration_116$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-comment-configuration.sql';
@@ -16095,7 +16158,7 @@ begin
     return;
   end if;
 -- facebook-comment-configuration.sql: source statement 2
-execute $sql_115_2$do $resolver_identities$
+execute $sql_116_2$do $resolver_identities$
 declare expected record;installed record;identity regprocedure;
 begin
  for expected in select * from (values
@@ -16119,57 +16182,57 @@ begin
    execute format('drop function if exists %s',identity);
   end if;
  end loop;
-end $resolver_identities$$sql_115_2$;
+end $resolver_identities$$sql_116_2$;
 
 -- facebook-comment-configuration.sql: source statement 3
-execute $sql_115_3$alter table public.auctions add column if not exists winner_locked_at timestamptz$sql_115_3$;
+execute $sql_116_3$alter table public.auctions add column if not exists winner_locked_at timestamptz$sql_116_3$;
 
 -- facebook-comment-configuration.sql: source statement 4
-execute $sql_115_4$create or replace function public.normalize_auction_tag(value text) returns text
+execute $sql_116_4$create or replace function public.normalize_auction_tag(value text) returns text
 language sql immutable set search_path=pg_catalog,public as $$
  select translate(lower(btrim(regexp_replace(normalize(coalesce(value,''),NFKC),'\s+',' ','g'))),U&'\FE0E\FE0F','')
-$$$sql_115_4$;
+$$$sql_116_4$;
 
 -- facebook-comment-configuration.sql: source statement 5
-execute $sql_115_5$create or replace function public.auction_comment_tags(settings jsonb,field text,fallback text) returns text[]
+execute $sql_116_5$create or replace function public.auction_comment_tags(settings jsonb,field text,fallback text) returns text[]
 language sql immutable set search_path=pg_catalog,public as $$
  select coalesce(array_agg(distinct token) filter(where token<>''),array[fallback])
  from (select public.normalize_auction_tag(tag) token from jsonb_array_elements_text(
   case when jsonb_typeof(settings->field)='array' then settings->field else '[]'::jsonb end) tag) tags
-$$$sql_115_5$;
+$$$sql_116_5$;
 
 -- facebook-comment-configuration.sql: source statement 6
-execute $sql_115_6$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
+execute $sql_116_6$create or replace function public.auction_close_keyword_matches(message text,keywords jsonb) returns boolean
 language sql immutable set search_path=pg_catalog,public as $$
  select public.normalize_auction_tag(message)=any(public.auction_comment_tags(jsonb_build_object('closeKeywords',keywords),'closeKeywords','ปิด'))
-$$$sql_115_6$;
+$$$sql_116_6$;
 
 -- facebook-comment-configuration.sql: source statement 7
-execute $sql_115_7$alter table public.live_sessions add column if not exists mode text check(mode in ('auction','cf','auto')),
+execute $sql_116_7$alter table public.live_sessions add column if not exists mode text check(mode in ('auction','cf','auto')),
  add column if not exists confirmation_keywords text[], add column if not exists closing_keywords text[],
  add column if not exists cf_patterns jsonb not null default '[]',
- add column if not exists comment_settings jsonb not null default '{}'$sql_115_7$;
+ add column if not exists comment_settings jsonb not null default '{}'$sql_116_7$;
 
 -- facebook-comment-configuration.sql: source statement 8
-execute $sql_115_8$create table if not exists public.facebook_comment_defaults (
+execute $sql_116_8$create table if not exists public.facebook_comment_defaults (
  id boolean primary key default true check(id),settings jsonb not null
-)$sql_115_8$;
+)$sql_116_8$;
 
 -- facebook-comment-configuration.sql: source statement 9
-execute $sql_115_9$alter table public.facebook_comment_defaults enable row level security$sql_115_9$;
+execute $sql_116_9$alter table public.facebook_comment_defaults enable row level security$sql_116_9$;
 
 -- facebook-comment-configuration.sql: source statement 10
-execute $sql_115_10$revoke all on public.facebook_comment_defaults from public,anon,authenticated$sql_115_10$;
+execute $sql_116_10$revoke all on public.facebook_comment_defaults from public,anon,authenticated$sql_116_10$;
 
 -- facebook-comment-configuration.sql: source statement 11
-execute $sql_115_11$grant all on public.facebook_comment_defaults to service_role$sql_115_11$;
+execute $sql_116_11$grant all on public.facebook_comment_defaults to service_role$sql_116_11$;
 
 -- facebook-comment-configuration.sql: source statement 12
-execute $sql_115_12$insert into public.facebook_comment_defaults(id,settings) values(true,
- '{"confirmation_tags":["1"],"closing_tags":["ปิด"],"opening_tags":[],"counting_tags":{}}') on conflict do nothing$sql_115_12$;
+execute $sql_116_12$insert into public.facebook_comment_defaults(id,settings) values(true,
+ '{"confirmation_tags":["1"],"closing_tags":["ปิด"],"opening_tags":[],"counting_tags":{}}') on conflict do nothing$sql_116_12$;
 
 -- facebook-comment-configuration.sql: source statement 13
-execute $sql_115_13$create or replace function public.first_configured_facebook_comment_tags(candidates jsonb)
+execute $sql_116_13$create or replace function public.first_configured_facebook_comment_tags(candidates jsonb)
 returns jsonb language plpgsql immutable set search_path=pg_catalog,public as $$
 declare candidate jsonb;tag jsonb;token text;tags text[];
 begin
@@ -16184,10 +16247,10 @@ begin
   if cardinality(tags)>0 then return to_jsonb(tags);end if;
  end loop;
  return '[]'::jsonb;
-end $$$sql_115_13$;
+end $$$sql_116_13$;
 
 -- facebook-comment-configuration.sql: source statement 14
-execute $sql_115_14$create or replace function public.resolve_facebook_comment_settings(session jsonb,snapshot jsonb default '{}')
+execute $sql_116_14$create or replace function public.resolve_facebook_comment_settings(session jsonb,snapshot jsonb default '{}')
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare defaults jsonb;raw jsonb;confirmation jsonb;closing jsonb;
 begin
@@ -16209,10 +16272,10 @@ begin
   snapshot->'comment_settings'->'closing_keywords',snapshot->'comment_settings'->'closing_tags',snapshot->'comment_settings'->'closeKeywords',
   snapshot->'auction_settings'->'closing_keywords',snapshot->'auction_settings'->'closing_tags',defaults->'closing_tags'));
  return defaults||raw||jsonb_build_object('confirmation_tags',confirmation,'keywords',confirmation,'closing_tags',closing,'closeKeywords',closing);
-end $$$sql_115_14$;
+end $$$sql_116_14$;
 
 -- facebook-comment-configuration.sql: source statement 15
-execute $sql_115_15$create or replace function public.facebook_comment_context(p_tenant uuid,p_page text,p_posts text[])
+execute $sql_116_15$create or replace function public.facebook_comment_context(p_tenant uuid,p_page text,p_posts text[])
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare s public.live_sessions;defaults jsonb;raw jsonb;settings jsonb;mode text;confirm jsonb;closing jsonb;
 begin
@@ -16233,10 +16296,10 @@ begin
     and (live_post_id in (select regexp_replace(post,'^.*_','') from unnest(p_posts) post) or live_post_aliases && p_posts)) then 'auction' else 'cf' end;
  end if;
  return jsonb_build_object('mode',mode,'session',case when s.id is null then '{}'::jsonb else to_jsonb(s) end,'settings',settings);
-end $$$sql_115_15$;
+end $$$sql_116_15$;
 
 -- facebook-comment-configuration.sql: source statement 16
-execute $sql_115_16$create or replace function public.save_facebook_comment_config(p_tenant uuid,p_session uuid,p_actor uuid,p_settings jsonb)
+execute $sql_116_16$create or replace function public.save_facebook_comment_config(p_tenant uuid,p_session uuid,p_actor uuid,p_settings jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare s public.live_sessions;key text;tags jsonb;pattern jsonb;
 begin
@@ -16277,25 +16340,25 @@ begin
   cf_patterns=coalesce(p_settings->'cf_patterns',cf_patterns),comment_settings=comment_settings||p_settings,
   automation_revision=automation_revision+1 where id=s.id returning * into s;
  return public.facebook_comment_context(p_tenant,s.page_id,array[s.live_post_id]);
-end $$$sql_115_16$;
+end $$$sql_116_16$;
 
 -- facebook-comment-configuration.sql: source statement 17
-execute $sql_115_17$create or replace function public.stamp_facebook_catalog_post() returns trigger
+execute $sql_116_17$create or replace function public.stamp_facebook_catalog_post() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if new.source='facebook_comment' and nullif(current_setting('app.facebook_comment_post',true),'') is not null then
   new.live_post_id:=current_setting('app.facebook_comment_post',true);
  end if;return new;
-end $$$sql_115_17$;
+end $$$sql_116_17$;
 
 -- facebook-comment-configuration.sql: source statement 18
-execute $sql_115_18$drop trigger if exists a_stamp_facebook_catalog_post on public.orders$sql_115_18$;
+execute $sql_116_18$drop trigger if exists a_stamp_facebook_catalog_post on public.orders$sql_116_18$;
 
 -- facebook-comment-configuration.sql: source statement 19
-execute $sql_115_19$create trigger a_stamp_facebook_catalog_post before insert on public.orders for each row execute function public.stamp_facebook_catalog_post()$sql_115_19$;
+execute $sql_116_19$create trigger a_stamp_facebook_catalog_post before insert on public.orders for each row execute function public.stamp_facebook_catalog_post()$sql_116_19$;
 
 -- facebook-comment-configuration.sql: source statement 20
-execute $sql_115_20$create or replace function public.place_facebook_catalog_order(p_tenant uuid,p_customer uuid,p_page text,p_post text,p_comment text,p_text text)
+execute $sql_116_20$create or replace function public.place_facebook_catalog_order(p_tenant uuid,p_customer uuid,p_page text,p_post text,p_comment text,p_text text)
 returns table(r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text)
 language plpgsql set search_path=pg_catalog,public as $$
 declare context jsonb;patterns jsonb;text text;code text;matches text[];previous text;
@@ -16323,10 +16386,10 @@ begin
  perform set_config('app.facebook_comment_post',coalesce(p_post,''),true);
  return query select * from public.place_cf_order_core(p_tenant,p_customer,null,code,'facebook_comment',p_comment);
  perform set_config('app.facebook_comment_post',coalesce(previous,''),true);
-end $$$sql_115_20$;
+end $$$sql_116_20$;
 
 -- facebook-comment-configuration.sql: source statement 21
-execute $sql_115_21$create or replace function public.process_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_116_21$create or replace function public.process_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; e public.facebook_webhook_events; v jsonb; prior jsonb; r jsonb;
  sender text; cid text; bidder text; amount numeric; minimum numeric; outcome text; host boolean;
@@ -16386,11 +16449,11 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),amount,p_kind='OPENING_BID',outcome,r);
  return r;
-end $$$sql_115_21$;
+end $$$sql_116_21$;
 
 -- facebook-comment-configuration.sql: source statement 22
 begin
-execute $sql_115_22$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_116_22$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
 begin
@@ -16435,7 +16498,7 @@ begin
    select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
  end if;
  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
-end $$$sql_115_22$;
+end $$$sql_116_22$;
 exception when invalid_function_definition then
   -- A newer signature of finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -16443,7 +16506,7 @@ end;
 
 -- facebook-comment-configuration.sql: source statement 23
 begin
-execute $sql_115_23$create or replace function public.process_live_auction_comment(
+execute $sql_116_23$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
@@ -16522,34 +16585,34 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
  values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
  return r;
-end $$$sql_115_23$;
+end $$$sql_116_23$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- facebook-comment-configuration.sql: source statement 24
-execute $sql_115_24$revoke all on function public.first_configured_facebook_comment_tags(jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
+execute $sql_116_24$revoke all on function public.first_configured_facebook_comment_tags(jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
  public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text),public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean),
  public.normalize_auction_tag(text),public.auction_comment_tags(jsonb,text,text),public.auction_close_keyword_matches(text,jsonb),
  public.resolve_facebook_comment_settings(jsonb,jsonb),public.facebook_comment_context(uuid,text,text[]),public.save_facebook_comment_config(uuid,uuid,uuid,jsonb),
- public.place_facebook_catalog_order(uuid,uuid,text,text,text,text),public.stamp_facebook_catalog_post() from public,anon,authenticated$sql_115_24$;
+ public.place_facebook_catalog_order(uuid,uuid,text,text,text,text),public.stamp_facebook_catalog_post() from public,anon,authenticated$sql_116_24$;
 
 -- facebook-comment-configuration.sql: source statement 25
-execute $sql_115_25$grant execute on function public.first_configured_facebook_comment_tags(jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
+execute $sql_116_25$grant execute on function public.first_configured_facebook_comment_tags(jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
  public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text),public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean),
  public.normalize_auction_tag(text),public.auction_comment_tags(jsonb,text,text),public.auction_close_keyword_matches(text,jsonb),
  public.resolve_facebook_comment_settings(jsonb,jsonb),public.facebook_comment_context(uuid,text,text[]),public.save_facebook_comment_config(uuid,uuid,uuid,jsonb),
- public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role$sql_115_25$;
+ public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role$sql_116_25$;
 
 -- facebook-comment-configuration.sql: source statement 26
-execute $sql_115_26$notify pgrst,'reload schema'$sql_115_26$;
+execute $sql_116_26$notify pgrst,'reload schema'$sql_116_26$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-comment-configuration.sql','657b5c9cd113c3ff7041ba1191c0200a5a47fdae69d4bd0d725dca29fe0ede18','5bdf7e2cc6cc0f43375e2a9753fd7b02f1a122bf35aaea95871324b9e45ace80');
-end $migration_115$;
+end $migration_116$;
 
--- 117. facebook-message-echoes.sql
-do $migration_116$
+-- 118. facebook-message-echoes.sql
+do $migration_117$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-message-echoes.sql';
@@ -16560,26 +16623,26 @@ begin
     return;
   end if;
 -- facebook-message-echoes.sql: source statement 2
-execute $sql_116_2$create or replace function public.preserve_message_receipt_status() returns trigger
+execute $sql_117_2$create or replace function public.preserve_message_receipt_status() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 begin
  if old.delivery_status='read' then new.delivery_status:='read';
  elsif old.delivery_status='delivered' and new.delivery_status is distinct from 'read' then new.delivery_status:='delivered';end if;
  return new;
-end $$$sql_116_2$;
+end $$$sql_117_2$;
 
 -- facebook-message-echoes.sql: source statement 3
-execute $sql_116_3$drop trigger if exists messages_preserve_receipt_status on public.messages$sql_116_3$;
+execute $sql_117_3$drop trigger if exists messages_preserve_receipt_status on public.messages$sql_117_3$;
 
 -- facebook-message-echoes.sql: source statement 4
-execute $sql_116_4$create trigger messages_preserve_receipt_status before update of delivery_status on public.messages
-for each row execute function public.preserve_message_receipt_status()$sql_116_4$;
+execute $sql_117_4$create trigger messages_preserve_receipt_status before update of delivery_status on public.messages
+for each row execute function public.preserve_message_receipt_status()$sql_117_4$;
 
 -- facebook-message-echoes.sql: source statement 5
-execute $sql_116_5$revoke all on function public.preserve_message_receipt_status() from public,anon,authenticated$sql_116_5$;
+execute $sql_117_5$revoke all on function public.preserve_message_receipt_status() from public,anon,authenticated$sql_117_5$;
 
 -- facebook-message-echoes.sql: source statement 6
-execute $sql_116_6$create or replace function public.persist_facebook_message_echo(
+execute $sql_117_6$create or replace function public.persist_facebook_message_echo(
   p_event uuid,p_claim uuid,p_tenant uuid,p_app text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events; c public.customers; m jsonb; mirrored jsonb;
@@ -16638,16 +16701,16 @@ begin
  insert into public.facebook_webhook_steps(event_id,name,status,result,completed_at)
  values(e.id,'echo','completed',result,clock_timestamp());
  return result;
-end $$$sql_116_6$;
+end $$$sql_117_6$;
 
 -- facebook-message-echoes.sql: source statement 7
-execute $sql_116_7$revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public,anon,authenticated$sql_116_7$;
+execute $sql_117_7$revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public,anon,authenticated$sql_117_7$;
 
 -- facebook-message-echoes.sql: source statement 8
-execute $sql_116_8$grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role$sql_116_8$;
+execute $sql_117_8$grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role$sql_117_8$;
 
 -- facebook-message-echoes.sql: source statement 9
-execute $sql_116_9$do $$ declare tab text; begin
+execute $sql_117_9$do $$ declare tab text; begin
  if exists(select 1 from pg_publication where pubname='supabase_realtime') then
   foreach tab in array array['messages','customers','comments','slips','conversation_reads'] loop
    if to_regclass(format('public.%I',tab)) is not null and not exists(
@@ -16655,16 +16718,16 @@ execute $sql_116_9$do $$ declare tab text; begin
    ) then execute format('alter publication supabase_realtime add table public.%I',tab);end if;
   end loop;
  end if;
-end $$$sql_116_9$;
+end $$$sql_117_9$;
 
 -- facebook-message-echoes.sql: source statement 10
-execute $sql_116_10$notify pgrst,'reload schema'$sql_116_10$;
+execute $sql_117_10$notify pgrst,'reload schema'$sql_117_10$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('facebook-message-echoes.sql','9e9fc1c54a45a50863028c4bf9f0a17ef43c095ef362b3db54176daccb79ba6c','b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2');
-end $migration_116$;
+end $migration_117$;
 
--- 118. inbox-realtime-access.sql
-do $migration_117$
+-- 119. inbox-realtime-access.sql
+do $migration_118$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-realtime-access.sql';
@@ -16675,48 +16738,48 @@ begin
     return;
   end if;
 -- inbox-realtime-access.sql: source statement 2
-execute $sql_117_2$drop policy if exists customer_feature_access on public.customers$sql_117_2$;
+execute $sql_118_2$drop policy if exists customer_feature_access on public.customers$sql_118_2$;
 
 -- inbox-realtime-access.sql: source statement 3
-execute $sql_117_3$drop policy if exists customer_feature_write_access on public.customers$sql_117_3$;
+execute $sql_118_3$drop policy if exists customer_feature_write_access on public.customers$sql_118_3$;
 
 -- inbox-realtime-access.sql: source statement 4
-execute $sql_117_4$create policy customer_feature_write_access on public.customers as restrictive
+execute $sql_118_4$create policy customer_feature_write_access on public.customers as restrictive
  for update to authenticated
  using(public.has_tenant_feature(tenant_id,'customer_management'))
- with check(public.has_tenant_feature(tenant_id,'customer_management'))$sql_117_4$;
+ with check(public.has_tenant_feature(tenant_id,'customer_management'))$sql_118_4$;
 
 -- inbox-realtime-access.sql: source statement 5
-execute $sql_117_5$drop policy if exists message_feature_access on public.messages$sql_117_5$;
+execute $sql_118_5$drop policy if exists message_feature_access on public.messages$sql_118_5$;
 
 -- inbox-realtime-access.sql: source statement 6
-execute $sql_117_6$drop policy if exists inbox_customer_tenant_read on public.customers$sql_117_6$;
+execute $sql_118_6$drop policy if exists inbox_customer_tenant_read on public.customers$sql_118_6$;
 
 -- inbox-realtime-access.sql: source statement 7
-execute $sql_117_7$create policy inbox_customer_tenant_read on public.customers as restrictive
- for select to authenticated using(public.can_access_tenant(tenant_id))$sql_117_7$;
+execute $sql_118_7$create policy inbox_customer_tenant_read on public.customers as restrictive
+ for select to authenticated using(public.can_access_tenant(tenant_id))$sql_118_7$;
 
 -- inbox-realtime-access.sql: source statement 8
-execute $sql_117_8$drop policy if exists inbox_message_tenant_read on public.messages$sql_117_8$;
+execute $sql_118_8$drop policy if exists inbox_message_tenant_read on public.messages$sql_118_8$;
 
 -- inbox-realtime-access.sql: source statement 9
-execute $sql_117_9$create policy inbox_message_tenant_read on public.messages as restrictive
+execute $sql_118_9$create policy inbox_message_tenant_read on public.messages as restrictive
  for select to authenticated using(exists(select 1 from public.customers c
- where c.id=customer_id and public.can_access_tenant(c.tenant_id)))$sql_117_9$;
+ where c.id=customer_id and public.can_access_tenant(c.tenant_id)))$sql_118_9$;
 
 -- inbox-realtime-access.sql: source statement 10
-execute $sql_117_10$grant select on public.messages,public.customers to authenticated$sql_117_10$;
+execute $sql_118_10$grant select on public.messages,public.customers to authenticated$sql_118_10$;
 
 -- inbox-realtime-access.sql: source statement 11
-execute $sql_117_11$drop policy if exists own_read on public.conversation_reads$sql_117_11$;
+execute $sql_118_11$drop policy if exists own_read on public.conversation_reads$sql_118_11$;
 
 -- inbox-realtime-access.sql: source statement 12
-execute $sql_117_12$create policy own_read on public.conversation_reads for select to authenticated
+execute $sql_118_12$create policy own_read on public.conversation_reads for select to authenticated
  using(user_id=auth.uid() and exists(select 1 from public.customers c
-  where c.id=customer_id and public.can_access_tenant(c.tenant_id)))$sql_117_12$;
+  where c.id=customer_id and public.can_access_tenant(c.tenant_id)))$sql_118_12$;
 
 -- inbox-realtime-access.sql: source statement 13
-execute $sql_117_13$do $$ declare tab text; begin
+execute $sql_118_13$do $$ declare tab text; begin
  if not exists(select 1 from pg_publication where pubname='supabase_realtime') then
   create publication supabase_realtime;
  end if;
@@ -16727,16 +16790,16 @@ execute $sql_117_13$do $$ declare tab text; begin
     and schemaname='public' and tablename=tab
   ) then execute format('alter publication supabase_realtime add table public.%I',tab);end if;
  end loop;
-end $$$sql_117_13$;
+end $$$sql_118_13$;
 
 -- inbox-realtime-access.sql: source statement 14
-execute $sql_117_14$notify pgrst,'reload schema'$sql_117_14$;
+execute $sql_118_14$notify pgrst,'reload schema'$sql_118_14$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-realtime-access.sql','3503db1edd4132f6d23c59eb444c1bf2c4b6759feebdc8019f635962d4cc9d00','f2c1e283a073b6967c64b37378a09ec179baedca837587b19efc0163a780ab65');
-end $migration_117$;
+end $migration_118$;
 
--- 119. live-auction-deadlines.sql
-do $migration_118$
+-- 120. live-auction-deadlines.sql
+do $migration_119$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-deadlines.sql';
@@ -16747,47 +16810,47 @@ begin
     return;
   end if;
 -- live-auction-deadlines.sql: source statement 2
-execute $sql_118_2$alter table public.auctions add column if not exists duration_seconds integer$sql_118_2$;
+execute $sql_119_2$alter table public.auctions add column if not exists duration_seconds integer$sql_119_2$;
 
 -- live-auction-deadlines.sql: source statement 3
-execute $sql_118_3$alter table public.auctions add column if not exists timer_started_at timestamptz$sql_118_3$;
+execute $sql_119_3$alter table public.auctions add column if not exists timer_started_at timestamptz$sql_119_3$;
 
 -- live-auction-deadlines.sql: source statement 4
-execute $sql_118_4$alter table public.auctions add column if not exists ends_at timestamptz$sql_118_4$;
+execute $sql_119_4$alter table public.auctions add column if not exists ends_at timestamptz$sql_119_4$;
 
 -- live-auction-deadlines.sql: source statement 5
-execute $sql_118_5$alter table public.auctions drop constraint if exists auction_duration_valid$sql_118_5$;
+execute $sql_119_5$alter table public.auctions drop constraint if exists auction_duration_valid$sql_119_5$;
 
 -- live-auction-deadlines.sql: source statement 6
-execute $sql_118_6$alter table public.auctions add constraint auction_duration_valid
- check(duration_seconds is null or duration_seconds between 30 and 86400)$sql_118_6$;
+execute $sql_119_6$alter table public.auctions add constraint auction_duration_valid
+ check(duration_seconds is null or duration_seconds between 30 and 86400)$sql_119_6$;
 
 -- live-auction-deadlines.sql: source statement 7
-execute $sql_118_7$alter table public.auctions alter column duration_seconds set default 300$sql_118_7$;
+execute $sql_119_7$alter table public.auctions alter column duration_seconds set default 300$sql_119_7$;
 
 -- live-auction-deadlines.sql: source statement 8
-execute $sql_118_8$create index if not exists auctions_due on public.auctions(ends_at)
- where status='active' and ends_at is not null$sql_118_8$;
+execute $sql_119_8$create index if not exists auctions_due on public.auctions(ends_at)
+ where status='active' and ends_at is not null$sql_119_8$;
 
 -- live-auction-deadlines.sql: source statement 9
-execute $sql_118_9$create or replace function public.initialize_auction_deadline() returns trigger
+execute $sql_119_9$create or replace function public.initialize_auction_deadline() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$ begin
  new.duration_seconds:=coalesce(new.duration_seconds,300);
  new.timer_started_at:=clock_timestamp();
  new.ends_at:=new.timer_started_at+make_interval(secs=>new.duration_seconds);
  return new;
-end $$$sql_118_9$;
+end $$$sql_119_9$;
 
 -- live-auction-deadlines.sql: source statement 10
-execute $sql_118_10$drop trigger if exists initialize_auction_deadline on public.auctions$sql_118_10$;
+execute $sql_119_10$drop trigger if exists initialize_auction_deadline on public.auctions$sql_119_10$;
 
 -- live-auction-deadlines.sql: source statement 11
-execute $sql_118_11$create trigger initialize_auction_deadline before insert on public.auctions
- for each row execute function public.initialize_auction_deadline()$sql_118_11$;
+execute $sql_119_11$create trigger initialize_auction_deadline before insert on public.auctions
+ for each row execute function public.initialize_auction_deadline()$sql_119_11$;
 
 -- live-auction-deadlines.sql: source statement 12
 begin
-execute $sql_118_12$create or replace function public.close_due_live_auction(
+execute $sql_119_12$create or replace function public.close_due_live_auction(
  p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; result jsonb;
@@ -16814,7 +16877,7 @@ begin
  update public.auctions set winner_locked_at=clock_timestamp() where id=a.id;
  result:=public.finalize_live_auction_highest_bid(a.id,a.tenant_id,null,p_cancel);
  return result;
-end $$$sql_118_12$;
+end $$$sql_119_12$;
 exception when invalid_function_definition then
   -- A newer signature of close_due_live_auction(uuid,uuid,boolean,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -16822,7 +16885,7 @@ end;
 
 -- live-auction-deadlines.sql: source statement 13
 begin
-execute $sql_118_13$create or replace function public.expire_live_auctions(p_tenant uuid default null)
+execute $sql_119_13$create or replace function public.expire_live_auctions(p_tenant uuid default null)
 returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare a record; result jsonb; count_closed integer:=0;
 begin
@@ -16840,14 +16903,14 @@ begin
   end;
  end loop;
  return count_closed;
-end $$$sql_118_13$;
+end $$$sql_119_13$;
 exception when invalid_function_definition then
   -- A newer signature of expire_live_auctions(uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-deadlines.sql: source statement 14
-execute $sql_118_14$create or replace function public.enforce_auction_bid_deadline() returns trigger
+execute $sql_119_14$create or replace function public.enforce_auction_bid_deadline() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; received_at timestamptz;
 begin
@@ -16859,26 +16922,26 @@ begin
   end if;
  end if;
  return new;
-end $$$sql_118_14$;
+end $$$sql_119_14$;
 
 -- live-auction-deadlines.sql: source statement 15
-execute $sql_118_15$drop trigger if exists enforce_auction_bid_deadline on public.auction_bids$sql_118_15$;
+execute $sql_119_15$drop trigger if exists enforce_auction_bid_deadline on public.auction_bids$sql_119_15$;
 
 -- live-auction-deadlines.sql: source statement 16
-execute $sql_118_16$create trigger enforce_auction_bid_deadline before insert on public.auction_bids
- for each row execute function public.enforce_auction_bid_deadline()$sql_118_16$;
+execute $sql_119_16$create trigger enforce_auction_bid_deadline before insert on public.auction_bids
+ for each row execute function public.enforce_auction_bid_deadline()$sql_119_16$;
 
 -- live-auction-deadlines.sql: source statement 17
-execute $sql_118_17$do $$ begin
+execute $sql_119_17$do $$ begin
  if to_regprocedure('public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text)') is null then
   alter function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text)
    rename to process_live_auction_comment_without_deadline;
  end if;
-end $$$sql_118_17$;
+end $$$sql_119_17$;
 
 -- live-auction-deadlines.sql: source statement 18
 begin
-execute $sql_118_18$create or replace function public.process_live_auction_comment(
+execute $sql_119_18$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;
@@ -16892,22 +16955,22 @@ begin
   return jsonb_build_object('status','closed','reason','AUCTION_DEADLINE_PASSED');
  end if;
  return public.process_live_auction_comment_without_deadline(p_auction,p_tenant,p_event,p_kind,p_amount,p_control);
-end $$$sql_118_18$;
+end $$$sql_119_18$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-deadlines.sql: source statement 19
-execute $sql_118_19$do $$ begin
+execute $sql_119_19$do $$ begin
  if to_regprocedure('public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb)') is null then
   alter function public.save_auction_workspace(uuid,uuid,uuid,jsonb) rename to save_auction_workspace_without_deadline;
  end if;
-end $$$sql_118_19$;
+end $$$sql_119_19$;
 
 -- live-auction-deadlines.sql: source statement 20
 begin
-execute $sql_118_20$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_119_20$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare result jsonb; duration integer; replay boolean;
 begin
@@ -16923,51 +16986,51 @@ begin
  where id=(result->>'auctionId')::uuid and tenant_id=p_tenant and status='active'
   and (duration_seconds is distinct from duration or ends_at is null);
  return result;
-end $$$sql_118_20$;
+end $$$sql_119_20$;
 exception when invalid_function_definition then
   -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-deadlines.sql: source statement 21
-execute $sql_118_21$create or replace function public.start_legacy_auction_timer(p_auction uuid,p_tenant uuid)
+execute $sql_119_21$create or replace function public.start_legacy_auction_timer(p_auction uuid,p_tenant uuid)
 returns void language sql set search_path=pg_catalog,public as $$
  update public.auctions set timer_started_at=clock_timestamp(),duration_seconds=300,
   ends_at=clock_timestamp()+interval '5 minutes'
  where id=p_auction and tenant_id=p_tenant and status='active' and ends_at is null;
-$$$sql_118_21$;
+$$$sql_119_21$;
 
 -- live-auction-deadlines.sql: source statement 22
-execute $sql_118_22$revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean),
+execute $sql_119_22$revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean),
  public.expire_live_auctions(uuid),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
  public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text),
  public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb),
- public.start_legacy_auction_timer(uuid,uuid) from public,anon,authenticated$sql_118_22$;
+ public.start_legacy_auction_timer(uuid,uuid) from public,anon,authenticated$sql_119_22$;
 
 -- live-auction-deadlines.sql: source statement 23
-execute $sql_118_23$grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean),
+execute $sql_119_23$grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean),
  public.expire_live_auctions(uuid),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text),
  public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text),
  public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb),
- public.start_legacy_auction_timer(uuid,uuid) to service_role$sql_118_23$;
+ public.start_legacy_auction_timer(uuid,uuid) to service_role$sql_119_23$;
 
 -- live-auction-deadlines.sql: source statement 24
-execute $sql_118_24$do $$ begin
+execute $sql_119_24$do $$ begin
  if to_regprocedure('cron.schedule(text,text,text)') is not null then
   perform cron.schedule('snapbot-auction-expiry','5 seconds','select public.expire_live_auctions();');
  else
   raise notice 'Enable Supabase Cron and run supabase/live-auction-cron-setup.sql for browser-independent expiry';
  end if;
-end $$$sql_118_24$;
+end $$$sql_119_24$;
 
 -- live-auction-deadlines.sql: source statement 25
-execute $sql_118_25$notify pgrst,'reload schema'$sql_118_25$;
+execute $sql_119_25$notify pgrst,'reload schema'$sql_119_25$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-deadlines.sql','7095ad449fa99642e26fac89b429dbbc855fe379dcc62de0e1a79df487bd447c','ff20250c88520e5d08cf02ae057320554e181632961dc97dcb954829cd2894db');
-end $migration_118$;
+end $migration_119$;
 
--- 120. live-auction-audit-hardening.sql
-do $migration_119$
+-- 121. live-auction-audit-hardening.sql
+do $migration_120$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-audit-hardening.sql';
@@ -16978,7 +17041,7 @@ begin
     return;
   end if;
 -- live-auction-audit-hardening.sql: source statement 2
-execute $sql_119_2$create or replace function public.auction_comment_timestamp(value text) returns timestamptz
+execute $sql_120_2$create or replace function public.auction_comment_timestamp(value text) returns timestamptz
 language plpgsql stable set search_path=pg_catalog,public as $$
 declare n numeric;
 begin
@@ -16990,10 +17053,10 @@ begin
  end if;
  return value::timestamptz;
 exception when others then return null;
-end $$$sql_119_2$;
+end $$$sql_120_2$;
 
 -- live-auction-audit-hardening.sql: source statement 3
-execute $sql_119_3$create table if not exists public.auction_poll_cursors (
+execute $sql_120_3$create table if not exists public.auction_poll_cursors (
  cursor_id uuid primary key,
  auction_id uuid not null references public.auctions(id) on delete cascade,
  tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -17004,26 +17067,26 @@ execute $sql_119_3$create table if not exists public.auction_poll_cursors (
  continuation_anchor_url text,
  continuation_boundary_at timestamptz,
  updated_at timestamptz not null default clock_timestamp()
-)$sql_119_3$;
+)$sql_120_3$;
 
 -- live-auction-audit-hardening.sql: source statement 4
-execute $sql_119_4$alter table public.auction_poll_cursors add column if not exists continuation_anchor_url text$sql_119_4$;
+execute $sql_120_4$alter table public.auction_poll_cursors add column if not exists continuation_anchor_url text$sql_120_4$;
 
 -- live-auction-audit-hardening.sql: source statement 5
-execute $sql_119_5$alter table public.auction_poll_cursors add column if not exists continuation_boundary_at timestamptz$sql_119_5$;
+execute $sql_120_5$alter table public.auction_poll_cursors add column if not exists continuation_boundary_at timestamptz$sql_120_5$;
 
 -- live-auction-audit-hardening.sql: source statement 6
-execute $sql_119_6$alter table public.auction_poll_cursors enable row level security$sql_119_6$;
+execute $sql_120_6$alter table public.auction_poll_cursors enable row level security$sql_120_6$;
 
 -- live-auction-audit-hardening.sql: source statement 7
-execute $sql_119_7$revoke all on public.auction_poll_cursors from public,anon,authenticated$sql_119_7$;
+execute $sql_120_7$revoke all on public.auction_poll_cursors from public,anon,authenticated$sql_120_7$;
 
 -- live-auction-audit-hardening.sql: source statement 8
-execute $sql_119_8$grant all on public.auction_poll_cursors to service_role$sql_119_8$;
+execute $sql_120_8$grant all on public.auction_poll_cursors to service_role$sql_120_8$;
 
 -- live-auction-audit-hardening.sql: source statement 9
 begin
-execute $sql_119_9$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_120_9$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;locked_at timestamptz;
 begin
@@ -17066,7 +17129,7 @@ begin
    on conflict(auction_id,channel) where claim_id is null do nothing;
  end if;
  return jsonb_build_object('status','closed','orderId',null);
-end $$$sql_119_9$;
+end $$$sql_120_9$;
 exception when invalid_function_definition then
   -- A newer signature of finalize_live_auction(uuid,uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -17074,7 +17137,7 @@ end;
 
 -- live-auction-audit-hardening.sql: source statement 10
 begin
-execute $sql_119_10$create or replace function public.close_due_live_auction(
+execute $sql_120_10$create or replace function public.close_due_live_auction(
  p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;
@@ -17094,7 +17157,7 @@ begin
     or e.payload->'value'->>'post_id'=any(a.live_post_aliases))
  ) then return jsonb_build_object('status','draining');end if;
  return public.finalize_live_auction(a.id,a.tenant_id,null,p_cancel);
-end $$$sql_119_10$;
+end $$$sql_120_10$;
 exception when invalid_function_definition then
   -- A newer signature of close_due_live_auction(uuid,uuid,boolean,boolean) is already installed. Its final definition below is mandatory.
   null;
@@ -17102,7 +17165,7 @@ end;
 
 -- live-auction-audit-hardening.sql: source statement 11
 begin
-execute $sql_119_11$create or replace function public.expire_live_auctions(p_tenant uuid default null)
+execute $sql_120_11$create or replace function public.expire_live_auctions(p_tenant uuid default null)
 returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare a record; result jsonb; count_closed integer:=0;
 begin
@@ -17120,7 +17183,7 @@ begin
   end;
  end loop;
  return count_closed;
-end $$$sql_119_11$;
+end $$$sql_120_11$;
 exception when invalid_function_definition then
   -- A newer signature of expire_live_auctions(uuid) is already installed. Its final definition below is mandatory.
   null;
@@ -17128,7 +17191,7 @@ end;
 
 -- live-auction-audit-hardening.sql: source statement 12
 begin
-execute $sql_119_12$create or replace function public.process_live_auction_comment(
+execute $sql_120_12$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
@@ -17206,26 +17269,26 @@ begin
  end if;
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
  return r;
-end $$$sql_119_12$;
+end $$$sql_120_12$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-audit-hardening.sql: source statement 13
-execute $sql_119_13$revoke all on function public.auction_comment_timestamp(text) from public,anon,authenticated$sql_119_13$;
+execute $sql_120_13$revoke all on function public.auction_comment_timestamp(text) from public,anon,authenticated$sql_120_13$;
 
 -- live-auction-audit-hardening.sql: source statement 14
-execute $sql_119_14$grant execute on function public.auction_comment_timestamp(text) to service_role$sql_119_14$;
+execute $sql_120_14$grant execute on function public.auction_comment_timestamp(text) to service_role$sql_120_14$;
 
 -- live-auction-audit-hardening.sql: source statement 15
-execute $sql_119_15$notify pgrst,'reload schema'$sql_119_15$;
+execute $sql_120_15$notify pgrst,'reload schema'$sql_120_15$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-audit-hardening.sql','ea40b13a6769e540af3014aa0155e8ea01084046d350246118355bd989cefba8','2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83');
-end $migration_119$;
+end $migration_120$;
 
--- 121. live-auction-audit-hardening-2.sql
-do $migration_120$
+-- 122. live-auction-audit-hardening-2.sql
+do $migration_121$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-audit-hardening-2.sql';
@@ -17236,26 +17299,26 @@ begin
     return;
   end if;
 -- live-auction-audit-hardening-2.sql: source statement 2
-execute $sql_120_2$create table if not exists public.auction_expiry_failures (
+execute $sql_121_2$create table if not exists public.auction_expiry_failures (
  sqlstate text not null check(sqlstate ~ '^[A-Z0-9]{5}$'),
  auction_id uuid not null references public.auctions(id) on delete cascade,
  occurred_at timestamptz not null default clock_timestamp()
-)$sql_120_2$;
+)$sql_121_2$;
 
 -- live-auction-audit-hardening-2.sql: source statement 3
-execute $sql_120_3$create index if not exists auction_expiry_failures_recent on public.auction_expiry_failures(occurred_at desc)$sql_120_3$;
+execute $sql_121_3$create index if not exists auction_expiry_failures_recent on public.auction_expiry_failures(occurred_at desc)$sql_121_3$;
 
 -- live-auction-audit-hardening-2.sql: source statement 4
-execute $sql_120_4$alter table public.auction_expiry_failures enable row level security$sql_120_4$;
+execute $sql_121_4$alter table public.auction_expiry_failures enable row level security$sql_121_4$;
 
 -- live-auction-audit-hardening-2.sql: source statement 5
-execute $sql_120_5$revoke all on public.auction_expiry_failures from public,anon,authenticated$sql_120_5$;
+execute $sql_121_5$revoke all on public.auction_expiry_failures from public,anon,authenticated$sql_121_5$;
 
 -- live-auction-audit-hardening-2.sql: source statement 6
-execute $sql_120_6$grant select,insert on public.auction_expiry_failures to service_role$sql_120_6$;
+execute $sql_121_6$grant select,insert on public.auction_expiry_failures to service_role$sql_121_6$;
 
 -- live-auction-audit-hardening-2.sql: source statement 7
-execute $sql_120_7$create or replace function public.expire_live_auctions_report(p_tenant uuid default null)
+execute $sql_121_7$create or replace function public.expire_live_auctions_report(p_tenant uuid default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a record;result jsonb;closed integer:=0;failed integer:=0;
 begin
@@ -17271,28 +17334,28 @@ begin
   end;
  end loop;
  return jsonb_build_object('closed',closed,'failed',failed);
-end $$$sql_120_7$;
+end $$$sql_121_7$;
 
 -- live-auction-audit-hardening-2.sql: source statement 8
 begin
-execute $sql_120_8$create or replace function public.expire_live_auctions(p_tenant uuid default null)
+execute $sql_121_8$create or replace function public.expire_live_auctions(p_tenant uuid default null)
 returns integer language sql set search_path=pg_catalog,public as $$
  select (public.expire_live_auctions_report(p_tenant)->>'closed')::integer
-$$$sql_120_8$;
+$$$sql_121_8$;
 exception when invalid_function_definition then
   -- A newer signature of expire_live_auctions(uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-audit-hardening-2.sql: source statement 9
-execute $sql_120_9$revoke all on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) from public,anon,authenticated$sql_120_9$;
+execute $sql_121_9$revoke all on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) from public,anon,authenticated$sql_121_9$;
 
 -- live-auction-audit-hardening-2.sql: source statement 10
-execute $sql_120_10$grant execute on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) to service_role$sql_120_10$;
+execute $sql_121_10$grant execute on function public.expire_live_auctions_report(uuid),public.expire_live_auctions(uuid) to service_role$sql_121_10$;
 
 -- live-auction-audit-hardening-2.sql: source statement 11
 begin
-execute $sql_120_11$create or replace function public.process_live_auction_comment(
+execute $sql_121_11$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
@@ -17378,20 +17441,20 @@ begin
  end if;
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
  return r;
-end $$$sql_120_11$;
+end $$$sql_121_11$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-audit-hardening-2.sql: source statement 12
-execute $sql_120_12$notify pgrst,'reload schema'$sql_120_12$;
+execute $sql_121_12$notify pgrst,'reload schema'$sql_121_12$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-audit-hardening-2.sql','daec6b35bf317fafe8c7581132de6d60065f6e8b103fc7c7a2f88b1849d26f6c','046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6');
-end $migration_120$;
+end $migration_121$;
 
--- 122. live-auction-manual-host-close.sql
-do $migration_121$
+-- 123. live-auction-manual-host-close.sql
+do $migration_122$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-manual-host-close.sql';
@@ -17403,7 +17466,7 @@ begin
   end if;
 -- live-auction-manual-host-close.sql: source statement 2
 begin
-execute $sql_121_2$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_122_2$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare result jsonb;duration integer;replay boolean;
 begin
@@ -17430,26 +17493,26 @@ begin
     and (duration_seconds is distinct from duration or ends_at is null);
  end if;
  return result;
-end $$$sql_121_2$;
+end $$$sql_122_2$;
 exception when invalid_function_definition then
   -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-manual-host-close.sql: source statement 3
-execute $sql_121_3$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_121_3$;
+execute $sql_122_3$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public,anon,authenticated$sql_122_3$;
 
 -- live-auction-manual-host-close.sql: source statement 4
-execute $sql_121_4$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_121_4$;
+execute $sql_122_4$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_122_4$;
 
 -- live-auction-manual-host-close.sql: source statement 5
-execute $sql_121_5$notify pgrst,'reload schema'$sql_121_5$;
+execute $sql_122_5$notify pgrst,'reload schema'$sql_122_5$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-manual-host-close.sql','2408a0343a4fec33b9a45c9543eda6775773f6fdaaa6ff24e40288b3321d84f9','2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02');
-end $migration_121$;
+end $migration_122$;
 
--- 123. live-auction-auto-cycle.sql
-do $migration_122$
+-- 124. live-auction-auto-cycle.sql
+do $migration_123$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-auto-cycle.sql';
@@ -17460,19 +17523,19 @@ begin
     return;
   end if;
 -- live-auction-auto-cycle.sql: source statement 2
-execute $sql_122_2$alter table public.live_sessions add column if not exists auction_round_template jsonb$sql_122_2$;
+execute $sql_123_2$alter table public.live_sessions add column if not exists auction_round_template jsonb$sql_123_2$;
 
 -- live-auction-auto-cycle.sql: source statement 3
-execute $sql_122_3$alter table public.auctions add column if not exists previous_auction_id uuid references public.auctions(id)$sql_122_3$;
+execute $sql_123_3$alter table public.auctions add column if not exists previous_auction_id uuid references public.auctions(id)$sql_123_3$;
 
 -- live-auction-auto-cycle.sql: source statement 4
-execute $sql_122_4$create unique index if not exists auctions_one_successor on public.auctions(previous_auction_id) where previous_auction_id is not null$sql_122_4$;
+execute $sql_123_4$create unique index if not exists auctions_one_successor on public.auctions(previous_auction_id) where previous_auction_id is not null$sql_123_4$;
 
 -- live-auction-auto-cycle.sql: source statement 5
-execute $sql_122_5$create index if not exists auction_bids_comment_lookup on public.auction_bids(comment_id)$sql_122_5$;
+execute $sql_123_5$create index if not exists auction_bids_comment_lookup on public.auction_bids(comment_id)$sql_123_5$;
 
 -- live-auction-auto-cycle.sql: source statement 6
-execute $sql_122_6$create or replace function public.normalize_auction_settings_before_split(settings jsonb) returns jsonb
+execute $sql_123_6$create or replace function public.normalize_auction_settings_before_split(settings jsonb) returns jsonb
 language sql immutable returns null on null input set search_path=pg_catalog,public as $$
  select case when coalesce(settings->>'winnerFlow','on_demand') in ('on_demand','highest_bid') then settings||jsonb_build_object(
   'winnerFlow',coalesce(settings->>'winnerFlow','on_demand'),
@@ -17481,11 +17544,11 @@ language sql immutable returns null on null input set search_path=pg_catalog,pub
   'closeKeywordPresetsVersion',1,'countEnabled',coalesce((settings->>'countEnabled')::boolean,false),'heartCloses',false,'closeEnabled',coalesce((settings->>'closeEnabled')::boolean,true),
   'bidText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end,
   'closeText',case when settings ? 'closeKeywords' then settings->>'bidText' else coalesce(settings->>'closeText','ยินดีด้วยครับ คุณ {bidder_name} ชนะประมูล {product_name} ราคา {price} บาท') end) else null end
-$$$sql_122_6$;
+$$$sql_123_6$;
 
 -- live-auction-auto-cycle.sql: source statement 7
 begin
-execute $sql_122_7$create or replace function public.auction_host_command(message text,settings jsonb)
+execute $sql_123_7$create or replace function public.auction_host_command(message text,settings jsonb)
 returns jsonb language plpgsql stable set search_path=pg_catalog,public as $$
 declare line text;count_value text;last_count text;closing text[];
 begin
@@ -17504,14 +17567,14 @@ begin
   last_count:=count_value;
  end loop;
  return case when last_count is null then jsonb_build_object('action','ignore') else jsonb_build_object('action','count','count',last_count) end;
-end $$$sql_122_7$;
+end $$$sql_123_7$;
 exception when invalid_function_definition then
   -- A newer signature of auction_host_command(text,jsonb) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-auto-cycle.sql: source statement 8
-execute $sql_122_8$create or replace function public.advance_live_auction(p_auction uuid,p_tenant uuid,p_event uuid)
+execute $sql_123_8$create or replace function public.advance_live_auction(p_auction uuid,p_tenant uuid,p_event uuid)
 returns uuid language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;s public.live_sessions;e public.facebook_webhook_events;t jsonb;settings jsonb;next_id uuid;started timestamptz;bank uuid;
 begin
@@ -17542,11 +17605,11 @@ begin
   coalesce(settings->>'closeText',a.close_reply_template),a.id,started) returning id into next_id;
  update public.auctions set duration_seconds=null,timer_started_at=null,ends_at=null where id=next_id;
  return next_id;
-end $$$sql_122_8$;
+end $$$sql_123_8$;
 
 -- live-auction-auto-cycle.sql: source statement 9
 begin
-execute $sql_122_9$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_123_9$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
 begin
@@ -17597,7 +17660,7 @@ begin
  -- Preserve original request identity when the active round's bid prices were protected.
  update public.auction_workspace_requests set input=p_input where tenant_id=p_tenant and request_id=p_request;
  return result;
-end $$$sql_122_9$;
+end $$$sql_123_9$;
 exception when invalid_function_definition then
   -- A newer signature of save_auction_workspace(uuid,uuid,uuid,jsonb) is already installed. Its final definition below is mandatory.
   null;
@@ -17605,7 +17668,7 @@ end;
 
 -- live-auction-auto-cycle.sql: source statement 10
 begin
-execute $sql_122_10$create or replace function public.process_live_auction_comment(
+execute $sql_123_10$create or replace function public.process_live_auction_comment(
  p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null
 ) returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
@@ -17703,36 +17766,36 @@ begin
  r:=r||jsonb_build_object('auctionId',a.id);
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result) values(a.id,e.id,cid,sender,left(v->'from'->>'name',200),left(coalesce(v->>'message',''),2000),null,false,r->>'status',r);
  return r;
-end $$$sql_122_10$;
+end $$$sql_123_10$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-auto-cycle.sql: source statement 11
-execute $sql_122_11$revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
- public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_122_11$;
+execute $sql_123_11$revoke all on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_123_11$;
 
 -- live-auction-auto-cycle.sql: source statement 12
-execute $sql_122_12$grant execute on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
- public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_122_12$;
+execute $sql_123_12$grant execute on function public.normalize_auction_settings_before_split(jsonb),public.auction_host_command(text,jsonb),public.advance_live_auction(uuid,uuid,uuid),
+ public.save_auction_workspace(uuid,uuid,uuid,jsonb),public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_123_12$;
 
 -- live-auction-auto-cycle.sql: source statement 13
-execute $sql_122_13$revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
- public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_122_13$;
+execute $sql_123_13$revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
+ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_123_13$;
 
 -- live-auction-auto-cycle.sql: source statement 14
-execute $sql_122_14$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
- public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_122_14$;
+execute $sql_123_14$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),
+ public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_123_14$;
 
 -- live-auction-auto-cycle.sql: source statement 15
-execute $sql_122_15$notify pgrst,'reload schema'$sql_122_15$;
+execute $sql_123_15$notify pgrst,'reload schema'$sql_123_15$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-auto-cycle.sql','c943512359db5c8e9940ad44de248cdd5295afec1893e965df770dffda63dc14','036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e');
-end $migration_122$;
+end $migration_123$;
 
--- 124. live-auction-confirmation-preservation.sql
-do $migration_123$
+-- 125. live-auction-confirmation-preservation.sql
+do $migration_124$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-confirmation-preservation.sql';
@@ -17743,7 +17806,7 @@ begin
     return;
   end if;
 -- live-auction-confirmation-preservation.sql: source statement 2
-execute $sql_123_2$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_124_2$create or replace function public.finalize_live_auction_highest_bid(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions; c public.customers; oid uuid; tab public.customer_tabs;
 begin
@@ -17788,22 +17851,22 @@ begin
    select a.id,'public',payload->'value'->>'comment_id' from public.facebook_webhook_events where id=p_event;
  end if;
  return jsonb_build_object('status',case when p_cancel then 'cancelled' else 'closed' end,'orderId',oid);
-end $$$sql_123_2$;
+end $$$sql_124_2$;
 
 -- live-auction-confirmation-preservation.sql: source statement 3
-execute $sql_123_3$revoke execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_123_3$;
+execute $sql_124_3$revoke execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public,anon,authenticated$sql_124_3$;
 
 -- live-auction-confirmation-preservation.sql: source statement 4
-execute $sql_123_4$grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_123_4$;
+execute $sql_124_4$grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_124_4$;
 
 -- live-auction-confirmation-preservation.sql: source statement 5
-execute $sql_123_5$notify pgrst,'reload schema'$sql_123_5$;
+execute $sql_124_5$notify pgrst,'reload schema'$sql_124_5$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-confirmation-preservation.sql','4cb447fb8d25ea35932e398701e60ef4a183496382b7e37dba6bfd5025b66f16','f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084');
-end $migration_123$;
+end $migration_124$;
 
--- 125. live-auction-remove-host-countdown.sql
-do $migration_124$
+-- 126. live-auction-remove-host-countdown.sql
+do $migration_125$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-remove-host-countdown.sql';
@@ -17814,16 +17877,16 @@ begin
     return;
   end if;
 -- live-auction-remove-host-countdown.sql: source statement 2
-execute $sql_124_2$alter table public.auctions drop column if exists host_count$sql_124_2$;
+execute $sql_125_2$alter table public.auctions drop column if exists host_count$sql_125_2$;
 
 -- live-auction-remove-host-countdown.sql: source statement 3
-execute $sql_124_3$alter table public.auctions drop constraint if exists auctions_status_check$sql_124_3$;
+execute $sql_125_3$alter table public.auctions drop constraint if exists auctions_status_check$sql_125_3$;
 
 -- live-auction-remove-host-countdown.sql: source statement 4
-execute $sql_124_4$alter table public.auctions add constraint auctions_status_check check(status in ('active','closed','cancelled','expired'))$sql_124_4$;
+execute $sql_125_4$alter table public.auctions add constraint auctions_status_check check(status in ('active','closed','cancelled','expired'))$sql_125_4$;
 
 -- live-auction-remove-host-countdown.sql: source statement 7
-execute $sql_124_7$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
+execute $sql_125_7$create or replace function public.finalize_live_auction(p_auction uuid,p_tenant uuid,p_event uuid default null,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;locked_at timestamptz;
 begin
@@ -17842,10 +17905,10 @@ begin
   winner_locked_at=locked_at,winner_confirmation_comment_id=null,winner_confirmation_event_id=null,winner_confirmed_at=null
   where id=a.id;
  return jsonb_build_object('status','awaiting_confirmation','orderId',null,'winnerId',a.leading_bidder_id,'closedAt',locked_at);
-end $$$sql_124_7$;
+end $$$sql_125_7$;
 
 -- live-auction-remove-host-countdown.sql: source statement 8
-execute $sql_124_8$create or replace function public.close_due_live_auction(p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false)
+execute $sql_125_8$create or replace function public.close_due_live_auction(p_auction uuid,p_tenant uuid,p_due_only boolean default true,p_cancel boolean default false)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;
 begin
@@ -17855,16 +17918,16 @@ begin
  if p_due_only and (a.ends_at is null or a.ends_at>clock_timestamp()) then return jsonb_build_object('status','not_due');end if;
  if p_cancel then return public.finalize_live_auction(a.id,a.tenant_id,null,true);end if;
  return public.finalize_live_auction(a.id,a.tenant_id,null,false);
-end $$$sql_124_8$;
+end $$$sql_125_8$;
 
 -- live-auction-remove-host-countdown.sql: source statement 9
-execute $sql_124_9$revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.close_due_live_auction(uuid,uuid,boolean,boolean) from public,anon,authenticated$sql_124_9$;
+execute $sql_125_9$revoke execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.close_due_live_auction(uuid,uuid,boolean,boolean) from public,anon,authenticated$sql_125_9$;
 
 -- live-auction-remove-host-countdown.sql: source statement 10
-execute $sql_124_10$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role$sql_124_10$;
+execute $sql_125_10$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role$sql_125_10$;
 
 -- live-auction-remove-host-countdown.sql: source statement 11
-execute $sql_124_11$create or replace function public.auction_host_command(message text,settings jsonb)
+execute $sql_125_11$create or replace function public.auction_host_command(message text,settings jsonb)
 returns jsonb language plpgsql immutable set search_path=pg_catalog,public as $$
 declare line text;closing text[];
 begin
@@ -17877,10 +17940,10 @@ begin
   return jsonb_build_object('action','ignore');
  end loop;
  return jsonb_build_object('action','ignore');
-end $$$sql_124_11$;
+end $$$sql_125_11$;
 
 -- live-auction-remove-host-countdown.sql: source statement 12
-execute $sql_124_12$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
+execute $sql_125_12$create or replace function public.save_auction_workspace(p_tenant uuid,p_actor uuid,p_request uuid,p_input jsonb)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare result jsonb;duration integer;prior public.auction_workspace_requests;a public.auctions;effective jsonb;cycling boolean;
 begin
@@ -17940,11 +18003,11 @@ begin
  update public.auctions set session_automation=coalesce(session_automation,'{}'::jsonb)-'countEnabled'-'counting_tags'
   where id=(result->>'auctionId')::uuid and tenant_id=p_tenant;
  return result;
-end $$$sql_124_12$;
+end $$$sql_125_12$;
 
 -- live-auction-remove-host-countdown.sql: source statement 13
 begin
-execute $sql_124_13$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_125_13$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
  sender text;cid text;bidder text;amount numeric;minimum numeric;outcome text;
@@ -18077,14 +18140,14 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),case when confirming or host then null else amount end,false,outcome,r);
  return r;
-end $$$sql_124_13$;
+end $$$sql_125_13$;
 exception when invalid_function_definition then
   -- A newer signature of process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) is already installed. Its final definition below is mandatory.
   null;
 end;
 
 -- live-auction-remove-host-countdown.sql: source statement 14
-execute $sql_124_14$create or replace function public.expire_live_auctions(p_tenant uuid default null)
+execute $sql_125_14$create or replace function public.expire_live_auctions(p_tenant uuid default null)
 returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare a record;result jsonb;expired_count integer:=0;
 begin
@@ -18107,22 +18170,22 @@ begin
   end;
  end loop;
  return expired_count;
-end $$$sql_124_14$;
+end $$$sql_125_14$;
 
 -- live-auction-remove-host-countdown.sql: source statement 15
-execute $sql_124_15$revoke all on function public.expire_live_auctions(uuid) from public,anon,authenticated$sql_124_15$;
+execute $sql_125_15$revoke all on function public.expire_live_auctions(uuid) from public,anon,authenticated$sql_125_15$;
 
 -- live-auction-remove-host-countdown.sql: source statement 16
-execute $sql_124_16$grant execute on function public.expire_live_auctions(uuid) to service_role$sql_124_16$;
+execute $sql_125_16$grant execute on function public.expire_live_auctions(uuid) to service_role$sql_125_16$;
 
 -- live-auction-remove-host-countdown.sql: source statement 17
-execute $sql_124_17$notify pgrst,'reload schema'$sql_124_17$;
+execute $sql_125_17$notify pgrst,'reload schema'$sql_125_17$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-remove-host-countdown.sql','b854d87762461a97878bb7037325f791a98c1397481102ff3b89b3000a1e6bd6','a3aef979ddeb2e31911ae9c907dc587ba0c8101a49026758a53c3b72bd2f83e7');
-end $migration_124$;
+end $migration_125$;
 
--- 126. live-auction-sync-winner-price.sql
-do $migration_125$
+-- 127. live-auction-sync-winner-price.sql
+do $migration_126$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-sync-winner-price.sql';
@@ -18133,7 +18196,7 @@ begin
     return;
   end if;
 -- live-auction-sync-winner-price.sql: source statement 1
-execute $sql_125_1$create or replace function public.sync_live_auction_confirmed_price()
+execute $sql_126_1$create or replace function public.sync_live_auction_confirmed_price()
 returns trigger
 language plpgsql
 set search_path=pg_catalog,public
@@ -18150,24 +18213,24 @@ begin
   end if;
  end if;
  return new;
-end $$$sql_125_1$;
+end $$$sql_126_1$;
 
 -- live-auction-sync-winner-price.sql: source statement 2
-execute $sql_125_2$drop trigger if exists auctions_sync_confirmed_winner_price on public.auctions$sql_125_2$;
+execute $sql_126_2$drop trigger if exists auctions_sync_confirmed_winner_price on public.auctions$sql_126_2$;
 
 -- live-auction-sync-winner-price.sql: source statement 3
-execute $sql_125_3$create trigger auctions_sync_confirmed_winner_price
+execute $sql_126_3$create trigger auctions_sync_confirmed_winner_price
 before update of winner_confirmation_comment_id on public.auctions
-for each row execute function public.sync_live_auction_confirmed_price()$sql_125_3$;
+for each row execute function public.sync_live_auction_confirmed_price()$sql_126_3$;
 
 -- live-auction-sync-winner-price.sql: source statement 4
-execute $sql_125_4$notify pgrst,'reload schema'$sql_125_4$;
+execute $sql_126_4$notify pgrst,'reload schema'$sql_126_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-sync-winner-price.sql','7e9c9f4fa208803799e291aa17d4e8dc36f449bc58205c1e24310fc58cb45699','6f88f0e4f8843d0a0d5efa89d66b5b419e8313a3c407581ee0e184a36f601599');
-end $migration_125$;
+end $migration_126$;
 
--- 127. live-auction-designated-winner.sql
-do $migration_126$
+-- 128. live-auction-designated-winner.sql
+do $migration_127$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-designated-winner.sql';
@@ -18178,10 +18241,10 @@ begin
     return;
   end if;
 -- live-auction-designated-winner.sql: source statement 1
-execute $sql_126_1$alter table public.auctions add column if not exists winner_designated_bidder_id text, add column if not exists winner_designated_at timestamptz$sql_126_1$;
+execute $sql_127_1$alter table public.auctions add column if not exists winner_designated_bidder_id text, add column if not exists winner_designated_at timestamptz$sql_127_1$;
 
 -- live-auction-designated-winner.sql: source statement 2
-execute $sql_126_2$create or replace function public.designate_live_auction_winner(p_auction uuid,p_tenant uuid,p_bidder text)
+execute $sql_127_2$create or replace function public.designate_live_auction_winner(p_auction uuid,p_tenant uuid,p_bidder text)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,public as $$
 declare a public.auctions;winner_amount numeric;
 begin
@@ -18199,16 +18262,16 @@ begin
  if winner_amount is null then raise exception 'AUCTION_WINNER_HAS_NO_VALID_BID' using errcode='22023';end if;
  update public.auctions set winner_designated_bidder_id=p_bidder,winner_designated_at=clock_timestamp() where id=a.id;
  return jsonb_build_object('status','designated','bidderId',p_bidder,'amount',winner_amount);
-end $$$sql_126_2$;
+end $$$sql_127_2$;
 
 -- live-auction-designated-winner.sql: source statement 3
-execute $sql_126_3$revoke all on function public.designate_live_auction_winner(uuid,uuid,text) from public,anon,authenticated$sql_126_3$;
+execute $sql_127_3$revoke all on function public.designate_live_auction_winner(uuid,uuid,text) from public,anon,authenticated$sql_127_3$;
 
 -- live-auction-designated-winner.sql: source statement 4
-execute $sql_126_4$grant execute on function public.designate_live_auction_winner(uuid,uuid,text) to service_role$sql_126_4$;
+execute $sql_127_4$grant execute on function public.designate_live_auction_winner(uuid,uuid,text) to service_role$sql_127_4$;
 
 -- live-auction-designated-winner.sql: source statement 5
-execute $sql_126_5$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
+execute $sql_127_5$create or replace function public.process_live_auction_comment(p_auction uuid,p_tenant uuid,p_event uuid,p_kind text,p_amount numeric default null,p_control text default null)
 returns jsonb language plpgsql set search_path=pg_catalog,public as $$
 declare a public.auctions;e public.facebook_webhook_events;v jsonb;prior jsonb;r jsonb;
  sender text;cid text;bidder text;amount numeric;minimum numeric;outcome text;
@@ -18342,22 +18405,22 @@ begin
  insert into public.auction_bids(auction_id,event_id,comment_id,bidder_id,bidder_name,comment_text,bid_amount,is_opening,status,result)
   values(a.id,e.id,cid,sender,bidder,left(coalesce(v->>'message',''),2000),case when confirming or host then null else amount end,false,outcome,r);
  return r;
-end $$$sql_126_5$;
+end $$$sql_127_5$;
 
 -- live-auction-designated-winner.sql: source statement 6
-execute $sql_126_6$revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_126_6$;
+execute $sql_127_6$revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public,anon,authenticated$sql_127_6$;
 
 -- live-auction-designated-winner.sql: source statement 7
-execute $sql_126_7$grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_126_7$;
+execute $sql_127_7$grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_127_7$;
 
 -- live-auction-designated-winner.sql: source statement 8
-execute $sql_126_8$notify pgrst,'reload schema'$sql_126_8$;
+execute $sql_127_8$notify pgrst,'reload schema'$sql_127_8$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-designated-winner.sql','4f18222c1c3cfa2086042c6c0eefa89bb4113f5e4397b3f7b7cfd32bb3058d63','b27817aefc5bdb8ae0fcf2b9e8227ea92aac6523c1454b0d1a86fdf772f15673');
-end $migration_126$;
+end $migration_127$;
 
--- 128. live-auction-winner-candidates.sql
-do $migration_127$
+-- 129. live-auction-winner-candidates.sql
+do $migration_128$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-auction-winner-candidates.sql';
@@ -18368,7 +18431,7 @@ begin
     return;
   end if;
 -- live-auction-winner-candidates.sql: source statement 1
-execute $sql_127_1$create or replace function public.list_live_auction_winner_candidates(p_auction uuid,p_tenant uuid)
+execute $sql_128_1$create or replace function public.list_live_auction_winner_candidates(p_auction uuid,p_tenant uuid)
 returns jsonb
 language sql
 stable
@@ -18392,22 +18455,22 @@ as $$
    and b.bid_amount=public.auction_numeric_price(b.comment_text)
   order by b.bidder_id,b.bid_amount desc,b.created_at desc,b.id desc
  ) candidate
-$$$sql_127_1$;
+$$$sql_128_1$;
 
 -- live-auction-winner-candidates.sql: source statement 2
-execute $sql_127_2$revoke all on function public.list_live_auction_winner_candidates(uuid,uuid) from public,anon,authenticated$sql_127_2$;
+execute $sql_128_2$revoke all on function public.list_live_auction_winner_candidates(uuid,uuid) from public,anon,authenticated$sql_128_2$;
 
 -- live-auction-winner-candidates.sql: source statement 3
-execute $sql_127_3$grant execute on function public.list_live_auction_winner_candidates(uuid,uuid) to service_role$sql_127_3$;
+execute $sql_128_3$grant execute on function public.list_live_auction_winner_candidates(uuid,uuid) to service_role$sql_128_3$;
 
 -- live-auction-winner-candidates.sql: source statement 4
-execute $sql_127_4$notify pgrst,'reload schema'$sql_127_4$;
+execute $sql_128_4$notify pgrst,'reload schema'$sql_128_4$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-auction-winner-candidates.sql','d3cf7060076756137aa2ce44853da9e53c4d1d3316d6e2718d951b1e215e7dcb','3a5c8cbcc6ad4724b41261cdfc780fe82d91687b32136ae699760365c78ec8cb');
-end $migration_127$;
+end $migration_128$;
 
--- 129. rpc-execution-hardening.sql
-do $migration_128$
+-- 130. rpc-execution-hardening.sql
+do $migration_129$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='rpc-execution-hardening.sql';
@@ -18418,882 +18481,882 @@ begin
     return;
   end if;
 -- rpc-execution-hardening.sql: source statement 2
-execute $sql_128_2$set local lock_timeout = '2s'$sql_128_2$;
+execute $sql_129_2$set local lock_timeout = '2s'$sql_129_2$;
 
 -- rpc-execution-hardening.sql: source statement 3
-execute $sql_128_3$set local statement_timeout = '60s'$sql_128_3$;
+execute $sql_129_3$set local statement_timeout = '60s'$sql_129_3$;
 
 -- rpc-execution-hardening.sql: source statement 4
-execute $sql_128_4$alter default privileges for role postgres
-  revoke execute on functions from public, anon, authenticated$sql_128_4$;
+execute $sql_129_4$alter default privileges for role postgres
+  revoke execute on functions from public, anon, authenticated$sql_129_4$;
 
 -- rpc-execution-hardening.sql: source statement 5
-execute $sql_128_5$alter default privileges for role postgres in schema public
-  revoke execute on functions from public, anon, authenticated$sql_128_5$;
+execute $sql_129_5$alter default privileges for role postgres in schema public
+  revoke execute on functions from public, anon, authenticated$sql_129_5$;
 
 -- rpc-execution-hardening.sql: source statement 6
-execute $sql_128_6$revoke all on function public.act_follow_up_job(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_6$;
+execute $sql_129_6$revoke all on function public.act_follow_up_job(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_129_6$;
 
 -- rpc-execution-hardening.sql: source statement 7
-execute $sql_128_7$grant execute on function public.act_follow_up_job(uuid,uuid,uuid,text,text) to service_role$sql_128_7$;
+execute $sql_129_7$grant execute on function public.act_follow_up_job(uuid,uuid,uuid,text,text) to service_role$sql_129_7$;
 
 -- rpc-execution-hardening.sql: source statement 8
-execute $sql_128_8$revoke all on function public.act_payment_pro(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_8$;
+execute $sql_129_8$revoke all on function public.act_payment_pro(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_129_8$;
 
 -- rpc-execution-hardening.sql: source statement 9
-execute $sql_128_9$grant execute on function public.act_payment_pro(uuid,uuid,uuid,text,text) to service_role$sql_128_9$;
+execute $sql_129_9$grant execute on function public.act_payment_pro(uuid,uuid,uuid,text,text) to service_role$sql_129_9$;
 
 -- rpc-execution-hardening.sql: source statement 10
-execute $sql_128_10$revoke all on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) from public, anon, authenticated$sql_128_10$;
+execute $sql_129_10$revoke all on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) from public, anon, authenticated$sql_129_10$;
 
 -- rpc-execution-hardening.sql: source statement 11
-execute $sql_128_11$grant execute on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) to service_role$sql_128_11$;
+execute $sql_129_11$grant execute on function public.add_manual_follow_up(uuid,uuid,uuid,text,uuid) to service_role$sql_129_11$;
 
 -- rpc-execution-hardening.sql: source statement 12
-execute $sql_128_12$revoke all on function public.advance_live_auction(uuid,uuid,uuid) from public, anon, authenticated$sql_128_12$;
+execute $sql_129_12$revoke all on function public.advance_live_auction(uuid,uuid,uuid) from public, anon, authenticated$sql_129_12$;
 
 -- rpc-execution-hardening.sql: source statement 13
-execute $sql_128_13$grant execute on function public.advance_live_auction(uuid,uuid,uuid) to service_role$sql_128_13$;
+execute $sql_129_13$grant execute on function public.advance_live_auction(uuid,uuid,uuid) to service_role$sql_129_13$;
 
 -- rpc-execution-hardening.sql: source statement 14
-execute $sql_128_14$revoke all on function public.agent_control_overview(uuid) from public, anon, authenticated$sql_128_14$;
+execute $sql_129_14$revoke all on function public.agent_control_overview(uuid) from public, anon, authenticated$sql_129_14$;
 
 -- rpc-execution-hardening.sql: source statement 15
-execute $sql_128_15$grant execute on function public.agent_control_overview(uuid) to service_role$sql_128_15$;
+execute $sql_129_15$grant execute on function public.agent_control_overview(uuid) to service_role$sql_129_15$;
 
 -- rpc-execution-hardening.sql: source statement 16
-execute $sql_128_16$revoke all on function public.agent_overview_stats(uuid,integer,timestamp with time zone) from public, anon, authenticated$sql_128_16$;
+execute $sql_129_16$revoke all on function public.agent_overview_stats(uuid,integer,timestamp with time zone) from public, anon, authenticated$sql_129_16$;
 
 -- rpc-execution-hardening.sql: source statement 17
-execute $sql_128_17$grant execute on function public.agent_overview_stats(uuid,integer,timestamp with time zone) to service_role$sql_128_17$;
+execute $sql_129_17$grant execute on function public.agent_overview_stats(uuid,integer,timestamp with time zone) to service_role$sql_129_17$;
 
 -- rpc-execution-hardening.sql: source statement 18
-execute $sql_128_18$revoke all on function public.apply_payment_pro(uuid,uuid) from public, anon, authenticated$sql_128_18$;
+execute $sql_129_18$revoke all on function public.apply_payment_pro(uuid,uuid) from public, anon, authenticated$sql_129_18$;
 
 -- rpc-execution-hardening.sql: source statement 19
-execute $sql_128_19$grant execute on function public.apply_payment_pro(uuid,uuid) to service_role$sql_128_19$;
+execute $sql_129_19$grant execute on function public.apply_payment_pro(uuid,uuid) to service_role$sql_129_19$;
 
 -- rpc-execution-hardening.sql: source statement 20
-execute $sql_128_20$revoke all on function public.approve_auction_payment_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_128_20$;
+execute $sql_129_20$revoke all on function public.approve_auction_payment_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_129_20$;
 
 -- rpc-execution-hardening.sql: source statement 21
-execute $sql_128_21$grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) to service_role$sql_128_21$;
+execute $sql_129_21$grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) to service_role$sql_129_21$;
 
 -- rpc-execution-hardening.sql: source statement 22
-execute $sql_128_22$revoke all on function public.auction_inbox_status(uuid,uuid[]) from public, anon, authenticated$sql_128_22$;
+execute $sql_129_22$revoke all on function public.auction_inbox_status(uuid,uuid[]) from public, anon, authenticated$sql_129_22$;
 
 -- rpc-execution-hardening.sql: source statement 23
-execute $sql_128_23$grant execute on function public.auction_inbox_status(uuid,uuid[]) to service_role$sql_128_23$;
+execute $sql_129_23$grant execute on function public.auction_inbox_status(uuid,uuid[]) to service_role$sql_129_23$;
 
 -- rpc-execution-hardening.sql: source statement 24
-execute $sql_128_24$revoke all on function public.basic_overview_stats(uuid,timestamp with time zone) from public, anon, authenticated$sql_128_24$;
+execute $sql_129_24$revoke all on function public.basic_overview_stats(uuid,timestamp with time zone) from public, anon, authenticated$sql_129_24$;
 
 -- rpc-execution-hardening.sql: source statement 25
-execute $sql_128_25$grant execute on function public.basic_overview_stats(uuid,timestamp with time zone) to service_role$sql_128_25$;
+execute $sql_129_25$grant execute on function public.basic_overview_stats(uuid,timestamp with time zone) to service_role$sql_129_25$;
 
 -- rpc-execution-hardening.sql: source statement 26
-execute $sql_128_26$revoke all on function public.begin_broadcast_transport(uuid,uuid,uuid) from public, anon, authenticated$sql_128_26$;
+execute $sql_129_26$revoke all on function public.begin_broadcast_transport(uuid,uuid,uuid) from public, anon, authenticated$sql_129_26$;
 
 -- rpc-execution-hardening.sql: source statement 27
-execute $sql_128_27$grant execute on function public.begin_broadcast_transport(uuid,uuid,uuid) to service_role$sql_128_27$;
+execute $sql_129_27$grant execute on function public.begin_broadcast_transport(uuid,uuid,uuid) to service_role$sql_129_27$;
 
 -- rpc-execution-hardening.sql: source statement 28
-execute $sql_128_28$revoke all on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_28$;
+execute $sql_129_28$revoke all on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) from public, anon, authenticated$sql_129_28$;
 
 -- rpc-execution-hardening.sql: source statement 29
-execute $sql_128_29$grant execute on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role$sql_128_29$;
+execute $sql_129_29$grant execute on function public.begin_shipping_provider_job(uuid,uuid,uuid,uuid,text) to service_role$sql_129_29$;
 
 -- rpc-execution-hardening.sql: source statement 30
-execute $sql_128_30$revoke all on function public.broadcast_recipient_reason(uuid,uuid) from public, anon, authenticated$sql_128_30$;
+execute $sql_129_30$revoke all on function public.broadcast_recipient_reason(uuid,uuid) from public, anon, authenticated$sql_129_30$;
 
 -- rpc-execution-hardening.sql: source statement 31
-execute $sql_128_31$grant execute on function public.broadcast_recipient_reason(uuid,uuid) to service_role$sql_128_31$;
+execute $sql_129_31$grant execute on function public.broadcast_recipient_reason(uuid,uuid) to service_role$sql_129_31$;
 
 -- rpc-execution-hardening.sql: source statement 32
-execute $sql_128_32$revoke all on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_32$;
+execute $sql_129_32$revoke all on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_129_32$;
 
 -- rpc-execution-hardening.sql: source statement 33
-execute $sql_128_33$grant execute on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) to service_role$sql_128_33$;
+execute $sql_129_33$grant execute on function public.capture_shipping_address(uuid,uuid,uuid,jsonb) to service_role$sql_129_33$;
 
 -- rpc-execution-hardening.sql: source statement 34
-execute $sql_128_34$revoke all on function public.claim_agent_message(uuid,uuid,uuid) from public, anon, authenticated$sql_128_34$;
+execute $sql_129_34$revoke all on function public.claim_agent_message(uuid,uuid,uuid) from public, anon, authenticated$sql_129_34$;
 
 -- rpc-execution-hardening.sql: source statement 35
-execute $sql_128_35$grant execute on function public.claim_agent_message(uuid,uuid,uuid) to service_role$sql_128_35$;
+execute $sql_129_35$grant execute on function public.claim_agent_message(uuid,uuid,uuid) to service_role$sql_129_35$;
 
 -- rpc-execution-hardening.sql: source statement 36
-execute $sql_128_36$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public, anon, authenticated$sql_128_36$;
+execute $sql_129_36$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public, anon, authenticated$sql_129_36$;
 
 -- rpc-execution-hardening.sql: source statement 37
-execute $sql_128_37$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_128_37$;
+execute $sql_129_37$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_129_37$;
 
 -- rpc-execution-hardening.sql: source statement 38
-execute $sql_128_38$revoke all on function public.claim_broadcast_recipient(uuid,uuid,uuid) from public, anon, authenticated$sql_128_38$;
+execute $sql_129_38$revoke all on function public.claim_broadcast_recipient(uuid,uuid,uuid) from public, anon, authenticated$sql_129_38$;
 
 -- rpc-execution-hardening.sql: source statement 39
-execute $sql_128_39$grant execute on function public.claim_broadcast_recipient(uuid,uuid,uuid) to service_role$sql_128_39$;
+execute $sql_129_39$grant execute on function public.claim_broadcast_recipient(uuid,uuid,uuid) to service_role$sql_129_39$;
 
 -- rpc-execution-hardening.sql: source statement 40
-execute $sql_128_40$revoke all on function public.claim_broadcast_run(uuid,uuid) from public, anon, authenticated$sql_128_40$;
+execute $sql_129_40$revoke all on function public.claim_broadcast_run(uuid,uuid) from public, anon, authenticated$sql_129_40$;
 
 -- rpc-execution-hardening.sql: source statement 41
-execute $sql_128_41$grant execute on function public.claim_broadcast_run(uuid,uuid) to service_role$sql_128_41$;
+execute $sql_129_41$grant execute on function public.claim_broadcast_run(uuid,uuid) to service_role$sql_129_41$;
 
 -- rpc-execution-hardening.sql: source statement 42
-execute $sql_128_42$revoke all on function public.claim_follow_up_jobs(uuid,integer) from public, anon, authenticated$sql_128_42$;
+execute $sql_129_42$revoke all on function public.claim_follow_up_jobs(uuid,integer) from public, anon, authenticated$sql_129_42$;
 
 -- rpc-execution-hardening.sql: source statement 43
-execute $sql_128_43$grant execute on function public.claim_follow_up_jobs(uuid,integer) to service_role$sql_128_43$;
+execute $sql_129_43$grant execute on function public.claim_follow_up_jobs(uuid,integer) to service_role$sql_129_43$;
 
 -- rpc-execution-hardening.sql: source statement 44
-execute $sql_128_44$revoke all on function public.claim_payment_image(text,text,uuid) from public, anon, authenticated$sql_128_44$;
+execute $sql_129_44$revoke all on function public.claim_payment_image(text,text,uuid) from public, anon, authenticated$sql_129_44$;
 
 -- rpc-execution-hardening.sql: source statement 45
-execute $sql_128_45$grant execute on function public.claim_payment_image(text,text,uuid) to service_role$sql_128_45$;
+execute $sql_129_45$grant execute on function public.claim_payment_image(text,text,uuid) to service_role$sql_129_45$;
 
 -- rpc-execution-hardening.sql: source statement 46
-execute $sql_128_46$revoke all on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_128_46$;
+execute $sql_129_46$revoke all on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_129_46$;
 
 -- rpc-execution-hardening.sql: source statement 47
-execute $sql_128_47$grant execute on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) to service_role$sql_128_47$;
+execute $sql_129_47$grant execute on function public.claim_payment_pro(uuid,uuid,uuid,text,text,text) to service_role$sql_129_47$;
 
 -- rpc-execution-hardening.sql: source statement 48
-execute $sql_128_48$revoke all on function public.claim_payment_transfer(text,text,uuid) from public, anon, authenticated$sql_128_48$;
+execute $sql_129_48$revoke all on function public.claim_payment_transfer(text,text,uuid) from public, anon, authenticated$sql_129_48$;
 
 -- rpc-execution-hardening.sql: source statement 49
-execute $sql_128_49$grant execute on function public.claim_payment_transfer(text,text,uuid) to service_role$sql_128_49$;
+execute $sql_129_49$grant execute on function public.claim_payment_transfer(text,text,uuid) to service_role$sql_129_49$;
 
 -- rpc-execution-hardening.sql: source statement 50
-execute $sql_128_50$revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean) from public, anon, authenticated$sql_128_50$;
+execute $sql_129_50$revoke all on function public.close_due_live_auction(uuid,uuid,boolean,boolean) from public, anon, authenticated$sql_129_50$;
 
 -- rpc-execution-hardening.sql: source statement 51
-execute $sql_128_51$grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role$sql_128_51$;
+execute $sql_129_51$grant execute on function public.close_due_live_auction(uuid,uuid,boolean,boolean) to service_role$sql_129_51$;
 
 -- rpc-execution-hardening.sql: source statement 52
-execute $sql_128_52$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]) from public, anon, authenticated$sql_128_52$;
+execute $sql_129_52$revoke all on function public.collect_auction_session_customers(uuid,uuid,text[]) from public, anon, authenticated$sql_129_52$;
 
 -- rpc-execution-hardening.sql: source statement 53
-execute $sql_128_53$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_128_53$;
+execute $sql_129_53$grant execute on function public.collect_auction_session_customers(uuid,uuid,text[]) to service_role$sql_129_53$;
 
 -- rpc-execution-hardening.sql: source statement 54
-execute $sql_128_54$revoke all on function public.commerce_access(uuid,uuid) from public, anon, authenticated$sql_128_54$;
+execute $sql_129_54$revoke all on function public.commerce_access(uuid,uuid) from public, anon, authenticated$sql_129_54$;
 
 -- rpc-execution-hardening.sql: source statement 55
-execute $sql_128_55$grant execute on function public.commerce_access(uuid,uuid) to service_role$sql_128_55$;
+execute $sql_129_55$grant execute on function public.commerce_access(uuid,uuid) to service_role$sql_129_55$;
 
 -- rpc-execution-hardening.sql: source statement 56
-execute $sql_128_56$revoke all on function public.commerce_checkout(text,jsonb) from public, anon, authenticated$sql_128_56$;
+execute $sql_129_56$revoke all on function public.commerce_checkout(text,jsonb) from public, anon, authenticated$sql_129_56$;
 
 -- rpc-execution-hardening.sql: source statement 57
-execute $sql_128_57$grant execute on function public.commerce_checkout(text,jsonb) to service_role$sql_128_57$;
+execute $sql_129_57$grant execute on function public.commerce_checkout(text,jsonb) to service_role$sql_129_57$;
 
 -- rpc-execution-hardening.sql: source statement 58
-execute $sql_128_58$revoke all on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) from public, anon, authenticated$sql_128_58$;
+execute $sql_129_58$revoke all on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) from public, anon, authenticated$sql_129_58$;
 
 -- rpc-execution-hardening.sql: source statement 59
-execute $sql_128_59$grant execute on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) to service_role$sql_128_59$;
+execute $sql_129_59$grant execute on function public.commerce_dashboard_page(uuid,integer,integer,integer,integer,integer,text,uuid,text,text) to service_role$sql_129_59$;
 
 -- rpc-execution-hardening.sql: source statement 60
-execute $sql_128_60$revoke all on function public.commerce_dashboard_stats(uuid) from public, anon, authenticated$sql_128_60$;
+execute $sql_129_60$revoke all on function public.commerce_dashboard_stats(uuid) from public, anon, authenticated$sql_129_60$;
 
 -- rpc-execution-hardening.sql: source statement 61
-execute $sql_128_61$grant execute on function public.commerce_dashboard_stats(uuid) to service_role$sql_128_61$;
+execute $sql_129_61$grant execute on function public.commerce_dashboard_stats(uuid) to service_role$sql_129_61$;
 
 -- rpc-execution-hardening.sql: source statement 62
-execute $sql_128_62$revoke all on function public.commerce_manage(uuid,uuid,text,jsonb) from public, anon, authenticated$sql_128_62$;
+execute $sql_129_62$revoke all on function public.commerce_manage(uuid,uuid,text,jsonb) from public, anon, authenticated$sql_129_62$;
 
 -- rpc-execution-hardening.sql: source statement 63
-execute $sql_128_63$grant execute on function public.commerce_manage(uuid,uuid,text,jsonb) to service_role$sql_128_63$;
+execute $sql_129_63$grant execute on function public.commerce_manage(uuid,uuid,text,jsonb) to service_role$sql_129_63$;
 
 -- rpc-execution-hardening.sql: source statement 64
-execute $sql_128_64$revoke all on function public.commerce_move_order(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_64$;
+execute $sql_129_64$revoke all on function public.commerce_move_order(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_129_64$;
 
 -- rpc-execution-hardening.sql: source statement 65
-execute $sql_128_65$grant execute on function public.commerce_move_order(uuid,uuid,uuid,text,text) to service_role$sql_128_65$;
+execute $sql_129_65$grant execute on function public.commerce_move_order(uuid,uuid,uuid,text,text) to service_role$sql_129_65$;
 
 -- rpc-execution-hardening.sql: source statement 66
-execute $sql_128_66$revoke all on function public.commerce_plan(uuid) from public, anon, authenticated$sql_128_66$;
+execute $sql_129_66$revoke all on function public.commerce_plan(uuid) from public, anon, authenticated$sql_129_66$;
 
 -- rpc-execution-hardening.sql: source statement 67
-execute $sql_128_67$grant execute on function public.commerce_plan(uuid) to service_role$sql_128_67$;
+execute $sql_129_67$grant execute on function public.commerce_plan(uuid) to service_role$sql_129_67$;
 
 -- rpc-execution-hardening.sql: source statement 68
-execute $sql_128_68$revoke all on function public.commerce_rate_limit(text,integer) from public, anon, authenticated$sql_128_68$;
+execute $sql_129_68$revoke all on function public.commerce_rate_limit(text,integer) from public, anon, authenticated$sql_129_68$;
 
 -- rpc-execution-hardening.sql: source statement 69
-execute $sql_128_69$grant execute on function public.commerce_rate_limit(text,integer) to service_role$sql_128_69$;
+execute $sql_129_69$grant execute on function public.commerce_rate_limit(text,integer) to service_role$sql_129_69$;
 
 -- rpc-execution-hardening.sql: source statement 70
-execute $sql_128_70$revoke all on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) from public, anon, authenticated$sql_128_70$;
+execute $sql_129_70$revoke all on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) from public, anon, authenticated$sql_129_70$;
 
 -- rpc-execution-hardening.sql: source statement 71
-execute $sql_128_71$grant execute on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) to service_role$sql_128_71$;
+execute $sql_129_71$grant execute on function public.commerce_save_product(uuid,uuid,uuid,jsonb,integer) to service_role$sql_129_71$;
 
 -- rpc-execution-hardening.sql: source statement 72
-execute $sql_128_72$revoke all on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_128_72$;
+execute $sql_129_72$revoke all on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_129_72$;
 
 -- rpc-execution-hardening.sql: source statement 73
-execute $sql_128_73$grant execute on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_128_73$;
+execute $sql_129_73$grant execute on function public.complete_auction_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_129_73$;
 
 -- rpc-execution-hardening.sql: source statement 74
-execute $sql_128_74$revoke all on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_128_74$;
+execute $sql_129_74$revoke all on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) from public, anon, authenticated$sql_129_74$;
 
 -- rpc-execution-hardening.sql: source statement 75
-execute $sql_128_75$grant execute on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_128_75$;
+execute $sql_129_75$grant execute on function public.complete_customer_tab_slip(uuid,uuid,uuid,text,numeric,text,timestamp with time zone,jsonb,text) to service_role$sql_129_75$;
 
 -- rpc-execution-hardening.sql: source statement 76
-execute $sql_128_76$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_76$;
+execute $sql_129_76$revoke all on function public.configure_auction_session(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_129_76$;
 
 -- rpc-execution-hardening.sql: source statement 77
-execute $sql_128_77$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb) to service_role$sql_128_77$;
+execute $sql_129_77$grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb) to service_role$sql_129_77$;
 
 -- rpc-execution-hardening.sql: source statement 78
-execute $sql_128_78$revoke all on function public.confirm_follow_up_order(uuid,uuid,uuid) from public, anon, authenticated$sql_128_78$;
+execute $sql_129_78$revoke all on function public.confirm_follow_up_order(uuid,uuid,uuid) from public, anon, authenticated$sql_129_78$;
 
 -- rpc-execution-hardening.sql: source statement 79
-execute $sql_128_79$grant execute on function public.confirm_follow_up_order(uuid,uuid,uuid) to service_role$sql_128_79$;
+execute $sql_129_79$grant execute on function public.confirm_follow_up_order(uuid,uuid,uuid) to service_role$sql_129_79$;
 
 -- rpc-execution-hardening.sql: source statement 80
-execute $sql_128_80$revoke all on function public.confirm_live_auction_winner(uuid,uuid,uuid) from public, anon, authenticated$sql_128_80$;
+execute $sql_129_80$revoke all on function public.confirm_live_auction_winner(uuid,uuid,uuid) from public, anon, authenticated$sql_129_80$;
 
 -- rpc-execution-hardening.sql: source statement 81
-execute $sql_128_81$grant execute on function public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_128_81$;
+execute $sql_129_81$grant execute on function public.confirm_live_auction_winner(uuid,uuid,uuid) to service_role$sql_129_81$;
 
 -- rpc-execution-hardening.sql: source statement 82
-execute $sql_128_82$revoke all on function public.confirm_live_cf_variant(uuid,uuid) from public, anon, authenticated$sql_128_82$;
+execute $sql_129_82$revoke all on function public.confirm_live_cf_variant(uuid,uuid) from public, anon, authenticated$sql_129_82$;
 
 -- rpc-execution-hardening.sql: source statement 83
-execute $sql_128_83$grant execute on function public.confirm_live_cf_variant(uuid,uuid) to service_role$sql_128_83$;
+execute $sql_129_83$grant execute on function public.confirm_live_cf_variant(uuid,uuid) to service_role$sql_129_83$;
 
 -- rpc-execution-hardening.sql: source statement 84
-execute $sql_128_84$revoke all on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_128_84$;
+execute $sql_129_84$revoke all on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_129_84$;
 
 -- rpc-execution-hardening.sql: source statement 85
-execute $sql_128_85$grant execute on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) to service_role$sql_128_85$;
+execute $sql_129_85$grant execute on function public.confirm_shipping_address(uuid,uuid,uuid,uuid) to service_role$sql_129_85$;
 
 -- rpc-execution-hardening.sql: source statement 86
-execute $sql_128_86$revoke all on function public.consume_slip_credit_metered(uuid) from public, anon, authenticated$sql_128_86$;
+execute $sql_129_86$revoke all on function public.consume_slip_credit_metered(uuid) from public, anon, authenticated$sql_129_86$;
 
 -- rpc-execution-hardening.sql: source statement 87
-execute $sql_128_87$grant execute on function public.consume_slip_credit_metered(uuid) to service_role$sql_128_87$;
+execute $sql_129_87$grant execute on function public.consume_slip_credit_metered(uuid) to service_role$sql_129_87$;
 
 -- rpc-execution-hardening.sql: source statement 88
-execute $sql_128_88$revoke all on function public.consume_slip_credit(uuid) from public, anon, authenticated$sql_128_88$;
+execute $sql_129_88$revoke all on function public.consume_slip_credit(uuid) from public, anon, authenticated$sql_129_88$;
 
 -- rpc-execution-hardening.sql: source statement 89
-execute $sql_128_89$grant execute on function public.consume_slip_credit(uuid) to service_role$sql_128_89$;
+execute $sql_129_89$grant execute on function public.consume_slip_credit(uuid) to service_role$sql_129_89$;
 
 -- rpc-execution-hardening.sql: source statement 90
-execute $sql_128_90$revoke all on function public.customer_directory(uuid,integer,text,text,text) from public, anon, authenticated$sql_128_90$;
+execute $sql_129_90$revoke all on function public.customer_directory(uuid,integer,text,text,text) from public, anon, authenticated$sql_129_90$;
 
 -- rpc-execution-hardening.sql: source statement 91
-execute $sql_128_91$grant execute on function public.customer_directory(uuid,integer,text,text,text) to service_role$sql_128_91$;
+execute $sql_129_91$grant execute on function public.customer_directory(uuid,integer,text,text,text) to service_role$sql_129_91$;
 
 -- rpc-execution-hardening.sql: source statement 92
-execute $sql_128_92$revoke all on function public.end_customer_tab_live(uuid,uuid,boolean) from public, anon, authenticated$sql_128_92$;
+execute $sql_129_92$revoke all on function public.end_customer_tab_live(uuid,uuid,boolean) from public, anon, authenticated$sql_129_92$;
 
 -- rpc-execution-hardening.sql: source statement 93
-execute $sql_128_93$grant execute on function public.end_customer_tab_live(uuid,uuid,boolean) to service_role$sql_128_93$;
+execute $sql_129_93$grant execute on function public.end_customer_tab_live(uuid,uuid,boolean) to service_role$sql_129_93$;
 
 -- rpc-execution-hardening.sql: source statement 94
-execute $sql_128_94$revoke all on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) from public, anon, authenticated$sql_128_94$;
+execute $sql_129_94$revoke all on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) from public, anon, authenticated$sql_129_94$;
 
 -- rpc-execution-hardening.sql: source statement 95
-execute $sql_128_95$grant execute on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) to service_role$sql_128_95$;
+execute $sql_129_95$grant execute on function public.enqueue_follow_up(uuid,uuid,text,uuid,uuid,uuid) to service_role$sql_129_95$;
 
 -- rpc-execution-hardening.sql: source statement 96
-execute $sql_128_96$revoke all on function public.expire_live_auctions_report(uuid) from public, anon, authenticated$sql_128_96$;
+execute $sql_129_96$revoke all on function public.expire_live_auctions_report(uuid) from public, anon, authenticated$sql_129_96$;
 
 -- rpc-execution-hardening.sql: source statement 97
-execute $sql_128_97$grant execute on function public.expire_live_auctions_report(uuid) to service_role$sql_128_97$;
+execute $sql_129_97$grant execute on function public.expire_live_auctions_report(uuid) to service_role$sql_129_97$;
 
 -- rpc-execution-hardening.sql: source statement 98
-execute $sql_128_98$revoke all on function public.expire_live_auctions(uuid) from public, anon, authenticated$sql_128_98$;
+execute $sql_129_98$revoke all on function public.expire_live_auctions(uuid) from public, anon, authenticated$sql_129_98$;
 
 -- rpc-execution-hardening.sql: source statement 99
-execute $sql_128_99$grant execute on function public.expire_live_auctions(uuid) to service_role$sql_128_99$;
+execute $sql_129_99$grant execute on function public.expire_live_auctions(uuid) to service_role$sql_129_99$;
 
 -- rpc-execution-hardening.sql: source statement 100
-execute $sql_128_100$revoke all on function public.facebook_comment_context(uuid,text,text[]) from public, anon, authenticated$sql_128_100$;
+execute $sql_129_100$revoke all on function public.facebook_comment_context(uuid,text,text[]) from public, anon, authenticated$sql_129_100$;
 
 -- rpc-execution-hardening.sql: source statement 101
-execute $sql_128_101$grant execute on function public.facebook_comment_context(uuid,text,text[]) to service_role$sql_128_101$;
+execute $sql_129_101$grant execute on function public.facebook_comment_context(uuid,text,text[]) to service_role$sql_129_101$;
 
 -- rpc-execution-hardening.sql: source statement 102
-execute $sql_128_102$revoke all on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_128_102$;
+execute $sql_129_102$revoke all on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_129_102$;
 
 -- rpc-execution-hardening.sql: source statement 103
-execute $sql_128_103$grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_128_103$;
+execute $sql_129_103$grant execute on function public.finalize_live_auction_highest_bid(uuid,uuid,uuid,boolean) to service_role$sql_129_103$;
 
 -- rpc-execution-hardening.sql: source statement 104
-execute $sql_128_104$revoke all on function public.finalize_live_auction(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_128_104$;
+execute $sql_129_104$revoke all on function public.finalize_live_auction(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_129_104$;
 
 -- rpc-execution-hardening.sql: source statement 105
-execute $sql_128_105$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean) to service_role$sql_128_105$;
+execute $sql_129_105$grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean) to service_role$sql_129_105$;
 
 -- rpc-execution-hardening.sql: source statement 106
-execute $sql_128_106$revoke all on function public.follow_up_overview(uuid) from public, anon, authenticated$sql_128_106$;
+execute $sql_129_106$revoke all on function public.follow_up_overview(uuid) from public, anon, authenticated$sql_129_106$;
 
 -- rpc-execution-hardening.sql: source statement 107
-execute $sql_128_107$grant execute on function public.follow_up_overview(uuid) to service_role$sql_128_107$;
+execute $sql_129_107$grant execute on function public.follow_up_overview(uuid) to service_role$sql_129_107$;
 
 -- rpc-execution-hardening.sql: source statement 108
-execute $sql_128_108$revoke all on function public.follow_up_window_expires_at(uuid,uuid) from public, anon, authenticated$sql_128_108$;
+execute $sql_129_108$revoke all on function public.follow_up_window_expires_at(uuid,uuid) from public, anon, authenticated$sql_129_108$;
 
 -- rpc-execution-hardening.sql: source statement 109
-execute $sql_128_109$grant execute on function public.follow_up_window_expires_at(uuid,uuid) to service_role$sql_128_109$;
+execute $sql_129_109$grant execute on function public.follow_up_window_expires_at(uuid,uuid) to service_role$sql_129_109$;
 
 -- rpc-execution-hardening.sql: source statement 110
-execute $sql_128_110$revoke all on function public.follow_up_window_open(uuid,uuid) from public, anon, authenticated$sql_128_110$;
+execute $sql_129_110$revoke all on function public.follow_up_window_open(uuid,uuid) from public, anon, authenticated$sql_129_110$;
 
 -- rpc-execution-hardening.sql: source statement 111
-execute $sql_128_111$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_128_111$;
+execute $sql_129_111$grant execute on function public.follow_up_window_open(uuid,uuid) to service_role$sql_129_111$;
 
 -- rpc-execution-hardening.sql: source statement 112
-execute $sql_128_112$revoke all on function public.handover_tenant_ai_quota(uuid,uuid,uuid) from public, anon, authenticated$sql_128_112$;
+execute $sql_129_112$revoke all on function public.handover_tenant_ai_quota(uuid,uuid,uuid) from public, anon, authenticated$sql_129_112$;
 
 -- rpc-execution-hardening.sql: source statement 113
-execute $sql_128_113$grant execute on function public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role$sql_128_113$;
+execute $sql_129_113$grant execute on function public.handover_tenant_ai_quota(uuid,uuid,uuid) to service_role$sql_129_113$;
 
 -- rpc-execution-hardening.sql: source statement 114
-execute $sql_128_114$revoke all on function public.inbox_automation_window_open(uuid,uuid) from public, anon, authenticated$sql_128_114$;
+execute $sql_129_114$revoke all on function public.inbox_automation_window_open(uuid,uuid) from public, anon, authenticated$sql_129_114$;
 
 -- rpc-execution-hardening.sql: source statement 115
-execute $sql_128_115$grant execute on function public.inbox_automation_window_open(uuid,uuid) to service_role$sql_128_115$;
+execute $sql_129_115$grant execute on function public.inbox_automation_window_open(uuid,uuid) to service_role$sql_129_115$;
 
 -- rpc-execution-hardening.sql: source statement 116
-execute $sql_128_116$revoke all on function public.inbox_pro_overview(uuid) from public, anon, authenticated$sql_128_116$;
+execute $sql_129_116$revoke all on function public.inbox_pro_overview(uuid) from public, anon, authenticated$sql_129_116$;
 
 -- rpc-execution-hardening.sql: source statement 117
-execute $sql_128_117$grant execute on function public.inbox_pro_overview(uuid) to service_role$sql_128_117$;
+execute $sql_129_117$grant execute on function public.inbox_pro_overview(uuid) to service_role$sql_129_117$;
 
 -- rpc-execution-hardening.sql: source statement 118
-execute $sql_128_118$revoke all on function public.inbox_verified_inbound_at(uuid,uuid) from public, anon, authenticated$sql_128_118$;
+execute $sql_129_118$revoke all on function public.inbox_verified_inbound_at(uuid,uuid) from public, anon, authenticated$sql_129_118$;
 
 -- rpc-execution-hardening.sql: source statement 119
-execute $sql_128_119$grant execute on function public.inbox_verified_inbound_at(uuid,uuid) to service_role$sql_128_119$;
+execute $sql_129_119$grant execute on function public.inbox_verified_inbound_at(uuid,uuid) to service_role$sql_129_119$;
 
 -- rpc-execution-hardening.sql: source statement 120
-execute $sql_128_120$revoke all on function public.live_auction_customer_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_120$;
+execute $sql_129_120$revoke all on function public.live_auction_customer_dashboard(uuid,uuid) from public, anon, authenticated$sql_129_120$;
 
 -- rpc-execution-hardening.sql: source statement 121
-execute $sql_128_121$grant execute on function public.live_auction_customer_dashboard(uuid,uuid) to service_role$sql_128_121$;
+execute $sql_129_121$grant execute on function public.live_auction_customer_dashboard(uuid,uuid) to service_role$sql_129_121$;
 
 -- rpc-execution-hardening.sql: source statement 122
-execute $sql_128_122$revoke all on function public.live_auction_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_122$;
+execute $sql_129_122$revoke all on function public.live_auction_dashboard(uuid,uuid) from public, anon, authenticated$sql_129_122$;
 
 -- rpc-execution-hardening.sql: source statement 123
-execute $sql_128_123$grant execute on function public.live_auction_dashboard(uuid,uuid) to service_role$sql_128_123$;
+execute $sql_129_123$grant execute on function public.live_auction_dashboard(uuid,uuid) to service_role$sql_129_123$;
 
 -- rpc-execution-hardening.sql: source statement 124
-execute $sql_128_124$revoke all on function public.live_auction_matched_customers(uuid,uuid) from public, anon, authenticated$sql_128_124$;
+execute $sql_129_124$revoke all on function public.live_auction_matched_customers(uuid,uuid) from public, anon, authenticated$sql_129_124$;
 
 -- rpc-execution-hardening.sql: source statement 125
-execute $sql_128_125$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_128_125$;
+execute $sql_129_125$grant execute on function public.live_auction_matched_customers(uuid,uuid) to service_role$sql_129_125$;
 
 -- rpc-execution-hardening.sql: source statement 126
-execute $sql_128_126$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_126$;
+execute $sql_129_126$revoke all on function public.live_auction_thai_dashboard(uuid,uuid) from public, anon, authenticated$sql_129_126$;
 
 -- rpc-execution-hardening.sql: source statement 127
-execute $sql_128_127$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_128_127$;
+execute $sql_129_127$grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to service_role$sql_129_127$;
 
 -- rpc-execution-hardening.sql: source statement 128
-execute $sql_128_128$revoke all on function public.live_session_dashboard(uuid,uuid) from public, anon, authenticated$sql_128_128$;
+execute $sql_129_128$revoke all on function public.live_session_dashboard(uuid,uuid) from public, anon, authenticated$sql_129_128$;
 
 -- rpc-execution-hardening.sql: source statement 129
-execute $sql_128_129$grant execute on function public.live_session_dashboard(uuid,uuid) to service_role$sql_128_129$;
+execute $sql_129_129$grant execute on function public.live_session_dashboard(uuid,uuid) to service_role$sql_129_129$;
 
 -- rpc-execution-hardening.sql: source statement 130
-execute $sql_128_130$revoke all on function public.live_session_tab_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_128_130$;
+execute $sql_129_130$revoke all on function public.live_session_tab_proof(uuid,uuid,uuid) from public, anon, authenticated$sql_129_130$;
 
 -- rpc-execution-hardening.sql: source statement 131
-execute $sql_128_131$grant execute on function public.live_session_tab_proof(uuid,uuid,uuid) to service_role$sql_128_131$;
+execute $sql_129_131$grant execute on function public.live_session_tab_proof(uuid,uuid,uuid) to service_role$sql_129_131$;
 
 -- rpc-execution-hardening.sql: source statement 132
-execute $sql_128_132$revoke all on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) from public, anon, authenticated$sql_128_132$;
+execute $sql_129_132$revoke all on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) from public, anon, authenticated$sql_129_132$;
 
 -- rpc-execution-hardening.sql: source statement 133
-execute $sql_128_133$grant execute on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) to service_role$sql_128_133$;
+execute $sql_129_133$grant execute on function public.manage_agent_knowledge(uuid,uuid,text,uuid,jsonb) to service_role$sql_129_133$;
 
 -- rpc-execution-hardening.sql: source statement 134
-execute $sql_128_134$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public, anon, authenticated$sql_128_134$;
+execute $sql_129_134$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public, anon, authenticated$sql_129_134$;
 
 -- rpc-execution-hardening.sql: source statement 135
-execute $sql_128_135$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_128_135$;
+execute $sql_129_135$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_129_135$;
 
 -- rpc-execution-hardening.sql: source statement 136
-execute $sql_128_136$revoke all on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) from public, anon, authenticated$sql_128_136$;
+execute $sql_129_136$revoke all on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) from public, anon, authenticated$sql_129_136$;
 
 -- rpc-execution-hardening.sql: source statement 137
-execute $sql_128_137$grant execute on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) to service_role$sql_128_137$;
+execute $sql_129_137$grant execute on function public.manage_inbox_pro(uuid,uuid,text,integer,uuid,text,uuid) to service_role$sql_129_137$;
 
 -- rpc-execution-hardening.sql: source statement 138
-execute $sql_128_138$revoke all on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) from public, anon, authenticated$sql_128_138$;
+execute $sql_129_138$revoke all on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) from public, anon, authenticated$sql_129_138$;
 
 -- rpc-execution-hardening.sql: source statement 139
-execute $sql_128_139$grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) to service_role$sql_128_139$;
+execute $sql_129_139$grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text) to service_role$sql_129_139$;
 
 -- rpc-execution-hardening.sql: source statement 140
-execute $sql_128_140$revoke all on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_140$;
+execute $sql_129_140$revoke all on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_129_140$;
 
 -- rpc-execution-hardening.sql: source statement 141
-execute $sql_128_141$grant execute on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) to service_role$sql_128_141$;
+execute $sql_129_141$grant execute on function public.manage_live_session(uuid,uuid,uuid,uuid,jsonb) to service_role$sql_129_141$;
 
 -- rpc-execution-hardening.sql: source statement 142
-execute $sql_128_142$revoke all on function public.manage_shipping(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_142$;
+execute $sql_129_142$revoke all on function public.manage_shipping(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_129_142$;
 
 -- rpc-execution-hardening.sql: source statement 143
-execute $sql_128_143$grant execute on function public.manage_shipping(uuid,uuid,uuid,jsonb) to service_role$sql_128_143$;
+execute $sql_129_143$grant execute on function public.manage_shipping(uuid,uuid,uuid,jsonb) to service_role$sql_129_143$;
 
 -- rpc-execution-hardening.sql: source statement 144
-execute $sql_128_144$revoke all on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) from public, anon, authenticated$sql_128_144$;
+execute $sql_129_144$revoke all on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) from public, anon, authenticated$sql_129_144$;
 
 -- rpc-execution-hardening.sql: source statement 145
-execute $sql_128_145$grant execute on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) to service_role$sql_128_145$;
+execute $sql_129_145$grant execute on function public.manage_slip_bank_account(uuid,uuid,text,uuid,jsonb,boolean) to service_role$sql_129_145$;
 
 -- rpc-execution-hardening.sql: source statement 146
-execute $sql_128_146$revoke all on function public.mark_inbox_read(uuid,uuid,uuid) from public, anon, authenticated$sql_128_146$;
+execute $sql_129_146$revoke all on function public.mark_inbox_read(uuid,uuid,uuid) from public, anon, authenticated$sql_129_146$;
 
 -- rpc-execution-hardening.sql: source statement 147
-execute $sql_128_147$grant execute on function public.mark_inbox_read(uuid,uuid,uuid) to service_role$sql_128_147$;
+execute $sql_129_147$grant execute on function public.mark_inbox_read(uuid,uuid,uuid) to service_role$sql_129_147$;
 
 -- rpc-execution-hardening.sql: source statement 148
-execute $sql_128_148$revoke all on function public.messenger_product_lookup(uuid,text) from public, anon, authenticated$sql_128_148$;
+execute $sql_129_148$revoke all on function public.messenger_product_lookup(uuid,text) from public, anon, authenticated$sql_129_148$;
 
 -- rpc-execution-hardening.sql: source statement 149
-execute $sql_128_149$grant execute on function public.messenger_product_lookup(uuid,text) to service_role$sql_128_149$;
+execute $sql_129_149$grant execute on function public.messenger_product_lookup(uuid,text) to service_role$sql_129_149$;
 
 -- rpc-execution-hardening.sql: source statement 150
-execute $sql_128_150$revoke all on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_128_150$;
+execute $sql_129_150$revoke all on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_129_150$;
 
 -- rpc-execution-hardening.sql: source statement 151
-execute $sql_128_151$grant execute on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_128_151$;
+execute $sql_129_151$grant execute on function public.overview_dashboard_stats(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_129_151$;
 
 -- rpc-execution-hardening.sql: source statement 152
-execute $sql_128_152$revoke all on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) from public, anon, authenticated$sql_128_152$;
+execute $sql_129_152$revoke all on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) from public, anon, authenticated$sql_129_152$;
 
 -- rpc-execution-hardening.sql: source statement 153
-execute $sql_128_153$grant execute on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) to service_role$sql_128_153$;
+execute $sql_129_153$grant execute on function public.payment_pro_dashboard_report(uuid,timestamp with time zone,timestamp with time zone,text) to service_role$sql_129_153$;
 
 -- rpc-execution-hardening.sql: source statement 154
-execute $sql_128_154$revoke all on function public.payment_pro_overview(uuid) from public, anon, authenticated$sql_128_154$;
+execute $sql_129_154$revoke all on function public.payment_pro_overview(uuid) from public, anon, authenticated$sql_129_154$;
 
 -- rpc-execution-hardening.sql: source statement 155
-execute $sql_128_155$grant execute on function public.payment_pro_overview(uuid) to service_role$sql_128_155$;
+execute $sql_129_155$grant execute on function public.payment_pro_overview(uuid) to service_role$sql_129_155$;
 
 -- rpc-execution-hardening.sql: source statement 156
-execute $sql_128_156$revoke all on function public.payment_pro_receiver(uuid,text,text,text) from public, anon, authenticated$sql_128_156$;
+execute $sql_129_156$revoke all on function public.payment_pro_receiver(uuid,text,text,text) from public, anon, authenticated$sql_129_156$;
 
 -- rpc-execution-hardening.sql: source statement 157
-execute $sql_128_157$grant execute on function public.payment_pro_receiver(uuid,text,text,text) to service_role$sql_128_157$;
+execute $sql_129_157$grant execute on function public.payment_pro_receiver(uuid,text,text,text) to service_role$sql_129_157$;
 
 -- rpc-execution-hardening.sql: source statement 158
-execute $sql_128_158$revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_158$;
+execute $sql_129_158$revoke all on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) from public, anon, authenticated$sql_129_158$;
 
 -- rpc-execution-hardening.sql: source statement 159
-execute $sql_128_159$grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role$sql_128_159$;
+execute $sql_129_159$grant execute on function public.persist_facebook_message_echo(uuid,uuid,uuid,text) to service_role$sql_129_159$;
 
 -- rpc-execution-hardening.sql: source statement 160
-execute $sql_128_160$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public, anon, authenticated$sql_128_160$;
+execute $sql_129_160$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public, anon, authenticated$sql_129_160$;
 
 -- rpc-execution-hardening.sql: source statement 161
-execute $sql_128_161$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_128_161$;
+execute $sql_129_161$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_129_161$;
 
 -- rpc-execution-hardening.sql: source statement 162
-execute $sql_128_162$revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_128_162$;
+execute $sql_129_162$revoke all on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_129_162$;
 
 -- rpc-execution-hardening.sql: source statement 163
-execute $sql_128_163$grant execute on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) to service_role$sql_128_163$;
+execute $sql_129_163$grant execute on function public.place_cf_order_core(uuid,uuid,uuid,text,text,text) to service_role$sql_129_163$;
 
 -- rpc-execution-hardening.sql: source statement 164
-execute $sql_128_164$revoke all on function public.place_cf_order(uuid,text,text,text,text) from public, anon, authenticated$sql_128_164$;
+execute $sql_129_164$revoke all on function public.place_cf_order(uuid,text,text,text,text) from public, anon, authenticated$sql_129_164$;
 
 -- rpc-execution-hardening.sql: source statement 165
-execute $sql_128_165$grant execute on function public.place_cf_order(uuid,text,text,text,text) to service_role$sql_128_165$;
+execute $sql_129_165$grant execute on function public.place_cf_order(uuid,text,text,text,text) to service_role$sql_129_165$;
 
 -- rpc-execution-hardening.sql: source statement 166
-execute $sql_128_166$revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_128_166$;
+execute $sql_129_166$revoke all on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_129_166$;
 
 -- rpc-execution-hardening.sql: source statement 167
-execute $sql_128_167$grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_128_167$;
+execute $sql_129_167$grant execute on function public.place_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_129_167$;
 
 -- rpc-execution-hardening.sql: source statement 168
-execute $sql_128_168$revoke all on function public.place_cf_order(uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_168$;
+execute $sql_129_168$revoke all on function public.place_cf_order(uuid,uuid,uuid,text) from public, anon, authenticated$sql_129_168$;
 
 -- rpc-execution-hardening.sql: source statement 169
-execute $sql_128_169$grant execute on function public.place_cf_order(uuid,uuid,uuid,text) to service_role$sql_128_169$;
+execute $sql_129_169$grant execute on function public.place_cf_order(uuid,uuid,uuid,text) to service_role$sql_129_169$;
 
 -- rpc-execution-hardening.sql: source statement 170
-execute $sql_128_170$revoke all on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_128_170$;
+execute $sql_129_170$revoke all on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_129_170$;
 
 -- rpc-execution-hardening.sql: source statement 171
-execute $sql_128_171$grant execute on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role$sql_128_171$;
+execute $sql_129_171$grant execute on function public.place_facebook_catalog_order(uuid,uuid,text,text,text,text) to service_role$sql_129_171$;
 
 -- rpc-execution-hardening.sql: source statement 172
-execute $sql_128_172$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_128_172$;
+execute $sql_129_172$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) from public, anon, authenticated$sql_129_172$;
 
 -- rpc-execution-hardening.sql: source statement 173
-execute $sql_128_173$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_128_173$;
+execute $sql_129_173$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text) to service_role$sql_129_173$;
 
 -- rpc-execution-hardening.sql: source statement 174
-execute $sql_128_174$revoke all on function public.platform_update_tenant(uuid,uuid,text,boolean) from public, anon, authenticated$sql_128_174$;
+execute $sql_129_174$revoke all on function public.platform_update_tenant(uuid,uuid,text,boolean) from public, anon, authenticated$sql_129_174$;
 
 -- rpc-execution-hardening.sql: source statement 175
-execute $sql_128_175$grant execute on function public.platform_update_tenant(uuid,uuid,text,boolean) to service_role$sql_128_175$;
+execute $sql_129_175$grant execute on function public.platform_update_tenant(uuid,uuid,text,boolean) to service_role$sql_129_175$;
 
 -- rpc-execution-hardening.sql: source statement 176
-execute $sql_128_176$revoke all on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_128_176$;
+execute $sql_129_176$revoke all on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) from public, anon, authenticated$sql_129_176$;
 
 -- rpc-execution-hardening.sql: source statement 177
-execute $sql_128_177$grant execute on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_128_177$;
+execute $sql_129_177$grant execute on function public.premium_overview_summary(uuid,timestamp with time zone,timestamp with time zone,timestamp with time zone,integer,text) to service_role$sql_129_177$;
 
 -- rpc-execution-hardening.sql: source statement 178
-execute $sql_128_178$revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_178$;
+execute $sql_129_178$revoke all on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_129_178$;
 
 -- rpc-execution-hardening.sql: source statement 179
-execute $sql_128_179$grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_179$;
+execute $sql_129_179$grant execute on function public.process_live_auction_comment_legacy(uuid,uuid,uuid,text,numeric,text) to service_role$sql_129_179$;
 
 -- rpc-execution-hardening.sql: source statement 180
-execute $sql_128_180$revoke all on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_180$;
+execute $sql_129_180$revoke all on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_129_180$;
 
 -- rpc-execution-hardening.sql: source statement 181
-execute $sql_128_181$grant execute on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_181$;
+execute $sql_129_181$grant execute on function public.process_live_auction_comment_without_deadline(uuid,uuid,uuid,text,numeric,text) to service_role$sql_129_181$;
 
 -- rpc-execution-hardening.sql: source statement 182
-execute $sql_128_182$revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_182$;
+execute $sql_129_182$revoke all on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_129_182$;
 
 -- rpc-execution-hardening.sql: source statement 183
-execute $sql_128_183$grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_183$;
+execute $sql_129_183$grant execute on function public.process_live_auction_comment(uuid,uuid,uuid,text,numeric,text) to service_role$sql_129_183$;
 
 -- rpc-execution-hardening.sql: source statement 184
-execute $sql_128_184$revoke all on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_128_184$;
+execute $sql_129_184$revoke all on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) from public, anon, authenticated$sql_129_184$;
 
 -- rpc-execution-hardening.sql: source statement 185
-execute $sql_128_185$grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) to service_role$sql_128_185$;
+execute $sql_129_185$grant execute on function public.process_live_auction_highest_bid(uuid,uuid,uuid,text,numeric,text) to service_role$sql_129_185$;
 
 -- rpc-execution-hardening.sql: source statement 186
-execute $sql_128_186$revoke all on function public.queue_customer_tab_reminders(uuid,uuid,uuid) from public, anon, authenticated$sql_128_186$;
+execute $sql_129_186$revoke all on function public.queue_customer_tab_reminders(uuid,uuid,uuid) from public, anon, authenticated$sql_129_186$;
 
 -- rpc-execution-hardening.sql: source statement 187
-execute $sql_128_187$grant execute on function public.queue_customer_tab_reminders(uuid,uuid,uuid) to service_role$sql_128_187$;
+execute $sql_129_187$grant execute on function public.queue_customer_tab_reminders(uuid,uuid,uuid) to service_role$sql_129_187$;
 
 -- rpc-execution-hardening.sql: source statement 188
-execute $sql_128_188$revoke all on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) from public, anon, authenticated$sql_128_188$;
+execute $sql_129_188$revoke all on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) from public, anon, authenticated$sql_129_188$;
 
 -- rpc-execution-hardening.sql: source statement 189
-execute $sql_128_189$grant execute on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) to service_role$sql_128_189$;
+execute $sql_129_189$grant execute on function public.queue_live_session_reminders(uuid,uuid,uuid,uuid,uuid[],text) to service_role$sql_129_189$;
 
 -- rpc-execution-hardening.sql: source statement 190
-execute $sql_128_190$revoke all on function public.refresh_broadcast_credits(uuid) from public, anon, authenticated$sql_128_190$;
+execute $sql_129_190$revoke all on function public.refresh_broadcast_credits(uuid) from public, anon, authenticated$sql_129_190$;
 
 -- rpc-execution-hardening.sql: source statement 191
-execute $sql_128_191$grant execute on function public.refresh_broadcast_credits(uuid) to service_role$sql_128_191$;
+execute $sql_129_191$grant execute on function public.refresh_broadcast_credits(uuid) to service_role$sql_129_191$;
 
 -- rpc-execution-hardening.sql: source statement 192
-execute $sql_128_192$revoke all on function public.refund_broadcast_credits_metered(uuid,integer,integer) from public, anon, authenticated$sql_128_192$;
+execute $sql_129_192$revoke all on function public.refund_broadcast_credits_metered(uuid,integer,integer) from public, anon, authenticated$sql_129_192$;
 
 -- rpc-execution-hardening.sql: source statement 193
-execute $sql_128_193$grant execute on function public.refund_broadcast_credits_metered(uuid,integer,integer) to service_role$sql_128_193$;
+execute $sql_129_193$grant execute on function public.refund_broadcast_credits_metered(uuid,integer,integer) to service_role$sql_129_193$;
 
 -- rpc-execution-hardening.sql: source statement 194
-execute $sql_128_194$revoke all on function public.refund_broadcast_credits(uuid,integer,integer) from public, anon, authenticated$sql_128_194$;
+execute $sql_129_194$revoke all on function public.refund_broadcast_credits(uuid,integer,integer) from public, anon, authenticated$sql_129_194$;
 
 -- rpc-execution-hardening.sql: source statement 195
-execute $sql_128_195$grant execute on function public.refund_broadcast_credits(uuid,integer,integer) to service_role$sql_128_195$;
+execute $sql_129_195$grant execute on function public.refund_broadcast_credits(uuid,integer,integer) to service_role$sql_129_195$;
 
 -- rpc-execution-hardening.sql: source statement 196
-execute $sql_128_196$revoke all on function public.refund_slip_credit_metered(uuid) from public, anon, authenticated$sql_128_196$;
+execute $sql_129_196$revoke all on function public.refund_slip_credit_metered(uuid) from public, anon, authenticated$sql_129_196$;
 
 -- rpc-execution-hardening.sql: source statement 197
-execute $sql_128_197$grant execute on function public.refund_slip_credit_metered(uuid) to service_role$sql_128_197$;
+execute $sql_129_197$grant execute on function public.refund_slip_credit_metered(uuid) to service_role$sql_129_197$;
 
 -- rpc-execution-hardening.sql: source statement 198
-execute $sql_128_198$revoke all on function public.refund_slip_credit(uuid) from public, anon, authenticated$sql_128_198$;
+execute $sql_129_198$revoke all on function public.refund_slip_credit(uuid) from public, anon, authenticated$sql_129_198$;
 
 -- rpc-execution-hardening.sql: source statement 199
-execute $sql_128_199$grant execute on function public.refund_slip_credit(uuid) to service_role$sql_128_199$;
+execute $sql_129_199$grant execute on function public.refund_slip_credit(uuid) to service_role$sql_129_199$;
 
 -- rpc-execution-hardening.sql: source statement 200
-execute $sql_128_200$revoke all on function public.reserve_broadcast_credits_metered(uuid,integer) from public, anon, authenticated$sql_128_200$;
+execute $sql_129_200$revoke all on function public.reserve_broadcast_credits_metered(uuid,integer) from public, anon, authenticated$sql_129_200$;
 
 -- rpc-execution-hardening.sql: source statement 201
-execute $sql_128_201$grant execute on function public.reserve_broadcast_credits_metered(uuid,integer) to service_role$sql_128_201$;
+execute $sql_129_201$grant execute on function public.reserve_broadcast_credits_metered(uuid,integer) to service_role$sql_129_201$;
 
 -- rpc-execution-hardening.sql: source statement 202
-execute $sql_128_202$revoke all on function public.reserve_broadcast_credits(uuid,integer) from public, anon, authenticated$sql_128_202$;
+execute $sql_129_202$revoke all on function public.reserve_broadcast_credits(uuid,integer) from public, anon, authenticated$sql_129_202$;
 
 -- rpc-execution-hardening.sql: source statement 203
-execute $sql_128_203$grant execute on function public.reserve_broadcast_credits(uuid,integer) to service_role$sql_128_203$;
+execute $sql_129_203$grant execute on function public.reserve_broadcast_credits(uuid,integer) to service_role$sql_129_203$;
 
 -- rpc-execution-hardening.sql: source statement 204
-execute $sql_128_204$revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) from public, anon, authenticated$sql_128_204$;
+execute $sql_129_204$revoke all on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) from public, anon, authenticated$sql_129_204$;
 
 -- rpc-execution-hardening.sql: source statement 205
-execute $sql_128_205$grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) to service_role$sql_128_205$;
+execute $sql_129_205$grant execute on function public.reserve_tenant_ai_reply(uuid,uuid,uuid) to service_role$sql_129_205$;
 
 -- rpc-execution-hardening.sql: source statement 206
-execute $sql_128_206$revoke all on function public.restore_agent_prompt(uuid,uuid,integer) from public, anon, authenticated$sql_128_206$;
+execute $sql_129_206$revoke all on function public.restore_agent_prompt(uuid,uuid,integer) from public, anon, authenticated$sql_129_206$;
 
 -- rpc-execution-hardening.sql: source statement 207
-execute $sql_128_207$grant execute on function public.restore_agent_prompt(uuid,uuid,integer) to service_role$sql_128_207$;
+execute $sql_129_207$grant execute on function public.restore_agent_prompt(uuid,uuid,integer) to service_role$sql_129_207$;
 
 -- rpc-execution-hardening.sql: source statement 208
-execute $sql_128_208$revoke all on function public.retry_rejected_follow_up(uuid,uuid,uuid) from public, anon, authenticated$sql_128_208$;
+execute $sql_129_208$revoke all on function public.retry_rejected_follow_up(uuid,uuid,uuid) from public, anon, authenticated$sql_129_208$;
 
 -- rpc-execution-hardening.sql: source statement 209
-execute $sql_128_209$grant execute on function public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role$sql_128_209$;
+execute $sql_129_209$grant execute on function public.retry_rejected_follow_up(uuid,uuid,uuid) to service_role$sql_129_209$;
 
 -- rpc-execution-hardening.sql: source statement 210
-execute $sql_128_210$revoke all on function public.retry_unstarted_vision(uuid,uuid,uuid) from public, anon, authenticated$sql_128_210$;
+execute $sql_129_210$revoke all on function public.retry_unstarted_vision(uuid,uuid,uuid) from public, anon, authenticated$sql_129_210$;
 
 -- rpc-execution-hardening.sql: source statement 211
-execute $sql_128_211$grant execute on function public.retry_unstarted_vision(uuid,uuid,uuid) to service_role$sql_128_211$;
+execute $sql_129_211$grant execute on function public.retry_unstarted_vision(uuid,uuid,uuid) to service_role$sql_129_211$;
 
 -- rpc-execution-hardening.sql: source statement 212
-execute $sql_128_212$revoke all on function public.save_agent_prompt(uuid,uuid,text) from public, anon, authenticated$sql_128_212$;
+execute $sql_129_212$revoke all on function public.save_agent_prompt(uuid,uuid,text) from public, anon, authenticated$sql_129_212$;
 
 -- rpc-execution-hardening.sql: source statement 213
-execute $sql_128_213$grant execute on function public.save_agent_prompt(uuid,uuid,text) to service_role$sql_128_213$;
+execute $sql_129_213$grant execute on function public.save_agent_prompt(uuid,uuid,text) to service_role$sql_129_213$;
 
 -- rpc-execution-hardening.sql: source statement 214
-execute $sql_128_214$revoke all on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public, anon, authenticated$sql_128_214$;
+execute $sql_129_214$revoke all on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) from public, anon, authenticated$sql_129_214$;
 
 -- rpc-execution-hardening.sql: source statement 215
-execute $sql_128_215$grant execute on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_128_215$;
+execute $sql_129_215$grant execute on function public.save_auction_customer_note(uuid,uuid,uuid,uuid,text,text,integer) to service_role$sql_129_215$;
 
 -- rpc-execution-hardening.sql: source statement 216
-execute $sql_128_216$revoke all on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_216$;
+execute $sql_129_216$revoke all on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_129_216$;
 
 -- rpc-execution-hardening.sql: source statement 217
-execute $sql_128_217$grant execute on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) to service_role$sql_128_217$;
+execute $sql_129_217$grant execute on function public.save_auction_workspace_without_deadline(uuid,uuid,uuid,jsonb) to service_role$sql_129_217$;
 
 -- rpc-execution-hardening.sql: source statement 218
-execute $sql_128_218$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_218$;
+execute $sql_129_218$revoke all on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_129_218$;
 
 -- rpc-execution-hardening.sql: source statement 219
-execute $sql_128_219$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_128_219$;
+execute $sql_129_219$grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to service_role$sql_129_219$;
 
 -- rpc-execution-hardening.sql: source statement 220
-execute $sql_128_220$revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public, anon, authenticated$sql_128_220$;
+execute $sql_129_220$revoke all on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) from public, anon, authenticated$sql_129_220$;
 
 -- rpc-execution-hardening.sql: source statement 221
-execute $sql_128_221$grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_128_221$;
+execute $sql_129_221$grant execute on function public.save_bank_account_qr(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_129_221$;
 
 -- rpc-execution-hardening.sql: source statement 222
-execute $sql_128_222$revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public, anon, authenticated$sql_128_222$;
+execute $sql_129_222$revoke all on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) from public, anon, authenticated$sql_129_222$;
 
 -- rpc-execution-hardening.sql: source statement 223
-execute $sql_128_223$grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role$sql_128_223$;
+execute $sql_129_223$grant execute on function public.save_bank_account_with_qr(uuid,uuid,uuid,boolean,jsonb,jsonb,text,text,integer,uuid,text) to service_role$sql_129_223$;
 
 -- rpc-execution-hardening.sql: source statement 224
-execute $sql_128_224$revoke all on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) from public, anon, authenticated$sql_128_224$;
+execute $sql_129_224$revoke all on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) from public, anon, authenticated$sql_129_224$;
 
 -- rpc-execution-hardening.sql: source statement 225
-execute $sql_128_225$grant execute on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) to service_role$sql_128_225$;
+execute $sql_129_225$grant execute on function public.save_bank_qr_design(uuid,uuid,uuid,text,text,bigint,text,text,jsonb,integer) to service_role$sql_129_225$;
 
 -- rpc-execution-hardening.sql: source statement 226
-execute $sql_128_226$revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public, anon, authenticated$sql_128_226$;
+execute $sql_129_226$revoke all on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) from public, anon, authenticated$sql_129_226$;
 
 -- rpc-execution-hardening.sql: source statement 227
-execute $sql_128_227$grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role$sql_128_227$;
+execute $sql_129_227$grant execute on function public.save_bank_receiving_qr(uuid,uuid,text,text,text,text,text,integer) to service_role$sql_129_227$;
 
 -- rpc-execution-hardening.sql: source statement 228
-execute $sql_128_228$revoke all on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_128_228$;
+execute $sql_129_228$revoke all on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) from public, anon, authenticated$sql_129_228$;
 
 -- rpc-execution-hardening.sql: source statement 229
-execute $sql_128_229$grant execute on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) to service_role$sql_128_229$;
+execute $sql_129_229$grant execute on function public.save_facebook_comment_config(uuid,uuid,uuid,jsonb) to service_role$sql_129_229$;
 
 -- rpc-execution-hardening.sql: source statement 230
-execute $sql_128_230$revoke all on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) from public, anon, authenticated$sql_128_230$;
+execute $sql_129_230$revoke all on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) from public, anon, authenticated$sql_129_230$;
 
 -- rpc-execution-hardening.sql: source statement 231
-execute $sql_128_231$grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) to service_role$sql_128_231$;
+execute $sql_129_231$grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,integer,jsonb,jsonb) to service_role$sql_129_231$;
 
 -- rpc-execution-hardening.sql: source statement 232
-execute $sql_128_232$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_128_232$;
+execute $sql_129_232$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) from public, anon, authenticated$sql_129_232$;
 
 -- rpc-execution-hardening.sql: source statement 233
-execute $sql_128_233$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) to service_role$sql_128_233$;
+execute $sql_129_233$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text,text) to service_role$sql_129_233$;
 
 -- rpc-execution-hardening.sql: source statement 234
-execute $sql_128_234$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) from public, anon, authenticated$sql_128_234$;
+execute $sql_129_234$revoke all on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) from public, anon, authenticated$sql_129_234$;
 
 -- rpc-execution-hardening.sql: source statement 235
-execute $sql_128_235$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to service_role$sql_128_235$;
+execute $sql_129_235$grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to service_role$sql_129_235$;
 
 -- rpc-execution-hardening.sql: source statement 236
-execute $sql_128_236$revoke all on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) from public, anon, authenticated$sql_128_236$;
+execute $sql_129_236$revoke all on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) from public, anon, authenticated$sql_129_236$;
 
 -- rpc-execution-hardening.sql: source statement 237
-execute $sql_128_237$grant execute on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) to service_role$sql_128_237$;
+execute $sql_129_237$grant execute on function public.save_payment_receiving_code(uuid,uuid,uuid,uuid,text,text,text,bigint,uuid,text) to service_role$sql_129_237$;
 
 -- rpc-execution-hardening.sql: source statement 238
-execute $sql_128_238$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) from public, anon, authenticated$sql_128_238$;
+execute $sql_129_238$revoke all on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) from public, anon, authenticated$sql_129_238$;
 
 -- rpc-execution-hardening.sql: source statement 239
-execute $sql_128_239$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) to service_role$sql_128_239$;
+execute $sql_129_239$grant execute on function public.save_shipping_integration(uuid,text,text,text,jsonb,text,numeric,boolean,boolean) to service_role$sql_129_239$;
 
 -- rpc-execution-hardening.sql: source statement 240
-execute $sql_128_240$revoke all on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) from public, anon, authenticated$sql_128_240$;
+execute $sql_129_240$revoke all on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) from public, anon, authenticated$sql_129_240$;
 
 -- rpc-execution-hardening.sql: source statement 241
-execute $sql_128_241$grant execute on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) to service_role$sql_128_241$;
+execute $sql_129_241$grant execute on function public.save_smart_follow_up(uuid,uuid,jsonb,jsonb) to service_role$sql_129_241$;
 
 -- rpc-execution-hardening.sql: source statement 242
-execute $sql_128_242$revoke all on function public.save_store_rule_items(uuid,uuid,text,text) from public, anon, authenticated$sql_128_242$;
+execute $sql_129_242$revoke all on function public.save_store_rule_items(uuid,uuid,text,text) from public, anon, authenticated$sql_129_242$;
 
 -- rpc-execution-hardening.sql: source statement 243
-execute $sql_128_243$grant execute on function public.save_store_rule_items(uuid,uuid,text,text) to service_role$sql_128_243$;
+execute $sql_129_243$grant execute on function public.save_store_rule_items(uuid,uuid,text,text) to service_role$sql_129_243$;
 
 -- rpc-execution-hardening.sql: source statement 244
-execute $sql_128_244$revoke all on function public.save_validated_store_rules(uuid,uuid,text,text) from public, anon, authenticated$sql_128_244$;
+execute $sql_129_244$revoke all on function public.save_validated_store_rules(uuid,uuid,text,text) from public, anon, authenticated$sql_129_244$;
 
 -- rpc-execution-hardening.sql: source statement 245
-execute $sql_128_245$grant execute on function public.save_validated_store_rules(uuid,uuid,text,text) to service_role$sql_128_245$;
+execute $sql_129_245$grant execute on function public.save_validated_store_rules(uuid,uuid,text,text) to service_role$sql_129_245$;
 
 -- rpc-execution-hardening.sql: source statement 246
-execute $sql_128_246$revoke all on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public, anon, authenticated$sql_128_246$;
+execute $sql_129_246$revoke all on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) from public, anon, authenticated$sql_129_246$;
 
 -- rpc-execution-hardening.sql: source statement 247
-execute $sql_128_247$grant execute on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_128_247$;
+execute $sql_129_247$grant execute on function public.save_vision_settings(uuid,uuid,boolean,text,numeric,boolean) to service_role$sql_129_247$;
 
 -- rpc-execution-hardening.sql: source statement 248
-execute $sql_128_248$revoke all on function public.set_agent_overview_capability(uuid,uuid,text,boolean) from public, anon, authenticated$sql_128_248$;
+execute $sql_129_248$revoke all on function public.set_agent_overview_capability(uuid,uuid,text,boolean) from public, anon, authenticated$sql_129_248$;
 
 -- rpc-execution-hardening.sql: source statement 249
-execute $sql_128_249$grant execute on function public.set_agent_overview_capability(uuid,uuid,text,boolean) to service_role$sql_128_249$;
+execute $sql_129_249$grant execute on function public.set_agent_overview_capability(uuid,uuid,text,boolean) to service_role$sql_129_249$;
 
 -- rpc-execution-hardening.sql: source statement 250
-execute $sql_128_250$revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text) from public, anon, authenticated$sql_128_250$;
+execute $sql_129_250$revoke all on function public.set_follow_up_approval_mode(uuid,uuid,text) from public, anon, authenticated$sql_129_250$;
 
 -- rpc-execution-hardening.sql: source statement 251
-execute $sql_128_251$grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text) to service_role$sql_128_251$;
+execute $sql_129_251$grant execute on function public.set_follow_up_approval_mode(uuid,uuid,text) to service_role$sql_129_251$;
 
 -- rpc-execution-hardening.sql: source statement 252
-execute $sql_128_252$revoke all on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) from public, anon, authenticated$sql_128_252$;
+execute $sql_129_252$revoke all on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) from public, anon, authenticated$sql_129_252$;
 
 -- rpc-execution-hardening.sql: source statement 253
-execute $sql_128_253$grant execute on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) to service_role$sql_128_253$;
+execute $sql_129_253$grant execute on function public.set_inbox_follow_up_flag(uuid,uuid,boolean,uuid) to service_role$sql_129_253$;
 
 -- rpc-execution-hardening.sql: source statement 254
-execute $sql_128_254$revoke all on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_128_254$;
+execute $sql_129_254$revoke all on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) from public, anon, authenticated$sql_129_254$;
 
 -- rpc-execution-hardening.sql: source statement 255
-execute $sql_128_255$grant execute on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) to service_role$sql_128_255$;
+execute $sql_129_255$grant execute on function public.set_payment_receiving_code_active(uuid,uuid,uuid,boolean) to service_role$sql_129_255$;
 
 -- rpc-execution-hardening.sql: source statement 256
-execute $sql_128_256$revoke all on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) from public, anon, authenticated$sql_128_256$;
+execute $sql_129_256$revoke all on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) from public, anon, authenticated$sql_129_256$;
 
 -- rpc-execution-hardening.sql: source statement 257
-execute $sql_128_257$grant execute on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) to service_role$sql_128_257$;
+execute $sql_129_257$grant execute on function public.set_tenant_automation_stop(uuid,uuid,boolean,text) to service_role$sql_129_257$;
 
 -- rpc-execution-hardening.sql: source statement 258
-execute $sql_128_258$revoke all on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_128_258$;
+execute $sql_129_258$revoke all on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) from public, anon, authenticated$sql_129_258$;
 
 -- rpc-execution-hardening.sql: source statement 259
-execute $sql_128_259$grant execute on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) to service_role$sql_128_259$;
+execute $sql_129_259$grant execute on function public.settle_broadcast_recipient(uuid,uuid,uuid,text,text,text) to service_role$sql_129_259$;
 
 -- rpc-execution-hardening.sql: source statement 260
-execute $sql_128_260$revoke all on function public.shipping_snapshot(uuid,uuid[],uuid) from public, anon, authenticated$sql_128_260$;
+execute $sql_129_260$revoke all on function public.shipping_snapshot(uuid,uuid[],uuid) from public, anon, authenticated$sql_129_260$;
 
 -- rpc-execution-hardening.sql: source statement 261
-execute $sql_128_261$grant execute on function public.shipping_snapshot(uuid,uuid[],uuid) to service_role$sql_128_261$;
+execute $sql_129_261$grant execute on function public.shipping_snapshot(uuid,uuid[],uuid) to service_role$sql_129_261$;
 
 -- rpc-execution-hardening.sql: source statement 262
-execute $sql_128_262$revoke all on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_128_262$;
+execute $sql_129_262$revoke all on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) from public, anon, authenticated$sql_129_262$;
 
 -- rpc-execution-hardening.sql: source statement 263
-execute $sql_128_263$grant execute on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) to service_role$sql_128_263$;
+execute $sql_129_263$grant execute on function public.start_agent_ai_call(uuid,uuid,uuid,uuid,uuid) to service_role$sql_129_263$;
 
 -- rpc-execution-hardening.sql: source statement 264
-execute $sql_128_264$revoke all on function public.start_inbox_delivery(uuid,uuid) from public, anon, authenticated$sql_128_264$;
+execute $sql_129_264$revoke all on function public.start_inbox_delivery(uuid,uuid) from public, anon, authenticated$sql_129_264$;
 
 -- rpc-execution-hardening.sql: source statement 265
-execute $sql_128_265$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_128_265$;
+execute $sql_129_265$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_129_265$;
 
 -- rpc-execution-hardening.sql: source statement 266
-execute $sql_128_266$revoke all on function public.start_legacy_auction_timer(uuid,uuid) from public, anon, authenticated$sql_128_266$;
+execute $sql_129_266$revoke all on function public.start_legacy_auction_timer(uuid,uuid) from public, anon, authenticated$sql_129_266$;
 
 -- rpc-execution-hardening.sql: source statement 267
-execute $sql_128_267$grant execute on function public.start_legacy_auction_timer(uuid,uuid) to service_role$sql_128_267$;
+execute $sql_129_267$grant execute on function public.start_legacy_auction_timer(uuid,uuid) to service_role$sql_129_267$;
 
 -- rpc-execution-hardening.sql: source statement 268
-execute $sql_128_268$revoke all on function public.sync_facebook_tenants(uuid,jsonb) from public, anon, authenticated$sql_128_268$;
+execute $sql_129_268$revoke all on function public.sync_facebook_tenants(uuid,jsonb) from public, anon, authenticated$sql_129_268$;
 
 -- rpc-execution-hardening.sql: source statement 269
-execute $sql_128_269$grant execute on function public.sync_facebook_tenants(uuid,jsonb) to service_role$sql_128_269$;
+execute $sql_129_269$grant execute on function public.sync_facebook_tenants(uuid,jsonb) to service_role$sql_129_269$;
 
 -- rpc-execution-hardening.sql: source statement 270
-execute $sql_128_270$revoke all on function public.tenant_has_feature_bypass(uuid) from public, anon, authenticated$sql_128_270$;
+execute $sql_129_270$revoke all on function public.tenant_has_feature_bypass(uuid) from public, anon, authenticated$sql_129_270$;
 
 -- rpc-execution-hardening.sql: source statement 271
-execute $sql_128_271$grant execute on function public.tenant_has_feature_bypass(uuid) to service_role$sql_128_271$;
+execute $sql_129_271$grant execute on function public.tenant_has_feature_bypass(uuid) to service_role$sql_129_271$;
 
 -- rpc-execution-hardening.sql: source statement 272
-execute $sql_128_272$revoke all on function public.tenant_has_paid_ai_access(uuid) from public, anon, authenticated$sql_128_272$;
+execute $sql_129_272$revoke all on function public.tenant_has_paid_ai_access(uuid) from public, anon, authenticated$sql_129_272$;
 
 -- rpc-execution-hardening.sql: source statement 273
-execute $sql_128_273$grant execute on function public.tenant_has_paid_ai_access(uuid) to service_role$sql_128_273$;
+execute $sql_129_273$grant execute on function public.tenant_has_paid_ai_access(uuid) to service_role$sql_129_273$;
 
 -- rpc-execution-hardening.sql: source statement 274
-execute $sql_128_274$revoke all on function public.cancel_paid_follow_ups() from public, anon, authenticated$sql_128_274$;
+execute $sql_129_274$revoke all on function public.cancel_paid_follow_ups() from public, anon, authenticated$sql_129_274$;
 
 -- rpc-execution-hardening.sql: source statement 275
-execute $sql_128_275$grant execute on function public.cancel_paid_follow_ups() to service_role$sql_128_275$;
+execute $sql_129_275$grant execute on function public.cancel_paid_follow_ups() to service_role$sql_129_275$;
 
 -- rpc-execution-hardening.sql: source statement 276
-execute $sql_128_276$revoke all on function public.commerce_product_quota() from public, anon, authenticated$sql_128_276$;
+execute $sql_129_276$revoke all on function public.commerce_product_quota() from public, anon, authenticated$sql_129_276$;
 
 -- rpc-execution-hardening.sql: source statement 277
-execute $sql_128_277$grant execute on function public.commerce_product_quota() to service_role$sql_128_277$;
+execute $sql_129_277$grant execute on function public.commerce_product_quota() to service_role$sql_129_277$;
 
 -- rpc-execution-hardening.sql: source statement 278
-execute $sql_128_278$revoke all on function public.on_order_status() from public, anon, authenticated$sql_128_278$;
+execute $sql_129_278$revoke all on function public.on_order_status() from public, anon, authenticated$sql_129_278$;
 
 -- rpc-execution-hardening.sql: source statement 279
-execute $sql_128_279$grant execute on function public.on_order_status() to service_role$sql_128_279$;
+execute $sql_129_279$grant execute on function public.on_order_status() to service_role$sql_129_279$;
 
 -- rpc-execution-hardening.sql: source statement 280
-execute $sql_128_280$revoke all on function public.schedule_follow_ups() from public, anon, authenticated$sql_128_280$;
+execute $sql_129_280$revoke all on function public.schedule_follow_ups() from public, anon, authenticated$sql_129_280$;
 
 -- rpc-execution-hardening.sql: source statement 281
-execute $sql_128_281$grant execute on function public.schedule_follow_ups() to service_role$sql_128_281$;
+execute $sql_129_281$grant execute on function public.schedule_follow_ups() to service_role$sql_129_281$;
 
 -- rpc-execution-hardening.sql: source statement 282
-execute $sql_128_282$revoke all on function public.can_access_tenant(uuid) from public, anon$sql_128_282$;
+execute $sql_129_282$revoke all on function public.can_access_tenant(uuid) from public, anon$sql_129_282$;
 
 -- rpc-execution-hardening.sql: source statement 283
-execute $sql_128_283$grant execute on function public.can_access_tenant(uuid) to authenticated, service_role$sql_128_283$;
+execute $sql_129_283$grant execute on function public.can_access_tenant(uuid) to authenticated, service_role$sql_129_283$;
 
 -- rpc-execution-hardening.sql: source statement 284
-execute $sql_128_284$revoke all on function public.can_manage_bank_accounts(uuid) from public, anon$sql_128_284$;
+execute $sql_129_284$revoke all on function public.can_manage_bank_accounts(uuid) from public, anon$sql_129_284$;
 
 -- rpc-execution-hardening.sql: source statement 285
-execute $sql_128_285$grant execute on function public.can_manage_bank_accounts(uuid) to authenticated, service_role$sql_128_285$;
+execute $sql_129_285$grant execute on function public.can_manage_bank_accounts(uuid) to authenticated, service_role$sql_129_285$;
 
 -- rpc-execution-hardening.sql: source statement 286
-execute $sql_128_286$revoke all on function public.can_manage_image_rules(uuid) from public, anon$sql_128_286$;
+execute $sql_129_286$revoke all on function public.can_manage_image_rules(uuid) from public, anon$sql_129_286$;
 
 -- rpc-execution-hardening.sql: source statement 287
-execute $sql_128_287$grant execute on function public.can_manage_image_rules(uuid) to authenticated, service_role$sql_128_287$;
+execute $sql_129_287$grant execute on function public.can_manage_image_rules(uuid) to authenticated, service_role$sql_129_287$;
 
 -- rpc-execution-hardening.sql: source statement 288
-execute $sql_128_288$revoke all on function public.has_tenant_feature(uuid, text) from public, anon$sql_128_288$;
+execute $sql_129_288$revoke all on function public.has_tenant_feature(uuid, text) from public, anon$sql_129_288$;
 
 -- rpc-execution-hardening.sql: source statement 289
-execute $sql_128_289$grant execute on function public.has_tenant_feature(uuid, text) to authenticated, service_role$sql_128_289$;
+execute $sql_129_289$grant execute on function public.has_tenant_feature(uuid, text) to authenticated, service_role$sql_129_289$;
 
 -- rpc-execution-hardening.sql: source statement 290
-execute $sql_128_290$revoke all on function public.is_platform_admin() from public, anon$sql_128_290$;
+execute $sql_129_290$revoke all on function public.is_platform_admin() from public, anon$sql_129_290$;
 
 -- rpc-execution-hardening.sql: source statement 291
-execute $sql_128_291$grant execute on function public.is_platform_admin() to authenticated, service_role$sql_128_291$;
+execute $sql_129_291$grant execute on function public.is_platform_admin() to authenticated, service_role$sql_129_291$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('rpc-execution-hardening.sql','d7f401d17404f69bbab5d3003aa168779907df3f952be007466c6c3e2391d83e','68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983');
-end $migration_128$;
+end $migration_129$;
 
--- 130. inbox-owner-takeover.sql
-do $migration_129$
+-- 131. inbox-owner-takeover.sql
+do $migration_130$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='inbox-owner-takeover.sql';
@@ -19304,7 +19367,7 @@ begin
     return;
   end if;
 -- inbox-owner-takeover.sql: source statement 2
-execute $sql_129_2$create or replace function public.manage_inbox_conversation(
+execute $sql_130_2$create or replace function public.manage_inbox_conversation(
   p_customer uuid,
   p_actor uuid,
   p_action text,
@@ -19403,10 +19466,10 @@ begin
     )
     from public.customers where id=c.id and tenant_id=c.tenant_id
   ));
-end $$$sql_129_2$;
+end $$$sql_130_2$;
 
 -- inbox-owner-takeover.sql: source statement 3
-execute $sql_129_3$create or replace function public.claim_and_start_inbox_reply(
+execute $sql_130_3$create or replace function public.claim_and_start_inbox_reply(
   p_customer uuid,
   p_actor uuid,
   p_version integer
@@ -19437,10 +19500,10 @@ begin
     perform public.manage_inbox_conversation(p_customer,p_actor,'claim',p_version);
   end if;
   return public.start_inbox_delivery(p_customer,p_actor);
-end $$$sql_129_3$;
+end $$$sql_130_3$;
 
 -- inbox-owner-takeover.sql: source statement 4
-execute $sql_129_4$create or replace function public.start_inbox_delivery(
+execute $sql_130_4$create or replace function public.start_inbox_delivery(
   p_customer uuid,
   p_actor uuid default null
 ) returns uuid
@@ -19507,34 +19570,34 @@ begin
   set outbound_lock=lease,outbound_lock_until=clock_timestamp()+interval '2 minutes'
   where id=p_customer;
   return lease;
-end $$$sql_129_4$;
+end $$$sql_130_4$;
 
 -- inbox-owner-takeover.sql: source statement 5
-execute $sql_129_5$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public,anon,authenticated$sql_129_5$;
+execute $sql_130_5$revoke all on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) from public,anon,authenticated$sql_130_5$;
 
 -- inbox-owner-takeover.sql: source statement 6
-execute $sql_129_6$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_129_6$;
+execute $sql_130_6$grant execute on function public.manage_inbox_conversation(uuid,uuid,text,integer,uuid) to service_role$sql_130_6$;
 
 -- inbox-owner-takeover.sql: source statement 7
-execute $sql_129_7$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public,anon,authenticated$sql_129_7$;
+execute $sql_130_7$revoke all on function public.claim_and_start_inbox_reply(uuid,uuid,integer) from public,anon,authenticated$sql_130_7$;
 
 -- inbox-owner-takeover.sql: source statement 8
-execute $sql_129_8$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_129_8$;
+execute $sql_130_8$grant execute on function public.claim_and_start_inbox_reply(uuid,uuid,integer) to service_role$sql_130_8$;
 
 -- inbox-owner-takeover.sql: source statement 9
-execute $sql_129_9$revoke all on function public.start_inbox_delivery(uuid,uuid) from public,anon,authenticated$sql_129_9$;
+execute $sql_130_9$revoke all on function public.start_inbox_delivery(uuid,uuid) from public,anon,authenticated$sql_130_9$;
 
 -- inbox-owner-takeover.sql: source statement 10
-execute $sql_129_10$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_129_10$;
+execute $sql_130_10$grant execute on function public.start_inbox_delivery(uuid,uuid) to service_role$sql_130_10$;
 
 -- inbox-owner-takeover.sql: source statement 11
-execute $sql_129_11$notify pgrst,'reload schema'$sql_129_11$;
+execute $sql_130_11$notify pgrst,'reload schema'$sql_130_11$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('inbox-owner-takeover.sql','9448b60fc9fd163580e148ec97c413ea484ea36b3c92be2b3fd3c9221700ef8a','464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f');
-end $migration_129$;
+end $migration_130$;
 
--- 131. live-cf-quantity.sql
-do $migration_130$
+-- 132. live-cf-quantity.sql
+do $migration_131$
 declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='live-cf-quantity.sql';
@@ -19545,63 +19608,63 @@ begin
     return;
   end if;
 -- live-cf-quantity.sql: source statement 1
-execute $sql_130_1$alter table public.comment_rules
-  add column if not exists max_qty_per_comment integer not null default 5$sql_130_1$;
+execute $sql_131_1$alter table public.comment_rules
+  add column if not exists max_qty_per_comment integer not null default 5$sql_131_1$;
 
 -- live-cf-quantity.sql: source statement 2
-execute $sql_130_2$alter table public.comment_rules
-  drop constraint if exists comment_rules_max_qty_per_comment_check$sql_130_2$;
+execute $sql_131_2$alter table public.comment_rules
+  drop constraint if exists comment_rules_max_qty_per_comment_check$sql_131_2$;
 
 -- live-cf-quantity.sql: source statement 3
-execute $sql_130_3$alter table public.comment_rules
+execute $sql_131_3$alter table public.comment_rules
   add constraint comment_rules_max_qty_per_comment_check
-  check (max_qty_per_comment between 1 and 99)$sql_130_3$;
+  check (max_qty_per_comment between 1 and 99)$sql_131_3$;
 
 -- live-cf-quantity.sql: source statement 4
-execute $sql_130_4$alter table public.orders
+execute $sql_131_4$alter table public.orders
   add column if not exists quantity integer not null default 1,
   add column if not exists item_price numeric(12,2),
-  add column if not exists subtotal numeric(12,2)$sql_130_4$;
+  add column if not exists subtotal numeric(12,2)$sql_131_4$;
 
 -- live-cf-quantity.sql: source statement 6
-execute $sql_130_6$alter table public.orders
+execute $sql_131_6$alter table public.orders
   alter column item_price drop not null,
-  alter column subtotal drop not null$sql_130_6$;
+  alter column subtotal drop not null$sql_131_6$;
 
 -- live-cf-quantity.sql: source statement 7
-execute $sql_130_7$alter table public.orders
-  drop constraint if exists orders_quantity_check$sql_130_7$;
+execute $sql_131_7$alter table public.orders
+  drop constraint if exists orders_quantity_check$sql_131_7$;
 
 -- live-cf-quantity.sql: source statement 8
-execute $sql_130_8$alter table public.orders
-  add constraint orders_quantity_check check (quantity between 1 and 99)$sql_130_8$;
+execute $sql_131_8$alter table public.orders
+  add constraint orders_quantity_check check (quantity between 1 and 99)$sql_131_8$;
 
 -- live-cf-quantity.sql: source statement 9
-execute $sql_130_9$alter table public.orders
-  drop constraint if exists orders_item_price_check$sql_130_9$;
+execute $sql_131_9$alter table public.orders
+  drop constraint if exists orders_item_price_check$sql_131_9$;
 
 -- live-cf-quantity.sql: source statement 10
-execute $sql_130_10$alter table public.orders
-  add constraint orders_item_price_check check ((item_price is null or item_price > 0) and (subtotal is null or subtotal > 0))$sql_130_10$;
+execute $sql_131_10$alter table public.orders
+  add constraint orders_item_price_check check ((item_price is null or item_price > 0) and (subtotal is null or subtotal > 0))$sql_131_10$;
 
 -- live-cf-quantity.sql: source statement 11
-execute $sql_130_11$alter table public.customer_tab_items
+execute $sql_131_11$alter table public.customer_tab_items
   add column if not exists quantity integer not null default 1,
-  add column if not exists item_price numeric(12,2)$sql_130_11$;
+  add column if not exists item_price numeric(12,2)$sql_131_11$;
 
 -- live-cf-quantity.sql: source statement 14
-execute $sql_130_14$alter table public.customer_tab_items alter column item_price drop not null$sql_130_14$;
+execute $sql_131_14$alter table public.customer_tab_items alter column item_price drop not null$sql_131_14$;
 
 -- live-cf-quantity.sql: source statement 15
-execute $sql_130_15$alter table public.customer_tab_items
-  drop constraint if exists customer_tab_items_quantity_check$sql_130_15$;
+execute $sql_131_15$alter table public.customer_tab_items
+  drop constraint if exists customer_tab_items_quantity_check$sql_131_15$;
 
 -- live-cf-quantity.sql: source statement 16
-execute $sql_130_16$alter table public.customer_tab_items
-  add constraint customer_tab_items_quantity_check check (quantity between 1 and 99)$sql_130_16$;
+execute $sql_131_16$alter table public.customer_tab_items
+  add constraint customer_tab_items_quantity_check check (quantity between 1 and 99)$sql_131_16$;
 
 -- live-cf-quantity.sql: source statement 17
-execute $sql_130_17$create or replace function public.on_order_status() returns trigger
+execute $sql_131_17$create or replace function public.on_order_status() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status=old.status then return new;end if;
@@ -19613,10 +19676,10 @@ begin
   end if;
  end if;
  return new;
-end $$$sql_130_17$;
+end $$$sql_131_17$;
 
 -- live-cf-quantity.sql: source statement 18
-execute $sql_130_18$create or replace function public.attach_customer_tab_order() returns trigger
+execute $sql_131_18$create or replace function public.attach_customer_tab_order() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare c public.customers; a public.auctions; r public.comment_rules; sess uuid; bill public.customer_tabs;
  page text; post text; shipping numeric:=0; bank uuid; unit numeric; subtotal_value numeric;
@@ -19688,10 +19751,10 @@ begin
   new.amount:=new.subtotal+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
  end if;
  return new;
-end $$$sql_130_18$;
+end $$$sql_131_18$;
 
 -- live-cf-quantity.sql: source statement 19
-execute $sql_130_19$create or replace function public.sync_customer_tab_order() returns trigger
+execute $sql_131_19$create or replace function public.sync_customer_tab_order() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.customer_tab_id is null or current_setting('app.refreshing_customer_tab',true)='1' then return new;end if;
@@ -19704,13 +19767,13 @@ begin
    cancelled=excluded.cancelled,quantity=excluded.quantity,item_price=excluded.item_price;
  perform public.refresh_customer_tab(new.customer_tab_id);
  return new;
-end $$$sql_130_19$;
+end $$$sql_131_19$;
 
 -- live-cf-quantity.sql: source statement 20
-execute $sql_130_20$drop function if exists public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text)$sql_130_20$;
+execute $sql_131_20$drop function if exists public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text)$sql_131_20$;
 
 -- live-cf-quantity.sql: source statement 21
-execute $sql_130_21$create or replace function public.place_live_cf_order(
+execute $sql_131_21$create or replace function public.place_live_cf_order(
  p_tenant uuid,p_customer uuid,p_rule uuid,p_code text,p_comment text,p_post text,p_page text,p_quantity integer default 1
 ) returns table(
  r_status text,r_order_id uuid,r_name text,r_code text,r_amount numeric,r_variant_label text,
@@ -19767,19 +19830,19 @@ begin
   values(p_tenant,p_customer,p.id,p.name,sub,sub,unit,sub,qty,r.live_variant_id,label,'live_comment',p_comment,lower(trim(p_code)),r.id,r.live_bank_account_id,r.live_deduct_stock,r.live_customer_select_variant and exists(select 1 from public.commerce_variants where product_id=p.id and tenant_id=p_tenant and is_active),p_post)
   returning id into new_id;
  return query select 'created'::text,new_id,p.name,p_code,sub,label,qty,unit,sub,(qty<requested),available-qty;
-end $$$sql_130_21$;
+end $$$sql_131_21$;
 
 -- live-cf-quantity.sql: source statement 22
-execute $sql_130_22$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text,integer) from public,anon,authenticated$sql_130_22$;
+execute $sql_131_22$revoke all on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text,integer) from public,anon,authenticated$sql_131_22$;
 
 -- live-cf-quantity.sql: source statement 23
-execute $sql_130_23$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_130_23$;
+execute $sql_131_23$grant execute on function public.place_live_cf_order(uuid,uuid,uuid,text,text,text,text,integer) to service_role$sql_131_23$;
 
 -- live-cf-quantity.sql: source statement 24
-execute $sql_130_24$notify pgrst,'reload schema'$sql_130_24$;
+execute $sql_131_24$notify pgrst,'reload schema'$sql_131_24$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('live-cf-quantity.sql','cff273dd4ea2dcfb88547c125f4985a9402971bc3bcc1cb4682f41efd7ae7c99','2a44286ca413f95083ec761b825a95caac9feda67e4ccbf43657a2611abc40a1');
-end $migration_130$;
+end $migration_131$;
 
 notify pgrst,'reload schema';
 

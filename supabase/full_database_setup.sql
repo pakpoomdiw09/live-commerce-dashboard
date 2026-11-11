@@ -45,6 +45,7 @@ begin
     ('public.bank_accounts'),
     ('public.image_response_rules'),
     ('public.plan_features'),
+    ('public.tenant_feature_overrides'),
     ('public.conversation_reads'),
     ('public.conversation_events'),
     ('public.inbox_media'),
@@ -2862,7 +2863,61 @@ grant execute on function public.refund_slip_credit(uuid) to service_role;
 
 commit;
 -- ============================================================================
--- 27. free-message-quota.sql | Facebook, billing, bank accounts and feature security
+-- 27. tenant-feature-overrides.sql | Facebook, billing, bank accounts and feature security
+-- SHA256: 3807778cf0a86c56b6f14efdc843c20e40b766ab6febe306c3ddcc33b924037d
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 1
+create table if not exists public.tenant_feature_overrides (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  feature text not null check (feature in ('ai_agent','image_assistant','customer_management','slip_auto_pilot','customer_follow_up')),
+  enabled boolean not null,
+  reason text not null check (length(trim(reason)) between 1 and 500),
+  expires_at timestamptz,
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (tenant_id,feature)
+);
+
+-- Source statement 2
+alter table public.tenant_feature_overrides enable row level security;
+
+-- Source statement 3
+revoke all on public.tenant_feature_overrides from public,anon,authenticated;
+
+-- Source statement 4
+grant select,insert,update,delete on public.tenant_feature_overrides to service_role;
+
+-- Source statement 5
+create or replace function public.has_tenant_feature(p_tenant uuid,p_feature text) returns boolean
+language sql stable security definer set search_path=pg_catalog,public as $$
+ select exists(
+   select 1 from public.tenants t
+   where t.id=p_tenant and t.is_active
+     and coalesce(
+       (select case when o.expires_at is not null and o.expires_at<=now() then null else o.enabled end
+        from public.tenant_feature_overrides o
+        where o.tenant_id=t.id and o.feature=p_feature),
+       (t.plan<>'free' and t.plan_expires_at>now() and exists(
+         select 1 from public.plan_features f
+         where f.plan=t.plan and f.feature=p_feature and f.enabled
+       ))
+     )
+ );
+$$;
+
+-- Source statement 6
+revoke all on function public.has_tenant_feature(uuid,text) from public,anon;
+
+-- Source statement 7
+grant execute on function public.has_tenant_feature(uuid,text) to authenticated,service_role;
+
+commit;
+-- ============================================================================
+-- 28. free-message-quota.sql | Facebook, billing, bank accounts and feature security
 -- SHA256: 6c43832ecc28fe37a753487ea001174d0c724f028f45249f3275893f0b6e99a5
 -- ============================================================================
 begin;
@@ -3014,7 +3069,7 @@ notify pgrst, 'reload schema';
 
 commit;
 -- ============================================================================
--- 28. keyword-reply-limits.sql | Facebook, billing, bank accounts and feature security
+-- 29. keyword-reply-limits.sql | Facebook, billing, bank accounts and feature security
 -- SHA256: 331db8ee61d4e12356f6f883c08403717d136abaa29190bfa71940aa693d9c34
 -- ============================================================================
 begin;
@@ -3054,7 +3109,7 @@ for each row execute function public.guard_keyword_reply_limit();
 
 commit;
 -- ============================================================================
--- 29. fallback-messages.sql | Facebook, billing, bank accounts and feature security
+-- 30. fallback-messages.sql | Facebook, billing, bank accounts and feature security
 -- SHA256: b3a22811de461dac12dca9e85b8f5fd9ed5f5e0130547607eaced5c2ed1ba28b
 -- ============================================================================
 begin;
@@ -3082,7 +3137,7 @@ alter table public.bot_settings add constraint bot_settings_fallback_messages_ch
 
 commit;
 -- ============================================================================
--- 30. handover-messages.sql | Facebook, billing, bank accounts and feature security
+-- 31. handover-messages.sql | Facebook, billing, bank accounts and feature security
 -- SHA256: 47c4af183d56f18eb06929dab7daacf713eb30f77d4b080deb0fe9c9fd99742e
 -- ============================================================================
 begin;
@@ -3110,7 +3165,7 @@ alter table public.bot_settings add constraint bot_settings_handover_messages_ch
 
 commit;
 -- ============================================================================
--- 31. followup-message-defaults.sql | Facebook, billing, bank accounts and feature security
+-- 32. followup-message-defaults.sql | Facebook, billing, bank accounts and feature security
 -- SHA256: 1615ee171cacdcd867738276d1f676168275c34067e7067495851c9a34964562
 -- ============================================================================
 begin;
@@ -3126,7 +3181,7 @@ alter table public.bot_settings alter column followup_steps set default '[
 
 commit;
 -- ============================================================================
--- 32. smart-inbox.sql | Inbox, automation and commerce functions/triggers
+-- 33. smart-inbox.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 2ccfb610d36a3a3acce7138038b3197b8e1203128daa627780d82bc5722ad505
 -- ============================================================================
 begin;
@@ -3348,7 +3403,7 @@ do $$begin alter publication supabase_realtime add table public.conversation_rea
 
 commit;
 -- ============================================================================
--- 33. smart-inbox-pro.sql | Inbox, automation and commerce functions/triggers
+-- 34. smart-inbox-pro.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: e5aeb9d94cce891b6ddcfbac736c4db5985f98146a5f582bc4551b5dbaccba6f
 -- ============================================================================
 begin;
@@ -3537,7 +3592,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 34. smart-inbox-v2.sql | Inbox, automation and commerce functions/triggers
+-- 35. smart-inbox-v2.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: c554817c3a8c16bd2dc68d725938bc9aef2bba2b63bc8762618157a19584521e
 -- ============================================================================
 begin;
@@ -3621,7 +3676,7 @@ grant execute on function public.manage_inbox_workspace(uuid,uuid,text,uuid,text
 
 commit;
 -- ============================================================================
--- 35. inbox-follow-up-flags.sql | Inbox, automation and commerce functions/triggers
+-- 36. inbox-follow-up-flags.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: bdf113d9341ecb5c831a278c0624b0c04ce95ac2aee3a8b0509078099358365d
 -- ============================================================================
 begin;
@@ -3694,7 +3749,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 36. inbox-quick-replies.sql | Inbox, automation and commerce functions/triggers
+-- 37. inbox-quick-replies.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 832f7002fc6a45f2a5054583c19e03942ecb451423afa4b3d168510206f0e6eb
 -- ============================================================================
 begin;
@@ -3765,7 +3820,7 @@ grant execute on function public.save_inbox_quick_reply(uuid,uuid,uuid,text) to 
 
 commit;
 -- ============================================================================
--- 37. inbox-actions.sql | Inbox, automation and commerce functions/triggers
+-- 38. inbox-actions.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: e5f91c58531dd16ff25556e42e3223c0781abe615846f407773143e4d5dd5590
 -- ============================================================================
 begin;
@@ -3825,7 +3880,7 @@ grant execute on function public.manage_inbox_conversation(uuid,uuid,text,intege
 
 commit;
 -- ============================================================================
--- 38. automation-safety.sql | Inbox, automation and commerce functions/triggers
+-- 39. automation-safety.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 86b4d84d2db794a379520b40c3ff268143107c2a12501c72c90b32445a668096
 -- ============================================================================
 begin;
@@ -3912,7 +3967,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 39. smart-follow-ups.sql | Inbox, automation and commerce functions/triggers
+-- 40. smart-follow-ups.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 1a1337af816ff8cb005eb12a2753e1595f0857de717cfe955736cf0769898db1
 -- ============================================================================
 begin;
@@ -4431,7 +4486,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 40. agent-control.sql | Inbox, automation and commerce functions/triggers
+-- 41. agent-control.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 462a262220a863bbc2ceae0a130173530d9de25285a66423eff8aeb67a436cf2
 -- ============================================================================
 begin;
@@ -4698,7 +4753,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 41. agent-overview.sql | Inbox, automation and commerce functions/triggers
+-- 42. agent-overview.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: bbd87d3b0f164c778eb52983b7862d8d8cd61dfd1bf029bc68be6af164bac819
 -- ============================================================================
 begin;
@@ -4758,7 +4813,7 @@ grant execute on function public.set_agent_overview_capability(uuid,uuid,text,bo
 
 commit;
 -- ============================================================================
--- 42. ai-paid-access.sql | Inbox, automation and commerce functions/triggers
+-- 43. ai-paid-access.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 42f6eb4cf373dca787fecb745fb5089f19c610c519768fc6c63e2994dc88ade2
 -- ============================================================================
 begin;
@@ -4867,7 +4922,7 @@ revoke all on function public.normalize_paid_ai_settings(),public.prepare_paid_a
 
 commit;
 -- ============================================================================
--- 43. ai-vision.sql | Inbox, automation and commerce functions/triggers
+-- 44. ai-vision.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: ea63d4c520548a1f13923b62491f7eff31ac55ebef4e1f51e63ae64ee7309301
 -- ============================================================================
 begin;
@@ -5097,7 +5152,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 44. commerce-v2.sql | Inbox, automation and commerce functions/triggers
+-- 45. commerce-v2.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 43b4aa77038376bec249d3dfd1c9c53c08fa2094ba24fe40b35afcbcfc94f9f7
 -- ============================================================================
 begin;
@@ -5360,7 +5415,7 @@ do $$declare r record;begin for r in select p.oid::regprocedure signature from p
 
 commit;
 -- ============================================================================
--- 45. product-sku-reuse.sql | Inbox, automation and commerce functions/triggers
+-- 46. product-sku-reuse.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 158567cbd1962b8e6c75c72a9f5aaa52aceb26c84b9fc2c7bb4a7f24c41c41f4
 -- ============================================================================
 begin;
@@ -5372,7 +5427,7 @@ set local search_path = public, extensions;
 
 commit;
 -- ============================================================================
--- 46. payment-pro.sql | Inbox, automation and commerce functions/triggers
+-- 47. payment-pro.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: aa6343641fb6d1c026a0913c81d79d990c295c23e9de63e41bfd42d3cdb7e148
 -- ============================================================================
 begin;
@@ -5693,7 +5748,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 47. payment-pro-dashboard.sql | Inbox, automation and commerce functions/triggers
+-- 48. payment-pro-dashboard.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 8d4e52e0d834ca8ce7cab97c2b78209535263726b7c5d1796ba4398b7ae54b7b
 -- ============================================================================
 begin;
@@ -5724,7 +5779,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 48. slip-bank-controls.sql | Inbox, automation and commerce functions/triggers
+-- 49. slip-bank-controls.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 08d19ff46fa0d05b9a42f710ea11f212756e4a95fea9440d221bce1b808f98e3
 -- ============================================================================
 begin;
@@ -5836,7 +5891,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 49. bank-registry.sql | Inbox, automation and commerce functions/triggers
+-- 50. bank-registry.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 9552aa3856ddf0c584f98f7ac722bc877e9a1a89617d0dd0c2dd5a1d7914b4d0
 -- ============================================================================
 begin;
@@ -5879,7 +5934,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 50. bank-qr-upload.sql | Inbox, automation and commerce functions/triggers
+-- 51. bank-qr-upload.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 6f115a66a303c4cdffce869df158f47c6090542411f674fdede0c28f9c6f539c
 -- ============================================================================
 begin;
@@ -5966,7 +6021,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 51. bank-qr-per-account.sql | Inbox, automation and commerce functions/triggers
+-- 52. bank-qr-per-account.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 32f1910876783a4661555a71c8144e1923d9548611ef0cbd5c6927681aecee27
 -- ============================================================================
 begin;
@@ -6030,7 +6085,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 52. bank-account-combined-save.sql | Inbox, automation and commerce functions/triggers
+-- 53. bank-account-combined-save.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: ba5776e10e9d121d7d374238c8031330a1ac43c18ccfe055a2dafc1551bc1128
 -- ============================================================================
 begin;
@@ -6126,7 +6181,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 53. payment-receiving-codes.sql | Inbox, automation and commerce functions/triggers
+-- 54. payment-receiving-codes.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 69d202f61858dbf27aaffa6a93e201b0fe43cb15e22fc579fbe82d1bca342826
 -- ============================================================================
 begin;
@@ -6226,7 +6281,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 54. qr-payment-designer.sql | Inbox, automation and commerce functions/triggers
+-- 55. qr-payment-designer.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 791010165b6065afb641c311106260bb7f574a3624530ee8d9df966d2bee8cd3
 -- ============================================================================
 begin;
@@ -6301,7 +6356,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 55. store-rules.sql | Inbox, automation and commerce functions/triggers
+-- 56. store-rules.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: ea6f24e091470f5d88369563d5f012c9500370aaa7536d84d3bf33c986daaee9
 -- ============================================================================
 begin;
@@ -6344,7 +6399,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 56. store-rule-items.sql | Inbox, automation and commerce functions/triggers
+-- 57. store-rule-items.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: 7f10a22e7c4ad118a193af3e28a5105070e4eeff33b9fee5d95d836fc9664a41
 -- ============================================================================
 begin;
@@ -6385,7 +6440,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 57. store-rules-validation.sql | Inbox, automation and commerce functions/triggers
+-- 58. store-rules-validation.sql | Inbox, automation and commerce functions/triggers
 -- SHA256: f8cbdf12cd3851025951edbf50d831548032211d73e43f12b011c1aa51df4883
 -- ============================================================================
 begin;
@@ -6484,7 +6539,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 58. facebook-webhook-queue.sql | Latest delivery safety, reporting and index patches
+-- 59. facebook-webhook-queue.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 7e67011b3489c011639ea3f4f800fa6ac4825670f76f04fca4e0f7fddb3c641e
 -- ============================================================================
 begin;
@@ -6769,7 +6824,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 59. facebook-webhook-nonblocking.sql | Latest delivery safety, reporting and index patches
+-- 60. facebook-webhook-nonblocking.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 0cfe5319ef9b061c353b80a57463e06e1a97ff1424be84ecefb4a7ecb10baf4d
 -- ============================================================================
 begin;
@@ -6821,7 +6876,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 60. facebook-message-window.sql | Latest delivery safety, reporting and index patches
+-- 61. facebook-message-window.sql | Latest delivery safety, reporting and index patches
 -- SHA256: d2581ef71797895f11e05f0dfc74302cd202b9c278c9ecbb4c2968418baa9d5e
 -- ============================================================================
 begin;
@@ -6954,7 +7009,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 61. broadcast-policy.sql | Latest delivery safety, reporting and index patches
+-- 62. broadcast-policy.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a45cf7c24ef5f6d31ef31868029bd3e9216370bc5c582b911b80a4ed74071233
 -- ============================================================================
 begin;
@@ -7131,7 +7186,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 62. broadcast-recipient-eligibility.sql | Latest delivery safety, reporting and index patches
+-- 63. broadcast-recipient-eligibility.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 6ea5e1f9044db876fc8d0f07d8da52668f9897fa684851092eab347710e4a74c
 -- ============================================================================
 begin;
@@ -7171,7 +7226,7 @@ grant execute on function public.broadcast_recipient_reason(uuid,uuid) to servic
 
 commit;
 -- ============================================================================
--- 63. broadcast-recipient-selection.sql | Latest delivery safety, reporting and index patches
+-- 64. broadcast-recipient-selection.sql | Latest delivery safety, reporting and index patches
 -- SHA256: bdd1581c239a6ebc20048d32d342e6697d98ada245dd01260feacde8fe44278f
 -- ============================================================================
 begin;
@@ -7204,7 +7259,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 64. broadcast-inbound-sync.sql | Latest delivery safety, reporting and index patches
+-- 65. broadcast-inbound-sync.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 074351e109ac3b2191bc1eece9356c5ea28a58cb5b165a078e63413ad876beba
 -- ============================================================================
 begin;
@@ -7246,7 +7301,7 @@ for each row execute function public.sync_broadcast_inbound_message();
 
 commit;
 -- ============================================================================
--- 65. inbox-messenger-window.sql | Latest delivery safety, reporting and index patches
+-- 66. inbox-messenger-window.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 4ebe59d252e016e5d62eb28617e9a08d27847550f925f0273d18cc456c43e77e
 -- ============================================================================
 begin;
@@ -7382,7 +7437,7 @@ grant execute on function public.inbox_automation_window_open(uuid,uuid),public.
 
 commit;
 -- ============================================================================
--- 66. smart-follow-up-presend.sql | Latest delivery safety, reporting and index patches
+-- 67. smart-follow-up-presend.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 978fd4adf4cb9e1f16c8a1f21783ab4c7c43dedb66d7c11c7df20fe6ad36f9e4
 -- ============================================================================
 begin;
@@ -7579,7 +7634,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 67. manual-follow-ups.sql | Latest delivery safety, reporting and index patches
+-- 68. manual-follow-ups.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 34d34f06c0a32579c6dc4a80583c4c15040b1919b8f2bd7e6638848adb06e165
 -- ============================================================================
 begin;
@@ -7694,7 +7749,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 68. follow-up-simplified.sql | Latest delivery safety, reporting and index patches
+-- 69. follow-up-simplified.sql | Latest delivery safety, reporting and index patches
 -- SHA256: c1463162272b2eb3b5248a42dd663baf9bc2371c23f300c70916df0921f4b86b
 -- ============================================================================
 begin;
@@ -7915,7 +7970,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 69. follow-up-step-settings.sql | Latest delivery safety, reporting and index patches
+-- 70. follow-up-step-settings.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 96bedcb1959a8d864b018de761fb35e8d989b42450060ca784c2f7143af13a0e
 -- ============================================================================
 begin;
@@ -7970,7 +8025,7 @@ grant execute on function public.save_follow_up_workflow(uuid,uuid,text,integer,
 
 commit;
 -- ============================================================================
--- 70. follow-up-manual-dispatch-fix.sql | Latest delivery safety, reporting and index patches
+-- 71. follow-up-manual-dispatch-fix.sql | Latest delivery safety, reporting and index patches
 -- SHA256: c05b6fe3c8261f43a521871557de3f2436712570afbbfd6d536340e403de1bc5
 -- ============================================================================
 begin;
@@ -8124,7 +8179,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 71. follow-up-24h-window.sql | Latest delivery safety, reporting and index patches
+-- 72. follow-up-24h-window.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 18871aeb28c2b8fd9fac9a16588904281380c733721168135fa49d3733eaaacd
 -- ============================================================================
 begin;
@@ -8376,7 +8431,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 72. follow-up-approval-mode.sql | Latest delivery safety, reporting and index patches
+-- 73. follow-up-approval-mode.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 53f81f07be504e99d4afbe8fab1f25c6f859f218470b280ceea2dc44760f74a4
 -- ============================================================================
 begin;
@@ -8484,7 +8539,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 73. dashboard-performance.sql | Latest delivery safety, reporting and index patches
+-- 74. dashboard-performance.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 87871cb3623b3153a08fd585394dda0fbd296c4fb670e50791ee09527b2c29c5
 -- ============================================================================
 begin;
@@ -8693,7 +8748,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 74. dashboard-read-models.sql | Latest delivery safety, reporting and index patches
+-- 75. dashboard-read-models.sql | Latest delivery safety, reporting and index patches
 -- SHA256: daca680061c44493d8ec6c139716a5a7e58aca1c20cddab9231ce59f94cf72cf
 -- ============================================================================
 begin;
@@ -8892,7 +8947,7 @@ grant execute on function public.customer_directory(uuid,integer,text,text,text)
 
 commit;
 -- ============================================================================
--- 75. premium-overview.sql | Latest delivery safety, reporting and index patches
+-- 76. premium-overview.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 19d97393eda4ebd1de925886ce3add41af56164a2541e8e4e0b6f377f861f273
 -- ============================================================================
 begin;
@@ -8994,7 +9049,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 76. inbox-realtime.sql | Latest delivery safety, reporting and index patches
+-- 77. inbox-realtime.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a7dc1d4c93f7995e27731bd59a078c4430650c0b627c9f4c14a80c5357d607f7
 -- ============================================================================
 begin;
@@ -9018,7 +9073,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 77. inbox-load-indexes.sql | Latest delivery safety, reporting and index patches
+-- 78. inbox-load-indexes.sql | Latest delivery safety, reporting and index patches
 -- SHA256: cee506871122e657bfbf6b2a12533272fee5b44607176d4c29298b0aaf404e42
 -- ============================================================================
 begin;
@@ -9064,7 +9119,7 @@ create index if not exists facebook_webhook_message_id_lookup on public.facebook
 
 commit;
 -- ============================================================================
--- 78. facebook-inbox-recovery.sql | Latest delivery safety, reporting and index patches
+-- 79. facebook-inbox-recovery.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 1eb9f1832583ddae48cd6adda766c7c3828e48d5c9401f2b0b96442977e6a1ad
 -- ============================================================================
 begin;
@@ -9137,7 +9192,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 79. live-cf-variants.sql | Latest delivery safety, reporting and index patches
+-- 80. live-cf-variants.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 76d033c8d7df54314df3ec983143fa1194d4fbf29c3f261507c29fedbdec00f1
 -- ============================================================================
 begin;
@@ -9372,7 +9427,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 80. live-cf-mode.sql | Latest delivery safety, reporting and index patches
+-- 81. live-cf-mode.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 91f67f49d0e22fcdba1f1a77d9fb169c5a66b14ac83d53eb8e001f6580cd966c
 -- ============================================================================
 begin;
@@ -9578,7 +9633,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 81. live-cf-setup.sql | Latest delivery safety, reporting and index patches
+-- 82. live-cf-setup.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 05dfcefd0d101569a99dd462230fc8fd87ce2a43476027432e201410644b4ad0
 -- ============================================================================
 begin;
@@ -9773,7 +9828,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 82. messenger-product-lookup.sql | Latest delivery safety, reporting and index patches
+-- 83. messenger-product-lookup.sql | Latest delivery safety, reporting and index patches
 -- SHA256: d7dc47ee4ae0c13a90593a213044a0f6dd4f99075e09726bfab58b1ccb9140c0
 -- ============================================================================
 begin;
@@ -9831,7 +9886,7 @@ grant execute on function public.messenger_product_lookup(uuid, text) to service
 
 commit;
 -- ============================================================================
--- 83. slip-confirmation-template.sql | Latest delivery safety, reporting and index patches
+-- 84. slip-confirmation-template.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 591e7c6185b3c102ecc0e7045ffaeb6f0b3b7bf4b7fd1f0e19247995b1b8778f
 -- ============================================================================
 begin;
@@ -9870,7 +9925,7 @@ notify pgrst, 'reload schema';
 
 commit;
 -- ============================================================================
--- 84. standalone-slips.sql | Latest delivery safety, reporting and index patches
+-- 85. standalone-slips.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 96608fd194cf79cae1e2972b7bb8e8e93dc199b75029eb8305dc2576f9a2227b
 -- ============================================================================
 begin;
@@ -9983,7 +10038,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 85. tenant-ai-quota.sql | Latest delivery safety, reporting and index patches
+-- 86. tenant-ai-quota.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a26fd232c74124152b04a4d9b73ee77ceac9f1f36fd62a6eea75becf363638f3
 -- ============================================================================
 begin;
@@ -10199,7 +10254,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 86. vision-master-switch.sql | Latest delivery safety, reporting and index patches
+-- 87. vision-master-switch.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 137f222b26061e467b6444853806fb3c4d2ea5c74674ac6a986b7fc7a65883b6
 -- ============================================================================
 begin;
@@ -10277,7 +10332,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 87. live-cf-customer-variants.sql | Latest delivery safety, reporting and index patches
+-- 88. live-cf-customer-variants.sql | Latest delivery safety, reporting and index patches
 -- SHA256: c620b8852bf6067a70bc0cb265a285e3d9fddd0d05d55e9ed5a8a6c72fa6df29
 -- ============================================================================
 begin;
@@ -10505,7 +10560,7 @@ revoke all on function public.guard_live_cf_variant_slip() from public,anon,auth
 
 commit;
 -- ============================================================================
--- 88. live-auctions.sql | Latest delivery safety, reporting and index patches
+-- 89. live-auctions.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 910202f12dfb75ce136dc66fe2d95ea645f9de96b03a69ef8e1b92b0fa89eeec
 -- ============================================================================
 begin;
@@ -10755,7 +10810,7 @@ grant execute on function public.approve_auction_payment_proof(uuid,uuid,uuid) t
 
 commit;
 -- ============================================================================
--- 89. customer-tabs.sql | Latest delivery safety, reporting and index patches
+-- 90. customer-tabs.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 16b91f3b78245a76dacaa59840e6b4fa966193e938a71d36d56489c3a2e2e48a
 -- ============================================================================
 begin;
@@ -11189,7 +11244,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 90. auction-experience.sql | Latest delivery safety, reporting and index patches
+-- 91. auction-experience.sql | Latest delivery safety, reporting and index patches
 -- SHA256: d63ebe3b3f87fa9678fdc0f92762b65f9a652a0fb15c4e36f06cd0cbe1b318f8
 -- ============================================================================
 begin;
@@ -11273,7 +11328,7 @@ grant execute on function public.finalize_live_auction(uuid,uuid,uuid,boolean),p
 
 commit;
 -- ============================================================================
--- 91. live-session-dashboard.sql | Latest delivery safety, reporting and index patches
+-- 92. live-session-dashboard.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 6df53de0151779b4c1d95751c69cf5beb517456d59721411bd8e24e6d9455b2c
 -- ============================================================================
 begin;
@@ -11692,7 +11747,7 @@ grant execute on function public.live_comment_time(jsonb,timestamptz),public.liv
 
 commit;
 -- ============================================================================
--- 92. shipping-fulfillment.sql | Latest delivery safety, reporting and index patches
+-- 93. shipping-fulfillment.sql | Latest delivery safety, reporting and index patches
 -- SHA256: abc1f380707a3baf1bb18df305b7e06f1be6dbaf3e7eb148a8e20ecfcac486fe
 -- ============================================================================
 begin;
@@ -12093,7 +12148,7 @@ grant execute on function public.shipping_address_valid(jsonb),public.shipping_p
 
 commit;
 -- ============================================================================
--- 93. shipping-integrations.sql | Latest delivery safety, reporting and index patches
+-- 94. shipping-integrations.sql | Latest delivery safety, reporting and index patches
 -- SHA256: fc4b9961c01fe943eb8eb78e6978b4cf9c9f3d0d7ccbe33cb1257b0801c268ec
 -- ============================================================================
 begin;
@@ -12326,7 +12381,7 @@ grant execute on function public.save_shipping_integration(uuid,text,text,text,j
 
 commit;
 -- ============================================================================
--- 94. live-order-types.sql | Latest delivery safety, reporting and index patches
+-- 95. live-order-types.sql | Latest delivery safety, reporting and index patches
 -- SHA256: eb6171db344172c6b92c8fe04ee96f2a71afb4d15c1af599f59dab0c57a54d01
 -- ============================================================================
 begin;
@@ -12417,7 +12472,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 95. live-auction-dashboard.sql | Latest delivery safety, reporting and index patches
+-- 96. live-auction-dashboard.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 7b17bf54411dc1c84510ecf2a204c12dafe82c56d28b960be0061e4898bb679e
 -- ============================================================================
 begin;
@@ -12565,7 +12620,7 @@ grant execute on function public.configure_auction_session(uuid,uuid,uuid,jsonb)
 
 commit;
 -- ============================================================================
--- 96. live-auction-instant-winners.sql | Latest delivery safety, reporting and index patches
+-- 97. live-auction-instant-winners.sql | Latest delivery safety, reporting and index patches
 -- SHA256: d0788ad3f0cd0a402db298a6fedcdc6c1620e2f2e35a15f580f8153e081e7f65
 -- ============================================================================
 begin;
@@ -12619,7 +12674,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 97. live-auction-customer-workspace.sql | Latest delivery safety, reporting and index patches
+-- 98. live-auction-customer-workspace.sql | Latest delivery safety, reporting and index patches
 -- SHA256: dff1722d7bd0ef6404ac4d3c9e32a516d137f13a8dac3ce8cd3c9d5ea5fd5d34
 -- ============================================================================
 begin;
@@ -12743,7 +12798,7 @@ grant execute on function public.live_auction_matched_customers(uuid,uuid) to se
 
 commit;
 -- ============================================================================
--- 98. live-auction-thai-workflow.sql | Latest delivery safety, reporting and index patches
+-- 99. live-auction-thai-workflow.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 23e73cd12f7536b5bb63f80528c2f451d9d9f27b5a839be358aaac8588f6ad59
 -- ============================================================================
 begin;
@@ -12984,7 +13039,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 99. live-auction-customer-columns.sql | Latest delivery safety, reporting and index patches
+-- 100. live-auction-customer-columns.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a0e96f4c674e920d1974403d19e64ed225e8b2cf2c9a3a625473e8b2767a8bc9
 -- ============================================================================
 begin;
@@ -13028,7 +13083,7 @@ grant execute on function public.live_auction_thai_dashboard(uuid,uuid) to servi
 
 commit;
 -- ============================================================================
--- 100. live-auction-close-presets.sql | Latest delivery safety, reporting and index patches
+-- 101. live-auction-close-presets.sql | Latest delivery safety, reporting and index patches
 -- SHA256: e40d3d01a50c6c99c399043f94540a4368ccfdbe43a206d814338ae7666c5db3
 -- ============================================================================
 begin;
@@ -13131,7 +13186,7 @@ grant execute on function public.default_auction_close_keywords(),public.auction
 
 commit;
 -- ============================================================================
--- 101. live-auction-unlimited-keywords.sql | Latest delivery safety, reporting and index patches
+-- 102. live-auction-unlimited-keywords.sql | Latest delivery safety, reporting and index patches
 -- SHA256: ba2dee345322ca688b2976bec107f1d64b5c94ed725e9c450d7599666b6488c3
 -- ============================================================================
 begin;
@@ -13197,7 +13252,7 @@ end $$;
 
 commit;
 -- ============================================================================
--- 102. live-auction-winner-confirmation.sql | Latest delivery safety, reporting and index patches
+-- 103. live-auction-winner-confirmation.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 47e7d6763ce50cd5feb959f2282c7b8341dac01a33df6d6b7c007cca4186b259
 -- ============================================================================
 begin;
@@ -13298,7 +13353,7 @@ grant execute on function public.hold_auction_winner_notifications(),public.conf
 
 commit;
 -- ============================================================================
--- 103. live-auction-payment-auto-verify.sql | Latest delivery safety, reporting and index patches
+-- 104. live-auction-payment-auto-verify.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 34850c09fb21356f5d4e18b797f569f90a0d7ce05f08755d4c3b90a48689096a
 -- ============================================================================
 begin;
@@ -13354,7 +13409,7 @@ grant execute on function public.complete_auction_customer_tab_slip(
 
 commit;
 -- ============================================================================
--- 104. facebook-webhook-comment-ordering.sql | Latest delivery safety, reporting and index patches
+-- 105. facebook-webhook-comment-ordering.sql | Latest delivery safety, reporting and index patches
 -- SHA256: fc95a23e41f2d2fb46548cdc4ac306538dca0ae681433328fe555f184e6d4787
 -- ============================================================================
 begin;
@@ -13395,7 +13450,7 @@ grant execute on function public.enqueue_facebook_webhook(text,text,jsonb) to se
 
 commit;
 -- ============================================================================
--- 105. live-auction-workspace.sql | Latest delivery safety, reporting and index patches
+-- 106. live-auction-workspace.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 9b31439a5bce859ea20bb1bbc7790571d7b4c24f604af5940b8486351e425cc9
 -- ============================================================================
 begin;
@@ -13508,7 +13563,7 @@ grant execute on function public.save_auction_workspace(uuid,uuid,uuid,jsonb) to
 
 commit;
 -- ============================================================================
--- 106. live-auction-empty-keyword-defaults.sql | Latest delivery safety, reporting and index patches
+-- 107. live-auction-empty-keyword-defaults.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 576e5cfcc37ca82ba6c914e2d813424e6e6e55c7d0f9a9bbde3653cba7d12845
 -- ============================================================================
 begin;
@@ -13671,7 +13726,7 @@ grant execute on function public.default_auction_close_keywords(),
 
 commit;
 -- ============================================================================
--- 107. live-auction-production-readiness.sql | Latest delivery safety, reporting and index patches
+-- 108. live-auction-production-readiness.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 0f984ce2bc41b09e47c5c98359f745afefdb911b76e5a979d86731a84815844b
 -- ============================================================================
 begin;
@@ -14095,7 +14150,7 @@ grant execute on function public.queue_shipping_tracking_delivery() to service_r
 
 commit;
 -- ============================================================================
--- 108. live-auction-on-demand.sql | Latest delivery safety, reporting and index patches
+-- 109. live-auction-on-demand.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a091f91d7daa0e19c1db6caeff82ae104ae90a6cd27b0a655b54e8b07a76fa49
 -- ============================================================================
 begin;
@@ -14616,7 +14671,7 @@ grant execute on function public.auction_numeric_price(text),public.process_live
 
 commit;
 -- ============================================================================
--- 109. live-auction-split-summary.sql | Latest delivery safety, reporting and index patches
+-- 110. live-auction-split-summary.sql | Latest delivery safety, reporting and index patches
 -- SHA256: ecebe98f42520036601611179211f30028fd29fd11616b6de93711a51e119ebf
 -- ============================================================================
 begin;
@@ -14648,7 +14703,7 @@ $$;
 
 commit;
 -- ============================================================================
--- 110. shipping-integrations-beemove.sql | Latest delivery safety, reporting and index patches
+-- 111. shipping-integrations-beemove.sql | Latest delivery safety, reporting and index patches
 -- SHA256: d9d57a631be5139cd85320e430030d3791dba88caac9d83602c939bd810a409a
 -- ============================================================================
 begin;
@@ -14776,7 +14831,7 @@ grant execute on function public.save_shipping_integration(uuid,text,text,text,j
 
 commit;
 -- ============================================================================
--- 111. vision-product-catalog.sql | Latest delivery safety, reporting and index patches
+-- 112. vision-product-catalog.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 9038c3bcb370a127f8730eddaeb01c80d555cb10a365a5f109c937bb778fc56a
 -- ============================================================================
 begin;
@@ -14811,7 +14866,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 112. live-customer-item-labels.sql | Latest delivery safety, reporting and index patches
+-- 113. live-customer-item-labels.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 6bf306b3aa7d95fada014ba58ebb017ed8fa05de68f409c396692bfa92b1d9de
 -- ============================================================================
 begin;
@@ -14836,7 +14891,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 113. live-cf-order-post.sql | Latest delivery safety, reporting and index patches
+-- 114. live-cf-order-post.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 0cc8add5f89d61723bafe7fbd8cf4d53486e74459bfdd331131d9c4929c82605
 -- ============================================================================
 begin;
@@ -14866,7 +14921,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 114. live-auction-highest-confirmation.sql | Latest delivery safety, reporting and index patches
+-- 115. live-auction-highest-confirmation.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 84447330d4b8d575a6437144bea213d14437c28219d5b2923aca8a5e1ca818f1
 -- ============================================================================
 begin;
@@ -14950,7 +15005,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 115. live-auction-dynamic-tags.sql | Latest delivery safety, reporting and index patches
+-- 116. live-auction-dynamic-tags.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 519739b3173ff89175f57388066e5b73bf2317b8486cfa1e45ff7d3524a935bd
 -- ============================================================================
 begin;
@@ -15076,7 +15131,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 116. facebook-comment-configuration.sql | Latest delivery safety, reporting and index patches
+-- 117. facebook-comment-configuration.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 5bdf7e2cc6cc0f43375e2a9753fd7b02f1a122bf35aaea95871324b9e45ace80
 -- ============================================================================
 begin;
@@ -15527,7 +15582,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 117. facebook-message-echoes.sql | Latest delivery safety, reporting and index patches
+-- 118. facebook-message-echoes.sql | Latest delivery safety, reporting and index patches
 -- SHA256: b5d834556f05a2e0a49ae363a7625dd26e46dd5967dbd6429c4184fd7c8ffed2
 -- ============================================================================
 begin;
@@ -15638,7 +15693,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 118. inbox-realtime-access.sql | Latest delivery safety, reporting and index patches
+-- 119. inbox-realtime-access.sql | Latest delivery safety, reporting and index patches
 -- SHA256: f2c1e283a073b6967c64b37378a09ec179baedca837587b19efc0163a780ab65
 -- ============================================================================
 begin;
@@ -15706,7 +15761,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 119. live-auction-deadlines.sql | Latest delivery safety, reporting and index patches
+-- 120. live-auction-deadlines.sql | Latest delivery safety, reporting and index patches
 -- SHA256: ff20250c88520e5d08cf02ae057320554e181632961dc97dcb954829cd2894db
 -- ============================================================================
 begin;
@@ -15913,7 +15968,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 120. live-auction-audit-hardening.sql | Latest delivery safety, reporting and index patches
+-- 121. live-auction-audit-hardening.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 2c79207b85e47143cfe1a8937e1d331ad24d4143c055614833004a2eb8f1ad83
 -- ============================================================================
 begin;
@@ -16147,7 +16202,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 121. live-auction-audit-hardening-2.sql | Latest delivery safety, reporting and index patches
+-- 122. live-auction-audit-hardening-2.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 046dce6e9d74974576eed08ac0f8dfc17d38ad7a6843cef2c52f04d7523c68e6
 -- ============================================================================
 begin;
@@ -16299,7 +16354,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 122. live-auction-manual-host-close.sql | Latest delivery safety, reporting and index patches
+-- 123. live-auction-manual-host-close.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 2879f51b07f66874093cee682e45957d4901b6a90e5ef895c29c41f4e56eea02
 -- ============================================================================
 begin;
@@ -16348,7 +16403,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 123. live-auction-auto-cycle.sql | Latest delivery safety, reporting and index patches
+-- 124. live-auction-auto-cycle.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 036cad8f7d4f5cc0cbdc26e975afcdff91342cd1e136a3d3fcd99e33133d6d9e
 -- ============================================================================
 begin;
@@ -16612,7 +16667,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 124. live-auction-confirmation-preservation.sql | Latest delivery safety, reporting and index patches
+-- 125. live-auction-confirmation-preservation.sql | Latest delivery safety, reporting and index patches
 -- SHA256: f3dcfa9d671d189053c4ee2bab89bdc9c6234ac06da067d22fa05a41a5100084
 -- ============================================================================
 begin;
@@ -16679,7 +16734,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 125. live-auction-remove-host-countdown.sql | Latest delivery safety, reporting and index patches
+-- 126. live-auction-remove-host-countdown.sql | Latest delivery safety, reporting and index patches
 -- SHA256: a3aef979ddeb2e31911ae9c907dc587ba0c8101a49026758a53c3b72bd2f83e7
 -- ============================================================================
 begin;
@@ -16989,7 +17044,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 126. live-auction-sync-winner-price.sql | Latest delivery safety, reporting and index patches
+-- 127. live-auction-sync-winner-price.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 6f88f0e4f8843d0a0d5efa89d66b5b419e8313a3c407581ee0e184a36f601599
 -- ============================================================================
 begin;
@@ -17030,7 +17085,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 127. live-auction-designated-winner.sql | Latest delivery safety, reporting and index patches
+-- 128. live-auction-designated-winner.sql | Latest delivery safety, reporting and index patches
 -- SHA256: b27817aefc5bdb8ae0fcf2b9e8227ea92aac6523c1454b0d1a86fdf772f15673
 -- ============================================================================
 begin;
@@ -17216,7 +17271,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 128. live-auction-winner-candidates.sql | Latest delivery safety, reporting and index patches
+-- 129. live-auction-winner-candidates.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 3a5c8cbcc6ad4724b41261cdfc780fe82d91687b32136ae699760365c78ec8cb
 -- ============================================================================
 begin;
@@ -17262,7 +17317,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 129. rpc-execution-hardening.sql | Latest delivery safety, reporting and index patches
+-- 130. rpc-execution-hardening.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 68366ac0d0d7e6ec51dc11df0520987834b243868b4d0839625a0fe538b0c983
 -- ============================================================================
 begin;
@@ -18144,7 +18199,7 @@ grant execute on function public.is_platform_admin() to authenticated, service_r
 
 commit;
 -- ============================================================================
--- 130. inbox-owner-takeover.sql | Latest delivery safety, reporting and index patches
+-- 131. inbox-owner-takeover.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 464942265ac9f1c304c4ab35922d800f3665dfd6d3ef75ee7c72eabb4b37c66f
 -- ============================================================================
 begin;
@@ -18381,7 +18436,7 @@ notify pgrst,'reload schema';
 
 commit;
 -- ============================================================================
--- 131. live-cf-quantity.sql | Latest delivery safety, reporting and index patches
+-- 132. live-cf-quantity.sql | Latest delivery safety, reporting and index patches
 -- SHA256: 2a44286ca413f95083ec761b825a95caac9feda67e4ccbf43657a2611abc40a1
 -- ============================================================================
 begin;
