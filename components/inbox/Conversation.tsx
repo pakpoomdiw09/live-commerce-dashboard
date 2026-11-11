@@ -463,7 +463,7 @@ function Bubble({
   )
 }
 
-/** Manual SlipOK check of an image in chat. The verdict arrives through Realtime as a slip card. */
+/** Manually verify an image in chat. The verdict arrives through Realtime as a slip card. */
 function VerifyButton({ messageId, retry }: { messageId: string; retry: boolean }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

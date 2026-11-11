@@ -64,7 +64,7 @@ export function AuctionSlipUpload({
           <p className="text-xs text-slate-500">
             JPG, PNG หรือ WebP ไม่เกิน 5 MB{' '}
             {automatic
-              ? 'ตรวจ SlipOK และหักยอดที่โอนจริง รวมถึงยอดโอนบางส่วน'
+              ? 'ตรวจสลิปอัตโนมัติด้วยระบบ AI และหักยอดที่โอนจริง รวมถึงยอดโอนบางส่วน'
               : 'ร้านค้าจะตรวจสอบหลักฐานก่อนยืนยันยอด'}
           </p>
           {error && (

@@ -86,7 +86,10 @@ const labels: Record<string, string> = {
 }
 /** Display-only replacement also covers older saved provider messages. */
 export function neutralSlipText(value: string): string {
-  return value.replace(/slip\s*ok/gi, 'ระบบตรวจสอบสลิปอัตโนมัติ')
+  const verifierLabel = 'ตรวจสอบสลิปอัตโนมัติด้วยระบบ AI'
+  return value
+    .replace(/slip\s*ok/gi, verifierLabel)
+    .replace(/บิลสะสมตรวจสลิปผ่านโอเคก่อนระบบปล่อยหักเงินได้/gi, verifierLabel)
 }
 export function systemLabel(
   value: string | null | undefined,

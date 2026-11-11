@@ -33,6 +33,16 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
     await db.exec(legacyOrder)
     await db.exec(fs.readFileSync('supabase/live-cf-order-post.sql', 'utf8'))
     await db.exec(fs.readFileSync('supabase/live-cf-order-post.sql', 'utf8'))
+    // Restore the forward auction-order scope fix after replaying the legacy tab trigger.
+    await db.exec(
+      fs.readFileSync('supabase/migrations/20261111090000_live_auction_order_scope.sql', 'utf8'),
+    )
+    await db.exec(
+      fs.readFileSync(
+        'supabase/migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql',
+        'utf8',
+      ),
+    )
     const tenant = (
       await one("insert into tenants(name,page_id) values('Live shop','100') returning id")
     ).id
@@ -104,8 +114,8 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
     const inbox = await one('select count(*)::int n from messages where customer_id=$1', [customer])
     assert.equal(
       inbox.n,
-      6,
-      'each close immediately records a local win and a pending private bill',
+      3,
+      'each confirmed close queues exactly one private bill message',
     )
     assert.equal(
       (await one('select last_message_at from customers where id=$1', [customer])).last_message_at,
@@ -121,10 +131,10 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
       await one('select * from auction_inbox_status($1,array[$2::uuid])', [other, customer]),
       undefined,
     )
-    await one('select finalize_live_auction($1,$2)', [third.source_id, tenant])
+    await one('select finalize_live_auction($1,$2)', [third.live_auction_id, tenant])
     assert.equal(
       (await one('select count(*)::int n from messages where customer_id=$1', [customer])).n,
-      6,
+      3,
       'closing again cannot duplicate the bill or Inbox messages',
     )
     const partial = await pay(tab, 250)
@@ -221,21 +231,16 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
       ),
       1050,
     )
-    // Genuine overpayments remain visible as credit and offset the next win.
-    await pay(bill.id, 1100)
-    assert.equal(
-      Number(
-        (await one('select credit_amount from customer_tabs where id=$1', [bill.id])).credit_amount,
-      ),
-      50,
-    )
+    // A partial transfer applies to the tab, while an overpayment is rejected by the RPC.
+    const tabPayment = await pay(bill.id, 1000)
+    assert.equal(tabPayment.result.remainingAmount, 50)
     await win(200, { shipping: 50, post: '777' })
     assert.equal(
       Number(
         (await one('select remaining_amount from customer_tabs where id=$1', [bill.id]))
           .remaining_amount,
       ),
-      150,
+      250,
     )
     await assert.rejects(
       db.query(
@@ -270,7 +275,7 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
     assert.equal(job.tab_id, bill.id)
     assert.ok(job.claim_token)
     assert.equal(await one('select * from claim_customer_tab_reminder()'), undefined)
-    await pay(bill.id, 150)
+    await pay(bill.id, 250)
     assert.equal(
       (
         await one(
@@ -392,6 +397,39 @@ test('cumulative tabs atomically reopen, accept partials, charge shipping once a
         false,
       )
     }
+    const cancellation = await one(
+      'select cancel_customer_tab_order($1,$2,$3,$4) result',
+      [tenant, customer, mixedBill.id, mixedCf.r_order_id],
+    )
+    assert.deepEqual(cancellation.result, {
+      cancelled: true,
+      duplicate: false,
+      stockRestored: true,
+    })
+    assert.equal((await one('select status from orders where id=$1', [mixedCf.r_order_id])).status, 'cancelled')
+    assert.equal((await one('select stock from products where id=$1', [mixedProduct])).stock, 5)
+    const afterCancellation = await one(
+      'select total_amount,paid_amount,remaining_amount from customer_tabs where id=$1',
+      [mixedBill.id],
+    )
+    assert.deepEqual(afterCancellation, {
+      total_amount: '550.00',
+      paid_amount: '200.00',
+      remaining_amount: '350.00',
+    })
+    const overpayment = await pay(mixedBill.id, 351)
+    assert.equal(overpayment.result.verdict, 'amount_mismatch')
+    assert.equal(overpayment.result.remainingAmount, 350)
+    assert.deepEqual(
+      (await one('select cancel_customer_tab_order($1,$2,$3,$4) result', [
+        tenant,
+        customer,
+        mixedBill.id,
+        mixedCf.r_order_id,
+      ])).result,
+      { cancelled: true, duplicate: true },
+      'retries must not restore stock twice',
+    )
   } finally {
     await db.close()
   }

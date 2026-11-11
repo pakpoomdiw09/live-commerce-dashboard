@@ -8,7 +8,7 @@ const party = (p: any, bank: unknown) => ({
   account: p?.account?.value || p?.proxy?.value || null,
 })
 
-/** SlipOK sends transDate as yyyyMMdd and transTime as HH:mm:ss (Bangkok time). */
+/** Normalize provider transfer date and time into a Bangkok-local timestamp. */
 function transferredAt(d: any): string | null {
   const date = String(d?.transDate ?? '')
   const time = String(d?.transTime ?? '')
@@ -17,7 +17,7 @@ function transferredAt(d: any): string | null {
   return Number.isNaN(Date.parse(iso)) ? null : new Date(iso).toISOString()
 }
 
-/** One slip with what SlipOK read off it, plus a signed URL for the private image. Service-role client only. */
+/** One slip with normalized provider data and a signed URL for the private image. Service-role client only. */
 export async function loadSlipDetail(
   db: SupabaseClient,
   id: string,

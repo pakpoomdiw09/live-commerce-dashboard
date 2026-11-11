@@ -158,6 +158,7 @@ const groups = [
       'migrations/20261111090000_live_auction_order_scope.sql',
       'migrations/20261111100000_payment_link_toggle.sql',
       'migrations/20261111110000_payment_link_default_off.sql',
+      'migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql',
     ],
   ],
 ]
@@ -228,6 +229,10 @@ const prerequisites = {
   'migrations/20261111100000_payment_link_toggle.sql': ['tenants.sql'],
   'migrations/20261111110000_payment_link_default_off.sql': [
     'migrations/20261111100000_payment_link_toggle.sql',
+  ],
+  'migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql': [
+    'migrations/20261111110000_payment_link_default_off.sql',
+    'live-auction-payment-auto-verify.sql',
   ],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],
@@ -462,7 +467,13 @@ function build(root = path.resolve(__dirname, '..')) {
       (f) =>
         !/^(rollbacks|tests)\//.test(f) &&
         (!f.startsWith('migrations/') ||
-          ['migrations/20261111080000_shipping_integrations.sql', 'migrations/20261111090000_live_auction_order_scope.sql', 'migrations/20261111100000_payment_link_toggle.sql', 'migrations/20261111110000_payment_link_default_off.sql'].includes(f)),
+          [
+            'migrations/20261111080000_shipping_integrations.sql',
+            'migrations/20261111090000_live_auction_order_scope.sql',
+            'migrations/20261111100000_payment_link_toggle.sql',
+            'migrations/20261111110000_payment_link_default_off.sql',
+            'migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql',
+          ].includes(f)),
     )
     .filter((f) => !['full_database_setup.sql', 'complete_schema.sql'].includes(f))
     .sort()

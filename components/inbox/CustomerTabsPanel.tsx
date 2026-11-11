@@ -123,6 +123,43 @@ export function CustomerTabsPanel({
       setBusy(false)
     }
   }
+  async function cancelOrder(tabId: string, orderId: string) {
+    if (
+      !confirm(
+        'ยืนยันยกเลิกรายการนี้หรือไม่? ระบบจะคำนวณยอดบิลใหม่และคืนสต็อกที่รายการนี้เคยตัดไว้',
+      )
+    )
+      return
+    setBusy(true)
+    setNotice('')
+    try {
+      const response = await fetch('/api/customer-tabs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId,
+          tabId,
+          orderId,
+          action: 'cancel_order',
+          requestId: crypto.randomUUID(),
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'ยกเลิกรายการไม่สำเร็จ')
+      setNotice(
+        data.duplicate
+          ? 'รายการนี้ถูกยกเลิกแล้ว'
+          : data.stockRestored
+            ? 'ยกเลิกรายการ ปรับยอดบิล และคืนสต็อกแล้ว'
+            : 'ยกเลิกรายการและปรับยอดบิลแล้ว',
+      )
+      await refresh()
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : 'ยกเลิกรายการไม่สำเร็จ')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <section
       aria-label="บิลสะสมและยอดคงเหลือ"
@@ -183,7 +220,23 @@ export function CustomerTabsPanel({
                       })}
                     </span>
                   </span>
-                  <span className="whitespace-nowrap">{tabMoney(item.amount)}</span>
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="whitespace-nowrap">{tabMoney(item.amount)}</span>
+                    {item.can_cancel && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void cancelOrder(tab.id, item.order_id)}
+                        className="text-[10px] font-semibold text-red-600 underline disabled:opacity-50"
+                      >
+                        ยกเลิกออเดอร์
+                      </button>
+                    )}
+                    {item.order_status === 'pending_payment' &&
+                      Number(item.order_paid_amount) > 0 && (
+                        <span className="text-[10px] text-amber-700">มีการชำระบางส่วน ต้องให้ร้านตรวจสอบ</span>
+                      )}
+                  </span>
                 </li>
               ))}
           </ul>

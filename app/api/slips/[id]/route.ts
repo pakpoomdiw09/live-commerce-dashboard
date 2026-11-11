@@ -7,7 +7,7 @@ import { UUID } from '@/lib/utils'
 
 export const runtime = 'nodejs'
 
-/** GET: slip row + SlipOK details + a 10-minute signed image URL (the bucket is private). */
+/** GET: slip row + normalized provider details + a 10-minute signed image URL (the bucket is private). */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await getActor(req)
   if (!actor) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })

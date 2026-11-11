@@ -1,6 +1,6 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { verifyWithSlipOK, type SlipVerdict } from '@/lib/features/slips/slipok'
+import { verifySlip, type SlipVerdict } from '@/lib/features/slips/verification'
 import { requireFeature } from '@/lib/feature-access'
 import { pendingOrders } from '@/lib/features/commerce/orders'
 import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
@@ -35,8 +35,8 @@ type Input = {
   tenant?: Tenant | null
   /** CF orders this slip pays for (expectedAmount is their total): marked paid when the slip is valid */
   orderIds?: string[]
-  /** Internal winner-only route: require one exact full tab balance and use its guarded settlement RPC. */
-  requireExactAmount?: boolean
+  /** Internal auction route: bind the slip to this Facebook winner and use its guarded settlement RPC. */
+  requireAuctionSender?: boolean
   auctionSenderId?: string
 }
 export type SlipInput = Input
@@ -72,7 +72,7 @@ export async function processSlip(
     tenant = null,
     orderIds = [],
     customerTabId,
-    requireExactAmount = false,
+    requireAuctionSender = false,
     auctionSenderId,
   }: Input,
 ): Promise<ProcessedSlip> {
@@ -83,7 +83,7 @@ export async function processSlip(
     messageId,
     hasImageFile: Boolean(file),
     hasQr: Boolean(qr),
-    exactAmountRequired: requireExactAmount,
+    auctionSenderRequired: requireAuctionSender,
   })
   let fileMimeType: PaymentImageMimeType | null = null
   if (file) {
@@ -108,7 +108,7 @@ export async function processSlip(
     throw error
   }
   if (
-    requireExactAmount &&
+    requireAuctionSender &&
     (!customerId ||
       !customerTabId ||
       !auctionSenderId ||
@@ -131,7 +131,7 @@ export async function processSlip(
           tenant,
           customerTabId,
           expectedAmount,
-          requireExactAmount,
+          requireAuctionSender,
           auctionSenderId,
         },
         tabIds,
@@ -256,7 +256,7 @@ export async function processSlip(
       charged = true
     }
 
-    const r = await verifyWithSlipOK({
+    const r = await verifySlip({
       file,
       qr,
       expectedAmount,
@@ -288,7 +288,7 @@ export async function processSlip(
     }
     let verdict = r.verdict
     let note = r.note ?? null
-    // SlipOK may reject its configured branch account; for tenants, use the tenant's account list.
+    // A provider-specific receiver mismatch may be reconciled against the tenant's active accounts.
     const overridden = verdict === 'wrong_receiver' && !!r.branchReceiverMismatch && !!tenant
     if (overridden) {
       verdict = 'valid'

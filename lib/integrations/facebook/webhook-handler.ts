@@ -185,7 +185,7 @@ async function tenantForPage(pageId: string): Promise<PageTenant | null> {
     .eq('page_id', pageId)
     .eq('is_active', true)
     .maybeSingle()
-  // fail closed: without the tenant nothing automatic runs (no SlipOK credit, no replies)
+  // Fail closed: without the tenant nothing automatic runs (no slip verification or replies).
   if (error) throw error
   return (data as PageTenant | null) ?? null
 }
@@ -540,8 +540,8 @@ async function onMessage(
     }
   }
 
-  // A Page not linked to a tenant: we don't know whose account a slip should go to, who pays for
-  // the SlipOK credit, or what to answer. Keep the message for a platform admin and stop.
+  // A Page not linked to a tenant has no configured receiver or billing context.
+  // Keep the message for a platform admin and stop before verification or replies.
   if (!tenant) return
 
   // Auto-reply is on when the tenant allows it and the admin hasn't taken this chat over
@@ -570,7 +570,7 @@ async function onMessage(
     })
   const recipient: Recipient = { id: customer.id, psid, token }
 
-  // Slip images sent in chat (SlipOK Auto-Pilot): same pipeline as /api/slips/verify.
+  // Slip images sent in chat use the shared provider-neutral verification pipeline.
   // With Auto-Pilot off the images stay in the chat and an admin can verify them from the dashboard.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
@@ -810,7 +810,7 @@ async function onStandaloneSlipImage(
   })
 }
 
-/** Auction receipts pay one exact, still-open bill belonging to this Messenger sender. */
+/** Auction receipts belong to this Messenger sender and may settle in partial transfers. */
 async function onAuctionSlipImage(
   url: string,
   customer: Recipient & { messageId: string },
@@ -838,7 +838,7 @@ async function onAuctionSlipImage(
       tenant,
       expectedAmount: target.amount,
       customerTabId: target.customerTabId,
-      requireExactAmount: true,
+      requireAuctionSender: true,
       auctionSenderId: customer.psid,
     })
     if (slip.failure) throw new Error('AUCTION_SLIP_PERSISTENCE_FAILED')
@@ -853,16 +853,19 @@ async function onAuctionSlipImage(
     })
     if (result.status === 'amount_mismatch') {
       await execution.once(`auction-slip-mismatch-notify:${result.id ?? key}`, async () => {
-        await notifySlipAmountMismatch(db, result, customer, target.amount)
+        await notifySlipAmountMismatch(
+          db,
+          result,
+          customer,
+          result.tabBalance?.remainingAmount ?? target.amount,
+        )
         return null
       })
     }
     return
   }
-  await execution.once(`auction-slip-settle:${result.id}`, async () => {
-    if (result.tabBalance?.status !== 'fully_paid') throw new Error('AUCTION_PAYMENT_NOT_SETTLED')
-    return { status: result.tabBalance.status }
-  })
+  if (!result.tabBalance || !['pending_payment', 'fully_paid'].includes(result.tabBalance.status))
+    throw new Error('AUCTION_PAYMENT_NOT_SETTLED')
   await execution.once(`auction-slip-notify:${result.id}`, async () => {
     await notifySlipResult(db, result, customer, tenant.page_name?.trim() || tenant.name)
     return null
@@ -925,7 +928,7 @@ async function onSlipImage(
       if (r.status === 'valid') {
         await notifySlipResult(db, r, customer, tenant.page_name?.trim() || tenant.name)
       } else if (r.status === 'amount_mismatch') {
-        await notifySlipAmountMismatch(db, r, customer, pending.total)
+        await notifySlipAmountMismatch(db, r, customer, r.tabBalance?.remainingAmount ?? pending.total)
       } else {
         console.warn('[slip/automatic] requires review', {
           slipId: r.id ?? null,

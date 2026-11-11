@@ -25,6 +25,7 @@ import {
   loadBotSettings,
   handover,
   sendRule,
+  sendCommerceContextFallback,
   type Incoming,
 } from '@/lib/features/agents/chatbot-actions'
 export {
@@ -77,16 +78,33 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
       customerId: m.customer.id,
       reason: 'AI_FEATURE_NOT_ENTITLED',
     })
+    const contextual = customerContextQuestion
+      ? await sendCommerceContextFallback(db, m, once)
+      : 'no_context'
+    if (contextual !== 'no_context') return
     return handover(db, m, settings, once)
   }
-  const quota = await reserveAiReplyQuota(db, m)
-  if (!quota.id) {
+  let quota: Awaited<ReturnType<typeof reserveAiReplyQuota>> | null = null
+  try {
+    quota = await reserveAiReplyQuota(db, m)
+  } catch (error) {
+    console.error('[chatbot] AI quota reservation failed', {
+      tenantId: m.tenant.id,
+      customerId: m.customer.id,
+      reason: (error as { code?: string } | null)?.code ?? 'AI_QUOTA_CHECK_FAILED',
+    })
+  }
+  if (!quota?.id) {
     console.info('[chatbot] AI reply skipped', {
       tenantId: m.tenant.id,
       customerId: m.customer.id,
-      reason: 'AI_QUOTA_UNAVAILABLE',
+      reason: quota?.status ?? 'AI_QUOTA_UNAVAILABLE',
     })
-    return
+    const contextual = customerContextQuestion
+      ? await sendCommerceContextFallback(db, m, once)
+      : 'no_context'
+    if (contextual !== 'no_context') return
+    return handover(db, m, settings, once)
   }
   try {
     const product = { current: null as AiProductResult | null }
@@ -107,10 +125,24 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
         },
       })
     } catch {
-      /* Provider failure uses the configured message fallback without pausing AI. */
+      /* Context facts are tried before any configured handover fallback. */
     }
-    if (!reply || reply === HANDOVER_TOKEN) return await handover(db, m, settings, once)
-    if ((await authorizeAiReplyQuota(db, m, quota.id)) !== 'authorized') return
+    if (!reply || reply === HANDOVER_TOKEN) {
+      const contextual = customerContextQuestion
+        ? await sendCommerceContextFallback(db, m, once)
+        : 'no_context'
+      if (contextual !== 'no_context') return
+      return await handover(db, m, settings, once)
+    }
+    const permission = await authorizeAiReplyQuota(db, m, quota.id)
+    if (permission !== 'authorized') {
+      if (permission === 'quota_exceeded' && customerContextQuestion) {
+        const contextual = await sendCommerceContextFallback(db, m, once)
+        if (contextual === 'sent' || contextual === 'failed') return
+        return await handover(db, m, settings, once)
+      }
+      return
+    }
     await (product.current?.image_url
       ? (await import('@/lib/features/agents/product-reply')).deliverProductReply(
           db,

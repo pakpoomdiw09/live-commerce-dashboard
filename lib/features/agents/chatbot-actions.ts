@@ -2,6 +2,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { randomHandover } from '@/lib/features/agents/fallback-messages'
 import { isPaymentQuestion } from '@/lib/features/agents/agent-control-core'
+import { deterministicCommerceFallback } from '@/lib/features/agents/agent-control-ai'
 import { quickReplies } from '@/lib/integrations/facebook/client'
 import { deliverOnce, deliverRichOnce, type Recipient } from '@/lib/features/slips/notify'
 import {
@@ -80,4 +81,36 @@ export async function handover(
   }
   const text = randomHandover(settings)
   if (text) await deliverOnce(db, m.recipient, once, text)
+}
+
+export type CommerceFallbackResult = 'sent' | 'no_context' | 'failed'
+
+/** Use verified order or inventory facts before sending a canned handover reply. */
+export async function sendCommerceContextFallback(
+  db: SupabaseClient,
+  m: Incoming,
+  once: string,
+): Promise<CommerceFallbackResult> {
+  try {
+    const text = await deterministicCommerceFallback(
+      db,
+      {
+        tenantId: m.tenant.id,
+        customerId: m.customer.id,
+        pageId: m.pageId,
+        sendPaymentLink: m.sendPaymentLink,
+      },
+      m.text,
+    )
+    if (!text) return 'no_context'
+    const sent = await deliverOnce(db, m.recipient, once, text)
+    return sent ? 'sent' : 'failed'
+  } catch (error) {
+    console.error('[chatbot/context-fallback] failed', {
+      tenantId: m.tenant.id,
+      customerId: m.customer.id,
+      reason: (error as { message?: string } | null)?.message ?? 'CONTEXT_REPLY_FAILED',
+    })
+    return 'failed'
+  }
 }

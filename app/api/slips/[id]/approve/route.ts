@@ -13,7 +13,7 @@ const bad = (error: string, status = 400) => NextResponse.json({ error }, { stat
 
 /**
  * POST: approve the order paid by this slip. Idempotent: approving twice keeps the first time.
- * Non-valid slips may be approved by hand (e.g. a bank delay made SlipOK answer 'fake'),
+ * Non-valid slips may be approved by hand after an administrator reviews the evidence,
  * but never 'pending' (not checked yet) or 'duplicate' (the money was already counted).
  * The customer's open CF orders count as paid by this slip.
  */
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return bad('เฉพาะเจ้าของร้านหรือผู้ดูแลระบบเท่านั้นที่อนุมัติสลิปได้', 403)
   if (slip.customer_tab_id) {
     if (slip.status !== 'valid')
-      return bad('บิลสะสมต้องตรวจสลิปผ่าน SlipOK ก่อน ระบบจึงจะหักยอดได้', 409)
+      return bad('สลิปของบิลสะสมยังไม่ผ่านการตรวจสอบ จึงยังไม่สามารถบันทึกยอดชำระได้', 409)
     return NextResponse.json({ ok: true, alreadyApplied: true })
   }
   // Pro proofs must never enter the legacy broad "pay every pending order" approval path,

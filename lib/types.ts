@@ -131,7 +131,7 @@ export type OrderRow = {
   created_at: string
 }
 
-/** Full detail for the inspector: the row plus what SlipOK read off the slip. */
+/** Full detail for the inspector: the row plus normalized verification data. */
 export type SlipDetail = SlipRow & {
   imageUrl: string | null
   transferredAt: string | null

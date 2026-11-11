@@ -6,6 +6,31 @@ const vm = require('node:vm')
 const code = ts.transpileModule(fs.readFileSync('lib/features/slips/slipok.ts', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText
+const zwizCode = ts.transpileModule(fs.readFileSync('lib/features/slips/zwiz.ts', 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText
+
+function runVerifier(context) {
+  const zwizExports = {}
+  vm.runInNewContext(zwizCode, {
+    exports: zwizExports,
+    FormData: context.FormData,
+    URL: context.URL,
+    AbortSignal: context.AbortSignal,
+    process: context.process,
+    fetch: context.fetch,
+    console,
+    require(name) {
+      if (name === 'server-only') return {}
+      throw new Error(`Unexpected ZWIZ dependency ${name}`)
+    },
+  })
+  context.require = (name) => {
+    if (name === './zwiz') return zwizExports
+    throw new Error(`Unexpected compatibility dependency ${name}`)
+  }
+  vm.runInNewContext(code, context)
+}
 test('platform checks disable branch logging for files/QR while default callers retain it', async () => {
   const bodies = []
   const context = {
@@ -30,7 +55,7 @@ test('platform checks disable branch logging for files/QR while default callers 
       }
     },
   }
-  vm.runInNewContext(code, context)
+  runVerifier(context)
   const file = new File(['test'], 'slip.jpg', { type: 'image/jpeg' })
   const local = await context.exports.verifyWithSlipOK({ file, log: false })
   assert.equal(local.verdict, 'valid')
@@ -84,7 +109,7 @@ test('ZWIZ API v2 uses server credentials and receiver accounts, then normalizes
       }
     },
   }
-  vm.runInNewContext(code, context)
+  runVerifier(context)
   const file = new File(['test'], 'slip.jpg', { type: 'image/jpeg' })
   const result = await context.exports.verifyWithSlipOK({
     file,

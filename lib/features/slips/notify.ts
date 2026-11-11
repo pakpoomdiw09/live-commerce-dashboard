@@ -72,6 +72,22 @@ export async function deliverOnce(
   return deliverTextOnce(db, customer, externalId, body, card)
 }
 
+function customerTabReceiptText(
+  amount: number | null,
+  balance: NonNullable<ProcessedSlip['tabBalance']>,
+) {
+  const money = (value: number) =>
+    Number(value).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const remaining = Number(balance.remainingAmount)
+  return [
+    `ทางร้านได้รับยอดเงินเรียบร้อยแล้ว จำนวน ${money(Number(amount ?? 0))} บาทค่ะ`,
+    `ยอดคงเหลือที่ต้องชำระอีก ${money(remaining)} บาทค่ะ`,
+    `ยอดรวมสะสม ${money(Number(balance.totalAmount))} บาท`,
+    `ยอดชำระสะสม ${money(Number(balance.paidAmount))} บาท`,
+    ...(remaining <= 0 ? ['ชำระครบแล้ว ทางร้านเตรียมจัดส่งให้ค่ะ'] : []),
+  ].join('\n')
+}
+
 /** Only notifySlipResult may grant the verified receipt exception; generic bot sends cannot. */
 async function deliverTextOnce(
   db: SupabaseClient,
@@ -288,7 +304,7 @@ export async function notifySlipResult(
       }
     }
     const body = slip.tabBalance
-      ? `รับยอดโอน ${Number(slip.amount ?? 0).toLocaleString('th-TH')} บาท ตรวจสอบผ่านแล้วครับ\nยอดรวมสะสม ${Number(slip.tabBalance.totalAmount).toLocaleString('th-TH')} บาท\nโอนแล้ว ${Number(slip.tabBalance.paidAmount).toLocaleString('th-TH')} บาท\nยอดค้างชำระสุทธิ ${Number(slip.tabBalance.remainingAmount).toLocaleString('th-TH')} บาท\n${slip.tabBalance.remainingAmount === 0 ? 'ยอดครบถ้วนแล้ว ทางร้านเตรียมจัดส่งให้ครับ' : `ยอดยังไม่ครบ ขาดอีก ${Number(slip.tabBalance.remainingAmount).toLocaleString('th-TH')} บาท สามารถโอนส่วนที่เหลือและส่งสลิปเพิ่มเติมได้ครับ`}`
+      ? customerTabReceiptText(slip.amount, slip.tabBalance)
       : verified
         ? slipConfirmationText(
             slip.amount,

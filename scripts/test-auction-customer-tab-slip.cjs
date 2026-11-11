@@ -2,8 +2,9 @@ const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const load = require('./helpers/load-typescript.cjs')
 
-function fixture(verdict) {
+function fixture({ amount, requireAuctionSender = false }) {
   const rpcCalls = []
+  let verifierCalls = 0
   const db = {
     storage: {
       from: () => ({ upload: async () => ({ error: null }) }),
@@ -12,19 +13,27 @@ function fixture(verdict) {
       rpcCalls.push({ name, args })
       if (name === 'claim_customer_tab_slip')
         return { data: { claimed: true, slipId: 'slip-a' }, error: null }
-      if (name === 'complete_auction_customer_tab_slip')
-        return { data: { status: 'fully_paid' }, error: null }
-      if (name === 'complete_customer_tab_slip') return { data: { status: 'unpaid' }, error: null }
+      if (name === 'complete_auction_customer_tab_slip' || name === 'complete_customer_tab_slip')
+        return {
+          data: {
+            tabId: 'tab-a',
+            totalAmount: 500,
+            paidAmount: amount,
+            remainingAmount: Math.max(0, 500 - amount),
+            status: amount >= 500 ? 'fully_paid' : 'pending_payment',
+            verdict: args.p_verdict ?? (amount <= 500 ? 'valid' : 'amount_mismatch'),
+            note: args.p_note ?? null,
+          },
+          error: null,
+        }
       return { data: true, error: null }
     },
     from(table) {
-      const filters = {}
       const query = {
         select() {
           return query
         },
-        eq(key, value) {
-          filters[key] = value
+        eq() {
           return query
         },
         in() {
@@ -39,7 +48,7 @@ function fixture(verdict) {
         maybeSingle: async () => ({
           data:
             table === 'customer_tabs'
-              ? { id: 'tab-a', remaining_amount: 100, created_at: '2020-01-01T00:00:00Z' }
+              ? { id: 'tab-a', remaining_amount: 500, created_at: '2020-01-01T00:00:00Z' }
               : null,
           error: null,
         }),
@@ -59,13 +68,16 @@ function fixture(verdict) {
     {
       'server-only': {},
       'node:crypto': require('node:crypto'),
-      './slipok': {
-        verifyWithSlipOK: async () => ({
-          verdict,
-          amount: 100,
-          transRef: 'transfer-a',
-          raw: {},
-        }),
+      './verification': {
+        verifySlip: async () => {
+          verifierCalls += 1
+          return {
+            verdict: 'valid',
+            amount,
+            transRef: 'transfer-a',
+            raw: {},
+          }
+        },
       },
       './receiver-matching': { receiverMatchesAny: () => true },
       '@/lib/features/payments/payment-pro-core': {
@@ -76,6 +88,9 @@ function fixture(verdict) {
   )
   return {
     rpcCalls,
+    get verifierCalls() {
+      return verifierCalls
+    },
     run: () =>
       processCustomerTabSlip(
         db,
@@ -84,34 +99,47 @@ function fixture(verdict) {
           customerId: 'customer-a',
           messageId: 'message-a',
           tenant: { id: 'tenant-a' },
-          expectedAmount: 100,
+          expectedAmount: 500,
           customerTabId: 'tab-a',
-          requireExactAmount: true,
-          auctionSenderId: 'winner-a',
+          requireAuctionSender,
+          auctionSenderId: requireAuctionSender ? 'winner-a' : undefined,
         },
         ['tab-a'],
+        'image/png',
       ),
   }
 }
 
-test('auction amount mismatches are recorded as invalid and never use the paid auction settlement RPC', async () => {
-  const f = fixture('amount_mismatch')
+test('customer tab accepts a verified partial transfer and stores the remaining balance', async () => {
+  const f = fixture({ amount: 2 })
   const result = await f.run()
 
-  assert.equal(result.status, 'amount_mismatch')
-  const completion = f.rpcCalls.find((call) => call.name.startsWith('complete_'))
-  assert.equal(completion.name, 'complete_customer_tab_slip')
-  assert.equal(completion.args.p_verdict, 'amount_mismatch')
+  assert.equal(f.verifierCalls, 1)
+  assert.equal(result.status, 'valid')
+  assert.equal(result.tabBalance.paidAmount, 2)
+  assert.equal(result.tabBalance.remainingAmount, 498)
+  const completion = f.rpcCalls.find((call) => call.name === 'complete_customer_tab_slip')
+  assert.equal(completion.args.p_amount, 2)
+  assert.equal(completion.args.p_verdict, 'valid')
 })
 
-test('valid exact auction slips settle through the winner-scoped database function', async () => {
-  const f = fixture('valid')
+test('auction customer tab accepts a winner-scoped partial transfer through its guarded RPC', async () => {
+  const f = fixture({ amount: 250, requireAuctionSender: true })
   const result = await f.run()
 
   assert.equal(result.status, 'valid')
-  assert.equal(result.tabBalance.status, 'fully_paid')
-  const completion = f.rpcCalls.find((call) => call.name.startsWith('complete_'))
-  assert.equal(completion.name, 'complete_auction_customer_tab_slip')
+  assert.equal(result.tabBalance.remainingAmount, 250)
+  const completion = f.rpcCalls.find((call) => call.name === 'complete_auction_customer_tab_slip')
   assert.equal(completion.args.p_sender, 'winner-a')
-  assert.equal(completion.args.p_amount, 100)
+  assert.equal(completion.args.p_amount, 250)
+})
+
+test('amount above the outstanding tab balance is recorded as a mismatch, not credited', async () => {
+  const f = fixture({ amount: 501 })
+  const result = await f.run()
+
+  assert.equal(result.status, 'amount_mismatch')
+  const completion = f.rpcCalls.find((call) => call.name === 'complete_customer_tab_slip')
+  assert.equal(completion.args.p_verdict, 'amount_mismatch')
+  assert.equal(completion.args.p_amount, 501)
 })

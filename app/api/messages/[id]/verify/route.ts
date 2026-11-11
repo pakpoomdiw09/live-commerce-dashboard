@@ -10,7 +10,7 @@ import type { Attachment } from '@/lib/types'
 import { UUID } from '@/lib/utils'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60 // up to a few images, SlipOK times out at 20 s each
+export const maxDuration = 60 // allow several provider verification attempts for one chat message
 
 const STALE_NOTE = 'การตรวจครั้งก่อนค้างเกิน 3 นาที (ระบบหยุดกลางคัน) แอดมินสั่งตรวจใหม่แล้ว'
 

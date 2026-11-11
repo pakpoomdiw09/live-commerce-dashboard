@@ -122,9 +122,9 @@ function fixture({
       if (name === '@/lib/features/slips/slip-timestamp') return timestamps
       if (name === '@/lib/feature-access') return { requireFeature: async () => {} }
       if (name === '@/lib/auth') return { tenantHasFeatureBypass: async () => true }
-      if (name === '@/lib/features/slips/slipok')
+      if (name === '@/lib/features/slips/verification')
         return {
-          verifyWithSlipOK: async (args) => {
+          verifySlip: async (args) => {
             checks.push(args)
             return {
               verdict: 'valid',
@@ -242,7 +242,7 @@ test('Wrong or unreadable slip amount never marks orders paid', async () => {
     )
   }
 })
-test('Order lookup failure stops before storing proof or calling SlipOK', async () => {
+test('Order lookup failure stops before storing proof or calling the slip provider', async () => {
   const f = fixture({ error: { message: 'database offline' } })
   await assert.rejects(f.run(), /ออเดอร์/)
   assert.equal(f.checks.length, 0)

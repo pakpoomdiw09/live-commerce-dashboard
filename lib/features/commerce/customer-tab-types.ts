@@ -3,6 +3,9 @@ export type CustomerTabItem = {
   source_code?: string | null
   requires_variant?: boolean
   selection_link?: string | null
+  order_status?: string | null
+  order_paid_amount?: number
+  can_cancel?: boolean
   order_id: string
   item_name: string
   variant_label: string | null

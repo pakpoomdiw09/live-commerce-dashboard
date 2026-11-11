@@ -98,9 +98,9 @@ export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) 
       data-session-slips
     >
       <div className="space-y-3">
-        <h3 className="font-bold">สลิปโอนเงินที่ตรวจผ่าน (เชื่อมต่อ SlipOK)</h3>
+        <h3 className="font-bold">สลิปโอนเงินที่ตรวจผ่านด้วยระบบ AI</h3>
         <p className="text-xs text-slate-500">
-          สลิป SlipOK ที่ตรวจผ่านและลงบัญชีในบิลสะสมของไลฟ์นี้
+          สลิปที่ระบบ AI ตรวจผ่านและลงบัญชีในบิลสะสมของไลฟ์นี้
         </p>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2">
@@ -197,7 +197,7 @@ export function AuctionSessionSlips({ data }: { data: SessionSnapshot | null }) 
           </table>
           {!data?.slips?.length && (
             <p className="p-4 text-sm text-slate-500">
-              ยังไม่มีสลิปโอนเงินที่ตรวจผ่าน (เชื่อมต่อ SlipOK)
+              ยังไม่มีสลิปโอนเงินที่ตรวจผ่านด้วยระบบ AI
             </p>
           )}
         </div>

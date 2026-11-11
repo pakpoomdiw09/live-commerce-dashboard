@@ -6,7 +6,11 @@ import {
   InboxError,
 } from '@/lib/features/inbox/inbox-server'
 import { canAccessTenant } from '@/lib/auth'
-import { TAB_COLUMNS, customerTabSummary } from '@/lib/features/commerce/customer-tabs-server'
+import {
+  TAB_COLUMNS,
+  customerTabSummary,
+  enrichCustomerTabs,
+} from '@/lib/features/commerce/customer-tabs-server'
 import { runCustomerTabReminders } from '@/lib/features/commerce/customer-tab-reminders'
 import type { CustomerTab } from '@/lib/features/commerce/customer-tab-types'
 import { UUID } from '@/lib/utils'
@@ -17,7 +21,7 @@ const json = (data: unknown) =>
 export async function GET(req: NextRequest) {
   try {
     const customerId = req.nextUrl.searchParams.get('customerId') ?? ''
-    const { db, tenantId } = await inboxCustomer(req, customerId)
+    const { db, tenantId, actor } = await inboxCustomer(req, customerId)
     const tabs = await db
       .from('customer_tabs')
       .select(TAB_COLUMNS)
@@ -26,9 +30,18 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(50)
     if (tabs.error) throw tabs.error
+    const canCancelOrders = await canAccessTenant(actor, tenantId, 'owner')
+    const hydrated = await enrichCustomerTabs(db, (tabs.data ?? []) as CustomerTab[])
+    const visibleTabs = hydrated.map((tab) => ({
+      ...tab,
+      customer_tab_items: tab.customer_tab_items.map((item) => ({
+        ...item,
+        can_cancel: canCancelOrders && item.can_cancel === true,
+      })),
+    }))
     const summaryId = req.nextUrl.searchParams.get('summary')
     if (summaryId) {
-      const tab = (tabs.data as CustomerTab[]).find((bill) => bill.id === summaryId)
+      const tab = visibleTabs.find((bill) => bill.id === summaryId)
       if (!tab) throw new InboxError('ไม่พบบิลของลูกค้านี้', 404)
       const page = await db
         .from('tenants')
@@ -49,7 +62,7 @@ export async function GET(req: NextRequest) {
           .limit(100)
       : { data: [], error: null }
     if (jobs.error) throw jobs.error
-    return json({ tabs: tabs.data, reminders: jobs.data })
+    return json({ tabs: visibleTabs, reminders: jobs.data })
   } catch (error) {
     return inboxError(error)
   }
@@ -92,6 +105,31 @@ export async function POST(req: NextRequest) {
         message:
           'จบไลฟ์แล้ว ตั้งทวงยอดหลังจบ 1 ชั่วโมงและเช้าวันถัดไปเวลา 09:00 น. (เมื่อเพจยังส่งข้อความได้)',
       })
+    }
+    if (input.action === 'cancel_order') {
+      if (!input.customerId || !UUID.test(input.tabId ?? '') || !UUID.test(input.orderId ?? ''))
+        throw new InboxError('ข้อมูลบิลหรือรายการไม่ถูกต้อง')
+      if (!(await canAccessTenant(actor, tenantId, 'owner')))
+        throw new InboxError('เฉพาะเจ้าของร้านเท่านั้นที่ยกเลิกรายการได้', 403)
+      const cancelled = await db.rpc('cancel_customer_tab_order', {
+        p_tenant: tenantId,
+        p_customer: input.customerId,
+        p_tab: input.tabId,
+        p_order: input.orderId,
+      })
+      if (cancelled.error) {
+        if (cancelled.error.message.includes('TAB_ORDER_NOT_CANCELLABLE'))
+          throw new InboxError('ยกเลิกรายการนี้ไม่ได้ เพราะชำระแล้วหรือสถานะเปลี่ยนไป', 409)
+        if (cancelled.error.message.includes('TAB_ORDER_SCOPE'))
+          throw new InboxError('ไม่พบรายการในบิลของลูกค้ารายนี้', 404)
+        throw cancelled.error
+      }
+      console.info('[customer-tabs/order] cancelled', {
+        orderId: input.orderId,
+        tabId: input.tabId,
+        tenantId,
+      })
+      return json(cancelled.data)
     }
     if (!['remind', 'remind_all'].includes(input.action)) throw new InboxError('คำสั่งไม่ถูกต้อง')
     const queued = await db.rpc('queue_customer_tab_reminders', {

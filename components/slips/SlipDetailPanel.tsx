@@ -21,7 +21,7 @@ import type { SlipDetail, SlipRow } from '@/lib/types'
 import { apiError, baht, cn, when } from '@/lib/utils'
 
 /**
- * Everything about one slip: image, SlipOK data (amount, time, banks, TransRef) and the admin actions.
+ * Everything about one slip: image, normalized provider data, and the admin actions.
  * `slip` is the live row (Realtime); the detail is re-fetched whenever its state changes.
  */
 export function SlipDetailPanel({

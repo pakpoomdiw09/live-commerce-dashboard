@@ -1,7 +1,7 @@
 import 'server-only'
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { verifyWithSlipOK } from './slipok'
+import { verifySlip, type SlipVerdict } from './verification'
 import { receiverMatchesAny } from './receiver-matching'
 import { providerPaidAt } from '@/lib/features/payments/payment-pro-core'
 import type { ProcessedSlip, SlipInput } from './process'
@@ -29,12 +29,10 @@ export async function processCustomerTabSlip(
   if (!selected.data || Number(selected.data.remaining_amount) <= 0)
     throw new Error('TAB_NOT_PAYABLE')
   if (
-    input.requireExactAmount &&
-    (!input.expectedAmount ||
-      Math.abs(input.expectedAmount - Number(selected.data.remaining_amount)) > 0.005 ||
-      !input.auctionSenderId)
+    input.requireAuctionSender &&
+    (!Number.isFinite(input.expectedAmount) || input.expectedAmount! <= 0 || !input.auctionSenderId)
   )
-    throw new Error('AUCTION_TAB_AMOUNT_CHANGED')
+    throw new Error('AUCTION_TAB_WINNER_SCOPE_INVALID')
   const selections = await db
     .from('orders')
     .select('live_variant_selection_required,live_variant_confirmed_at')
@@ -151,24 +149,22 @@ export async function processCustomerTabSlip(
     const credit = await db.rpc('consume_slip_credit', { p_tenant: tenantId })
     if (credit.error || credit.data !== true) throw new Error('TAB_SLIP_CREDIT_UNAVAILABLE')
     charged = true
-    // Auction bills require an exact amount; ordinary customer tabs may be partially paid.
-    const result = await verifyWithSlipOK({
+    // Customer tabs accept verified partial transfers. The RPC rechecks the remaining
+    // balance under a lock, so do not ask the provider to enforce an exact amount here.
+    const result = await verifySlip({
       file: input.file,
       qr: input.qr,
       bankAccounts: accounts.data.map((account) => ({
         accountNo: account.account_number,
         bankCode: account.bank_code,
       })),
-      ...(input.requireExactAmount
-        ? { expectedAmount: Number(selected.data.remaining_amount) }
-        : {}),
     })
-    console.info('[customer-tabs/payment] SlipOK returned', {
+    console.info('[customer-tabs/payment] verifier returned', {
       tabId: selected.data.id,
       slipId,
       verdict: result.verdict,
       amount: result.amount ?? null,
-      expectedAmount: input.requireExactAmount ? Number(selected.data.remaining_amount) : null,
+      expectedAmount: Number(selected.data.remaining_amount),
       providerFault: result.providerFault === true,
     })
     if (result.providerFault && charged) {
@@ -189,12 +185,12 @@ export async function processCustomerTabSlip(
       verdict = 'wrong_receiver'
     if (
       verdict === 'valid' &&
-      input.requireExactAmount &&
       (typeof result.amount !== 'number' ||
-        Math.abs(result.amount - Number(selected.data.remaining_amount)) > 0.005)
+        !Number.isFinite(result.amount) ||
+        result.amount > Number(selected.data.remaining_amount) + 0.005)
     ) {
       verdict = 'amount_mismatch'
-      note = `ยอดในสลิป ${result.amount ?? 'ไม่ทราบ'} ไม่ตรงกับยอดบิล ${selected.data.remaining_amount}`
+      note = `ยอดในสลิป ${Number(result.amount ?? 0).toFixed(2)} บาทเกินยอดคงเหลือ ${Number(selected.data.remaining_amount).toFixed(2)} บาท`
     }
     const paidAt = providerPaidAt(result.raw)
     if (
@@ -220,7 +216,7 @@ export async function processCustomerTabSlip(
       p_raw: result.raw,
       p_note: note,
     }
-    const useAuctionSettlement = input.requireExactAmount && verdict === 'valid'
+    const useAuctionSettlement = input.requireAuctionSender && verdict === 'valid'
     const completeRpc = useAuctionSettlement
       ? 'complete_auction_customer_tab_slip'
       : 'complete_customer_tab_slip'
@@ -250,6 +246,9 @@ export async function processCustomerTabSlip(
       })
     }
     if (saved.error) throw saved.error
+    const completion = saved.data as (TabBalance & { verdict?: string; note?: string | null }) | null
+    if (completion?.verdict) verdict = completion.verdict as SlipVerdict
+    if (completion && typeof completion.note === 'string') note = completion.note || null
     console.info('[customer-tabs/payment] verified', { tabId: selected.data.id, slipId, verdict })
     return {
       id: slipId,
@@ -257,7 +256,7 @@ export async function processCustomerTabSlip(
       amount: result.amount ?? null,
       transRef: result.transRef ?? null,
       note,
-      tabBalance: saved.data as TabBalance,
+      tabBalance: completion ?? (saved.data as TabBalance),
     }
   } catch (error) {
     // Never downgrade a committed valid slip after a lost database response.

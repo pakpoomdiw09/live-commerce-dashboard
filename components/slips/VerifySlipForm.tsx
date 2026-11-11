@@ -6,7 +6,7 @@ import { ImagePlus } from 'lucide-react'
 import { BrandLoader } from '@/components/ui/BrandLoader'
 import { Button } from '@/components/ui/button'
 
-/** Upload a slip image and check it with SlipOK against the active tenant's account. */
+/** Upload a slip image and check it against the active tenant's receiving accounts. */
 export function VerifySlipForm({
   tenant,
   onVerified,

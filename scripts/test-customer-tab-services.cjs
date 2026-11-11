@@ -2,6 +2,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { randomUUID } = require('node:crypto')
 const load = require('./helpers/load-typescript.cjs')
+const { neutralSlipText } = load('lib/ui-labels.ts')
 const types = load('lib/features/commerce/customer-tab-types.ts')
 const sessionTypes = load('lib/features/commerce/live-session-types.ts')
 const banks = load('lib/features/banking/banks.ts')
@@ -13,6 +14,13 @@ const silent = { info() {}, warn() {}, error() {} }
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const customerId = '22222222-2222-4222-8222-222222222222'
 const tabId = '33333333-3333-4333-8333-333333333333'
+test('legacy SlipOK customer-tab notice displays current AI verification wording', () => {
+  assert.equal(
+    neutralSlipText('บิลสะสมตรวจสลิปผ่านโอเคก่อนระบบปล่อยหักเงินได้'),
+    'ตรวจสอบสลิปอัตโนมัติด้วยระบบ AI',
+  )
+})
+
 test('mixed auction/CF bills label provenance and retain the shared ledger total', () => {
   const bill = tab()
   bill.customer_tab_items = [
@@ -202,8 +210,8 @@ function slipFixture({
       'node:crypto': require('node:crypto'),
       './receiver-matching': receiver,
       '@/lib/features/payments/payment-pro-core': timestamps,
-      './slipok': {
-        verifyWithSlipOK: async (input) => {
+      './verification': {
+        verifySlip: async (input) => {
           calls.provider.push(input)
           return {
             verdict,
@@ -226,7 +234,7 @@ function slipFixture({
   }
   return { calls, tables, run: () => service.processCustomerTabSlip(db, input, [tabId]) }
 }
-test('tab SlipOK path omits a full-amount constraint, accepts partials, and replays an image without another provider charge', async () => {
+test('ZWIZ customer-tab verification omits a full-amount constraint, accepts partials, and replays without another provider charge', async () => {
   const f = slipFixture()
   const first = await f.run()
   assert.equal(first.status, 'valid')

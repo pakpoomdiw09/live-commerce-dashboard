@@ -7,6 +7,51 @@ import { findBank } from '@/lib/features/banking/banks'
 
 export const TAB_COLUMNS =
   '*,customer_tab_items(*),customer_tab_payments(slip_id,amount,transferred_at)'
+
+export async function enrichCustomerTabs(db: SupabaseClient, tabs: CustomerTab[]) {
+  if (!tabs.length) return tabs
+  const tenantId = tabs[0].tenant_id
+  const result = await db
+    .from('orders')
+    .select(
+      'id,customer_tab_id,source,source_code,status,paid_amount,live_variant_selection_required,live_variant_confirmed_at',
+    )
+    .eq('tenant_id', tenantId)
+    .in(
+      'customer_tab_id',
+      tabs.map((tab) => tab.id),
+    )
+  if (result.error) throw result.error
+  const orders = new Map((result.data ?? []).map((order) => [order.id, order]))
+  return tabs.map((tab) => ({
+    ...tab,
+    customer_tab_items: tab.customer_tab_items.map((item) => {
+      const order = orders.get(item.order_id)
+      const requiresVariant =
+        !!order?.live_variant_selection_required && !order.live_variant_confirmed_at
+      return {
+        ...item,
+        order_type:
+          item.order_type ??
+          (order?.source === 'live_auction'
+            ? 'auction'
+            : order?.source === 'live_comment' ||
+                order?.source === 'facebook_comment' ||
+                order?.source_code
+              ? 'cf'
+              : null),
+        source_code: item.source_code ?? order?.source_code ?? null,
+        requires_variant: requiresVariant,
+        selection_link: requiresVariant ? createLiveCfPaymentLink(item.order_id) : null,
+        order_status: order?.status ?? null,
+        order_paid_amount: Number(order?.paid_amount ?? 0),
+        can_cancel:
+          order?.status === 'pending_payment' && Number(order?.paid_amount ?? 0) <= 0,
+      }
+    }),
+  }))
+}
+
 export async function loadCustomerTab(
   db: SupabaseClient,
   id: string,
@@ -17,30 +62,8 @@ export async function loadCustomerTab(
   const result = await query.maybeSingle()
   if (result.error) throw result.error
   const tab = result.data as CustomerTab | null
-  if (tab) {
-    const orders = await db
-      .from('orders')
-      .select('id,source,source_code,live_variant_selection_required,live_variant_confirmed_at')
-      .eq('customer_tab_id', tab.id)
-      .eq('tenant_id', tab.tenant_id)
-    if (orders.error) throw orders.error
-    for (const item of tab.customer_tab_items) {
-      const order = orders.data.find((row) => row.id === item.order_id)
-      item.order_type ??=
-        order?.source === 'live_auction'
-          ? 'auction'
-          : order?.source === 'live_comment' ||
-              order?.source === 'facebook_comment' ||
-              order?.source_code
-            ? 'cf'
-            : null
-      item.source_code ??= order?.source_code ?? null
-      item.requires_variant =
-        !!order?.live_variant_selection_required && !order.live_variant_confirmed_at
-      item.selection_link = item.requires_variant ? createLiveCfPaymentLink(item.order_id) : null
-    }
-  }
-  return tab
+  if (!tab) return null
+  return (await enrichCustomerTabs(db, [tab]))[0]
 }
 
 export async function tabForOrder(

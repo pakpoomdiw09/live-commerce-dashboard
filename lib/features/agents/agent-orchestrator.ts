@@ -14,6 +14,7 @@ import {
   loadBotSettings,
   handover,
   sendRule,
+  sendCommerceContextFallback,
   type Incoming,
 } from '@/lib/features/agents/chatbot-actions'
 import {
@@ -118,64 +119,67 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       route = 'FALLBACK'
       reason = inputRisk(m.text) ?? 'CUSTOMER_REQUESTED_HUMAN'
     } else if (route === 'AI') {
-      const quota = await reserveAiReplyQuota(db, m)
-      if (!quota.id) {
-        await save({
-          route: 'AI',
-          status: 'review',
-          reason: quota.status,
-        })
-        return true
-      }
-      quotaId = quota.id
+      let quota: Awaited<ReturnType<typeof reserveAiReplyQuota>> | null = null
       try {
-        text = await aiReply(
-          db,
-          {
-            aiQuotaReservation: quota.id,
-            tenantId: m.tenant.id,
-            pageId: m.pageId,
-            sendPaymentLink: m.sendPaymentLink,
-            shopName: m.tenant.name,
-            customerName: m.customer.display_name,
-            customerId: m.customer.id,
-            instructions: settings.ai_instructions,
-            imageUrls: m.imageUrls,
-            onProductResult: (value) => {
-              product.current = value
-            },
-            agentJob: { id: job.id, claim: job.claim_token },
-          },
-          undefined,
-          true,
-        )
+        quota = await reserveAiReplyQuota(db, m)
       } catch (error) {
-        reason = (error as { code?: string })?.code ?? 'AI_PROVIDER_FAILED'
-        if (isPaymentQuestion(m.text))
-          console.log('[DEBUG_AI_TRACE]', {
-            stage: 'ai_generation',
-            message: redactAgentText(m.text).slice(0, 160),
-            intent: 'payment',
-            customerId: m.customer.id,
-            tenantId: m.tenant.id,
-            hasOrders: null,
-            error: reason,
-          })
-        text = [
-          'AGENT_POLICY_HANDOFF',
-          'AGENT_INPUT_REQUIRES_REVIEW',
-          'AGENT_SENSITIVE_KNOWLEDGE',
-        ].includes(reason)
-          ? HANDOVER_TOKEN
-          : null
+        reason = (error as { code?: string })?.code ?? 'AI_QUOTA_CHECK_FAILED'
+        route = 'FALLBACK'
       }
-      if (text === HANDOVER_TOKEN) {
+      if (route === 'AI' && !quota?.id) {
         route = 'FALLBACK'
-        text = null
-        reason = 'AI_HUMAN_REVIEW'
-      } else if (!text) {
-        route = 'FALLBACK'
-        reason = reason ?? 'AI_UNAVAILABLE'
+        reason = quota?.status ?? reason ?? 'AI_QUOTA_UNAVAILABLE'
+      } else if (route === 'AI' && quota?.id) {
+        quotaId = quota.id
+        try {
+          text = await aiReply(
+            db,
+            {
+              aiQuotaReservation: quota.id,
+              tenantId: m.tenant.id,
+              pageId: m.pageId,
+              sendPaymentLink: m.sendPaymentLink,
+              shopName: m.tenant.name,
+              customerName: m.customer.display_name,
+              customerId: m.customer.id,
+              instructions: settings.ai_instructions,
+              imageUrls: m.imageUrls,
+              onProductResult: (value) => {
+                product.current = value
+              },
+              agentJob: { id: job.id, claim: job.claim_token },
+            },
+            undefined,
+            true,
+          )
+        } catch (error) {
+          reason = (error as { code?: string })?.code ?? 'AI_PROVIDER_FAILED'
+          if (isPaymentQuestion(m.text))
+            console.log('[DEBUG_AI_TRACE]', {
+              stage: 'ai_generation',
+              message: redactAgentText(m.text).slice(0, 160),
+              intent: 'payment',
+              customerId: m.customer.id,
+              tenantId: m.tenant.id,
+              hasOrders: null,
+              error: reason,
+            })
+          text = [
+            'AGENT_POLICY_HANDOFF',
+            'AGENT_INPUT_REQUIRES_REVIEW',
+            'AGENT_SENSITIVE_KNOWLEDGE',
+          ].includes(reason)
+            ? HANDOVER_TOKEN
+            : null
+        }
+        if (text === HANDOVER_TOKEN) {
+          route = 'FALLBACK'
+          text = null
+          reason = 'AI_HUMAN_REVIEW'
+        } else if (!text) {
+          route = 'FALLBACK'
+          reason = reason ?? 'AI_UNAVAILABLE'
+        }
       }
     }
     await save({ route, reason })
@@ -199,6 +203,17 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
     }
     const once = `reply:${m.messageId}`
     if (route === 'FALLBACK') {
+      if (customerContextQuestion && !inputRisk(m.text)) {
+        const contextual = await sendCommerceContextFallback(db, m, once)
+        if (contextual === 'sent') {
+          await save({ status: 'sent', reason: 'DETERMINISTIC_CONTEXT_FALLBACK' })
+          return true
+        }
+        if (contextual === 'failed') {
+          await save({ status: 'review', reason: 'DETERMINISTIC_CONTEXT_FALLBACK_FAILED' })
+          return true
+        }
+      }
       await handover(db, m, settings, once)
       await save({ status: 'review', reason: reason ?? 'FALLBACK_REPLY' })
       return true
@@ -206,6 +221,18 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
     if (route === 'AI' && quotaId) {
       const permission = await authorizeAiReplyQuota(db, m, quotaId)
       if (permission !== 'authorized') {
+        if (permission === 'quota_exceeded' && customerContextQuestion && !inputRisk(m.text)) {
+          const contextual = await sendCommerceContextFallback(db, m, once)
+          if (contextual === 'sent') {
+            await save({ status: 'sent', reason: 'DETERMINISTIC_CONTEXT_FALLBACK' })
+            return true
+          }
+          if (contextual === 'failed') {
+            await save({ status: 'review', reason: 'DETERMINISTIC_CONTEXT_FALLBACK_FAILED' })
+            return true
+          }
+          await handover(db, m, settings, once)
+        }
         await save({
           route: 'AI',
           status: 'review',
