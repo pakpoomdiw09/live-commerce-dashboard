@@ -28,6 +28,7 @@ import { findBank } from '@/lib/features/banking/banks'
 export type AgentGeneration = {
   imageMatch?: boolean
   inventoryQuestion?: boolean
+  paymentQuestion?: boolean
   usageId?: string
   simulation?: boolean
   tenantId: string
@@ -51,13 +52,31 @@ async function paymentKnowledge(
 ): Promise<AgentKnowledge[]> {
   if (!isPaymentQuestion(latestText)) return []
 
+  const trace = (hasOrders: number, hasTabs: number, error?: unknown) => {
+    const errorCode =
+      error && typeof error === 'object' && 'code' in error
+        ? String((error as { code?: unknown }).code ?? 'QUERY_FAILED')
+        : error
+          ? 'QUERY_FAILED'
+          : null
+    console.log('[DEBUG_AI_TRACE]', {
+      message: redactAgentText(latestText).slice(0, 160),
+      intent: 'payment',
+      customerId: ctx.customerId,
+      tenantId: ctx.tenantId,
+      hasOrders,
+      hasTabs,
+      error: errorCode,
+    })
+  }
+
   const [orders, tabs] = await Promise.all([
     db
       .from('orders')
-      .select('id,product_name,amount,status,created_at,source,live_auction_id,live_session_id')
+      .select('id,customer_tab_id,product_name,amount,status,created_at,source,live_auction_id,live_session_id')
       .eq('tenant_id', ctx.tenantId)
       .eq('customer_id', ctx.customerId)
-      .in('status', ['pending_payment', 'paid'])
+      .eq('status', 'pending_payment')
       .order('created_at', { ascending: false })
       .limit(8),
     (() => {
@@ -66,14 +85,19 @@ async function paymentKnowledge(
         .select('id,page_id,bank_account_id,total_amount,paid_amount,remaining_amount,status,shipping_fee,updated_at')
         .eq('tenant_id', ctx.tenantId)
         .eq('customer_id', ctx.customerId)
-        .in('status', ['pending_payment', 'fully_paid'])
+        .in('status', ['open', 'pending_payment', 'fully_paid'])
         .order('updated_at', { ascending: false })
         .limit(5)
       if (ctx.pageId) query = query.eq('page_id', ctx.pageId)
       return query
     })(),
   ])
-  if (orders.error || tabs.error) throw orders.error ?? tabs.error
+  let contextError: unknown = orders.error ?? tabs.error
+  if (orders.error || tabs.error)
+    trace(orders.data?.length ?? 0, tabs.data?.length ?? 0, contextError)
+  if (orders.error && tabs.error) {
+    throw orders.error ?? tabs.error
+  }
 
   const orderRows = orders.data ?? []
   const auctionIds = orderRows
@@ -86,7 +110,10 @@ async function paymentKnowledge(
         .eq('tenant_id', ctx.tenantId)
         .in('id', auctionIds)
     : { data: [], error: null }
-  if (auctions.error) throw auctions.error
+  if (auctions.error) {
+    contextError ??= auctions.error
+    trace(orderRows.length, tabs.data?.length ?? 0, auctions.error)
+  }
   const auctionRows = auctions.data ?? []
   const liveSessionIds = orderRows
     .map((order) => order.live_session_id)
@@ -99,7 +126,10 @@ async function paymentKnowledge(
         .eq('page_id', ctx.pageId)
         .in('id', liveSessionIds)
     : { data: [], error: null }
-  if (sessions.error) throw sessions.error
+  if (sessions.error) {
+    contextError ??= sessions.error
+    trace(orderRows.length, tabs.data?.length ?? 0, sessions.error)
+  }
   const scopedAuctions = ctx.pageId
     ? auctionRows.filter((auction) => auction.page_id === ctx.pageId)
     : auctionRows
@@ -155,7 +185,10 @@ async function paymentKnowledge(
     })
   }
 
-  const pendingTabRows = scopedTabs.filter((tab) => tab.status === 'pending_payment')
+  const pendingTabRows = scopedTabs.filter(
+    (tab) =>
+      ['open', 'pending_payment'].includes(tab.status) && Number(tab.remaining_amount) > 0,
+  )
   const pendingAuctions = scopedAuctions.filter((auction) =>
     scopedOrders.some((order) => order.status === 'pending_payment' && order.live_auction_id === auction.id),
   )
@@ -172,7 +205,10 @@ async function paymentKnowledge(
     ? bankQuery.in('id', [...new Set(linkedBankIds)])
     : bankQuery.order('is_primary', { ascending: false }).limit(1)
   const bank = await bankQuery
-  if (bank.error) throw bank.error
+  if (bank.error) {
+    contextError ??= bank.error
+    trace(scopedOrders.length, scopedTabs.length, bank.error)
+  }
   const accounts = bank.data ?? []
   for (const [index, account] of accounts.slice(0, 3).entries()) {
     const accountNumber = String(account.account_number ?? '')
@@ -186,6 +222,66 @@ async function paymentKnowledge(
       is_active: true,
     })
   }
+  if (!facts.some((fact) => fact.id.startsWith('customer-payment-account:'))) {
+    let pageSettings = db
+      .from('tenants')
+      .select('bank_code,account_name,account_number')
+      .eq('id', ctx.tenantId)
+    if (ctx.pageId) pageSettings = pageSettings.eq('page_id', ctx.pageId)
+    const fallbackAccount = await pageSettings.maybeSingle()
+    if (fallbackAccount.error) {
+      contextError ??= fallbackAccount.error
+      trace(scopedOrders.length, scopedTabs.length, fallbackAccount.error)
+    }
+    const accountNumber = String(fallbackAccount.data?.account_number ?? '')
+    if (/^[0-9]{10,15}$/.test(accountNumber)) {
+      facts.push({
+        id: 'customer-payment-account:page-settings',
+        kind: 'faq',
+        title: 'บัญชีรับชำระของเพจร้าน',
+        content: `ธนาคาร ${sanitize(findBank(fallbackAccount.data?.bank_code)?.name ?? String(fallbackAccount.data?.bank_code ?? ''))} | ชื่อบัญชี ${sanitize(String(fallbackAccount.data?.account_name ?? ''))} | เลขบัญชี ${accountNumber}`,
+        is_active: true,
+      })
+    }
+  }
+  const knownTabIds = new Set(scopedTabs.map((tab) => tab.id))
+  const standaloneOrders = scopedOrders.filter(
+    (order) =>
+      order.status === 'pending_payment' &&
+      (!order.customer_tab_id || !knownTabIds.has(order.customer_tab_id)),
+  )
+  const dueTotal =
+    pendingTabRows.reduce((sum, tab) => sum + Math.max(0, Number(tab.remaining_amount) || 0), 0) +
+    standaloneOrders.reduce((sum, order) => sum + Math.max(0, Number(order.amount) || 0), 0)
+  const paymentAnswer = [
+    dueTotal > 0
+      ? `${contextError ? 'ยอดคงเหลือที่ตรวจสอบได้' : 'ยอดชำระคงเหลือรวม'} ${money(dueTotal)} บาท`
+      : contextError
+        ? 'ขออภัยค่ะ ตอนนี้ตรวจสอบยอดชำระจากระบบได้ไม่ครบ กรุณาลองสอบถามอีกครั้งภายหลังนะคะ'
+        : 'ตรวจสอบแล้ว ยังไม่พบรายการที่รอชำระเงินซึ่งผูกกับแชทนี้',
+    ...scopedOrders.slice(0, 5).map((order) => {
+      const itemName = sanitize(order.product_name || 'รายการสั่งซื้อ')
+      const link =
+        ctx.sendPaymentLink && order.status === 'pending_payment'
+          ? createLiveCfPaymentLink(order.id)
+          : null
+      return `รายการ ${itemName}: ${money(order.amount) ?? 'ไม่ระบุ'} บาท${link ? ` | ลิงก์ชำระเงิน ${link}` : ''}`
+    }),
+    ...pendingTabRows.slice(0, 3).map((tab) =>
+      `ยอดคงเหลือของบิลไลฟ์ ${money(tab.remaining_amount) ?? 'ไม่ระบุ'} บาท`,
+    ),
+    ...facts
+      .filter((fact) => fact.id.startsWith('customer-payment-account:'))
+      .map((fact) => fact.content),
+  ].join('\n')
+  facts.push({
+    id: 'customer-payment-answer',
+    kind: 'faq',
+    title: 'คำตอบยอดชำระและบัญชีของลูกค้ารายนี้',
+    content: paymentAnswer.slice(0, 1700),
+    is_active: true,
+  })
+  trace(scopedOrders.length, scopedTabs.length, contextError)
   return facts
 }
 const secrets = () =>
@@ -274,6 +370,23 @@ export async function prepareAgentGeneration(
     )
   if (inputRisk(latestText))
     throw new AiAgentError('AGENT_INPUT_REQUIRES_REVIEW', 'ข้อความนี้ต้องให้แอดมินตรวจสอบ', 422)
+  const paymentQuestion = isPaymentQuestion(latestText)
+  if (paymentQuestion) {
+    const knowledge = await paymentKnowledge(db, ctx, latestText)
+    return {
+      imageMatch: false,
+      inventoryQuestion: false,
+      paymentQuestion: true,
+      usageId: undefined,
+      simulation: ctx.simulation,
+      tenantId: ctx.tenantId,
+      knowledge,
+      products: [],
+      persona: { opening: '', closing: '' },
+      systemInstruction:
+        'ตอบคำถามยอดชำระด้วยข้อมูลลูกค้าและบัญชีที่ระบบตรวจสอบแล้วเท่านั้น ห้ามเดาหรือแต่งยอด',
+    }
+  }
   const inventoryQuestion =
     isInventoryQuestion(latestText) && config.capabilities?.products !== false
   const [
@@ -419,7 +532,7 @@ export async function prepareAgentGeneration(
     )
   // Reserve once, only after all local data preparation. No client-controlled credit/plan/key.
   let usageId: string | undefined
-  if (!ctx.simulation) {
+  if (!ctx.simulation && !paymentQuestion && !inventoryQuestion) {
     const invocation = await db.rpc('start_agent_ai_call', {
       p_tenant: ctx.tenantId,
       p_key: ctx.aiQuotaReservation ?? crypto.randomUUID(),
@@ -449,6 +562,7 @@ export async function prepareAgentGeneration(
   return {
     imageMatch: !!ctx.imageUrls?.length,
     inventoryQuestion,
+    paymentQuestion,
     usageId,
     simulation: ctx.simulation,
     tenantId: ctx.tenantId,
@@ -474,6 +588,12 @@ export async function finishAgentGeneration(
             knowledgeIds: ['available-inventory'],
             productCodes: [],
           })
+        : control.paymentQuestion
+          ? JSON.stringify({
+              decision: 'ANSWER',
+              knowledgeIds: ['customer-payment-answer'],
+              productCodes: [],
+            })
         : raw,
       control.knowledge,
       control.products,
@@ -485,7 +605,8 @@ export async function finishAgentGeneration(
   }
   if (secrets().some((s) => result.text.includes(s)))
     result = { text: '[HANDOVER]', handoff: true, sourceIds: [], reason: 'SENSITIVE_OUTPUT' }
-  if (control.simulation) return result.text
+  if (control.simulation || control.paymentQuestion || control.inventoryQuestion)
+    return result.text
   if (!control.usageId)
     throw new AiAgentError(
       'AGENT_USAGE_SAVE_FAILED',

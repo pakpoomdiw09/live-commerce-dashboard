@@ -118,7 +118,19 @@ begin
  completed_at=case when next_state='completed' then clock_timestamp() else null end where id=e.id;
  return next_state;
 end $$;
--- Only signature-verified queue messages may advance a Facebook service window.
+create or replace function public.facebook_is_system_disclosure(p_text text) returns boolean
+language sql immutable parallel safe set search_path=pg_catalog as $$
+ select coalesce(
+  p_text ilike '%Facebook สร้างแชทนี้เนื่องจาก%'
+  or p_text ilike '%สร้างแชทนี้เนื่องจาก%'
+  or p_text ilike '%ต้องการส่งข้อความส่วนบุคคล ซึ่งอาจเป็นข้อความโปรโมชัน%'
+  , false
+ );
+$$;
+revoke all on function public.facebook_is_system_disclosure(text) from public,anon,authenticated;
+grant execute on function public.facebook_is_system_disclosure(text) to service_role;
+
+-- Only signature-verified, customer-visible messages may advance a Facebook service window.
 create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
@@ -132,6 +144,7 @@ begin
  or p_payload->'recipient'->>'id' is distinct from p_page then return null;end if;
  m:=p_payload->'message';
  if jsonb_typeof(m) is distinct from 'object' then return null;end if;
+ if public.facebook_is_system_disclosure(m->>'text') then return null;end if;
  foreach flag in array array['is_echo','is_deleted','is_unsupported'] loop
   if m ? flag and m->flag is distinct from 'false'::jsonb then return null;end if;
  end loop;

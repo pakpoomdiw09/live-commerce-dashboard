@@ -14,6 +14,7 @@ import {
 import type { ChatSummary, CommentItem } from '@/components/inbox/InboxClient'
 import { SmartInboxV2 } from '@/components/inbox/SmartInboxV2'
 import { InlineError } from '@/components/shared/ErrorState'
+import { isFacebookSystemDisclosure } from '@/lib/integrations/facebook/message-window'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,7 +57,7 @@ export default async function InboxPage({
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .order('id', { ascending: false })
       .order('created_at', { ascending: false, referencedTable: 'messages' })
-      .limit(1, { referencedTable: 'messages' })
+      .limit(5, { referencedTable: 'messages' })
       .order('created_at', { ascending: false, referencedTable: 'slips' })
       .limit(1, { referencedTable: 'slips' })
       .limit(150)
@@ -87,7 +88,7 @@ export default async function InboxPage({
   const chats: ChatSummary[] = ((customers.data ?? []) as unknown as Row[]).map(
     ({ messages, slips, ...c }) => ({
       customer: c,
-      preview: messages[0] ?? null,
+      preview: messages?.find((message) => !isFacebookSystemDisclosure(message.body)) ?? null,
       latestSlip: slips[0]?.status ?? null,
     }),
   )

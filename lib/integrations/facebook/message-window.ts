@@ -13,10 +13,24 @@ const systemEvents = [
   'request_thread_control',
 ] as const
 const attachmentTypes = new Set(['image', 'audio', 'video', 'file', 'location', 'fallback'])
+const disclosurePhrases = [
+  'facebook สร้างแชทนี้เนื่องจาก',
+  'สร้างแชทนี้เนื่องจาก',
+  'ต้องการส่งข้อความส่วนบุคคล ซึ่งอาจเป็นข้อความโปรโมชัน',
+]
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const identifier = (value: unknown): value is string =>
   typeof value === 'string' && /^\d{1,64}$/.test(value)
+
+/** Facebook-generated thread disclosures are metadata, not customer chat messages. */
+export function isFacebookSystemDisclosure(text: unknown): boolean {
+  if (typeof text !== 'string') return false
+  const normalized = text.normalize('NFKC').replace(/\s+/gu, ' ').trim().toLocaleLowerCase('th-TH')
+  return disclosurePhrases.some((phrase) =>
+    normalized.includes(phrase.normalize('NFKC').toLocaleLowerCase('th-TH')),
+  )
+}
 
 export type FacebookInboundMessage = {
   senderId: string
@@ -61,6 +75,7 @@ export function facebookInboundMessage(
   if (!record(event.recipient) || event.recipient.id !== pageId || !record(event.message))
     return null
   const message = event.message
+  if (isFacebookSystemDisclosure(message.text)) return null
   if (
     ['is_echo', 'is_deleted', 'is_unsupported'].some(
       (key) => Object.hasOwn(message, key) && message[key] !== false,

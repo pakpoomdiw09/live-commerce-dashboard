@@ -15,6 +15,7 @@ import { useInboxWorkspace } from '@/hooks/inbox/useInboxWorkspace'
 import { formatWindowCountdown } from '@/lib/features/inbox/inbox-v2'
 import { useMessengerWindow } from '@/hooks/inbox/useMessengerWindow'
 import { useInboxExpiry } from '@/hooks/inbox/useInboxExpiry'
+import { isFacebookSystemDisclosure } from '@/lib/integrations/facebook/message-window'
 import { ReplyBox } from '@/components/inbox/ReplyBox'
 import { SlipStatusCard } from '@/components/inbox/SlipStatusCard'
 import { ConversationActions } from '@/components/inbox/ConversationActions'
@@ -82,12 +83,16 @@ export function Conversation({
   olderLoading: boolean
   olderError: string
 }) {
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => !isFacebookSystemDisclosure(message.body)),
+    [messages],
+  )
   const {
     viewport: scrollRef,
     content: messageList,
     onScroll,
     latest,
-  } = useChatScroll(customer?.id, messages)
+  } = useChatScroll(customer?.id, visibleMessages)
   const workspace = useInboxWorkspace(customer?.id ?? null)
   const policyWindow = useMessengerWindow(workspace.data?.lastInboundAt, workspace.data?.serverNow)
   const expiryError = useInboxExpiry(
@@ -96,7 +101,7 @@ export function Conversation({
     workspace.data?.lastInboundAt,
     onStateChange,
   )
-  const inboundMessage = messages.filter((message) => message.sender === 'customer').at(-1)?.id
+  const inboundMessage = visibleMessages.filter((message) => message.sender === 'customer').at(-1)?.id
   const refreshWorkspace = workspace.refresh
   useEffect(() => {
     if (!inboundMessage) return
@@ -106,8 +111,8 @@ export function Conversation({
   }, [inboundMessage, refreshWorkspace])
   const { items, slipsByMessage } = useMemo(() => {
     const byMessage = new Map<string, SlipRow[]>()
-    const loaded = new Set(messages.map((m) => m.id))
-    const oldest = messages[0]?.created_at ?? ''
+    const loaded = new Set(visibleMessages.map((m) => m.id))
+    const oldest = visibleMessages[0]?.created_at ?? ''
     const loose: Item[] = []
     for (const s of slips) {
       if (s.message_id && loaded.has(s.message_id))
@@ -115,11 +120,11 @@ export function Conversation({
       else if (s.created_at >= oldest) loose.push({ kind: 'slip', at: s.created_at, s })
     }
     const all: Item[] = [
-      ...messages.map((m) => ({ kind: 'message' as const, at: m.created_at, m })),
+      ...visibleMessages.map((m) => ({ kind: 'message' as const, at: m.created_at, m })),
       ...loose,
     ].sort((a, b) => a.at.localeCompare(b.at))
     return { items: all, slipsByMessage: byMessage }
-  }, [messages, slips])
+  }, [visibleMessages, slips])
 
   if (!customer) {
     return (

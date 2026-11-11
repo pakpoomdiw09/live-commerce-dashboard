@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { inboxTenant, inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
 import { pageTokenFor } from '@/lib/integrations/facebook/client'
+import { isFacebookSystemDisclosure } from '@/lib/integrations/facebook/message-window'
 import {
   createFacebookSyncPager,
   nextGraphPage,
@@ -17,6 +18,8 @@ type FacebookProfile = { id?: unknown; name?: unknown }
 type FacebookMessage = {
   id?: unknown
   message?: unknown
+  is_echo?: unknown
+  is_unsupported?: unknown
   from?: FacebookProfile
   created_time?: unknown
 }
@@ -267,6 +270,12 @@ export async function POST(req: NextRequest) {
         )
         for (const message of messages) {
           if (!isRecord(message)) continue
+          if (
+            (message.is_echo !== undefined && message.is_echo !== false) ||
+            (message.is_unsupported !== undefined && message.is_unsupported !== false) ||
+            isFacebookSystemDisclosure(message.message)
+          )
+            continue
           const id = externalId(message.id)
           const senderId = externalId(message.from?.id)
           const createdAt =

@@ -45,8 +45,10 @@ import { inboundBroadcastEvidence } from '@/lib/features/broadcast/broadcast-pol
 import {
   facebookInboundMessage,
   facebookMessageEcho,
+  isFacebookSystemDisclosure,
 } from '@/lib/integrations/facebook/message-window'
 import { InboxAutomationWindowError } from '@/lib/features/inbox/inbox-automation-window'
+import { isPaymentQuestion, redactAgentText } from '@/lib/features/agents/agent-control-core'
 
 import type { WebhookExecution } from '@/lib/integrations/facebook/webhook-worker'
 
@@ -347,7 +349,12 @@ async function onMessage(
   }
   const incoming = facebookInboundMessage(ev, pageId, execution.event.created_at)
   if (!incoming) {
-    console.info('[facebook-webhook/message] skipped', { parsed: false, reason: 'INELIGIBLE' })
+    console.info('[facebook-webhook/message] skipped', {
+      parsed: false,
+      reason: isFacebookSystemDisclosure(ev?.message?.text)
+        ? 'FACEBOOK_SYSTEM_DISCLOSURE'
+        : 'INELIGIBLE',
+    })
     await execution.persistRecord(tenant?.id ?? null)
     return
   }
@@ -534,6 +541,21 @@ async function onMessage(
 
   // Auto-reply is on when the tenant allows it and the admin hasn't taken this chat over
   const autoReply = customer.bot_enabled && tenant.auto_reply_enabled
+  if (typeof m.text === 'string' && isPaymentQuestion(m.text)) {
+    console.log('[DEBUG_AI_TRACE]', {
+      stage: 'webhook_ingest',
+      message: redactAgentText(m.text).slice(0, 160),
+      intent: 'payment',
+      customerId: customer.id,
+      tenantId: tenant.id,
+      hasOrders: null,
+      error: autoReply
+        ? null
+        : !customer.bot_enabled
+          ? 'CUSTOMER_BOT_DISABLED'
+          : 'TENANT_AUTO_REPLY_DISABLED',
+    })
+  }
   if (!autoReply)
     console.info('[facebook-webhook/ai] auto-reply skipped', {
       messageId: message.id,
@@ -658,6 +680,17 @@ async function onMessage(
     .eq('id', customer.id)
     .eq('tenant_id', tenant.id)
     .maybeSingle()
+  if (typeof m.text === 'string' && isPaymentQuestion(m.text)) {
+    console.log('[DEBUG_AI_TRACE]', {
+      stage: 'webhook_dispatch_gate',
+      message: redactAgentText(m.text).slice(0, 160),
+      intent: 'payment',
+      customerId: customer.id,
+      tenantId: tenant.id,
+      hasOrders: null,
+      error: currentBot.error?.code ?? (!currentBot.data?.bot_enabled ? 'CUSTOMER_BOT_DISABLED_AFTER_INGEST' : null),
+    })
+  }
   if (currentBot.error) throw currentBot.error
   if (!currentBot.data?.bot_enabled) {
     console.info('[facebook-webhook/ai] auto-reply skipped', {

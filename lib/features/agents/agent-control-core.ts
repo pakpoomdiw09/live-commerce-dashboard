@@ -53,7 +53,7 @@ export type AgentKnowledge = {
   is_active: boolean
 }
 export function isPaymentQuestion(text: string) {
-  return /ยอด(?:โอน|เงิน|ค้าง|ชำระ|รวม|ที่ต้องจ่าย)|ค้างชำระ|ต้องโอน|โอนเท่าไร|โอนเท่าไหร่|ชำระเงิน|บัญชีธนาคาร|พร้อมเพย์|transfer|payment|balance|amount due|bank account/i.test(
+  return /ยอด(?:โอน|เงิน|ค้าง|ชำระ|รวม|เหลือ|ที่ต้องจ่าย)|ค้างชำระ|ต้องโอน|โอนเท่าไร|โอนเท่าไหร่|ยอดชำระ|ชำระเงิน|บัญชีธนาคาร|พร้อมเพย์|transfer|payment|balance|amount due|bank account|how much to pay/i.test(
     text,
   )
 }

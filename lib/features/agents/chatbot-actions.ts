@@ -1,6 +1,7 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { randomHandover } from '@/lib/features/agents/fallback-messages'
+import { isPaymentQuestion } from '@/lib/features/agents/agent-control-core'
 import { quickReplies } from '@/lib/integrations/facebook/client'
 import { deliverOnce, deliverRichOnce, type Recipient } from '@/lib/features/slips/notify'
 import {
@@ -68,6 +69,15 @@ export async function handover(
   settings: BotSettings,
   once: string,
 ) {
+  if (isPaymentQuestion(m.text)) {
+    await deliverOnce(
+      db,
+      m.recipient,
+      once,
+      'ขออภัยค่ะ ตอนนี้ตรวจสอบยอดชำระจากระบบไม่สำเร็จ กรุณาลองส่งข้อความอีกครั้งภายหลังนะคะ',
+    )
+    return
+  }
   const text = randomHandover(settings)
   if (text) await deliverOnce(db, m.recipient, once, text)
 }

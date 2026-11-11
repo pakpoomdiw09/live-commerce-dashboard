@@ -5,6 +5,7 @@ import {
   CUSTOMER_COLUMNS_WITHOUT_AVATAR,
   isMissingCustomerAvatarColumn,
 } from '@/lib/types'
+import { isFacebookSystemDisclosure } from '@/lib/integrations/facebook/message-window'
 export async function GET(req: NextRequest) {
   try {
     const { db, tenantId } = await inboxTenant(req, req.nextUrl.searchParams.get('tenantId') ?? '')
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
             .eq('slips.tenant_id', tenantId)
             .in('id', ids)
             .order('created_at', { ascending: false, referencedTable: 'messages' })
-            .limit(1, { referencedTable: 'messages' })
+            .limit(5, { referencedTable: 'messages' })
             .order('created_at', { ascending: false, referencedTable: 'slips' })
             .limit(1, { referencedTable: 'slips' })
             .limit(100)
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
             .eq('slips.tenant_id', tenantId)
             .in('id', ids)
             .order('created_at', { ascending: false, referencedTable: 'messages' })
-            .limit(1, { referencedTable: 'messages' })
+            .limit(5, { referencedTable: 'messages' })
             .order('created_at', { ascending: false, referencedTable: 'slips' })
             .limit(1, { referencedTable: 'slips' })
             .limit(100)
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
         customerIds: ids,
         chats: (chats.data ?? []).map(({ messages, slips, ...customer }) => ({
           customer,
-          preview: messages[0] ?? null,
+          preview: messages?.find((message) => !isFacebookSystemDisclosure(message.body)) ?? null,
           latestSlip: slips[0]?.status ?? null,
         })),
       },

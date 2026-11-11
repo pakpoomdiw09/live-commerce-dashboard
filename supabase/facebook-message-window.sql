@@ -2,7 +2,7 @@
 begin;
 alter table public.customers add column if not exists last_interaction_at timestamptz;
 alter table public.customers add column if not exists window_expires_at timestamptz;
--- Only signature-verified queue messages may advance a Facebook service window.
+-- Only signature-verified, customer-visible messages may advance a Facebook service window.
 create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
@@ -16,6 +16,7 @@ begin
  or p_payload->'recipient'->>'id' is distinct from p_page then return null;end if;
  m:=p_payload->'message';
  if jsonb_typeof(m) is distinct from 'object' then return null;end if;
+ if public.facebook_is_system_disclosure(m->>'text') then return null;end if;
  foreach flag in array array['is_echo','is_deleted','is_unsupported'] loop
   if m ? flag and m->flag is distinct from 'false'::jsonb then return null;end if;
  end loop;

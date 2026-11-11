@@ -121,19 +121,10 @@ export async function aiReply(
       throw new AiAgentError('AI_EMERGENCY_STOP', 'ระบบ AI ถูกพักฉุกเฉิน กรุณาติดต่อผู้ดูแล', 503)
     return null
   }
-  const apiKey = process.env.GEMINI_API_KEY?.trim()
+  const apiKey = process.env.GEMINI_API_KEY?.trim() ?? ''
   let model = aiModel()
   let control: import('@/lib/features/agents/agent-control-ai').AgentGeneration | null = null
   let visionInvocation = false
-  if (!apiKey) {
-    console.warn('[ai] GEMINI_API_KEY is not set: AI Agent mode cannot answer')
-    if (reportErrors)
-      throw new AiAgentError(
-        'MISSING_API_KEY',
-        'ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในเซิร์ฟเวอร์ กรุณาตั้งค่าและรีสตาร์ตแอป',
-      )
-    return null
-  }
   try {
     if (ctx.customerId)
       await (
@@ -173,6 +164,24 @@ export async function aiReply(
           : 'กรุณาตรวจสอบแพ็กเกจที่ชำระแล้วและโควตา AI คงเหลือ',
         ctx.simulation ? 429 : 409,
       )
+
+    // Payment and broad inventory answers are rendered from verified database facts.
+    // They do not need a provider call, so missing Gemini credentials or a model
+    // refusal can never turn a known balance into the generic handover response.
+    if (control.paymentQuestion || control.inventoryQuestion) {
+      const managed = await import('@/lib/features/agents/agent-control-ai')
+      return await managed.finishAgentGeneration(db, control, '', {
+        promptTokenCount: 0,
+        candidatesTokenCount: 0,
+      })
+    }
+    if (!apiKey) {
+      console.warn('[ai] GEMINI_API_KEY is not set: AI Agent mode cannot answer')
+      throw new AiAgentError(
+        'MISSING_API_KEY',
+        'ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในเซิร์ฟเวอร์ กรุณาตั้งค่าและรีสตาร์ตแอป',
+      )
+    }
 
     if (ctx.imageUrls?.length) {
       let stage = 'customer_download'
@@ -357,8 +366,8 @@ export async function aiReply(
     // Log diagnostic details with credentials redacted; never print request bodies.
     const status = e instanceof ApiError ? e.status : undefined
     const detail = (e instanceof Error ? e.message : String(e))
-      .split(apiKey)
-      .join('[REDACTED]')
+      .split(apiKey || '\u0000')
+      .join(apiKey ? '[REDACTED]' : '')
       .replace(/AIza[A-Za-z0-9_-]+/g, '[REDACTED]')
       .slice(0, 2000)
     console.error('[ai] Gemini reply failed', {

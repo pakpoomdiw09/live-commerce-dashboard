@@ -3,7 +3,7 @@
 พบ SQL ต้นฉบับ 154 ไฟล์: รวมตาม dependencies 134 ไฟล์ และแยกไว้ 20 ไฟล์
 หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 156 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1323585 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1324722 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1143889 bytes, 18674 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1144852 bytes, 18693 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -95,7 +95,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 
 ### Latest delivery safety, reporting and index patches
 
-59. [facebook-webhook-queue.sql](facebook-webhook-queue.sql) — 30 statements retained
+59. [facebook-webhook-queue.sql](facebook-webhook-queue.sql) — 33 statements retained
 60. [facebook-webhook-nonblocking.sql](facebook-webhook-nonblocking.sql) — 2 statements retained
 61. [facebook-message-window.sql](facebook-message-window.sql) — 10 statements retained
 62. [broadcast-policy.sql](broadcast-policy.sql) — 21 statements retained
@@ -488,9 +488,9 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - store-rules.sql: `ea6f24e091470f5d88369563d5f012c9500370aaa7536d84d3bf33c986daaee9`
 - store-rule-items.sql: `7f10a22e7c4ad118a193af3e28a5105070e4eeff33b9fee5d95d836fc9664a41`
 - store-rules-validation.sql: `f8cbdf12cd3851025951edbf50d831548032211d73e43f12b011c1aa51df4883`
-- facebook-webhook-queue.sql: `7e67011b3489c011639ea3f4f800fa6ac4825670f76f04fca4e0f7fddb3c641e`
+- facebook-webhook-queue.sql: `e18cf6fe9719a2177b1a8b95d4f4b5b436b2af491e8e87a0ddb5503750dc13c3`
 - facebook-webhook-nonblocking.sql: `0cfe5319ef9b061c353b80a57463e06e1a97ff1424be84ecefb4a7ecb10baf4d`
-- facebook-message-window.sql: `d2581ef71797895f11e05f0dfc74302cd202b9c278c9ecbb4c2968418baa9d5e`
+- facebook-message-window.sql: `035e1bdabbfea80debec4fd401577967c754113a35b4b477e9486cfc99d16a56`
 - broadcast-policy.sql: `a45cf7c24ef5f6d31ef31868029bd3e9216370bc5c582b911b80a4ed74071233`
 - broadcast-recipient-eligibility.sql: `6ea5e1f9044db876fc8d0f07d8da52668f9897fa684851092eab347710e4a74c`
 - broadcast-recipient-selection.sql: `bdd1581c239a6ebc20048d32d342e6697d98ada245dd01260feacde8fe44278f`

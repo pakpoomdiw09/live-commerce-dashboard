@@ -6535,7 +6535,7 @@ notify pgrst,'reload schema';
 commit;
 -- ============================================================================
 -- 59. facebook-webhook-queue.sql | Latest delivery safety, reporting and index patches
--- SHA256: 7e67011b3489c011639ea3f4f800fa6ac4825670f76f04fca4e0f7fddb3c641e
+-- SHA256: e18cf6fe9719a2177b1a8b95d4f4b5b436b2af491e8e87a0ddb5503750dc13c3
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -6695,6 +6695,23 @@ begin
 end $$;
 
 -- Source statement 22
+create or replace function public.facebook_is_system_disclosure(p_text text) returns boolean
+language sql immutable parallel safe set search_path=pg_catalog as $$
+ select coalesce(
+  p_text ilike '%Facebook สร้างแชทนี้เนื่องจาก%'
+  or p_text ilike '%สร้างแชทนี้เนื่องจาก%'
+  or p_text ilike '%ต้องการส่งข้อความส่วนบุคคล ซึ่งอาจเป็นข้อความโปรโมชัน%'
+  , false
+ );
+$$;
+
+-- Source statement 23
+revoke all on function public.facebook_is_system_disclosure(text) from public,anon,authenticated;
+
+-- Source statement 24
+grant execute on function public.facebook_is_system_disclosure(text) to service_role;
+
+-- Source statement 25
 create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
@@ -6708,6 +6725,7 @@ begin
  or p_payload->'recipient'->>'id' is distinct from p_page then return null;end if;
  m:=p_payload->'message';
  if jsonb_typeof(m) is distinct from 'object' then return null;end if;
+ if public.facebook_is_system_disclosure(m->>'text') then return null;end if;
  foreach flag in array array['is_echo','is_deleted','is_unsupported'] loop
   if m ? flag and m->flag is distinct from 'false'::jsonb then return null;end if;
  end loop;
@@ -6723,13 +6741,13 @@ begin
  return to_timestamp(floor(milliseconds/1000)::double precision)+(mod(milliseconds,1000)::integer*interval '1 millisecond');
 end $$;
 
--- Source statement 23
+-- Source statement 26
 revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated;
 
--- Source statement 24
+-- Source statement 27
 grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role;
 
--- Source statement 25
+-- Source statement 28
 create or replace function public.inbox_incoming_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
@@ -6742,7 +6760,7 @@ begin
  return new;
 end $$;
 
--- Source statement 26
+-- Source statement 29
 create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events; prior jsonb; v jsonb; c public.customers; record_id uuid; result jsonb; event_time timestamptz; duplicate boolean;
@@ -6802,19 +6820,19 @@ begin
  return result;
 end $$;
 
--- Source statement 27
+-- Source statement 30
 revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated;
 
--- Source statement 28
+-- Source statement 31
 grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role;
 
--- Source statement 29
+-- Source statement 32
 revoke all on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) from public,anon,authenticated;
 
--- Source statement 30
+-- Source statement 33
 grant execute on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) to service_role;
 
--- Source statement 31
+-- Source statement 34
 notify pgrst,'reload schema';
 
 commit;
@@ -6872,7 +6890,7 @@ end $$;
 commit;
 -- ============================================================================
 -- 61. facebook-message-window.sql | Latest delivery safety, reporting and index patches
--- SHA256: d2581ef71797895f11e05f0dfc74302cd202b9c278c9ecbb4c2968418baa9d5e
+-- SHA256: 035e1bdabbfea80debec4fd401577967c754113a35b4b477e9486cfc99d16a56
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -6899,6 +6917,7 @@ begin
  or p_payload->'recipient'->>'id' is distinct from p_page then return null;end if;
  m:=p_payload->'message';
  if jsonb_typeof(m) is distinct from 'object' then return null;end if;
+ if public.facebook_is_system_disclosure(m->>'text') then return null;end if;
  foreach flag in array array['is_echo','is_deleted','is_unsupported'] loop
   if m ? flag and m->flag is distinct from 'false'::jsonb then return null;end if;
  end loop;

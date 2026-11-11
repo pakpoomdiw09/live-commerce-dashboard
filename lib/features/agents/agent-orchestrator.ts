@@ -8,6 +8,7 @@ import {
   inputRisk,
   isPaymentQuestion,
   isProductQuestion,
+  redactAgentText,
 } from '@/lib/features/agents/agent-control-core'
 import {
   loadBotSettings,
@@ -95,6 +96,17 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       config.capabilities?.intent !== false &&
       (await hasFeature(db, m.tenant.id, 'ai_agent'))
     let route: string = rule ? 'KEYWORD' : aiEntitled ? 'AI' : 'FALLBACK'
+    if (isPaymentQuestion(m.text))
+      console.log('[DEBUG_AI_TRACE]', {
+        stage: 'ai_route',
+        message: redactAgentText(m.text).slice(0, 160),
+        intent: 'payment',
+        customerId: m.customer.id,
+        tenantId: m.tenant.id,
+        hasOrders: null,
+        error: aiEntitled ? null : 'AI_NOT_AVAILABLE',
+        route,
+      })
     const product = { current: null as AiProductResult | null }
     let text: string | null = null,
       reason: string | null = route === 'FALLBACK' ? 'AI_NOT_AVAILABLE' : null
@@ -139,6 +151,16 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
         )
       } catch (error) {
         reason = (error as { code?: string })?.code ?? 'AI_PROVIDER_FAILED'
+        if (isPaymentQuestion(m.text))
+          console.log('[DEBUG_AI_TRACE]', {
+            stage: 'ai_generation',
+            message: redactAgentText(m.text).slice(0, 160),
+            intent: 'payment',
+            customerId: m.customer.id,
+            tenantId: m.tenant.id,
+            hasOrders: null,
+            error: reason,
+          })
         text = [
           'AGENT_POLICY_HANDOFF',
           'AGENT_INPUT_REQUIRES_REVIEW',
@@ -211,6 +233,16 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       reason: sent ? reason : 'NO_NEW_DELIVERY',
     })
   } catch (error) {
+    if (isPaymentQuestion(m.text))
+      console.log('[DEBUG_AI_TRACE]', {
+        stage: 'orchestrator_error',
+        message: redactAgentText(m.text).slice(0, 160),
+        intent: 'payment',
+        customerId: m.customer.id,
+        tenantId: m.tenant.id,
+        hasOrders: null,
+        error: (error as { code?: string })?.code ?? 'PROCESSING_OR_DELIVERY_FAILED',
+      })
     console.error('[agent-control] message requires review', {
       jobId: job.id,
       code: (error as { code?: string })?.code ?? 'PROCESSING_OR_DELIVERY_FAILED',

@@ -8,13 +8,18 @@ export function PaymentAutomationSettings({
   tenantId,
   autoVerify,
   autoReply,
+  sendPaymentLink: initialSendPaymentLink,
+  canManage,
 }: {
   tenantId: string
   autoVerify: boolean
   autoReply: boolean
+  sendPaymentLink: boolean
+  canManage: boolean
 }) {
   const [verify, setVerify] = useState(autoVerify),
     [reply, setReply] = useState(autoReply),
+    [sendPaymentLink, setSendPaymentLink] = useState(initialSendPaymentLink ?? false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('')
@@ -26,14 +31,19 @@ export function PaymentAutomationSettings({
     setError('')
     setNotice('')
     try {
+      const payload: Record<string, boolean> = {
+        auto_verify_enabled: verify,
+        auto_reply_enabled: reply,
+      }
+      if (canManage) payload.send_payment_link = sendPaymentLink
       const response = await fetch(`/api/tenants/${tenantId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ auto_verify_enabled: verify, auto_reply_enabled: reply }),
+          body: JSON.stringify(payload),
         }),
         value = await response.json()
       if (!response.ok) throw Error(value.error || 'บันทึกไม่ได้')
-      setNotice('บันทึกสวิตช์ระบบแล้ว ไม่มีการส่งข้อความจากหน้านี้')
+      setNotice('บันทึกการตั้งค่าระบบแล้ว')
     } catch (error) {
       setError(error instanceof Error ? error.message : 'บันทึกไม่ได้')
     } finally {
@@ -71,12 +81,26 @@ export function PaymentAutomationSettings({
             label="ตอบกลับอัตโนมัติของร้าน"
           />
         </div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-medium">ส่งลิงก์ชำระเงิน/เปิดบิลในแชท</p>
+            <p className="mt-1 text-xs text-slate-500">
+              เมื่อเปิด บอทจะแนบลิงก์เปิดบิล/กรอกที่อยู่ให้ลูกค้า หากปิด (ค่าเริ่มต้น) จะส่งเพียงยอดเงินและเลขบัญชีในแชทเพื่อให้ลูกค้าโอนตรงและตรวจสลิปทันที
+            </p>
+          </div>
+          <Switch
+            checked={sendPaymentLink}
+            disabled={busy || !canManage}
+            onChange={setSendPaymentLink}
+            label="ส่งลิงก์ชำระเงิน/เปิดบิลในแชท"
+          />
+        </div>
         <Button
           className="bg-orange-500 hover:bg-orange-600"
           loading={busy}
           onClick={() => void save()}
         >
-          บันทึกสวิตช์ระบบ
+          บันทึกตั้งค่าระบบ
         </Button>
         <SlipConfirmationTemplateSettings key={tenantId} tenantId={tenantId} />
       </section>

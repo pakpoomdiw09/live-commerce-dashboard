@@ -6950,7 +6950,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-webhook-queue.sql';
   if found then
-    if installed <> '2ee3ebefcea5c085891915b27408e9ebb4fc599f73233b7888507e326b89630d' then
+    if installed <> 'd3eb58c760f03246396179a3e4448dd0a17037ff8a2683017ac7cb60cc7d7cd8' then
       raise exception 'Applied migration changed: facebook-webhook-queue.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -7123,8 +7123,25 @@ exception when invalid_function_definition then
 end;
 
 -- facebook-webhook-queue.sql: source statement 22
+execute $sql_58_22$create or replace function public.facebook_is_system_disclosure(p_text text) returns boolean
+language sql immutable parallel safe set search_path=pg_catalog as $$
+ select coalesce(
+  p_text ilike '%Facebook สร้างแชทนี้เนื่องจาก%'
+  or p_text ilike '%สร้างแชทนี้เนื่องจาก%'
+  or p_text ilike '%ต้องการส่งข้อความส่วนบุคคล ซึ่งอาจเป็นข้อความโปรโมชัน%'
+  , false
+ );
+$$$sql_58_22$;
+
+-- facebook-webhook-queue.sql: source statement 23
+execute $sql_58_23$revoke all on function public.facebook_is_system_disclosure(text) from public,anon,authenticated$sql_58_23$;
+
+-- facebook-webhook-queue.sql: source statement 24
+execute $sql_58_24$grant execute on function public.facebook_is_system_disclosure(text) to service_role$sql_58_24$;
+
+-- facebook-webhook-queue.sql: source statement 25
 begin
-execute $sql_58_22$create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
+execute $sql_58_25$create or replace function public.facebook_inbound_message_at(p_payload jsonb,p_page text,p_received_at timestamptz) returns timestamptz
 language plpgsql immutable set search_path=pg_catalog,public as $$
 declare m jsonb; flag text; has_text boolean; has_media boolean; milliseconds numeric;
  whitespace text:=U&'[\0009-\000D\0020\00A0\1680\2000-\200A\2028\2029\202F\205F\3000\FEFF]';
@@ -7137,6 +7154,7 @@ begin
  or p_payload->'recipient'->>'id' is distinct from p_page then return null;end if;
  m:=p_payload->'message';
  if jsonb_typeof(m) is distinct from 'object' then return null;end if;
+ if public.facebook_is_system_disclosure(m->>'text') then return null;end if;
  foreach flag in array array['is_echo','is_deleted','is_unsupported'] loop
   if m ? flag and m->flag is distinct from 'false'::jsonb then return null;end if;
  end loop;
@@ -7150,21 +7168,21 @@ begin
  if milliseconds<=0 or milliseconds<>trunc(milliseconds) or milliseconds>9007199254740991
  or milliseconds>floor(extract(epoch from p_received_at)*1000) then return null;end if;
  return to_timestamp(floor(milliseconds/1000)::double precision)+(mod(milliseconds,1000)::integer*interval '1 millisecond');
-end $$$sql_58_22$;
+end $$$sql_58_25$;
 exception when invalid_function_definition then
   -- A newer signature of facebook_inbound_message_at(jsonb,text,timestamptz) is already installed. Its final definition below is mandatory.
   null;
 end;
 
--- facebook-webhook-queue.sql: source statement 23
-execute $sql_58_23$revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated$sql_58_23$;
+-- facebook-webhook-queue.sql: source statement 26
+execute $sql_58_26$revoke all on function public.facebook_inbound_message_at(jsonb,text,timestamptz) from public,anon,authenticated$sql_58_26$;
 
--- facebook-webhook-queue.sql: source statement 24
-execute $sql_58_24$grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role$sql_58_24$;
+-- facebook-webhook-queue.sql: source statement 27
+execute $sql_58_27$grant execute on function public.facebook_inbound_message_at(jsonb,text,timestamptz) to service_role$sql_58_27$;
 
--- facebook-webhook-queue.sql: source statement 25
+-- facebook-webhook-queue.sql: source statement 28
 begin
-execute $sql_58_25$create or replace function public.inbox_incoming_message() returns trigger
+execute $sql_58_28$create or replace function public.inbox_incoming_message() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.sender='customer' then
@@ -7174,15 +7192,15 @@ begin
    where id=new.customer_id returning inbound_seq into new.inbound_seq;
  end if;
  return new;
-end $$$sql_58_25$;
+end $$$sql_58_28$;
 exception when invalid_function_definition then
   -- A newer signature of inbox_incoming_message() is already installed. Its final definition below is mandatory.
   null;
 end;
 
--- facebook-webhook-queue.sql: source statement 26
+-- facebook-webhook-queue.sql: source statement 29
 begin
-execute $sql_58_26$create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
+execute $sql_58_29$create or replace function public.persist_facebook_webhook_record(p_event uuid,p_claim uuid,p_tenant uuid) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
 declare e public.facebook_webhook_events; prior jsonb; v jsonb; c public.customers; record_id uuid; result jsonb; event_time timestamptz; duplicate boolean;
 begin
@@ -7239,28 +7257,28 @@ begin
  result:=jsonb_build_object('id',record_id,'tenantId',p_tenant,'duplicate',duplicate,'customer',case when c.id is null then null else jsonb_build_object('id',c.id,'display_name',c.display_name,'bot_enabled',c.bot_enabled) end);
  insert into public.facebook_webhook_steps(event_id,name,status,result,completed_at) values(e.id,'record','completed',result,clock_timestamp());
  return result;
-end $$$sql_58_26$;
+end $$$sql_58_29$;
 exception when invalid_function_definition then
   -- A newer signature of persist_facebook_webhook_record(uuid,uuid,uuid) is already installed. Its final definition below is mandatory.
   null;
 end;
 
--- facebook-webhook-queue.sql: source statement 27
-execute $sql_58_27$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated$sql_58_27$;
-
--- facebook-webhook-queue.sql: source statement 28
-execute $sql_58_28$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_58_28$;
-
--- facebook-webhook-queue.sql: source statement 29
-execute $sql_58_29$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) from public,anon,authenticated$sql_58_29$;
-
 -- facebook-webhook-queue.sql: source statement 30
-execute $sql_58_30$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) to service_role$sql_58_30$;
+execute $sql_58_30$revoke all on function public.persist_facebook_webhook_record(uuid,uuid,uuid) from public,anon,authenticated$sql_58_30$;
 
 -- facebook-webhook-queue.sql: source statement 31
-execute $sql_58_31$notify pgrst,'reload schema'$sql_58_31$;
+execute $sql_58_31$grant execute on function public.persist_facebook_webhook_record(uuid,uuid,uuid) to service_role$sql_58_31$;
+
+-- facebook-webhook-queue.sql: source statement 32
+execute $sql_58_32$revoke all on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) from public,anon,authenticated$sql_58_32$;
+
+-- facebook-webhook-queue.sql: source statement 33
+execute $sql_58_33$grant execute on function public.enqueue_facebook_webhook(text,text,jsonb),public.claim_facebook_webhook(integer),public.heartbeat_facebook_webhook(uuid,uuid),public.begin_facebook_webhook_step(uuid,uuid,text),public.complete_facebook_webhook_step(uuid,uuid,text,jsonb),public.finish_facebook_webhook(uuid,uuid,text,text) to service_role$sql_58_33$;
+
+-- facebook-webhook-queue.sql: source statement 34
+execute $sql_58_34$notify pgrst,'reload schema'$sql_58_34$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('facebook-webhook-queue.sql','2ee3ebefcea5c085891915b27408e9ebb4fc599f73233b7888507e326b89630d','7e67011b3489c011639ea3f4f800fa6ac4825670f76f04fca4e0f7fddb3c641e');
+    values('facebook-webhook-queue.sql','d3eb58c760f03246396179a3e4448dd0a17037ff8a2683017ac7cb60cc7d7cd8','e18cf6fe9719a2177b1a8b95d4f4b5b436b2af491e8e87a0ddb5503750dc13c3');
 end $migration_58$;
 
 -- 60. facebook-webhook-nonblocking.sql
@@ -7325,7 +7343,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='facebook-message-window.sql';
   if found then
-    if installed <> '84c90a8b951956c4a63a2d15f44ab8ed4ff6c9646ba45f734f1e56f24f3113bc' then
+    if installed <> 'f7ca682c81804e163cfea0d6f25f5eddfb1af89a33b8081dc34a7abef55d44ad' then
       raise exception 'Applied migration changed: facebook-message-window.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -7350,6 +7368,7 @@ begin
  or p_payload->'recipient'->>'id' is distinct from p_page then return null;end if;
  m:=p_payload->'message';
  if jsonb_typeof(m) is distinct from 'object' then return null;end if;
+ if public.facebook_is_system_disclosure(m->>'text') then return null;end if;
  foreach flag in array array['is_echo','is_deleted','is_unsupported'] loop
   if m ? flag and m->flag is distinct from 'false'::jsonb then return null;end if;
  end loop;
@@ -7453,7 +7472,7 @@ execute $sql_60_10$grant execute on function public.persist_facebook_webhook_rec
 -- facebook-message-window.sql: source statement 11
 execute $sql_60_11$notify pgrst,'reload schema'$sql_60_11$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('facebook-message-window.sql','84c90a8b951956c4a63a2d15f44ab8ed4ff6c9646ba45f734f1e56f24f3113bc','d2581ef71797895f11e05f0dfc74302cd202b9c278c9ecbb4c2968418baa9d5e');
+    values('facebook-message-window.sql','f7ca682c81804e163cfea0d6f25f5eddfb1af89a33b8081dc34a7abef55d44ad','035e1bdabbfea80debec4fd401577967c754113a35b4b477e9486cfc99d16a56');
 end $migration_60$;
 
 -- 62. broadcast-policy.sql

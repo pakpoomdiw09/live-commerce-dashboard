@@ -96,6 +96,8 @@ export function SlipsDashboard({
               tenantId={tenant.id}
               autoVerify={tenant.auto_verify_enabled}
               autoReply={tenant.auto_reply_enabled}
+              sendPaymentLink={tenant.send_payment_link ?? false}
+              canManage={canManage}
             />
           )}
           {(tab === 'security' || tab === 'advanced') && (

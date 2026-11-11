@@ -25,6 +25,7 @@ import { ReadMarker } from '@/components/inbox/ReadMarker'
 import { LatestInboxRequest, InboxEventDeduplicator } from '@/lib/features/inbox/inbox-request'
 import { InboxProCenter, type InboxView } from '@/components/inbox/InboxProCenter'
 import { subscribeWhileVisible } from '@/lib/realtime-visibility'
+import { isFacebookSystemDisclosure } from '@/lib/integrations/facebook/message-window'
 
 export type Preview = Pick<MessageRow, 'sender' | 'body' | 'attachments' | 'created_at'>
 export type ChatSummary = {
@@ -499,6 +500,7 @@ export function InboxClient({
         }
       }
       const apply = (message: MessageRow) => {
+        if (isFacebookSystemDisclosure(message.body)) return
         if (disposed || !events.accept(message.id, message)) return
         void refreshMetadata.current?.()
         const version = ++revision.current
