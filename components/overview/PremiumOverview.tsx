@@ -47,10 +47,7 @@ export function PremiumOverview({data,shopCount,userName,profileImageUrl}:{data:
    : `เดือน ${peakActivity.label} มีข้อความเข้ามามากที่สุด (${count(peakActivity.messages)} ข้อความ)`
   : null
  return <div className="min-h-full min-w-0 bg-[#fffaf8] text-slate-800">
-  <header className="flex flex-wrap items-center gap-3 border-b border-orange-100/80 bg-white/90 px-4 py-3 shadow-[0_3px_16px_-14px_#9a3412] backdrop-blur md:px-8">
-
-
-
+  <header className="flex flex-wrap items-center justify-end gap-3 border-b border-orange-100/80 bg-white/90 px-4 py-3 shadow-[0_3px_16px_-14px_#9a3412] backdrop-blur md:px-8">
    <Link href="/select-page" className="flex min-w-0 items-center gap-2 rounded-xl border border-orange-100 px-3 py-2 text-sm"><Store className="h-5 w-5 shrink-0 text-orange-500"/><span className="max-w-40 truncate">{data.shop.name}<small className="block text-[10px] text-slate-400">เปลี่ยนร้าน / เพจ · {shopCount} ร้าน</small></span></Link>
    <Link href="/settings" aria-label="เปิดการตั้งค่าบัญชี" title={userName} className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-linear-to-br from-orange-400 to-pink-500 font-bold text-white">{Array.from(userName)[0]?.toUpperCase()}{profileImageUrl&&!profileImageFailed&&<Image src={profileImageUrl} alt="" fill sizes="40px" unoptimized referrerPolicy="no-referrer" onError={()=>setProfileImageFailed(true)} className="object-cover"/>}</Link>
   </header>
