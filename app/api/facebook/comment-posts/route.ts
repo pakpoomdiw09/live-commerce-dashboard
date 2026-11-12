@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
           thumbnail: existing?.thumbnail ?? video.thumbnail,
           createdAt: existing?.createdAt ?? video.createdAt,
           isLive: video.isLive,
+          postType: video.isLive ? 'live' : 'video',
         })
       }
     }

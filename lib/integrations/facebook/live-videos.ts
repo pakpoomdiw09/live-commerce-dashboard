@@ -17,6 +17,7 @@ export type FacebookCommentPost = {
   thumbnail: string | null
   createdAt: string | null
   isLive: boolean
+  postType?: 'live' | 'video' | 'photo' | 'post'
 }
 
 export class LiveVideosError extends Error {
@@ -268,7 +269,7 @@ export async function fetchPageCommentPosts(
     ...(requestSignal ? [requestSignal] : []),
   ])
   const params = new URLSearchParams({
-    fields: 'id,message,story,created_time,full_picture',
+    fields: 'id,message,story,created_time,full_picture,type,attachments{media_type}',
     limit: '50',
   })
   const payload = await readGraph(`${pageId}/posts`, params, token, signal)
@@ -280,6 +281,7 @@ export async function fetchPageCommentPosts(
     const preview = [row.message, row.story].find(
       (value) => typeof value === 'string' && value.trim(),
     )?.trim().replace(/\s+/g, ' ').slice(0, 500) ?? ''
+    const mediaType = String(row.attachments?.data?.[0]?.media_type ?? row.type ?? '').toLowerCase()
     return [{
       id,
       title: preview.slice(0, 120) || 'โพสต์ Facebook',
@@ -287,6 +289,7 @@ export async function fetchPageCommentPosts(
       thumbnail: imageUrl(row.full_picture),
       createdAt: timestamp(row.created_time),
       isLive: false,
+      postType: mediaType.includes('video') ? 'video' : mediaType.includes('photo') || !!row.full_picture ? 'photo' : 'post',
     }]
   })
 }

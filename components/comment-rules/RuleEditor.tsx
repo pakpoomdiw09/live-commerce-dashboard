@@ -61,6 +61,7 @@ export function RuleEditor({
   )
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [openPostPickerOnMount, setOpenPostPickerOnMount] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sample, setSample] = useState('')
   const saveLock = useRef(false)
@@ -99,7 +100,7 @@ export function RuleEditor({
     !done[0] && 'เลือกเพจอย่างน้อย 1 เพจ',
     !done[1] && 'เพิ่มคีย์เวิร์ดอย่างน้อย 1 คำ',
     ...responseProblems,
-    !postScopeValid && 'เมื่อเลือกเฉพาะโพสต์ กรุณาเลือกเพจเดียวและระบุ Post ID ที่ถูกต้อง',
+    !postScopeValid && 'เมื่อเลือกเฉพาะโพสต์ กรุณาเลือกเพจเดียวและเลือกโพสต์ที่ต้องการ',
   ].filter((p): p is string => !!p)
 
   async function upload(file: File) {
@@ -301,10 +302,13 @@ export function RuleEditor({
                   type="radio"
                   name="target_post_mode"
                   checked={draft.target_post_mode === 'specific'}
-                  onChange={() => set('target_post_mode', 'specific')}
+                  onChange={() => {
+                    set('target_post_mode', 'specific')
+                    setOpenPostPickerOnMount(true)
+                  }}
                   className="h-4 w-4 accent-orange-500"
                 />
-                <span><span className="block font-medium">เลือกเฉพาะโพสต์</span><span className="text-xs text-slate-500">เลือกจากโพสต์ล่าสุดหรือวาง Post ID</span></span>
+                <span><span className="block font-medium">เลือกเฉพาะโพสต์</span><span className="text-xs text-slate-500">เลือกจากรายการโพสต์ล่าสุดของเพจ</span></span>
               </label>
             </div>
             {draft.target_post_mode === 'specific' && (
@@ -316,6 +320,8 @@ export function RuleEditor({
                     </p>
                     <CommentPostPicker
                       pageId={draft.page_ids[0]}
+                      pageName={pageOptions.find((page) => page.id === draft.page_ids[0])?.name ?? draft.page_ids[0]}
+                      openOnMount={openPostPickerOnMount}
                       value={draft.target_post_id ?? null}
                       title={draft.target_post_title ?? null}
                       onChange={(target_post_id, target_post_title) => setDraft((current) => ({ ...current, target_post_id, target_post_title }))}
