@@ -183,31 +183,29 @@ export const soldOutText = (p: { name: string; code: string }) =>
 export async function pendingOrders(
   db: SupabaseClient,
   customerId: string,
-  tenantId?: string,
+  tenantId: string,
 ): Promise<{ ids: string[]; total: number; tabIds?: string[] }> {
   let query = db
     .from('orders')
     .select('id, amount, paid_amount, customer_tab_id')
     .eq('customer_id', customerId)
+    .eq('tenant_id', tenantId)
     .eq('status', 'pending_payment')
-  if (tenantId) query = query.eq('tenant_id', tenantId)
   let { data, error } = await query
   if (error && ['42703', 'PGRST204'].includes(error.code)) {
     let legacy = db
       .from('orders')
       .select('id,amount')
       .eq('customer_id', customerId)
+      .eq('tenant_id', tenantId)
       .eq('status', 'pending_payment')
-    if (tenantId) legacy = legacy.eq('tenant_id', tenantId)
     const fallback = await legacy
     data = fallback.data as typeof data
     error = fallback.error
   }
   if (error) {
-    if (tenantId) throw new Error('อ่านยอดรวมออเดอร์ไม่ได้ กรุณาลองอีกครั้ง')
-    // before supabase/orders.sql has run there is no orders table: carry on without orders
     console.error('[orders] pending lookup failed', error.message)
-    return { ids: [], total: 0 }
+    throw new Error('อ่านยอดรวมออเดอร์ไม่ได้ กรุณาลองอีกครั้ง')
   }
   const rows = data ?? []
   // sum in satang so 0.1 + 0.2 stays 0.30

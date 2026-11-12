@@ -107,7 +107,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .update({ order_status: 'approved' })
       .eq('id', slip.customer_id)
     if (customerError) console.error('[approve] order status update failed', customerError)
-    const orders = await pendingOrders(db, slip.customer_id)
+    const orders = await pendingOrders(db, slip.customer_id, slip.tenant_id)
     if (orders.ids.length) await markOrdersPaid(db, orders.ids, slip.id)
   }
   return NextResponse.json({ ok: true, approvedAt })
