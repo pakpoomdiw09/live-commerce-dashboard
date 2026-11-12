@@ -14,12 +14,13 @@ import { PageHeader } from '@/components/ui/card'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import { SLIP_STATUS } from '@/lib/status'
 import type { SlipRow, SlipStatus } from '@/lib/types'
+import type { SlipHistoryRow } from '@/lib/features/slips/history'
 import { baht, cn, when } from '@/lib/utils'
 import { SlipDetailPanel } from '@/components/slips/SlipDetailPanel'
 import { VerifySlipForm } from '@/components/slips/VerifySlipForm'
 import { EmptyState } from '@/components/ui/feedback'
 
-export type SlipListRow = SlipRow & { customers: { display_name: string | null } | null }
+export type SlipListRow = SlipHistoryRow
 type Filter = 'all' | 'valid' | 'issue' | 'pending'
 
 const ISSUES: SlipStatus[] = ['amount_mismatch', 'duplicate', 'fake', 'wrong_receiver', 'error']
@@ -38,7 +39,7 @@ export function SlipsWorkspace({
   embedded = false,
 }: {
   initial: SlipListRow[]
-  tenant: { id: string; name: string; expectedAmount: number | null } | null
+  tenant: { id: string; name: string; expectedAmount: number | null; pageId: string | null } | null
   initialCredits: { quota: number; used: number }
   creditBypass?: boolean
   embedded?: boolean
@@ -58,6 +59,22 @@ export function SlipsWorkspace({
   useEffect(() => {
     setCredits(initialCredits)
   }, [initialCredits])
+  useEffect(() => {
+    if (!tenantId || !tenant?.pageId) return
+    const refreshHistory = createBackgroundRefresh(
+      async (signal) => {
+        const params = new URLSearchParams({ tenantId, pageId: tenant.pageId! })
+        const response = await fetch(`/api/slips?${params}`, { cache: 'no-store', signal })
+        const result = (await response.json()) as { slips?: SlipListRow[]; error?: string }
+        if (!response.ok) throw new Error(result.error || 'โหลดประวัติสลิปไม่สำเร็จ')
+        if (!signal.aborted) setRows(result.slips ?? [])
+      },
+      () => {},
+      { intervalMs: 60000, minGapMs: 10000 },
+    )
+    refreshHistory.request()
+    return () => refreshHistory.stop()
+  }, [tenantId, tenant?.pageId])
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -102,7 +119,11 @@ export function SlipsWorkspace({
             setRows((prev) => {
               const old = prev.find((r) => r.id === row.id)
               // Realtime rows carry no joins: keep the customer name we already have
-              const next: SlipListRow = { ...row, customers: old?.customers ?? null }
+              const next: SlipListRow = {
+                ...row,
+                customers: old?.customers ?? null,
+                source: 'slip',
+              }
               return (old ? prev.map((r) => (r.id === row.id ? next : r)) : [next, ...prev])
                 .sort((a, b) => b.created_at.localeCompare(a.created_at))
                 .slice(0, 200)
@@ -333,7 +354,7 @@ export function SlipsWorkspace({
             <thead className="bg-slate-50/80 text-xs text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium">เวลา</th>
-                <th className="px-4 py-3 font-medium">ลูกค้า</th>
+                <th className="px-4 py-3 font-medium">ลูกค้า/ผู้โอน</th>
                 <th className="px-4 py-3 text-right font-medium">ยอดในสลิป</th>
                 <th className="px-4 py-3 text-right font-medium">ยอดที่คาดหวัง</th>
                 <th className="px-4 py-3 font-medium">เลขอ้างอิงธุรกรรม</th>
@@ -401,7 +422,12 @@ export function SlipsWorkspace({
       </div>
 
       <Drawer open={!!open} title="รายละเอียดสลิป" onClose={() => setOpenId(null)}>
-        {open && <SlipDetailPanel slip={open} />}
+        {open &&
+          (open.source === 'standalone' ? (
+            <StandaloneSlipDetails row={open} />
+          ) : (
+            <SlipDetailPanel slip={open} />
+          ))}
       </Drawer>
       <Drawer open={uploadOpen} title="ตรวจสลิปด้วยตนเอง" onClose={() => setUploadOpen(false)}>
         <VerifySlipForm
@@ -412,6 +438,39 @@ export function SlipsWorkspace({
           }}
         />
       </Drawer>
+    </div>
+  )
+}
+
+function StandaloneSlipDetails({ row }: { row: SlipListRow }) {
+  const detail = row.standalone
+  return (
+    <div className="space-y-4">
+      <Badge tone="success">ถูกต้อง</Badge>
+      <dl className="grid grid-cols-2 gap-3 text-sm">
+        <Detail label="ยอดเงิน" value={`${baht(row.amount)} บาท`} />
+        <Detail
+          label="ชื่อลูกค้า/ผู้โอน"
+          value={row.customers?.display_name || detail?.sender_name || 'ไม่ระบุ'}
+        />
+        <Detail label="รหัสอ้างอิง" value={row.trans_ref || '—'} />
+        <Detail label="ธนาคารผู้โอน" value={detail?.sender_bank || 'ไม่ระบุ'} />
+        <Detail
+          label="บัญชีผู้รับ"
+          value={detail?.receiver_name || detail?.receiver_account || 'ไม่ระบุ'}
+        />
+        <Detail label="เวลาตรวจพบ" value={when(row.created_at)} />
+        <Detail label="เวลาโอน" value={detail ? when(detail.trans_timestamp) : 'ไม่ระบุ'} />
+      </dl>
+    </div>
+  )
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-xl bg-white p-3 ring-1 ring-slate-200">
+      <dt className="text-[11px] text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words font-medium text-slate-900">{value}</dd>
     </div>
   )
 }

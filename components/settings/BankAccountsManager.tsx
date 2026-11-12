@@ -33,9 +33,6 @@ export function BankAccountsManager({
 }) {
   const router = useRouter()
   const locked = useRef(false)
-  const [audit, setAudit] = useState<
-    { id: string; action: string; last_four: string; created_at: string }[]
-  >([])
   const [qrId, setQrId] = useState('')
   const endpoint = `/api/bank-accounts?tenantId=${encodeURIComponent(tenantId)}`
   async function reload() {
@@ -43,7 +40,6 @@ export function BankAccountsManager({
       v = await r.json()
     if (!r.ok) throw Error(v.error ?? 'โหลดบัญชีไม่ได้ ตรวจสอบ slip-bank-controls.sql')
     setAccounts(v.accounts)
-    setAudit(v.audit ?? [])
   }
   const [accounts, setAccounts] = useState<BankAccount[]>([]),
     [loading, setLoading] = useState(true),
@@ -60,7 +56,6 @@ export function BankAccountsManager({
         if (!r.ok) throw Error(v.error ?? 'โหลดบัญชีไม่ได้')
         if (!abort.signal.aborted) {
           setAccounts(v.accounts)
-          setAudit(v.audit ?? [])
         }
       })
       .catch((e) => {
@@ -436,31 +431,6 @@ export function BankAccountsManager({
               </div>
             )}
           </section>
-        )}
-        {canManage && (
-          <details className="rounded-xl border border-orange-100 p-4">
-            <summary className="cursor-pointer text-sm font-medium">
-              ประวัติการเปลี่ยนบัญชีรับเงิน
-            </summary>
-            <ul className="mt-3 space-y-2 text-xs text-slate-500">
-              {audit.map((a) => (
-                <li key={a.id}>
-                  {new Date(a.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })} ·{' '}
-                  {(
-                    {
-                      save: 'บันทึกบัญชี',
-                      primary: 'เปลี่ยนบัญชีหลัก',
-                      toggle: 'เปลี่ยนสถานะ',
-                      delete: 'ลบบัญชี',
-                      qr_upload: 'อัปเดตรูป QR ประจำบัญชี',
-                    } as Record<string, string>
-                  )[a.action] || 'เปลี่ยนการตั้งค่า'}{' '}
-                  · ลงท้าย {a.last_four ?? '—'}
-                </li>
-              ))}
-            </ul>
-            {!audit.length && <p className="mt-2 text-xs text-slate-500">ยังไม่มีประวัติ</p>}
-          </details>
         )}
       </div>
     </Card>

@@ -18,19 +18,6 @@ export async function GET(req: NextRequest) {
       .order('id')
     if (result.error)
       throw new InboxError('โหลดบัญชีไม่ได้ กรุณาตรวจสอบ supabase/slip-bank-controls.sql', 503)
-    const audit = owner
-      ? await db
-          .from('bank_account_audit')
-          .select('id,action,last_four,created_at')
-          .eq('tenant_id', tenantId)
-          .order('created_at', { ascending: false })
-          .limit(30)
-      : { data: [], error: null }
-    if (audit.error)
-      throw new InboxError(
-        'โหลดประวัติบัญชีไม่ได้ กรุณาตรวจสอบ supabase/slip-bank-controls.sql',
-        503,
-      )
     return NextResponse.json(
       {
         accounts: (result.data ?? []).map((a) => ({
@@ -38,7 +25,6 @@ export async function GET(req: NextRequest) {
           account_number: owner ? a.account_number : '••••' + a.account_number.slice(-4),
           qrPayload: owner ? bankQr(a) : null,
         })),
-        audit: audit.data,
         canManage: owner,
       },
       { headers: { 'Cache-Control': 'private, no-store' } },

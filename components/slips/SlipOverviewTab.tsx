@@ -21,14 +21,19 @@ export function SlipOverviewTab({
           ใช้ระบบตรวจเดิมและเครดิตจริง ไม่ส่งข้อความจากการเปิดหน้านี้
         </p>
         <SlipsWorkspace
-          key={tenant.id}
+          key={`${tenant.id}:${tenant.page_id ?? ''}`}
           embedded
           initial={initial}
           initialCredits={{
             quota: tenant.slip_quota + tenant.slip_quota_credits,
             used: tenant.slip_used,
           }}
-          tenant={{ id: tenant.id, name: tenant.name, expectedAmount: tenant.expected_amount }}
+          tenant={{
+            id: tenant.id,
+            name: tenant.name,
+            expectedAmount: tenant.expected_amount,
+            pageId: tenant.page_id,
+          }}
         />
       </details>
     </div>

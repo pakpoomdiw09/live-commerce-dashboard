@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { canAccessTenant, getActor } from '@/lib/auth'
-import { getActiveTenant, tenantFilter } from '@/lib/tenant'
+import { getActiveTenant } from '@/lib/tenant'
 import { supabaseServer } from '@/lib/supabase/server'
-import { SLIP_COLUMNS } from '@/lib/types'
+import { loadSlipHistory } from '@/lib/features/slips/history'
 import { UUID } from '@/lib/utils'
 import { InboxError, inboxError } from '@/lib/features/inbox/inbox-server'
 
@@ -18,15 +18,23 @@ export async function GET(req: NextRequest) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 200)
       throw new InboxError('จำนวนรายการต้องอยู่ระหว่าง 1 ถึง 200', 400)
     const db = await supabaseServer()
-    const { data, error } = await db
-      .from('slips')
-      .select(`${SLIP_COLUMNS}, customers(display_name)`)
-      .or(tenantFilter(tenantId))
-      .order('created_at', { ascending: false })
-      .limit(limit)
-    if (error) throw new InboxError('โหลดประวัติสลิปไม่ได้ กรุณาลองใหม่', 503, 'SLIPS_UNAVAILABLE')
+    const tenant = await db
+      .from('tenants')
+      .select('page_id')
+      .eq('id', tenantId)
+      .maybeSingle()
+    if (tenant.error) throw new InboxError('โหลดเพจของร้านไม่ได้ กรุณาลองใหม่', 503, 'SLIPS_UNAVAILABLE')
+    const requestedPageId = req.nextUrl.searchParams.get('pageId')
+    if (requestedPageId && requestedPageId !== tenant.data?.page_id)
+      throw new InboxError('เพจที่เลือกไม่ตรงกับร้านปัจจุบัน', 403)
+    let slips
+    try {
+      slips = await loadSlipHistory(db, tenantId, tenant.data?.page_id ?? null, limit)
+    } catch {
+      throw new InboxError('โหลดประวัติสลิปไม่ได้ กรุณาลองใหม่', 503, 'SLIPS_UNAVAILABLE')
+    }
     return NextResponse.json(
-      { slips: data ?? [] },
+      { slips },
       { headers: { 'Cache-Control': 'private, no-store' } },
     )
   } catch (error) {

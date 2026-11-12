@@ -79,7 +79,7 @@ export function SlipsDashboard({
               <SlipOverviewTab tenant={tenant} initial={initial} canManage={canManage} />
             ) : (
               <SlipsWorkspace
-                key={tenant.id}
+                key={`${tenant.id}:${tenant.page_id ?? ''}`}
                 embedded
                 initial={initial}
                 initialCredits={credits}
@@ -88,6 +88,7 @@ export function SlipsDashboard({
                   id: tenant.id,
                   name: tenant.name,
                   expectedAmount: tenant.expected_amount,
+                  pageId: tenant.page_id,
                 }}
               />
             ))}
@@ -149,12 +150,17 @@ export function SlipsDashboard({
           />
         ) : (
           <SlipsWorkspace
-            key={tenant.id}
+            key={`${tenant.id}:${tenant.page_id ?? ''}`}
             embedded
             initial={initial}
             initialCredits={credits}
             creditBypass={billing.featureBypass === true}
-            tenant={{ id: tenant.id, name: tenant.name, expectedAmount: tenant.expected_amount }}
+            tenant={{
+              id: tenant.id,
+              name: tenant.name,
+              expectedAmount: tenant.expected_amount,
+              pageId: tenant.page_id,
+            }}
           />
         )}
       </section>
