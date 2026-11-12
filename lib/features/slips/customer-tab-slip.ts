@@ -145,7 +145,14 @@ export async function processCustomerTabSlip(
       .select('bank_code,account_number,is_active')
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
-    if (accounts.error || !accounts.data?.length) throw new Error('TAB_RECEIVER_UNAVAILABLE')
+    if (accounts.error) throw new Error('TAB_RECEIVER_UNAVAILABLE')
+    const receiverAccounts = accounts.data ?? []
+    if (receiverAccounts.length === 0) {
+      console.warn('[customer-tabs/payment] no receiver accounts configured; ZWIZ will verify without account matching', {
+        tabId: selected.data.id,
+        tenantId,
+      })
+    }
     const credit = await db.rpc('consume_slip_credit', { p_tenant: tenantId })
     if (credit.error || credit.data !== true) throw new Error('TAB_SLIP_CREDIT_UNAVAILABLE')
     charged = true
@@ -154,7 +161,7 @@ export async function processCustomerTabSlip(
     const result = await verifySlip({
       file: input.file,
       qr: input.qr,
-      bankAccounts: accounts.data.map((account) => ({
+      bankAccounts: receiverAccounts.map((account) => ({
         accountNo: account.account_number,
         bankCode: account.bank_code,
       })),
@@ -174,14 +181,19 @@ export async function processCustomerTabSlip(
     let verdict = result.verdict
     let note = result.note ?? null
     const receiverMatches = receiverMatchesAny(
-      accounts.data,
+      receiverAccounts,
       result.receiverBank,
       result.receiverAccount,
       result.receiverProxy,
     )
     if (verdict === 'wrong_receiver' && result.branchReceiverMismatch && receiverMatches)
       verdict = 'valid'
-    if (verdict === 'valid' && !receiverMatches && !result.matchedBankAccount)
+    if (
+      verdict === 'valid' &&
+      !result.receiverCheckSkipped &&
+      !receiverMatches &&
+      !result.matchedBankAccount
+    )
       verdict = 'wrong_receiver'
     if (
       verdict === 'valid' &&

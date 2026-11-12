@@ -1,5 +1,6 @@
 import 'server-only'
 import type { SlipResult, SlipVerificationInput } from './types'
+import { findBank } from '@/lib/features/banking/banks'
 
 type ProviderRecord = Record<string, unknown>
 
@@ -12,6 +13,33 @@ const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
 function providerFailure(note: string): SlipResult {
   return { verdict: 'error', note, providerFault: true, raw: null }
+}
+
+const ZWIZ_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const ZWIZ_IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+
+function zwizBankCode(value: string): string | null {
+  const code = value.trim().toLowerCase()
+  if (code === 'promptpay' || code === 'prompt pay') return 'promptpay'
+  if (['ew002', 'truemoney', 'true money', 'truemoney wallet'].includes(code)) return 'ew002'
+  if (/^\d{3}$/.test(code)) return code
+  const bank = findBank(code)
+  return bank?.slipCode ?? null
+}
+
+function providerErrorMessage(code: string): string {
+  switch (code) {
+    case 'INVALID_API_KEY':
+      return 'คีย์ ZWIZ API ไม่ถูกต้อง กรุณาตรวจสอบการตั้งค่า'
+    case 'QR_NOT_FOUND':
+      return 'ไม่พบ QR Code สำหรับตรวจสอบ กรุณาส่งรูปสลิปที่ชัดเจน'
+    case 'INSUFFICIENT_QUOTA':
+      return 'โควตาตรวจสลิป ZWIZ ไม่เพียงพอ กรุณาติดต่อผู้ดูแลระบบ'
+    case 'VERIFY_FAILED':
+      return 'ZWIZ ตรวจสอบสลิปไม่สำเร็จ กรุณาตรวจสอบรูปแล้วลองใหม่'
+    default:
+      return `ZWIZ ตรวจสอบสลิปไม่สำเร็จ${code ? ` (${code})` : ''} กรุณาลองใหม่`
+  }
 }
 
 export async function verifyWithZwiz({
@@ -37,19 +65,33 @@ export async function verifyWithZwiz({
     })
     return providerFailure('ZWIZ API v2 ต้องใช้รูปสลิป กรุณาส่งรูปแทน QR')
   }
-  const matchAccounts = bankAccounts
-    .map(({ accountNo, bankCode }) => ({
-      account_no: accountNo.replace(/[\s-]/g, ''),
-      code: bankCode.trim().toLowerCase() || 'promptpay',
-    }))
-    .filter(({ account_no }) => /^\d{3,20}$/.test(account_no))
-  if (!matchAccounts.length) {
+  if (
+    file.size <= 0 ||
+    file.size > ZWIZ_MAX_IMAGE_BYTES ||
+    !ZWIZ_IMAGE_TYPES.has(file.type.toLowerCase())
+  ) {
     console.error('[SLIP_AI_ERROR]', {
       provider: 'zwiz',
       stage: 'request_validation',
-      reason: 'NO_ACTIVE_RECEIVER_ACCOUNT',
+      reason: 'INVALID_IMAGE_FILE',
+      imageBytes: file.size,
+      imageType: file.type,
     })
-    return providerFailure('ยังไม่มีบัญชีรับเงินที่ใช้ตรวจสอบสลิป กรุณาติดต่อผู้ดูแล')
+    return providerFailure('กรุณาส่งไฟล์ JPG, JPEG, PNG หรือ WebP ขนาดไม่เกิน 5 MB')
+  }
+  const matchAccounts = bankAccounts.flatMap(({ accountNo, bankCode }) => {
+    const account = accountNo.replace(/[\s-]/g, '')
+    const code = zwizBankCode(bankCode)
+    return /^\d{3,20}$/.test(account) && code ? [{ account_no: account, code }] : []
+  })
+  if (bankAccounts.length > 0 && matchAccounts.length === 0) {
+    console.error('[SLIP_AI_ERROR]', {
+      provider: 'zwiz',
+      stage: 'request_validation',
+      reason: 'NO_SUPPORTED_RECEIVER_ACCOUNT',
+      suppliedAccountCount: bankAccounts.length,
+    })
+    return providerFailure('รหัสธนาคารหรือเลขบัญชีรับเงินไม่ถูกต้อง กรุณาตรวจสอบการตั้งค่าร้าน')
   }
 
   const rawUrl =
@@ -80,7 +122,7 @@ export async function verifyWithZwiz({
   form.append('match_bank_account_list', JSON.stringify(matchAccounts))
   form.append(
     'requested_by',
-    `SnapBot: ${(shopName?.trim() || 'ร้านค้า').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120)}`,
+    (shopName?.trim() || 'SnapBot').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 100),
   )
   console.info('[SLIP_AI_TRACE]', {
     provider: 'zwiz',
@@ -125,17 +167,23 @@ export async function verifyWithZwiz({
       hasResultData: Boolean(record(record(providerResult?.verify)?.data)),
     })
     if (!response.ok || envelope?.success !== true) {
+      const providerError = record(envelope?.error)
+      const errorValue = providerError?.code ?? envelope?.code
+      const errorCode =
+        typeof errorValue === 'string' || typeof errorValue === 'number'
+          ? String(errorValue).slice(0, 80)
+          : ''
       console.error('[SLIP_AI_ERROR]', {
         provider: 'zwiz',
         stage: 'provider_rejected_request',
         host: url.host,
         httpStatus: response.status,
-        providerCode:
-          typeof envelope?.code === 'string' || typeof envelope?.code === 'number'
-            ? String(envelope.code).slice(0, 80)
-            : null,
+        providerCode: errorCode || null,
       })
-      return providerFailure('ระบบตรวจสอบสลิปขัดข้อง กรุณาลองใหม่อีกครั้ง')
+      return {
+        ...providerFailure(providerErrorMessage(errorCode)),
+        raw: payload,
+      }
     }
 
     const result = providerResult
@@ -143,20 +191,29 @@ export async function verifyWithZwiz({
     if (verification === 'duplicated')
       return {
         verdict: 'duplicate',
-        note: 'สลิปนี้เคยใช้งานไปแล้ว',
+        note: 'สลิปนี้เคยถูกใช้งานในระบบแล้ว',
         raw: payload,
       }
-    if (verification !== 'matched') {
+    if (verification === 'not_matched') {
       console.warn('[SLIP_AI_TRACE]', {
         provider: 'zwiz',
         stage: 'verification_rejected',
-        verificationResult: verification || 'MISSING',
+        verificationResult: verification,
       })
       return {
         verdict: 'wrong_receiver',
-        note: 'บัญชีผู้รับในสลิปไม่ตรงกับบัญชีรับเงินที่ตั้งค่าไว้',
+        note: 'บัญชีผู้รับโอนไม่ตรงกับบัญชีของทางร้าน',
         raw: payload,
       }
+    }
+    if (verification !== 'matched' && verification !== 'skipped') {
+      console.error('[SLIP_AI_ERROR]', {
+        provider: 'zwiz',
+        stage: 'response_validation',
+        reason: 'UNKNOWN_VERIFICATION_RESULT',
+        verificationResult: verification || null,
+      })
+      return providerFailure('ZWIZ ส่งผลตรวจสลิปที่ไม่รู้จัก กรุณาตรวจสอบภายหลัง')
     }
 
     const verify = record(result?.verify)
@@ -169,11 +226,7 @@ export async function verifyWithZwiz({
       })
       return providerFailure('ระบบตรวจสอบสลิปตอบกลับข้อมูลไม่ครบถ้วน')
     }
-    const amountValue = data.amount
-    const amount =
-      typeof amountValue === 'number' || typeof amountValue === 'string'
-        ? Number(amountValue)
-        : Number.NaN
+    const amount = Number(data.amount || data.paidLocalAmount || 0)
     const transRef = text(data.transRef)
     const transDate = text(data.transDate)
     const transTime = text(data.transTime)
@@ -187,14 +240,6 @@ export async function verifyWithZwiz({
       })
       return providerFailure('ระบบตรวจสอบสลิปตอบกลับข้อมูลไม่ครบถ้วน')
     }
-    if (expectedAmount && amount + 0.005 < expectedAmount)
-      return {
-        verdict: 'amount_mismatch',
-        amount,
-        transRef,
-        raw: payload,
-      }
-
     const normalizedData: ProviderRecord = {
       success: true,
       amount,
@@ -211,8 +256,9 @@ export async function verifyWithZwiz({
       verdict: 'valid',
       amount,
       transRef,
-      receiverVerifiedByProvider: true,
-      matchedBankAccount: true,
+      receiverVerifiedByProvider: verification === 'matched',
+      matchedBankAccount: verification === 'matched',
+      receiverCheckSkipped: verification === 'skipped',
       raw: { success: true, data: normalizedData, zwiz: payload },
     }
   } catch (error) {

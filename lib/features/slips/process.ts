@@ -153,7 +153,6 @@ export async function processSlip(
     if (result) return result
   }
   let accounts: { bank_code: string; account_number: string; is_active: boolean }[] = []
-  let receiverSetupMissing = false
   if (tenant) {
     const { data, error } = await db
       .from('bank_accounts')
@@ -168,7 +167,11 @@ export async function processSlip(
       throw new Error('อ่านบัญชีรับเงินไม่ได้ กรุณาตรวจสอบการติดตั้ง bank-accounts.sql')
     }
     accounts = data ?? []
-    receiverSetupMissing = accounts.length === 0
+    if (accounts.length === 0) {
+      console.warn('[slip/process] no receiver accounts configured; ZWIZ will verify without account matching', {
+        tenantId: tenant.id,
+      })
+    }
   }
   // The database's outstanding order total always wins over manual/client amounts.
   if (customerId && tenant) {
@@ -227,19 +230,6 @@ export async function processSlip(
   // 3-4) From here on the row must not stay 'pending', whatever fails.
   let charged = false
   try {
-    if (receiverSetupMissing) {
-      const note = 'กรุณาเพิ่มหรือเปิดใช้งานบัญชีรับเงินของร้านก่อนตรวจสลิป'
-      const saved = await db
-        .from('slips')
-        .update({ status: 'error', note, verified_at: new Date().toISOString() })
-        .eq('id', slip.id)
-      if (saved.error) throw saved.error
-      console.error('[slip/process] verification blocked by missing receiver account', {
-        slipId: slip.id,
-        tenantId: tenant.id,
-      })
-      return { id: slip.id, status: 'error', amount: null, transRef: null, note }
-    }
     // Every provider call costs the tenant one credit, taken atomically before the call.
     if (tenant) {
       const { data: hasCredit, error: creditError } = await db.rpc('consume_slip_credit', {
@@ -317,6 +307,7 @@ export async function processSlip(
     if (
       verdict === 'valid' &&
       tenant &&
+      !r.receiverCheckSkipped &&
       !r.matchedBankAccount &&
       !receiverMatchesAny(accounts, r.receiverBank, r.receiverAccount, r.receiverProxy)
     ) {

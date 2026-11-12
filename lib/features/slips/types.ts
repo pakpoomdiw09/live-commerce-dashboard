@@ -4,6 +4,8 @@ export type SlipResult = {
   receiverVerifiedByProvider?: boolean
   /** The selected provider explicitly matched the receiving-account list sent with the request. */
   matchedBankAccount?: boolean
+  /** Provider verified the slip but skipped matching it against receiver accounts. */
+  receiverCheckSkipped?: boolean
   verdict: SlipVerdict
   amount?: number
   transRef?: string

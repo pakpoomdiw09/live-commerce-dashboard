@@ -8,7 +8,7 @@ export type { SlipResult, SlipVerdict } from './types'
 export async function verifySlip(
   input: SlipVerificationInput,
 ): Promise<SlipResult> {
-  const provider = process.env.SLIP_VERIFICATION_PROVIDER?.trim().toLowerCase() || null
+  const provider = process.env.SLIP_VERIFICATION_PROVIDER?.trim().toLowerCase() || 'zwiz'
   if (provider !== 'zwiz') {
     console.error('[SLIP_AI_ERROR]', {
       provider,
