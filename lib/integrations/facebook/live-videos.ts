@@ -10,6 +10,15 @@ export type FacebookLiveVideo = {
   isLive: boolean
 }
 
+export type FacebookCommentPost = {
+  id: string
+  title: string
+  preview: string
+  thumbnail: string | null
+  createdAt: string | null
+  isLive: boolean
+}
+
 export class LiveVideosError extends Error {
   constructor(
     message: string,
@@ -245,6 +254,42 @@ function videoOption(row: any, recent = false): FacebookLiveVideo | null {
 const basicFields = 'id,title,description,creation_time,status,video{id,picture}'
 const sortNewest = (a: FacebookLiveVideo, b: FacebookLiveVideo) =>
   (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+
+/** Recent Page posts for comment-reply targeting, including the feed items used by Live CF. */
+export async function fetchPageCommentPosts(
+  pageId: string,
+  token: string,
+  requestSignal?: AbortSignal,
+): Promise<FacebookCommentPost[]> {
+  if (!/^\d{1,40}$/.test(pageId) || !token.trim())
+    throw new LiveVideosError('Facebook Page is not configured', 409)
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(15_000),
+    ...(requestSignal ? [requestSignal] : []),
+  ])
+  const params = new URLSearchParams({
+    fields: 'id,message,story,created_time,full_picture',
+    limit: '50',
+  })
+  const payload = await readGraph(`${pageId}/posts`, params, token, signal)
+  if (!Array.isArray(payload?.data))
+    throw new LiveVideosError('Facebook Page posts are unavailable')
+  return payload.data.flatMap((row: any) => {
+    const id = typeof row?.id === 'string' ? row.id : ''
+    if (!/^\d{1,40}(?:_\d{1,40})?$/.test(id)) return []
+    const preview = [row.message, row.story].find(
+      (value) => typeof value === 'string' && value.trim(),
+    )?.trim().replace(/\s+/g, ' ').slice(0, 500) ?? ''
+    return [{
+      id,
+      title: preview.slice(0, 120) || 'โพสต์ Facebook',
+      preview,
+      thumbnail: imageUrl(row.full_picture),
+      createdAt: timestamp(row.created_time),
+      isLive: false,
+    }]
+  })
+}
 
 /** Try filtered broadcasts, then unfiltered broadcasts, then three latest Page videos. */
 export async function fetchPageLiveVideos(

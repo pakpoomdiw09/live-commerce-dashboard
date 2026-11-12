@@ -21,6 +21,7 @@ import {
   type CommentRule,
 } from '@/lib/features/comments/comment-rules'
 import {
+  commentRuleTargetsPost,
   commentPostIds,
   liveRuleCandidates,
   liveRulePostId,
@@ -1346,6 +1347,7 @@ async function onComment(
     execution,
     rules.filter((r) => r.mode !== 'live_cf'),
     stored.customer?.id,
+    pageId,
   )
 }
 
@@ -1403,12 +1405,20 @@ async function runCommentRules(
   execution: WebhookExecution,
   rules: CommentRule[],
   customerId?: string,
+  pageId = '',
 ) {
   const db = supabaseAdmin({ timeoutMs: 15000 })
   // without `from` the Page's own auto-replies can't be recognised above: don't answer our own reply text
   if (!v.from && rules.some((r) => r.reply_text?.trim() === v.message.trim())) return
-  const rule = rules.find((r) => ruleMatches(r, v.message))
-  console.log('[fb webhook] comment rule evaluated', { matched: Boolean(rule) })
+  const postIds = commentPostIds(v)
+  const scopedRules = rules.filter((rule) => commentRuleTargetsPost(rule, postIds, pageId))
+  const rule = scopedRules.find((r) => ruleMatches(r, v.message))
+  console.log('[fb webhook] comment rule evaluated', {
+    matched: Boolean(rule),
+    activeRuleCount: rules.length,
+    postScopedRuleCount: scopedRules.length,
+    hasPostId: postIds.length > 0,
+  })
   if (!rule) return
   const saved = await db
     .from('comments')

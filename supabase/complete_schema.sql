@@ -20268,6 +20268,61 @@ execute $sql_135_9$notify pgrst, 'reload schema'$sql_135_9$;
     values('migrations/20261112110000_zwiz_central_slip_quota.sql','775d78324828850e0d21fa3abab7ddcb025fccdb591499d1bf5318cfe66fa92f','4963b5ff2f3cee4202323fb44ba63f2154f9a83571a3ecb56e5b58cb92e88cb8');
 end $migration_135$;
 
+-- 137. migrations/20261113100000_comment_rule_post_scope.sql
+do $migration_136$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='migrations/20261113100000_comment_rule_post_scope.sql';
+  if found then
+    if installed <> 'c4da6ad967055c3ef3579dc988925ca19730bbc6b3cd24961d763f81d364a6a7' then
+      raise exception 'Applied migration changed: migrations/20261113100000_comment_rule_post_scope.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 2
+execute $sql_136_2$alter table public.comment_rules
+  add column if not exists target_post_mode text not null default 'all',
+  add column if not exists target_post_id text,
+  add column if not exists target_post_title text$sql_136_2$;
+
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 3
+execute $sql_136_3$alter table public.comment_rules
+  drop constraint if exists comment_rules_target_post_scope_check$sql_136_3$;
+
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 4
+execute $sql_136_4$alter table public.comment_rules
+  add constraint comment_rules_target_post_scope_check
+  check (
+    (target_post_mode = 'all' and target_post_id is null)
+    or (
+      target_post_mode = 'specific'
+      and target_post_id ~ '^[0-9]{1,40}(_[0-9]{1,40})?$'
+    )
+  )$sql_136_4$;
+
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 5
+execute $sql_136_5$create index if not exists comment_rules_tenant_specific_post
+  on public.comment_rules (tenant_id, target_post_id)
+  where is_active and target_post_mode = 'specific'$sql_136_5$;
+
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 6
+execute $sql_136_6$comment on column public.comment_rules.target_post_mode is
+  'Whether a general comment reply rule applies to every Page post or one selected post.'$sql_136_6$;
+
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 7
+execute $sql_136_7$comment on column public.comment_rules.target_post_id is
+  'Selected Facebook post ID; accepts raw post ID or pageId_postId form.'$sql_136_7$;
+
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 8
+execute $sql_136_8$comment on column public.comment_rules.target_post_title is
+  'Optional human-readable preview for the selected Facebook post.'$sql_136_8$;
+
+-- migrations/20261113100000_comment_rule_post_scope.sql: source statement 9
+execute $sql_136_9$notify pgrst, 'reload schema'$sql_136_9$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('migrations/20261113100000_comment_rule_post_scope.sql','c4da6ad967055c3ef3579dc988925ca19730bbc6b3cd24961d763f81d364a6a7','2f42bd4e7486aec2793b8d0176ee4f1b58ad8a3b6e071077d7fde2a12c96b1cf');
+end $migration_136$;
+
 notify pgrst,'reload schema';
 
 commit;

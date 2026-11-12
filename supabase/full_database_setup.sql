@@ -19072,5 +19072,56 @@ grant execute on function public.begin_vision_dispatch(uuid, uuid) to service_ro
 notify pgrst, 'reload schema';
 
 commit;
+-- ============================================================================
+-- 137. migrations/20261113100000_comment_rule_post_scope.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 2f42bd4e7486aec2793b8d0176ee4f1b58ad8a3b6e071077d7fde2a12c96b1cf
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+alter table public.comment_rules
+  add column if not exists target_post_mode text not null default 'all',
+  add column if not exists target_post_id text,
+  add column if not exists target_post_title text;
+
+-- Source statement 3
+alter table public.comment_rules
+  drop constraint if exists comment_rules_target_post_scope_check;
+
+-- Source statement 4
+alter table public.comment_rules
+  add constraint comment_rules_target_post_scope_check
+  check (
+    (target_post_mode = 'all' and target_post_id is null)
+    or (
+      target_post_mode = 'specific'
+      and target_post_id ~ '^[0-9]{1,40}(_[0-9]{1,40})?$'
+    )
+  );
+
+-- Source statement 5
+create index if not exists comment_rules_tenant_specific_post
+  on public.comment_rules (tenant_id, target_post_id)
+  where is_active and target_post_mode = 'specific';
+
+-- Source statement 6
+comment on column public.comment_rules.target_post_mode is
+  'Whether a general comment reply rule applies to every Page post or one selected post.';
+
+-- Source statement 7
+comment on column public.comment_rules.target_post_id is
+  'Selected Facebook post ID; accepts raw post ID or pageId_postId form.';
+
+-- Source statement 8
+comment on column public.comment_rules.target_post_title is
+  'Optional human-readable preview for the selected Facebook post.';
+
+-- Source statement 9
+notify pgrst, 'reload schema';
+
+commit;
 
 notify pgrst, 'reload schema';

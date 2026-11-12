@@ -1,5 +1,20 @@
 import { liveRuleCode, type CommentRule } from './comment-rules'
 
+/** Specific comment rules accept either raw post IDs or Meta's pageId_postId form. */
+export function commentRuleTargetsPost(
+  rule: Pick<CommentRule, 'target_post_mode' | 'target_post_id'>,
+  postIds: string[],
+  pageId: string,
+) {
+  if ((rule.target_post_mode ?? 'all') === 'all') return true
+  if (rule.target_post_mode !== 'specific' || !rule.target_post_id) return false
+  const target = rule.target_post_id.trim()
+  if (!/^\d{1,40}(?:_\d{1,40})?$/.test(target)) return false
+  const [targetPage, targetPost] = target.includes('_') ? target.split('_') : ['', target]
+  if (targetPage && targetPage !== pageId) return false
+  return postIds.some((id) => id.split('_').at(-1) === targetPost)
+}
+
 /** A configured post is explicit scope; an unscoped rule requires Live evidence. */
 export function liveRuleCandidates(
   rules: CommentRule[],

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useMemo, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 import { ruleMatches, type CommentRule } from '@/lib/features/comments/comment-rules'
+import { CommentPostPicker } from '@/components/comment-rules/CommentPostPicker'
 import type { PageProfile } from '@/lib/integrations/facebook/client'
 import { ICONS, Icon } from '@/components/ui/Icon'
 import { Switch } from '@/components/ui/Switch'
@@ -29,6 +30,9 @@ const EMPTY: Omit<Draft, 'tenant_id'> = {
   live_variant_id: null,
   live_stock_limit: null,
   live_post_id: null,
+  target_post_mode: 'all',
+  target_post_id: null,
+  target_post_title: null,
 }
 const SUGGESTIONS = ['สนใจ', 'ราคา', 'ขอรายละเอียด', 'เท่าไหร่', 'cf']
 // Messenger accepts these for image attachments
@@ -84,12 +88,18 @@ export function RuleEditor({
       !draft.inbox_image_url &&
       'อัปโหลดรูปที่จะส่งเข้าอินบ็อกซ์',
   ].filter((p): p is string => !!p)
-  const done = [draft.page_ids.length > 0, draft.keywords.length > 0, responseProblems.length === 0]
+  const postScopeValid = draft.target_post_mode !== 'specific' || (
+    draft.page_ids.length === 1 &&
+    !!draft.target_post_id &&
+    new RegExp(`^(?:\\d{1,40}|${draft.page_ids[0]}_\\d{1,40})$`).test(draft.target_post_id)
+  )
+  const done = [draft.page_ids.length > 0 && postScopeValid, draft.keywords.length > 0, responseProblems.length === 0]
   const problems = [
     !draft.name.trim() && 'ตั้งชื่อกฎ',
     !done[0] && 'เลือกเพจอย่างน้อย 1 เพจ',
     !done[1] && 'เพิ่มคีย์เวิร์ดอย่างน้อย 1 คำ',
     ...responseProblems,
+    !postScopeValid && 'เมื่อเลือกเฉพาะโพสต์ กรุณาเลือกเพจเดียวและระบุ Post ID ที่ถูกต้อง',
   ].filter((p): p is string => !!p)
 
   async function upload(file: File) {
@@ -122,6 +132,9 @@ export function RuleEditor({
       live_variant_id: null,
       live_stock_limit: null,
       live_post_id: null,
+      target_post_mode: draft.target_post_mode ?? 'all',
+      target_post_id: draft.target_post_mode === 'specific' ? draft.target_post_id?.trim() || null : null,
+      target_post_title: draft.target_post_mode === 'specific' ? draft.target_post_title?.trim() || null : null,
     }
     try {
       const { error: saveErr } = rule
@@ -237,14 +250,18 @@ export function RuleEditor({
                   <input
                     type="checkbox"
                     checked={draft.page_ids.includes(p.id)}
-                    onChange={(e) =>
-                      set(
-                        'page_ids',
-                        e.target.checked
-                          ? [...draft.page_ids, p.id]
-                          : draft.page_ids.filter((x) => x !== p.id),
-                      )
-                    }
+                    onChange={(e) => {
+                      const pageIds = e.target.checked
+                        ? [...draft.page_ids, p.id]
+                        : draft.page_ids.filter((x) => x !== p.id)
+                      setDraft((current) => ({
+                        ...current,
+                        page_ids: pageIds,
+                        ...(current.target_post_mode === 'specific'
+                          ? { target_post_id: null, target_post_title: null }
+                          : {}),
+                      }))
+                    }}
                     className="h-4 w-4 accent-red-500"
                   />
                   {p.picture ? (
@@ -263,6 +280,55 @@ export function RuleEditor({
               ))}
             </div>
           )}
+          <div className="mt-5 space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">โพสต์เป้าหมาย</h3>
+              <p className="mt-1 text-xs text-slate-500">กำหนดให้กฎตอบคอมเมนต์เฉพาะโพสต์ที่เลือก หรือใช้กับทุกโพสต์ของเพจ</p>
+            </div>
+            <div role="radiogroup" aria-label="ขอบเขตโพสต์" className="grid gap-2 sm:grid-cols-2">
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm has-checked:border-orange-300 has-checked:bg-orange-50/60">
+                <input
+                  type="radio"
+                  name="target_post_mode"
+                  checked={(draft.target_post_mode ?? 'all') === 'all'}
+                  onChange={() => setDraft((current) => ({ ...current, target_post_mode: 'all', target_post_id: null, target_post_title: null }))}
+                  className="h-4 w-4 accent-orange-500"
+                />
+                <span><span className="block font-medium">ทุกโพสต์ของเพจ</span><span className="text-xs text-slate-500">ใช้กฎนี้กับโพสต์ทุกชิ้น</span></span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm has-checked:border-orange-300 has-checked:bg-orange-50/60">
+                <input
+                  type="radio"
+                  name="target_post_mode"
+                  checked={draft.target_post_mode === 'specific'}
+                  onChange={() => set('target_post_mode', 'specific')}
+                  className="h-4 w-4 accent-orange-500"
+                />
+                <span><span className="block font-medium">เลือกเฉพาะโพสต์</span><span className="text-xs text-slate-500">เลือกจากโพสต์ล่าสุดหรือวาง Post ID</span></span>
+              </label>
+            </div>
+            {draft.target_post_mode === 'specific' && (
+              <div className="space-y-2 rounded-xl bg-white p-3 ring-1 ring-slate-200">
+                {draft.page_ids.length === 1 ? (
+                  <>
+                    <p className="text-xs text-slate-600">
+                      เพจที่เลือก: <span className="font-semibold">{pageOptions.find((page) => page.id === draft.page_ids[0])?.name ?? draft.page_ids[0]}</span>
+                    </p>
+                    <CommentPostPicker
+                      pageId={draft.page_ids[0]}
+                      value={draft.target_post_id ?? null}
+                      title={draft.target_post_title ?? null}
+                      onChange={(target_post_id, target_post_title) => setDraft((current) => ({ ...current, target_post_id, target_post_title }))}
+                    />
+                  </>
+                ) : (
+                  <p role="alert" className="text-sm text-amber-800">
+                    เลือกเพจเดียวด้านบนก่อน แล้วจึงเลือกโพสต์ของเพจนั้นได้
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </StepCard>
 
         {/* 2. trigger */}
