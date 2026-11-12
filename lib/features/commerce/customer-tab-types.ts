@@ -29,7 +29,8 @@ export type CustomerTab = {
   paid_amount: number
   remaining_amount: number
   credit_amount: number
-  status: 'open' | 'pending_payment' | 'fully_paid'
+  status: 'open' | 'pending_payment' | 'fully_paid' | 'cancelled' | 'void'
+  can_dismiss?: boolean
   revision: number
   created_at: string
   updated_at: string

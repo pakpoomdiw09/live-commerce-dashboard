@@ -32,13 +32,20 @@ export async function GET(req: NextRequest) {
     if (tabs.error) throw tabs.error
     const canCancelOrders = await canAccessTenant(actor, tenantId, 'owner')
     const hydrated = await enrichCustomerTabs(db, (tabs.data ?? []) as CustomerTab[])
-    const visibleTabs = hydrated.map((tab) => ({
-      ...tab,
-      customer_tab_items: tab.customer_tab_items.map((item) => ({
-        ...item,
-        can_cancel: canCancelOrders && item.can_cancel === true,
-      })),
-    }))
+    const visibleTabs = hydrated
+      .filter(
+        (tab) =>
+          !['cancelled', 'void'].includes(tab.status) &&
+          (Number(tab.total_amount) > 0 || tab.customer_tab_items.some((item) => !item.cancelled)),
+      )
+      .map((tab) => ({
+        ...tab,
+        can_dismiss: canCancelOrders,
+        customer_tab_items: tab.customer_tab_items.map((item) => ({
+          ...item,
+          can_cancel: canCancelOrders && item.can_cancel === true,
+        })),
+      }))
     const summaryId = req.nextUrl.searchParams.get('summary')
     if (summaryId) {
       const tab = visibleTabs.find((bill) => bill.id === summaryId)
@@ -52,7 +59,7 @@ export async function GET(req: NextRequest) {
       if (page.error) throw page.error
       return json(await customerTabSummary(db, tab, undefined, page.data.send_payment_link))
     }
-    const ids = tabs.data.map((tab) => tab.id)
+    const ids = visibleTabs.map((tab) => tab.id)
     const jobs = ids.length
       ? await db
           .from('customer_tab_reminders')

@@ -39,11 +39,22 @@ export function CustomerTabsPanel({
   onSelectSlip: (id: string) => void
 }) {
   const [tabs, setTabs] = useState<CustomerTab[]>([])
+  const [dismissedTabs, setDismissedTabs] = useState<Set<string>>(() => new Set())
   const [jobs, setJobs] = useState<Reminder[]>([])
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const invoiceRequests = useRef(new Map<string, string>())
+  const visibleTabs = tabs.filter((tab) => !dismissedTabs.has(tab.id))
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`snapbot:inbox:dismissed-tabs:${customerId}`)
+      const ids = saved ? (JSON.parse(saved) as unknown) : []
+      setDismissedTabs(new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []))
+    } catch {
+      setDismissedTabs(new Set())
+    }
+  }, [customerId])
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
       try {
@@ -160,6 +171,19 @@ export function CustomerTabsPanel({
       setBusy(false)
     }
   }
+  function dismissTab(tabId: string) {
+    if (!confirm('ต้องการซ่อนบิลสะสมนี้จากข้อมูลใน Inbox ใช่ไหม? ประวัติออเดอร์จะยังอยู่')) return
+    const next = new Set(dismissedTabs)
+    next.add(tabId)
+    setDismissedTabs(next)
+    setTabs((current) => current.filter((tab) => tab.id !== tabId))
+    setNotice('ซ่อนบิลจากข้อมูลใน Inbox แล้ว ประวัติออเดอร์ยังอยู่ในแท็บออเดอร์')
+    try {
+      localStorage.setItem(`snapbot:inbox:dismissed-tabs:${customerId}`, JSON.stringify([...next]))
+    } catch {
+      // Keep the card hidden for this view even when browser storage is unavailable.
+    }
+  }
   return (
     <section
       aria-label="บิลสะสมและยอดคงเหลือ"
@@ -183,12 +207,25 @@ export function CustomerTabsPanel({
         ส่งบิลธุรกรรมได้จากปุ่มสรุปยอด แม้ช่องแชททั่วไปหมดเวลา หาก Facebook ปฏิเสธ
         ให้ผู้ซื้อทักเพจก่อน
       </p>
-      {!tabs.length && !error && <p className="text-xs text-slate-400">ยังไม่มีบิลสะสมในระบบ</p>}
-      {tabs.map((tab) => (
+      {!visibleTabs.length && !error && <p className="text-xs text-slate-400">ยังไม่มีบิลสะสมในระบบ</p>}
+      {visibleTabs.map((tab) => (
         <article key={tab.id} className="space-y-3 rounded-xl bg-slate-50 p-3">
-          <p className="text-[10px] text-slate-400">
-            บิล …{tab.id.slice(-6)} • {tab.status === 'fully_paid' ? 'ชำระครบ' : 'ค้างชำระ'}
-          </p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[10px] text-slate-400">
+              บิล …{tab.id.slice(-6)} • {tab.status === 'fully_paid' ? 'ชำระครบ' : 'ค้างชำระ'}
+            </p>
+            {tab.can_dismiss && (
+              <button
+                type="button"
+                aria-label={`ซ่อนบิล ${tab.id.slice(-6)} จาก Inbox`}
+                title="ซ่อนบิลจากข้อมูลใน Inbox"
+                onClick={() => dismissTab(tab.id)}
+                className="-mr-1 -mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-lg leading-none text-slate-400 transition hover:bg-red-50 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-orange-400"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <dl className="space-y-1 text-xs">
             <div className="flex justify-between">
               <dt>ยอดรวมสะสม</dt>
@@ -280,7 +317,7 @@ export function CustomerTabsPanel({
             ))}
         </article>
       ))}
-      {tabs.some((tab) => Number(tab.remaining_amount) > 0) && (
+      {visibleTabs.some((tab) => Number(tab.remaining_amount) > 0) && (
         <button
           type="button"
           disabled={busy}
