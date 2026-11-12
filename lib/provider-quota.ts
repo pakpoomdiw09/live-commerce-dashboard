@@ -10,7 +10,7 @@ export async function getProviderQuota(): Promise<ProviderQuota> {
   if (provider === 'zwiz')
     return {
       ok: false,
-      message: 'การแสดงโควตาผู้ให้บริการยังรองรับเฉพาะ SlipOK',
+      message: 'ระบบตรวจสลิปอัตโนมัติไม่แสดงยอดโควตาในหน้านี้',
     }
   if (provider !== 'slipok') return { ok: false, message: 'ตั้งค่าผู้ให้บริการตรวจสลิปไม่ถูกต้อง' }
   const branch = process.env.SLIPOK_BRANCH_ID?.trim()

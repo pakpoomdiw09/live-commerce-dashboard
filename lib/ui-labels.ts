@@ -86,9 +86,10 @@ const labels: Record<string, string> = {
 }
 /** Display-only replacement also covers older saved provider messages. */
 export function neutralSlipText(value: string): string {
-  const verifierLabel = 'ตรวจสอบสลิปอัตโนมัติด้วยระบบ AI'
+  const verifierLabel = 'ระบบตรวจสลิปอัตโนมัติ (Snapbot)'
   return value
     .replace(/slip\s*ok/gi, verifierLabel)
+    .replace(/zwiz(?:[_\s-]+api(?:[_\s-]+(?:v?\d+|key|url))?)?/gi, verifierLabel)
     .replace(/บิลสะสมตรวจสลิปผ่านโอเคก่อนระบบปล่อยหักเงินได้/gi, verifierLabel)
 }
 export function systemLabel(

@@ -460,7 +460,7 @@ export function PaymentProDashboard({
                 <option value="reject">ปฏิเสธ</option>
                 <option value="cancel">ยกเลิกรายการ</option>
                 <option value="retry" disabled={!!selected.provider_started_at}>
-                  ตรวจรูปใหม่ (เฉพาะที่ยังไม่เคยเรียก Provider)
+                  ตรวจรูปใหม่ (เฉพาะสลิปที่ยังไม่เริ่มตรวจ)
                 </option>
               </select>
               <p className="mt-2 text-xs text-slate-500">

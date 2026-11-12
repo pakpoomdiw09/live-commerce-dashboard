@@ -54,7 +54,7 @@ export function SlipsDashboard({
           <ShieldCheck aria-hidden className="mb-2 h-8 w-8" />
           <h1 className="text-2xl font-bold">ระบบรับเงินและตรวจสอบสลิป</h1>
           <p className="mt-2 break-words text-sm">
-            {tenant.name} · จัดการ QR บัญชีรับเงิน และผลตรวจจากผู้ให้บริการในที่เดียว
+            {tenant.name} · จัดการ QR บัญชีรับเงิน และผลตรวจสลิปจากระบบ Snapbot ในที่เดียว
           </p>
         </PageBanner>
         <SlipTabs activeTab={tab} extended designer={designerEnabled} />

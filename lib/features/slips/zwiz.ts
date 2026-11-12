@@ -54,15 +54,15 @@ function zwizBankCode(value: string): string | null {
 function providerErrorMessage(code: string): string {
   switch (code) {
     case 'INVALID_API_KEY':
-      return 'คีย์ ZWIZ API ไม่ถูกต้อง กรุณาตรวจสอบการตั้งค่า'
+      return 'ตั้งค่าระบบตรวจสลิปไม่ถูกต้อง กรุณาติดต่อผู้ดูแลระบบ'
     case 'QR_NOT_FOUND':
       return 'ไม่พบ QR Code สำหรับตรวจสอบ กรุณาส่งรูปสลิปที่ชัดเจน'
     case 'INSUFFICIENT_QUOTA':
-      return 'โควตาตรวจสลิป ZWIZ ไม่เพียงพอ กรุณาติดต่อผู้ดูแลระบบ'
+      return 'โควตาตรวจสลิปไม่เพียงพอ กรุณาติดต่อผู้ดูแลระบบ'
     case 'VERIFY_FAILED':
-      return 'ZWIZ ตรวจสอบสลิปไม่สำเร็จ กรุณาตรวจสอบรูปแล้วลองใหม่'
+      return 'ระบบตรวจสลิปไม่สำเร็จ กรุณาตรวจสอบรูปแล้วลองใหม่'
     default:
-      return `ZWIZ ตรวจสอบสลิปไม่สำเร็จ${code ? ` (${code})` : ''} กรุณาลองใหม่`
+      return `ระบบตรวจสลิปไม่สำเร็จ${code ? ` (${code})` : ''} กรุณาลองใหม่`
   }
 }
 
@@ -92,7 +92,7 @@ export async function verifyWithZwiz({
       stage: 'request_validation',
       reason: 'IMAGE_FILE_REQUIRED',
     })
-    return providerFailure('ZWIZ API v2 ต้องใช้รูปสลิป กรุณาส่งรูปแทน QR', {
+    return providerFailure('ระบบตรวจสลิปอัตโนมัติต้องใช้รูปสลิป กรุณาส่งรูปแทน QR', {
       stage: 'request_validation',
       httpStatus: null,
       code: 'IMAGE_FILE_REQUIRED',
@@ -162,7 +162,7 @@ export async function verifyWithZwiz({
       stage: 'configuration',
       reason: 'ZWIZ_API_URL_INVALID',
     })
-    return providerFailure('ตั้งค่า ZWIZ API URL ไม่ถูกต้อง', {
+    return providerFailure('ตั้งค่าการเชื่อมต่อระบบตรวจสลิปไม่ถูกต้อง', {
       stage: 'configuration',
       httpStatus: null,
       code: 'ZWIZ_API_URL_INVALID',
@@ -176,7 +176,7 @@ export async function verifyWithZwiz({
       reason: 'ZWIZ_API_URL_UNSAFE',
       host: url.host,
     })
-    return providerFailure('ตั้งค่า ZWIZ API URL ไม่ถูกต้อง', {
+    return providerFailure('ตั้งค่าการเชื่อมต่อระบบตรวจสลิปไม่ถูกต้อง', {
       stage: 'configuration',
       httpStatus: null,
       code: 'ZWIZ_API_URL_UNSAFE',
@@ -307,7 +307,7 @@ export async function verifyWithZwiz({
         message: safeProviderMessage(verification || 'missing verification_result'),
       }
       console.error('[CALL_ZWIZ_RESULT]', diagnostic)
-      return providerFailure('ZWIZ ส่งผลตรวจสลิปที่ไม่รู้จัก กรุณาตรวจสอบภายหลัง', diagnostic)
+      return providerFailure('ระบบตรวจสลิปส่งผลที่ไม่รู้จัก กรุณาตรวจสอบภายหลัง', diagnostic)
     }
 
     const verify = record(result?.verify)
@@ -389,7 +389,7 @@ export async function verifyWithZwiz({
       ...diagnostic,
     })
     console.error('[CALL_ZWIZ_RESULT]', diagnostic)
-    return providerFailure('ตรวจสอบสลิปผ่าน ZWIZ ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง', diagnostic)
+    return providerFailure('ระบบตรวจสลิปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง', diagnostic)
   }
 }
 

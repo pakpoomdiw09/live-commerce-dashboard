@@ -17,7 +17,7 @@ export async function verifySlip(
     })
     return {
       verdict: 'error',
-      note: 'ระบบตรวจสลิปสำหรับบิลสะสมยังไม่ได้ตั้งค่า ZWIZ',
+      note: 'ระบบตรวจสลิปสำหรับบิลสะสมยังไม่ได้ตั้งค่า กรุณาติดต่อผู้ดูแลระบบ',
       providerFault: true,
       raw: null,
     }
