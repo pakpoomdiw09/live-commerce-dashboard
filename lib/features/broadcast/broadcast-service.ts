@@ -120,11 +120,15 @@ export async function broadcastScope(actor: Actor | null, tenantId: string, owne
   return { db, actor, tenantId, page: page.data, token: pageTokenFor(page.data) }
 }
 export type BroadcastScope = Awaited<ReturnType<typeof broadcastScope>>
-export async function readBroadcast(db: SupabaseClient, id: string, tenantId?: string) {
+export async function readBroadcast(db: SupabaseClient, id: string, tenantId: string) {
   if (!UUID.test(id)) throw new InboxError('รหัสรายการไม่ถูกต้อง', 400)
-  let query = db.from('broadcasts').select(BROADCAST_COLUMNS).eq('id', id)
-  if (tenantId) query = query.eq('tenant_id', tenantId)
-  const result = await query.maybeSingle()
+  if (!UUID.test(tenantId)) throw new InboxError('รหัสร้านค้าไม่ถูกต้อง', 400)
+  const result = await db
+    .from('broadcasts')
+    .select(BROADCAST_COLUMNS)
+    .eq('id', id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
   if (result.error || !result.data) throw new InboxError('ไม่พบรายการบรอดแคสต์', 404)
   return result.data as BroadcastRow
 }

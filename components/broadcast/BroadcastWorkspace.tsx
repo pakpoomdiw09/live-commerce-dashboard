@@ -221,6 +221,7 @@ export function BroadcastWorkspace({
           total: number
           outOfCredits?: boolean
         }>(`/api/broadcasts/${id}/send`, {
+          tenantId,
           confirmed: true,
           fingerprint: confirmedPreview.fingerprint,
         })
@@ -345,7 +346,10 @@ export function BroadcastWorkspace({
   }
   async function loadDeliveryStatus(row: BroadcastRow) {
     await act(async () => {
-      const response = await fetch(`/api/broadcasts/${row.id}`, { cache: 'no-store' })
+      const response = await fetch(
+        `/api/broadcasts/${row.id}?tenantId=${encodeURIComponent(tenantId)}`,
+        { cache: 'no-store' },
+      )
       const result = await response.json()
       if (!response.ok) throw new Error(result.error ?? 'อ่านผลส่งไม่ได้')
       setDeliveryReport({ ...result, name: row.name })

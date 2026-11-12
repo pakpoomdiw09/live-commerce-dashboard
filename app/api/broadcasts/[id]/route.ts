@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getActor } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase/server'
 import { readBroadcast, broadcastScope } from '@/lib/features/broadcast/broadcast-service'
 import { broadcastDeliveryStats } from '@/lib/features/broadcast/broadcast-send'
 import { inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
@@ -10,14 +9,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const actor = await getActor(req)
     if (!actor || actor.kind !== 'user') throw new InboxError('กรุณาเข้าสู่ระบบ', 401)
     const { id } = await params,
-      tenantId = req.nextUrl.searchParams.get('tenantId')
-    const requestedScope = tenantId ? await broadcastScope(actor, tenantId) : null
-    const draft = await readBroadcast(
-      requestedScope?.db ?? supabaseAdmin(),
-      id,
-      tenantId ?? undefined,
-    )
-    const scope = requestedScope ?? (await broadcastScope(actor, draft.tenant_id))
+      tenantId = req.nextUrl.searchParams.get('tenantId') ?? ''
+    const scope = await broadcastScope(actor, tenantId)
+    const draft = await readBroadcast(scope.db, id, scope.tenantId)
     if (draft.status === 'draft')
       return NextResponse.json(
         { broadcast: draft },

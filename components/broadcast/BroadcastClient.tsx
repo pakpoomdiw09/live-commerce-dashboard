@@ -125,7 +125,11 @@ export function BroadcastClient({
     setNotice(null)
     try {
       for (let round = 0; round < 200; round++) {
-        const res = await fetch(`/api/broadcasts/${id}/send`, { method: 'POST' })
+        const res = await fetch(`/api/broadcasts/${id}/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId }),
+        })
         if (!res.ok) throw new Error(await apiError(res))
         const r = (await res.json()) as {
           done: boolean

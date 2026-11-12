@@ -102,9 +102,20 @@ export function ShopClient({
   async function moveOrder(o: ShopOrder, to: CfOrderStatus) {
     if (to === 'cancelled' && !confirm(`ยกเลิกออเดอร์ ${o.product_name}? สินค้าจะถูกคืนเข้าสต็อก`))
       return
-    const { error } = await db.from('orders').update({ status: to }).eq('id', o.id)
-    if (error) return setNotice({ tone: 'error', text: `เปลี่ยนสถานะไม่สำเร็จ: ${error.message}` })
-    router.refresh()
+    try {
+      const response = await fetch(`/api/orders/${o.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, status: to }),
+      })
+      if (!response.ok) throw new Error(await apiError(response))
+      router.refresh()
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'เปลี่ยนสถานะไม่สำเร็จ',
+      })
+    }
   }
   async function confirmDelivery(o: ShopOrder) {
     const evidence = prompt(
