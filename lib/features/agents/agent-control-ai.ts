@@ -319,6 +319,113 @@ const sanitize = (text: string) => {
   )
 }
 
+export type Tier1Intent = 'order_balance' | 'bank_account' | 'tracking_shipping' | 'store_catalog'
+export type Tier1Reply = { intent: Tier1Intent; text: string }
+
+function tier1Intent(text: string): Tier1Intent | null {
+  if (Array.from(text.trim()).length > 30) return null
+  if (/ขอยอด|รวมยอด|ยอดเท่าไหร่|ยอดเท่าไร|ยอดโอน|เช็กยอด|เช็คยอด|สรุปยอด/u.test(text))
+    return 'order_balance'
+  if (/เลขบัญชี|ขอเลขบัญชี|เลขที่บัญชี|บัญชี|โอนทางไหน|พร้อมเพย์/u.test(text))
+    return 'bank_account'
+  if (/เลขพัสดุ|ขอเลขพัสดุ|เช็กพัสดุ|เช็คพัสดุ|ส่งยัง|ส่งของยัง|ส่งหรือยัง/u.test(text))
+    return 'tracking_shipping'
+  if (/มีอะไรบ้าง|มีสินค้าอะไร|ดูสินค้า|แคตตาล็อก/u.test(text)) return 'store_catalog'
+  return null
+}
+
+export function isTier1CommerceMessage(text: string): boolean {
+  return tier1Intent(text) !== null
+}
+
+/** Zero-Gemini reply for short, common commerce questions. Call only after a tenant quota reservation. */
+export async function tier1FastReply(
+  db: SupabaseClient,
+  ctx: Pick<AiContext, 'customerId' | 'tenantId' | 'pageId' | 'sendPaymentLink'>,
+  latestText: string,
+): Promise<Tier1Reply | null> {
+  const intent = tier1Intent(latestText)
+  if (!intent) return null
+  try {
+    const context = await commerceKnowledge(db, ctx, latestText)
+    if (context.contextError) return null
+
+    if (intent === 'order_balance') {
+      if (context.grossTotal <= 0 && context.netOutstandingBalance <= 0) return null
+      const rows = [...context.tabs, ...context.orders] as Record<string, any>[]
+      const summaryLines: string[] = []
+      let usedChars = 0
+      for (const row of rows) {
+        const line = row.items?.length
+          ? row.items.map((item: Record<string, any>) => `${sanitize(String(item.name ?? 'สินค้า'))} x ${Number(item.quantity) || 1} = ${money(item.subtotal) ?? '0.00'} บาท`).join(', ')
+          : `${sanitize(String(row.item ?? 'รายการสั่งซื้อ'))} x ${Number(row.quantity) || 1} = ${money(row.subtotal ?? row.gross_total) ?? '0.00'} บาท`
+        if (usedChars + line.length > 1150) break
+        summaryLines.push(`• ${line}`)
+        usedChars += line.length
+      }
+      const paymentLink = rows.find((row) => typeof row.payment_or_summary_url === 'string')?.payment_or_summary_url
+      const text = [
+        'สรุปรายการของคุณค่ะ',
+        ...summaryLines,
+        `ยอดรวม ${money(context.grossTotal)} บาท | ชำระแล้ว ${money(context.verifiedPaidTotal)} บาท`,
+        `ยอดคงเหลือ ${money(context.netOutstandingBalance)} บาท`,
+        paymentLink ? `ชำระ/ดูสรุปยอด: ${paymentLink}` : '',
+        rows.length > summaryLines.length && paymentLink ? 'ลิงก์แสดงรายการทั้งหมด' : '',
+      ].filter(Boolean).join('\n').slice(0, 1750)
+      return { intent, text }
+    }
+
+    if (intent === 'bank_account') {
+      const accounts = context.bankAccounts
+      if (!accounts.length) return null
+      const paymentLink = [...context.tabs, ...context.orders]
+        .map((row) => (row as Record<string, unknown>).payment_or_summary_url)
+        .find((value): value is string => typeof value === 'string')
+      const text = [
+        ...accounts.map((account) => `ธนาคาร ${account.bank_name}\nชื่อบัญชี ${account.account_name}\nเลขบัญชี ${account.account_number}`),
+        paymentLink ? `ลิงก์ชำระ/สรุปยอด: ${paymentLink}` : '',
+      ].filter(Boolean).join('\n\n').slice(0, 1750)
+      return { intent, text }
+    }
+
+    if (intent === 'tracking_shipping') {
+      const rows = [...context.tabs, ...context.orders] as Record<string, any>[]
+      const tracked = rows.filter((row) => row.shipping_status === 'shipped' && typeof row.tracking_number === 'string' && row.tracking_number.trim())
+      if (tracked.length) {
+        const lines = tracked.map((row) => {
+          const item = row.items?.map((value: Record<string, unknown>) => String(value.name ?? '')).filter(Boolean).join(', ') || String(row.item ?? 'รายการสั่งซื้อ')
+          return `${sanitize(item)}: เลขพัสดุ ${sanitize(String(row.tracking_number))}${row.courier_name ? ` (${sanitize(String(row.courier_name))})` : ''}`
+        })
+        return { intent, text: `จัดส่งแล้วค่ะ\n${lines.join('\n')}`.slice(0, 1750) }
+      }
+      const policy = sanitize(context.storeRules.split(/\r?\n/)
+        .filter((line) => /ส่ง|จัดส่ง|ขนส่ง|รอบส่ง|ตัดรอบ|shipping|delivery|courier/i.test(line) && /(?:[01]?\d|2[0-3])[:.][0-5]\d/u.test(line))
+        .join('\n').slice(0, 1500))
+      if (!policy) return null
+      return { intent, text: `รอบจัดส่งของร้าน:\n${policy}`.slice(0, 1750) }
+    }
+
+    const available = context.products.filter((product) => Number(product.stock) > 0)
+    if (!available.length) return { intent, text: 'ขณะนี้ยังไม่มีสินค้าที่พร้อมจำหน่ายในสต็อกค่ะ' }
+    const lines = available.map((product) =>
+      `• ${sanitize(String(product.name ?? 'สินค้า')).slice(0, 100)}: ${money(product.price) ?? 'ไม่ระบุ'} บาท (เหลือ ${Number(product.stock).toLocaleString('th-TH')} ชิ้น)`,
+    )
+    let text = 'สินค้าที่พร้อมจำหน่ายค่ะ'
+    for (const line of lines) {
+      if (text.length + line.length + 1 > 1700) break
+      text += `\n${line}`
+    }
+    return { intent, text }
+  } catch (error) {
+    console.warn('[AI_FAST_REPLY_ERROR]', {
+      intent,
+      tenantId: ctx.tenantId,
+      reason: (error as { code?: string } | null)?.code ?? 'FAST_REPLY_CONTEXT_FAILED',
+    })
+    return null
+  }
+}
+
 /** Build a grounded reply from database facts when the LLM or its quota is unavailable. */
 export async function deterministicCommerceFallback(
   db: SupabaseClient,

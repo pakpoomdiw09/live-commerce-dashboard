@@ -11,6 +11,7 @@ import {
   type ChatRule,
 } from '@/lib/features/agents/chatbot'
 import { hasFeature } from '@/lib/feature-access'
+import { isTier1CommerceMessage, tier1FastReply } from '@/lib/features/agents/agent-control-ai'
 import {
   inputRisk,
   isCustomerCommerceQuestion,
@@ -42,7 +43,8 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
   const { orchestrateAgentMessage } = await import('@/lib/features/agents/agent-orchestrator')
   if (await orchestrateAgentMessage(db, m)) return
   const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
-  const customerContextQuestion = isCustomerCommerceQuestion(m.text) && !inputRisk(m.text)
+  const customerContextQuestion =
+    (isCustomerCommerceQuestion(m.text) || isTier1CommerceMessage(m.text)) && !inputRisk(m.text)
   const once = 'reply:' + m.messageId
   if (requiresExplicitHandover(m.text) || (!customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)))
     return handover(db, m, settings, once)
@@ -108,23 +110,42 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
   try {
     const product = { current: null as AiProductResult | null }
     let reply: string | null = null
-    try {
-      reply = await aiReply(db, {
-        aiQuotaReservation: quota.id,
-        shopName: m.tenant.name,
-        instructions: settings.ai_instructions,
-        customerName: m.customer.display_name,
-        customerId: m.customer.id,
+    const fastReply = !m.imageUrls?.length
+      ? await tier1FastReply(db, {
+          tenantId: m.tenant.id,
+          customerId: m.customer.id,
+          pageId: m.pageId,
+          sendPaymentLink: m.sendPaymentLink,
+        }, m.text)
+      : null
+    if (fastReply) {
+      reply = fastReply.text
+      console.info('[AI_FAST_REPLY]', {
+        intent: fastReply.intent,
         tenantId: m.tenant.id,
-        pageId: m.pageId,
-        sendPaymentLink: m.sendPaymentLink,
-        imageUrls: m.imageUrls,
-        onProductResult: (value) => {
-          product.current = value
-        },
+        customerId: m.customer.id,
+        messageId: m.messageId,
+        geminiTokens: 0,
       })
-    } catch {
-      /* Context facts are tried before any configured handover fallback. */
+    } else {
+      try {
+        reply = await aiReply(db, {
+          aiQuotaReservation: quota.id,
+          shopName: m.tenant.name,
+          instructions: settings.ai_instructions,
+          customerName: m.customer.display_name,
+          customerId: m.customer.id,
+          tenantId: m.tenant.id,
+          pageId: m.pageId,
+          sendPaymentLink: m.sendPaymentLink,
+          imageUrls: m.imageUrls,
+          onProductResult: (value) => {
+            product.current = value
+          },
+        })
+      } catch {
+        /* Context facts are tried before any configured handover fallback. */
+      }
     }
     if (!reply || reply === HANDOVER_TOKEN) {
       const contextual = customerContextQuestion

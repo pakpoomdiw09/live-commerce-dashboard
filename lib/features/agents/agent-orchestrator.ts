@@ -27,6 +27,7 @@ import {
   type ChatRule,
 } from '@/lib/features/agents/chatbot'
 import { aiReply, HANDOVER_TOKEN, type AiProductResult } from '@/lib/features/agents/ai-agent'
+import { isTier1CommerceMessage, tier1FastReply } from '@/lib/features/agents/agent-control-ai'
 import { hasFeature } from '@/lib/feature-access'
 
 import { deliverOnce } from '@/lib/features/slips/notify'
@@ -62,7 +63,8 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
   let quotaId: string | undefined
   try {
     const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
-    const customerContextQuestion = isCustomerCommerceQuestion(m.text) && !inputRisk(m.text)
+    const customerContextQuestion =
+      (isCustomerCommerceQuestion(m.text) || isTier1CommerceMessage(m.text)) && !inputRisk(m.text)
     const rules =
       settings.reply_mode === 'keyword' && !customerContextQuestion
         ? await db
@@ -132,46 +134,66 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
         reason = quota?.status ?? reason ?? 'AI_QUOTA_UNAVAILABLE'
       } else if (route === 'AI' && quota?.id) {
         quotaId = quota.id
-        try {
-          text = await aiReply(
-            db,
-            {
-              aiQuotaReservation: quota.id,
+        const fastReply = !m.imageUrls?.length
+          ? await tier1FastReply(db, {
               tenantId: m.tenant.id,
+              customerId: m.customer.id,
               pageId: m.pageId,
               sendPaymentLink: m.sendPaymentLink,
-              shopName: m.tenant.name,
-              customerName: m.customer.display_name,
-              customerId: m.customer.id,
-              instructions: settings.ai_instructions,
-              imageUrls: m.imageUrls,
-              onProductResult: (value) => {
-                product.current = value
+            }, m.text)
+          : null
+        if (fastReply) {
+          text = fastReply.text
+          reason = `TIER1_ZERO_GEMINI_${fastReply.intent.toUpperCase()}`
+          console.info('[AI_FAST_REPLY]', {
+            intent: fastReply.intent,
+            tenantId: m.tenant.id,
+            customerId: m.customer.id,
+            messageId: m.messageId,
+            geminiTokens: 0,
+          })
+        } else {
+          try {
+            text = await aiReply(
+              db,
+              {
+                aiQuotaReservation: quota.id,
+                tenantId: m.tenant.id,
+                pageId: m.pageId,
+                sendPaymentLink: m.sendPaymentLink,
+                shopName: m.tenant.name,
+                customerName: m.customer.display_name,
+                customerId: m.customer.id,
+                instructions: settings.ai_instructions,
+                imageUrls: m.imageUrls,
+                onProductResult: (value) => {
+                  product.current = value
+                },
+                agentJob: { id: job.id, claim: job.claim_token },
               },
-              agentJob: { id: job.id, claim: job.claim_token },
-            },
-            undefined,
-            true,
-          )
-        } catch (error) {
-          reason = (error as { code?: string })?.code ?? 'AI_PROVIDER_FAILED'
-          if (isPaymentQuestion(m.text))
-            console.log('[DEBUG_AI_TRACE]', {
-              stage: 'ai_generation',
-              message: redactAgentText(m.text).slice(0, 160),
-              intent: 'payment',
-              customerId: m.customer.id,
-              tenantId: m.tenant.id,
-              hasOrders: null,
-              error: reason,
-            })
-          text = [
-            'AGENT_POLICY_HANDOFF',
-            'AGENT_INPUT_REQUIRES_REVIEW',
-            'AGENT_SENSITIVE_KNOWLEDGE',
-          ].includes(reason)
-            ? HANDOVER_TOKEN
-            : null
+              undefined,
+              true,
+            )
+          } catch (error) {
+            reason = (error as { code?: string })?.code ?? 'AI_PROVIDER_FAILED'
+            if (isPaymentQuestion(m.text))
+              console.log('[DEBUG_AI_TRACE]', {
+                stage: 'ai_generation',
+                message: redactAgentText(m.text).slice(0, 160),
+                intent: 'payment',
+                customerId: m.customer.id,
+                tenantId: m.tenant.id,
+                hasOrders: null,
+                error: reason,
+              })
+            text = [
+              'AGENT_POLICY_HANDOFF',
+              'AGENT_INPUT_REQUIRES_REVIEW',
+              'AGENT_SENSITIVE_KNOWLEDGE',
+            ].includes(reason)
+              ? HANDOVER_TOKEN
+              : null
+          }
         }
         if (text === HANDOVER_TOKEN) {
           route = 'FALLBACK'
