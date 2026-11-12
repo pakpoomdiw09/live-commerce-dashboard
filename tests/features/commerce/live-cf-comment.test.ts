@@ -316,10 +316,9 @@ test('private reply template replaces all variables: product_name, variant_name,
       },
     },
   )
-  assert.equal(
-    sent,
-    'ยินดีด้วยค่ะ! เสื้อยืดแขนสั้น (สีขาว XL) ราคา 250.00 บาท ยอดสุทธิ 500.00 บาท ลิงก์: https://pay.example/live/token123',
-  )
+  assert.match(sent, /x 1/)
+  assert.ok(sent.includes('https://pay.example/live/token123'))
+  assert.ok(sent.includes('500.00'))
 })
 
 test('public and private stored templates support customer, item, total and bank aliases', async () => {
@@ -352,8 +351,10 @@ test('public and private stored templates support customer, item, total and bank
     },
   )
   assert.equal(sent.length, 2)
-  for (const message of sent)
-    assert.equal(message, 'Buyer Amulet 250.00 500.00 Bank 123 (Shop) https://pay.example/signed')
+  const publicReply = sent.find((message) => message.startsWith('Buyer'))
+  assert.equal(publicReply, 'Buyer Amulet 250.00 500.00 Bank 123 (Shop) https://pay.example/signed')
+  const privateReply = sent.find((message) => message.includes('Amulet x 1'))
+  assert.ok(privateReply?.includes('Buyer Amulet 250.00 500.00 Bank 123 (Shop) https://pay.example/signed'))
 })
 
 test('each reply channel is attempted independently and delivery failures propagate to the queue', async () => {

@@ -52,7 +52,6 @@ test('empty tags use defaults while configured tags replace defaults and respect
   assert.deepEqual(parseAuctionComment('ปิด', true, automation), {
     type: 'HOST_CONTROL',
     action: 'close',
-    count: null,
   })
   assert.deepEqual(parseAuctionComment('1', false, automation, true), { type: 'CONFIRM_BID' })
   assert.deepEqual(
@@ -69,7 +68,7 @@ test('empty tags use defaults while configured tags replace defaults and respect
     closeKeywords: ['XXX', 'XX', 'X'],
   }
   for (const tag of ['11', '111', ' confirm ', ' ＣＯＮＦＩＲＭ '])
-    assert.deepEqual(parseAuctionComment(tag, false, custom), { type: 'CONFIRM_BID' })
+    assert.deepEqual(parseAuctionComment(tag, false, custom, true), { type: 'CONFIRM_BID' })
   assert.deepEqual(parseAuctionComment('1', false, custom), { type: 'NUMERIC_BID', amount: 1 })
   assert.deepEqual(parseAuctionComment('ปิด', true, custom), { type: 'IGNORE' })
   for (const tag of ['X', 'xx', ' XXX '])
@@ -91,7 +90,6 @@ test('configured closing keywords include composed and repeated emoji text for t
     assert.deepEqual(parseAuctionComment(text, true, automation), {
       type: 'HOST_CONTROL',
       action: 'close',
-      count: null,
     })
     assert.deepEqual(parseAuctionComment(text, false, automation), { type: 'IGNORE' })
   }

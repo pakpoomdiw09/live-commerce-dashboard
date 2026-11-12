@@ -22,7 +22,7 @@ const payload = (value: Record<string, unknown>, field = 'feed') =>
       entry: [{ id: '100', changes: [{ field, value }] }],
     }),
   )
-const silent = { log() {}, info() {}, warn() {}, error() {} }
+const silent = { log() {}, debug() {}, info() {}, warn() {}, error() {} }
 
 function clientFixture(fetch: typeof globalThis.fetch) {
   const errors: string[] = []
@@ -343,7 +343,9 @@ function handlerFixture(
         order: () => query,
         maybeSingle: async () => ({
           data:
-            table === 'tenants' ? { id: 'tenant', page_id: '100', page_access_token: token } : null,
+            table === 'tenants'
+              ? { id: 'tenant', page_id: '100', page_access_token: token, send_payment_link: true }
+              : null,
           error: null,
         }),
         then: (resolve: (value: unknown) => unknown) =>
@@ -652,7 +654,11 @@ test('invalid signatures do not log customer payloads; verified ingress diagnost
     {
       URL,
       process: { env: { FB_APP_SECRET: secret } },
-      console: { ...silent, log: (...args: unknown[]) => logs.push(JSON.stringify(args)) },
+      console: {
+        ...silent,
+        log: (...args: unknown[]) => logs.push(JSON.stringify(args)),
+        debug: (...args: unknown[]) => logs.push(JSON.stringify(args)),
+      },
     },
   )
   const body = payload({

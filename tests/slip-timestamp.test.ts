@@ -121,8 +121,9 @@ function fixture(
       '@/lib/features/commerce/orders': ordersApi,
       '@/lib/features/slips/receiver-matching': matching,
       '@/lib/features/slips/slip-timestamp': timestamps,
-      '@/lib/features/slips/slipok': {
-        verifyWithSlipOK: async ({ expectedAmount }: { expectedAmount: number }) => {
+      '@/lib/features/payments/payment-validation': { isPaymentImage: () => true },
+      '@/lib/features/slips/verification': {
+        verifySlip: async ({ expectedAmount }: { expectedAmount: number }) => {
           providerCalls++
           return {
             verdict: options.verdict ?? 'valid',
@@ -135,7 +136,7 @@ function fixture(
         },
       },
     },
-    { process: { env: { NODE_ENV: 'production' } }, console: { error() {} } },
+    { process: { env: { NODE_ENV: 'production' } }, console: { error() {}, info() {} } },
   )
   return {
     mutations,

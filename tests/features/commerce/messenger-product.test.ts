@@ -7,6 +7,7 @@ import { parseWebhook } from '../../../lib/integrations/facebook/webhook-envelop
 import {
   facebookInboundMessage,
   facebookMessageEcho,
+  isFacebookSystemDisclosure,
 } from '../../../lib/integrations/facebook/message-window'
 import {
   buildProductReply,
@@ -414,7 +415,11 @@ function webhookHarness(
       '@/lib/features/follow-ups/followup-ai': { observeFollowUpMessage: async () => {} },
       '@/lib/features/vision/vision': { queueMessengerVision: async () => false },
       '@/lib/features/broadcast/broadcast-policy': { inboundBroadcastEvidence: () => null },
-      '@/lib/integrations/facebook/message-window': { facebookInboundMessage, facebookMessageEcho },
+      '@/lib/integrations/facebook/message-window': {
+        facebookInboundMessage,
+        facebookMessageEcho,
+        isFacebookSystemDisclosure,
+      },
       '@/lib/features/inbox/inbox-automation-window': {
         InboxAutomationWindowError: class extends Error {},
       },

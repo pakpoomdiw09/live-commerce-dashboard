@@ -1164,7 +1164,7 @@ async function onComment(
             (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
           getPaymentLink: (orderId) =>
             tenant.send_payment_link ? createLiveCfPaymentLink(orderId) : null,
-          includePaymentLink: tenant.send_payment_link,
+          includePaymentLink: tenant.send_payment_link === true,
           getCumulativeBill: async (orderId) => {
             const { tabForOrder, customerTabSummary } =
               await import('@/lib/features/commerce/customer-tabs-server')
@@ -1287,7 +1287,7 @@ async function onComment(
             (await pendingOrders(db, stored.customer!.id, tenant.id)).total,
           getPaymentLink: (orderId) =>
             tenant.send_payment_link ? createLiveCfPaymentLink(orderId) : null,
-          includePaymentLink: tenant.send_payment_link,
+          includePaymentLink: tenant.send_payment_link === true,
           privateTemplate: settings.private_reply_template as string | undefined,
           publicTemplate: settings.public_reply_template as string | undefined,
           customerName: v.from?.name ?? '',

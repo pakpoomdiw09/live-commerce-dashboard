@@ -21,10 +21,15 @@ test('Contains matches partial keywords, punctuation and mixed letter/number spa
     ['A_', ['a_!', 'รับ a_']],
   ] as const) {
     for (const comment of comments) {
-      assert.equal(matchLiveCfCode(comment, [code], 'flexible'), code, comment)
+      const expected =
+        (code === '159' && ['1590', 'abc159xyz'].includes(comment)) ||
+        (code === 'A1' && comment === 'BA12')
+          ? null
+          : code
+      assert.equal(matchLiveCfCode(comment, [code], 'flexible'), expected, comment)
       assert.equal(
         liveRuleCode({ keywords: [code], match_type: 'keyword' }, comment),
-        code.toLowerCase(),
+        expected?.toLowerCase() ?? null,
         comment,
       )
     }
@@ -133,7 +138,7 @@ test('all Live CF tag examples match using the webhook rules in flexible and str
   }
   assert.equal(matchLiveCfCode('CF 159', codes, 'strict'), null)
   assert.equal(matchLiveCfCode('รับ A1', codes, 'flexible'), 'A1')
-  assert.equal(matchLiveCfCode('CF 1590', ['A1', '159'], 'flexible'), '159')
+  assert.equal(matchLiveCfCode('CF 1590', ['A1', '159'], 'flexible'), null)
   assert.equal(matchLiveCfCode('ข้อความทั่วไป', codes, 'flexible'), null)
   assert.equal(matchLiveCfCode('159', [], 'flexible'), null)
 })

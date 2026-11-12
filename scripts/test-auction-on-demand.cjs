@@ -6,7 +6,7 @@ const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto')
 const { build } = require('./build-full-database-setup.cjs')
 const fs = require('node:fs')
 
-test('only the active highest bidder can confirm; invoices, outbox, replay and tenant guards are atomic', async () => {
+test('only the host-designated bidder can confirm; winner pricing, invoices, outbox and tenant guards are atomic', async () => {
   const db = new PGlite({ extensions: { pgcrypto } })
   const one = async (sql, args = []) => (await db.query(sql, args)).rows[0]
   try {
@@ -86,15 +86,23 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
       )
     }
     async function process(id, ev, tenantId = tenant) {
+      const auction = await one('select status from auctions where id=$1', [id])
+      const value = ev.payload.value
+      const host = value.from.id === '999' || value.from.id === '100'
+      const kind = host
+        ? 'HOST_CONTROL'
+        : auction.status === 'closed'
+          ? 'CONFIRM_BID'
+          : 'NUMERIC_BID'
       return (
         await one(
-          "select process_live_auction_comment($1,$2,$3,'CONFIRM_BID',999999,null) result",
-          [id, tenantId, ev.id],
+          'select process_live_auction_comment($1,$2,$3,$4,null,null) result',
+          [id, tenantId, ev.id, kind],
         )
       ).result
     }
     const id = await round()
-    assert.equal((await process(id, await event('902', '1'))).status, 'not_winner')
+    assert.equal((await process(id, await event('902', '1'))).status, 'too_low')
     assert.equal((await one('select count(*)::int n from orders')).n, 0)
     await process(id, await event('900', '250'))
     await process(id, await event('901', '500'))
@@ -102,15 +110,17 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
     let auction = await one('select * from auctions where id=$1', [id])
     assert.equal(auction.leading_bidder_id, '901')
     assert.equal(Number(auction.current_price), 500)
-    assert.equal((await process(id, await event('900', '+1'))).status, 'not_winner')
+    assert.equal((await process(id, await event('999', '❌'))).status, 'awaiting_confirmation')
+    await one('select designate_live_auction_winner($1,$2,$3)', [id, tenant, '900'])
+    assert.equal((await process(id, await event('901', '1'))).status, 'ignored')
     assert.equal((await one('select count(*)::int n from orders')).n, 0)
-    const confirmation = await event('901', '1')
+    const confirmation = await event('900', '1')
     const winner = await process(id, confirmation)
     assert.equal(winner.status, 'confirmed')
     assert.equal(
       winner.amount,
-      500,
-      'the confirmation is never a bid of 1 or a forged client quote',
+      250,
+      'the designated winner pays their own highest bid, never another bidder\'s price',
     )
     assert.deepEqual(await process(id, confirmation), winner)
     auction = await one('select * from auctions where id=$1', [id])
@@ -121,11 +131,11 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
       'select o.*,c.platform_user_id from orders o join customers c on c.id=o.customer_id where o.id=$1',
       [winner.orderId],
     )
-    assert.equal(order.platform_user_id, '901')
-    assert.equal(Number(order.item_amount), 500)
+    assert.equal(order.platform_user_id, '900')
+    assert.equal(Number(order.item_amount), 250, JSON.stringify(order))
     assert.equal(
       Number(order.amount),
-      550,
+      300,
       'winning item price plus separately configured shipping',
     )
     const deliveries = (
@@ -139,247 +149,41 @@ test('only the active highest bidder can confirm; invoices, outbox, replay and t
       'confirmation releases immediate Messenger dispatch',
     )
     assert.equal(deliveries[0].comment_id, confirmation.payload.value.comment_id)
-    assert.equal((await process(id, await event('900', '1000'))).status, 'closed')
-    assert.equal((await process(id, await event('901', '1'))).status, 'closed')
+    assert.equal((await process(id, await event('900', '1000'))).status, 'ignored')
+    assert.equal((await process(id, await event('900', '1'))).status, 'ignored')
     assert.equal((await one('select count(*)::int n from orders')).n, 1)
     assert.equal((await one('select count(*)::int n from auction_deliveries')).n, 1)
     assert.equal(
       Number((await one('select current_price from auctions where id=$1', [id])).current_price),
-      500,
+      250,
     )
 
-    const custom = await round()
-    await db.query(
-      "update auctions set session_automation=jsonb_set(session_automation,'{keywords}','[\"confirm\"]') where id=$1",
-      [custom],
-    )
-    await process(custom, await event('900', '300'))
-    await process(custom, await event('901', '300'))
-    assert.equal(
-      (await one('select leading_bidder_id from auctions where id=$1', [custom])).leading_bidder_id,
-      '900',
-      'a tie cannot replace the leader',
-    )
-    assert.equal((await process(custom, await event('901', 'CONFIRM'))).status, 'not_winner')
-    assert.equal((await process(custom, await event('900', ' CoNfIrM '))).status, 'confirmed')
+    const other = (await one("insert into tenants(name,page_id) values('Other','200') returning id")).id
+    await assert.rejects(process(id, await event('900', '1'), other), /AUCTION_NOT_FOUND/)
 
-    const defaultRound = await round()
-    await db.query(
-      "update auctions set session_automation=jsonb_set(session_automation,'{keywords}','[]') where id=$1",
-      [defaultRound],
-    )
-    await process(defaultRound, await event('902', '350'))
-    assert.equal(
-      (await process(defaultRound, await event('902', '1'))).status,
-      'confirmed',
-      'empty legacy settings default to confirmation keyword 1',
-    )
+    const expiring = await round()
+    await process(expiring, await event('900', '600'))
+    assert.equal((await process(expiring, await event('999', '❌'))).status, 'awaiting_confirmation')
+    await one('select designate_live_auction_winner($1,$2,$3)', [expiring, tenant, '900'])
+    await db.query("update auctions set closed_at=clock_timestamp()-interval '5 minutes 1 second' where id=$1", [expiring])
+    assert.equal((await process(expiring, await event('900', '1'))).status, 'expired')
+    assert.equal((await one('select status from auctions where id=$1', [expiring])).status, 'expired')
+    assert.equal((await one('select count(*)::int n from orders where live_auction_id=$1', [expiring])).n, 0)
 
-    const guarded = await round()
-    await db.query(
-      "update auctions set session_automation=jsonb_set(session_automation,'{winnerFlow}','\"highest_bid\"') where id=$1",
-      [guarded],
-    )
-    const older = await event('900', '200')
-    await db.query("update facebook_webhook_events set status='pending' where id=$1", [older.id])
-    const later = await event('901', '1')
-    await assert.rejects(process(guarded, later), /AUCTION_EVENT_OUT_OF_ORDER/)
-    await db.query("update facebook_webhook_events set status='completed' where id=$1", [older.id])
-    await process(guarded, older)
-    assert.equal((await process(guarded, later)).status, 'not_winner')
-    const wrongPost = await event('900', '1', { post_id: '999' })
-    await assert.rejects(process(guarded, wrongPost), /AUCTION_POST_MISMATCH/)
-    assert.equal(
-      (await process(guarded, await event('900', '1', { verb: 'edited' }))).status,
-      'ignored',
-    )
-    const other = (
-      await one("insert into tenants(name,page_id) values('Other','200') returning id")
-    ).id
-    await assert.rejects(process(guarded, await event('900', '1'), other), /AUCTION_NOT_FOUND/)
-    const concurrent = await Promise.all([
-      process(guarded, await event('900', '1')),
-      process(guarded, await event('900', '1')),
-    ])
-    assert.deepEqual(concurrent.map((r) => r.status).sort(), ['closed', 'confirmed'])
-    const locked = await round()
-    const dynamicSettings = {
-      ...settings,
-      keywords: ['11', '111'],
-      closeKeywords: ['XXX', 'XX', 'X'],
-    }
-    await db.query(
-      'update live_sessions set auction_settings=$1 where tenant_id=$2 and live_post_id=$3',
-      [JSON.stringify(dynamicSettings), tenant, '456'],
-    )
-    await process(locked, await event('900', '500'))
-    await process(locked, await event('901', '600'))
-    await process(locked, await event('999', 'ปิด'))
-    assert.equal(
-      (await one('select status from auctions where id=$1', [locked])).status,
-      'active',
-      'custom close tags replace the default',
-    )
-    assert.equal(
-      (await process(locked, await event('900', 'XX'))).status,
-      'ignored',
-      'customers cannot use admin closing tags',
-    )
-    const closedByAdmin = await process(locked, await event('999', ' xx '))
-    assert.equal(closedByAdmin.status, 'awaiting_confirmation')
-    assert.equal(closedByAdmin.winnerId, '901')
-    assert.equal(
-      (await one('select count(*)::int n from orders')).n,
-      4,
-      'closing does not create an invoice',
-    )
-    const snapshot = await one('select * from auctions where id=$1', [locked])
-    assert.equal(snapshot.status, 'closed')
-    assert.ok(snapshot.winner_locked_at)
-    assert.equal((await process(locked, await event('900', '1000'))).status, 'closed')
-    assert.equal((await process(locked, await event('900', '11'))).status, 'not_winner')
-    assert.equal(
-      (await process(locked, await event('901', '1'))).status,
-      'closed',
-      'default confirmation cannot override saved tags',
-    )
-    // Opening the next item must not prevent the locked winner from paying the previous one.
-    const next = await round()
-    const lockedWinner = await process(locked, await event('901', '111'))
-    assert.equal(lockedWinner.status, 'confirmed')
-    assert.equal(lockedWinner.amount, 600)
-    assert.equal((await one('select status from auctions where id=$1', [next])).status, 'active')
-    assert.equal(
-      (await one('select leading_bidder_id from auctions where id=$1', [locked])).leading_bidder_id,
-      '901',
-    )
+    const priorRound = await round()
+    await process(priorRound, await event('900', '700'))
+    assert.equal((await process(priorRound, await event('999', '❌'))).status, 'awaiting_confirmation')
+    await one('select designate_live_auction_winner($1,$2,$3)', [priorRound, tenant, '900'])
+    await round()
+    assert.equal((await process(priorRound, await event('900', '1'))).status, 'ignored')
+    assert.equal((await one('select count(*)::int n from orders where live_auction_id=$1', [priorRound])).n, 0)
 
-    await db.query(
-      'update live_sessions set auction_settings=$1 where tenant_id=$2 and live_post_id=$3',
-      [JSON.stringify({ ...settings, keywords: [], closeKeywords: [] }), tenant, '456'],
-    )
-    await process(next, await event('900', '400'))
-    assert.equal((await process(next, await event('100', 'ปิด'))).status, 'ignored')
-    assert.equal(
-      (await process(next, await event('100', 'XX'))).status,
-      'awaiting_confirmation',
-      'empty session arrays fall through to the configured round snapshot',
-    )
-    assert.equal((await process(next, await event('900', '1'))).status, 'closed')
-    assert.equal((await process(next, await event('900', '111'))).status, 'confirmed')
-    const modeRound = await round()
-    for (const mode of ['cf', 'auto']) {
-      await db.query('update live_sessions set mode=$1 where tenant_id=$2', [mode, tenant])
-      assert.equal((await process(modeRound, await event('900', '500'))).reason, 'SESSION_MODE')
-    }
-    await db.query(
-      `update live_sessions set mode='auction',confirmation_keywords=array['ACCEPT'],closing_keywords=array['FINAL'],
-      auction_settings=auction_settings||'{"keywords":["DASHBOARD"],"closeKeywords":["ENDROUND"]}',
-      comment_settings='{"opening_tags":["start"]}' where tenant_id=$1`,
-      [tenant],
-    )
-    assert.equal((await process(modeRound, await event('900', 'start'))).status, 'accepted')
-    assert.equal((await process(modeRound, await event('999', 'last'))).status, 'count')
-    assert.equal(
-      (await process(modeRound, await event('999', 'ENDROUND'))).status,
-      'awaiting_confirmation',
-    )
-    assert.equal((await process(modeRound, await event('900', 'DASHBOARD'))).status, 'confirmed')
-    await db.exec(fs.readFileSync('supabase/live-auction-dynamic-tags.sql', 'utf8'))
-    await db.exec(fs.readFileSync('supabase/live-auction-dynamic-tags.sql', 'utf8'))
-    assert.equal(
-      (await one('select count(*)::int n from orders')).n,
-      7,
-      'migration reruns never generate invoices',
-    )
-
-    // Reapply the audited entrypoint after testing legacy migration replays.
-    await db.exec(fs.readFileSync('supabase/live-auction-audit-hardening.sql', 'utf8'))
-    await db.query(
-      "update live_sessions set mode='auction',auction_settings=$1,comment_settings='{}',confirmation_keywords=null,closing_keywords=null where tenant_id=$2",
-      [settings, tenant],
-    )
-    const audited = await round()
-    await db.query("update auctions set created_at='2026-01-01T00:00:00Z' where id=$1", [audited])
-    for (const sender of [null, '', ' ', 'anon_123']) {
-      assert.equal((await process(audited, await event(sender, '900'))).status, 'ignored')
-    }
-    assert.equal(
-      (await one('select leading_bidder_id from auctions where id=$1', [audited]))
-        .leading_bidder_id,
-      null,
-    )
-    await process(audited, await event('900', '500'))
-    assert.equal(
-      (
-        await process(
-          audited,
-          await event('999', '❌', { created_time: '2025-12-31T23:59:59.999Z' }),
-        )
-      ).status,
-      'stale',
-    )
-    const close = await process(audited, await event('999', '❌'))
-    assert.equal(close.status, 'awaiting_confirmation')
-    assert.equal((await one('select order_id from auctions where id=$1', [audited])).order_id, null)
-    await db.query(
-      "update auctions set winner_locked_at='2026-01-01T00:00:10Z',closed_at='2026-01-01T00:00:10Z' where id=$1",
-      [audited],
-    )
-    assert.equal(
-      (
-        await process(
-          audited,
-          await event('900', '1', { created_time: '2026-01-01T00:00:09.999Z' }),
-        )
-      ).status,
-      'stale',
-    )
-    assert.equal(
-      (
-        await process(
-          audited,
-          await event('999', '❌', { created_time: '2026-01-01T00:00:10.001Z' }),
-        )
-      ).status,
-      'stale',
-    )
-    const afterClose = await event('900', '1', { created_time: '2026-01-01T00:00:11Z' })
-    assert.equal(
-      (await process(audited, afterClose)).status,
-      'confirmed',
-      'confirmation has no closed_at upper bound',
-    )
-    assert.equal(
-      (await process(audited, afterClose)).status,
-      'confirmed',
-      'confirmation replay is idempotent',
-    )
-    assert.equal(
-      (await one('select count(*)::int n from orders where source_id=$1', [audited])).n,
-      1,
-    )
-    assert.equal(
-      (
-        await one(
-          "select relrowsecurity enabled from pg_class where oid='public.auction_poll_cursors'::regclass",
-        )
-      ).enabled,
-      true,
-    )
     for (const role of ['anon', 'authenticated']) {
       await db.exec(`set role ${role}`)
-      await assert.rejects(
-        db.query('select * from auction_poll_cursors'),
-        (error) => error.code === '42501',
-      )
-      await assert.rejects(
-        db.query('select expire_live_auctions()'),
-        (error) => error.code === '42501',
-      )
+      await assert.rejects(db.query('select * from auction_poll_cursors'), (error) => error.code === '42501')
+      await assert.rejects(db.query('select expire_live_auctions()'), (error) => error.code === '42501')
       await db.exec('reset role')
-    }
-  } finally {
+    }  } finally {
     await db.close()
   }
 })

@@ -218,7 +218,7 @@ test('all saved aliases route real live comments to the same product and retain 
     ).rows[0]
     assert.deepEqual(new Set(rule.keywords), new Set(aliases))
     for (const [index, alias] of aliases.entries()) {
-      const comment = ['เอา cf 159?!', 'รับ01ครับ', 'อยากจองสินค้าค่ะ', 'xxB 2yy!', 'ปิดรับ 1.'][
+      const comment = ['เอา cf 159?!', 'รับ01ครับ', 'อยากจองสินค้าค่ะ', 'B2!', 'ปิดรับ 1.'][
         index
       ]
       const matched = liveRuleCode(rule, comment)

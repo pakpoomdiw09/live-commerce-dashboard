@@ -89,7 +89,9 @@ test('canonical session tags override aliases, normalize Unicode and use central
       ...settings,
       closeEnabled: true,
       heartCloses: false,
-    }).type,
+    },
+    true,
+  ).type,
     'CONFIRM_BID',
   )
   const refreshed = resolveCommentSettings(

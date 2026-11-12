@@ -161,6 +161,7 @@ const groups = [
       'migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql',
       'migrations/20261112110000_zwiz_central_slip_quota.sql',
       'migrations/20261113100000_comment_rule_post_scope.sql',
+      'migrations/20261113110000_live_auction_order_designated_price.sql',
     ],
   ],
 ]
@@ -238,6 +239,9 @@ const prerequisites = {
   ],
   'migrations/20261112110000_zwiz_central_slip_quota.sql': ['payment-pro.sql'],
   'migrations/20261113100000_comment_rule_post_scope.sql': ['comment-rules.sql'],
+  'migrations/20261113110000_live_auction_order_designated_price.sql': [
+    'migrations/20261111090000_live_auction_order_scope.sql',
+  ],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],
   'customer-tabs.sql': ['live-auctions.sql', 'live-cf-customer-variants.sql'],
@@ -392,6 +396,9 @@ const prerequisites = {
   ],
   'live-auction-dynamic-tags.sql': ['live-auction-highest-confirmation.sql'],
   'facebook-comment-configuration.sql': ['live-auction-dynamic-tags.sql', 'live-cf-order-post.sql'],
+  'migrations/20261113110000_live_auction_order_designated_price.sql': [
+    'migrations/20261111090000_live_auction_order_scope.sql',
+  ],
 }
 
 function validateOrder(sources) {
@@ -479,6 +486,7 @@ function build(root = path.resolve(__dirname, '..')) {
             'migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql',
             'migrations/20261112110000_zwiz_central_slip_quota.sql',
             'migrations/20261113100000_comment_rule_post_scope.sql',
+            'migrations/20261113110000_live_auction_order_designated_price.sql',
           ].includes(f)),
     )
     .filter((f) => !['full_database_setup.sql', 'complete_schema.sql'].includes(f))

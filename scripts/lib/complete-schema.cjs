@@ -98,8 +98,14 @@ function completeSchema(result) {
       effectiveSql.push(statement.sql)
       // Older ledger vocabularies must not reject rows introduced by a later migration.
       const sql = sourceConstraints.get(sourceConstraintIdentity(statement.sql)) ?? statement.sql
-      const execute = `execute ${dollar(sql, `sql_${sectionIndex}_${statement.number}`)};`
       const identity = functionIdentity(statement.sql)
+      // A fresh bundle can contain an initial CREATE FUNCTION and later
+      // definitions with the same signature. Use CREATE OR REPLACE for the
+      // superseded definition so migrations execute in order on a clean DB.
+      const installSql = identity
+        ? statement.sql.replace(/^create\s+function\b/i, 'create or replace function')
+        : statement.sql
+      const execute = `execute ${dollar(installSql, `sql_${sectionIndex}_${statement.number}`)};`
       commands.push(
         `-- ${section.file}: source statement ${statement.number}\n` +
           (identity && lastDefinition.get(identity) > statementIndex

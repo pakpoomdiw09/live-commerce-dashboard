@@ -8,10 +8,20 @@ module.exports = function loadTypeScript(file, dependencies = {}, globals = {}) 
   const context = {
     exports: {},
     require(name) {
+      if (Object.hasOwn(dependencies, name)) return dependencies[name]
       if (name === '@/lib/features/commerce/comment-config' || name === './comment-config')
         return module.exports('lib/features/commerce/comment-config.ts', {}, globals)
+      if (name === '@/lib/features/commerce/live-cf-codes')
+        return module.exports(
+          'lib/features/commerce/live-cf-codes.ts',
+          {
+            './cf-code': module.exports('lib/features/commerce/cf-code.ts', {}, globals),
+          },
+          globals,
+        )
+      if (name === '@/lib/features/agents/agent-control-core')
+        return { isPaymentQuestion: () => false, redactAgentText: (value) => value }
       if (name === '@/lib/single-flight') return module.exports('lib/single-flight.ts', {}, globals)
-      if (Object.hasOwn(dependencies, name)) return dependencies[name]
       if (name === '@/lib/features/inbox/inbox-diagnostics') return { logInboxError() {} }
       if (name === '@/lib/features/overview/overview-diagnostics') return { logOverviewError() {} }
       // Legacy entitlement tests exercise enforcement with the temporary mode OFF.

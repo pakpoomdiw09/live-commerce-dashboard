@@ -168,6 +168,10 @@ function verifierFixture(
                 data: options.priorImage ? { id: 'accepted-proof' } : null,
                 error: options.ledgerError ? { code: options.ledgerError } : null,
               },
+        single: async () => ({
+          data: { id: 'saved-slip' },
+          error: insert && options.insertError ? { code: options.insertError } : null,
+        }),
         then(resolve: (result: object) => unknown, reject: (error: unknown) => unknown) {
           return Promise.resolve({
             data:
@@ -200,6 +204,8 @@ function verifierFixture(
       'node:crypto': { createHash },
       '@/lib/feature-access': { requireFeature: async () => {} },
       '@/lib/features/slips/slipok': {
+        slipVerificationProvider: () => 'slipok',
+        usesCentralZwizQuota: () => false,
         verifyWithSlipOK: async (input: { log: boolean; expectedAmount?: unknown }) => {
           calls.provider++
           assert.equal(input.log, true)
@@ -229,7 +235,7 @@ function verifierFixture(
         validateStandaloneSlip,
       },
     },
-    { Buffer, console: { error() {} } },
+    { Buffer, console: { error() {}, info() {} } },
   )
   return {
     calls,
@@ -282,7 +288,11 @@ test('provider faults refund one credit; rejected or expired customer proofs are
     const f = verifierFixture(settings)
     assert.equal((await f.run()).success, false)
     assert.equal(f.calls.refund, 1)
-    assert.equal(f.calls.writes.length, 0)
+    if (settings.throwProvider) assert.equal(f.calls.writes.length, 0)
+    else {
+      assert.equal(f.calls.writes.length, 1)
+      assert.equal(f.calls.writes[0].status, 'error')
+    }
   }
   for (const result of [
     proof({ verdict: 'fake' }),

@@ -218,7 +218,7 @@ test('broadcastReadiness blocks sends until environment and review checks are sa
     ready: false,
     reason: 'sending_disabled',
     message:
-      'ร้านนี้ยังไม่ได้เปิดส่งบรอดแคสต์ บันทึกฉบับร่างไว้ก่อนและให้เจ้าของร้านตรวจสอบการตั้งค่าการส่ง',
+      'ร้านนี้ยังไม่ได้เปิดส่งบรอดแคสต์ บันทึกฉบับร่างไว้ก่อนและให้เจ้าของร้านตรวจสอบการตั้งค่าการส่ง (required: BROADCAST_STANDARD_SEND_ENABLED=true)',
   })
 
   process.env.BROADCAST_STANDARD_SEND_ENABLED = 'true'
@@ -229,7 +229,8 @@ test('broadcastReadiness blocks sends until environment and review checks are sa
   assert.deepEqual(broadcastReadiness(now), {
     ready: false,
     reason: 'review_version_mismatch',
-    message: 'การตั้งค่าการส่งยังไม่ตรงกับระบบปัจจุบัน กรุณาให้ผู้ดูแลตรวจสอบก่อนส่ง',
+    message:
+      'การตั้งค่าการส่งยังไม่ตรงกับระบบปัจจุบัน กรุณาให้ผู้ดูแลตรวจสอบก่อนส่ง (required: BROADCAST_POLICY_VERSION=standard-inbound-24h-v1; BROADCAST_POLICY_GRAPH_VERSION must match FB_GRAPH_VERSION)',
   })
 
   process.env.BROADCAST_POLICY_GRAPH_VERSION = 'v24.0'

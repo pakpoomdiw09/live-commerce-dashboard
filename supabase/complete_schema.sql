@@ -2411,7 +2411,7 @@ execute $sql_20_8$alter table public.payment_transfer_ledger drop constraint if 
 
 -- billing-auto-approval.sql: source statement 9
 execute $sql_20_9$alter table public.payment_transfer_ledger add constraint payment_transfer_ledger_source_check
-  check(source in ('package','sale','billing','standalone'))$sql_20_9$;
+  check (source in ('package','sale','billing'))$sql_20_9$;
 
 -- billing-auto-approval.sql: source statement 10
 execute $sql_20_10$create table if not exists public.payment_image_ledger (
@@ -5931,7 +5931,7 @@ execute $sql_46_22$drop function if exists public.start_payment_pro_provider(uui
 
 -- payment-pro.sql: source statement 23
 begin
-execute $sql_46_23$create function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid,p_metered boolean default true) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_23$create or replace function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid,p_metered boolean default true) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt;
@@ -19748,6 +19748,7 @@ begin
     return;
   end if;
 -- migrations/20261111090000_live_auction_order_scope.sql: source statement 2
+begin
 execute $sql_131_2$create or replace function public.attach_customer_tab_order() returns trigger
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare c public.customers; a public.auctions; r public.comment_rules; sess uuid; bill public.customer_tabs;
@@ -19823,6 +19824,10 @@ begin
  end if;
  return new;
 end $$$sql_131_2$;
+exception when invalid_function_definition then
+  -- A newer signature of attach_customer_tab_order() is already installed. Its final definition below is mandatory.
+  null;
+end;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('migrations/20261111090000_live_auction_order_scope.sql','a189edc4a98cc0fece659f0d195d3ecb22121f19e44a43f82f688beee39e9b86','7f3c3b9452dd84f295ddac82dc81454f3f6a29c7177f8f22a5c9020aa428ebfa');
 end $migration_131$;
@@ -20122,7 +20127,7 @@ begin
 execute $sql_135_2$drop function if exists public.start_payment_pro_provider(uuid, uuid)$sql_135_2$;
 
 -- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 3
-execute $sql_135_3$create function public.start_payment_pro_provider(
+execute $sql_135_3$create or replace function public.start_payment_pro_provider(
   p_attempt uuid,
   p_claim uuid,
   p_metered boolean default true
@@ -20322,6 +20327,97 @@ execute $sql_136_9$notify pgrst, 'reload schema'$sql_136_9$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('migrations/20261113100000_comment_rule_post_scope.sql','c4da6ad967055c3ef3579dc988925ca19730bbc6b3cd24961d763f81d364a6a7','2f42bd4e7486aec2793b8d0176ee4f1b58ad8a3b6e071077d7fde2a12c96b1cf');
 end $migration_136$;
+
+-- 138. migrations/20261113110000_live_auction_order_designated_price.sql
+do $migration_137$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='migrations/20261113110000_live_auction_order_designated_price.sql';
+  if found then
+    if installed <> 'e3cdbd6d495f501125a40830dbcc3d46b396d937275e38390f9ec0ca45a5f4e0' then
+      raise exception 'Applied migration changed: migrations/20261113110000_live_auction_order_designated_price.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- migrations/20261113110000_live_auction_order_designated_price.sql: source statement 2
+execute $sql_137_2$create or replace function public.attach_customer_tab_order() returns trigger
+language plpgsql security definer set search_path=pg_catalog,public as $$
+declare c public.customers; a public.auctions; r public.comment_rules; sess uuid; bill public.customer_tabs;
+ page text; post text; shipping numeric:=0; bank uuid; unit numeric; subtotal_value numeric;
+begin
+ if current_setting('app.refreshing_customer_tab',true)='1' then return new;end if;
+ if tg_op='UPDATE' then
+  if old.customer_tab_id is null then return new;end if;
+  if new.customer_tab_id is distinct from old.customer_tab_id or new.tenant_id<>old.tenant_id or new.customer_id<>old.customer_id
+   or new.live_session_id is distinct from old.live_session_id then raise exception 'TAB_ORDER_SCOPE_IMMUTABLE';end if;
+  if new.status='cancelled' and old.paid_amount>0 then raise exception 'TAB_REFUND_REQUIRES_REVIEW';end if;
+  if new.status in ('paid','shipped') and new.paid_amount<new.amount then raise exception 'TAB_PAYMENT_NOT_COVERED';end if;
+  if new.paid_amount<>old.paid_amount then raise exception 'TAB_PAYMENT_LEDGER_REQUIRED';end if;
+  if new.amount<>old.amount then
+   if new.variant_id is distinct from old.variant_id then
+    new.subtotal:=new.amount;new.item_amount:=new.subtotal;
+    new.item_price:=round(new.subtotal/new.quantity,2);
+    new.amount:=new.subtotal+(old.amount-old.item_amount);
+   else
+    new.subtotal:=old.subtotal+(new.amount-old.amount);
+    new.item_amount:=new.subtotal;
+    new.item_price:=round(new.subtotal/new.quantity,2);
+   end if;
+  elsif new.quantity is distinct from old.quantity or new.item_price is distinct from old.item_price then
+   new.subtotal:=new.quantity*new.item_price;new.item_amount:=new.subtotal;
+   new.amount:=new.subtotal+(old.amount-old.item_amount);
+  end if;
+  return new;
+ end if;
+ if coalesce(new.source,'') not in ('live_auction','live_comment') or new.status<>'pending_payment' then return new;end if;
+ if new.source='live_comment' then
+  new.quantity:=greatest(1,least(99,coalesce(new.quantity,1)));
+  unit:=coalesce(new.item_price,round(coalesce(new.subtotal,new.amount)/new.quantity,2));
+  subtotal_value:=unit*new.quantity;
+  new.item_price:=unit;new.subtotal:=subtotal_value;new.item_amount:=subtotal_value;
+ end if;
+ select * into c from public.customers where id=new.customer_id and tenant_id=new.tenant_id and platform='facebook';
+ if not found then raise exception 'TAB_CUSTOMER_SCOPE';end if;
+ select page_id into page from public.tenants where id=new.tenant_id and is_active;
+ if page is null then raise exception 'TAB_PAGE_SCOPE';end if;
+ if new.source='live_auction' then
+  select * into a from public.auctions
+   where (id=new.live_auction_id or (new.live_auction_id is null and id::text=new.source_id))
+    and tenant_id=new.tenant_id and page_id=page;
+  if not found then raise exception 'TAB_AUCTION_SCOPE';end if;
+  post:=a.live_post_id;shipping:=a.shipping_fee;bank:=a.bank_account_id;unit:=coalesce(nullif(new.item_amount,0),a.current_price);
+  new.quantity:=greatest(1,coalesce(new.quantity,1));new.item_price:=unit;new.subtotal:=unit*new.quantity;
+ else
+  select * into r from public.comment_rules where id=new.live_rule_id and tenant_id=new.tenant_id and page=any(page_ids);
+  if not found then raise exception 'TAB_CF_SCOPE';end if;
+  post:=coalesce(new.live_post_id,r.live_post_id);bank:=r.live_bank_account_id;unit:=new.item_price;
+  if post is null then return new;end if;
+  select live_post_id into post from public.auctions where tenant_id=new.tenant_id and page_id=page
+   and (live_post_id=regexp_replace(coalesce(new.live_post_id,r.live_post_id),'^.*_','')
+    or coalesce(new.live_post_id,r.live_post_id)=any(live_post_aliases)) order by created_at desc limit 1;
+  post:=coalesce(post,new.live_post_id,r.live_post_id);
+ end if;
+ post:=regexp_replace(post,'^.*_','');
+ insert into public.live_sessions(tenant_id,page_id,live_post_id) values(new.tenant_id,page,post)
+  on conflict(tenant_id,page_id,live_post_id) do update set live_post_id=excluded.live_post_id returning id into sess;
+ if exists(select 1 from public.live_sessions where id=sess and ended_at is not null) then raise exception 'LIVE_SESSION_ENDED';end if;
+ insert into public.customer_tabs(tenant_id,customer_id,customer_fb_id,page_id,live_session_id,bank_account_id,shipping_fee)
+  values(new.tenant_id,c.id,c.platform_user_id,page,sess,bank,shipping)
+  on conflict(live_session_id,customer_id) do update set bank_account_id=coalesce(customer_tabs.bank_account_id,excluded.bank_account_id),
+   shipping_fee=case when customer_tabs.shipping_fee=0 then excluded.shipping_fee else customer_tabs.shipping_fee end returning * into bill;
+ new.customer_tab_id:=bill.id;new.live_session_id:=sess;new.live_post_id:=post;
+ if new.source='live_comment' then
+  new.amount:=new.subtotal+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
+  new.item_amount:=new.subtotal;
+ else
+  new.item_amount:=new.subtotal;
+  new.amount:=new.subtotal+case when not exists(select 1 from public.customer_tab_items where tab_id=bill.id and not cancelled) then bill.shipping_fee else 0 end;
+ end if;
+ return new;
+end $$$sql_137_2$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('migrations/20261113110000_live_auction_order_designated_price.sql','e3cdbd6d495f501125a40830dbcc3d46b396d937275e38390f9ec0ca45a5f4e0','a766f7d9f36f55937acb30114806935d6dd347d70bb342b690574ff9c55ecbc5');
+end $migration_137$;
 
 notify pgrst,'reload schema';
 

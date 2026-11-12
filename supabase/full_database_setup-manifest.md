@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 157 ไฟล์: รวมตาม dependencies 137 ไฟล์ และแยกไว้ 20 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 159 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 158 ไฟล์: รวมตาม dependencies 138 ไฟล์ และแยกไว้ 20 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 160 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1342913 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1349336 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1159073 bytes, 19128 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1164792 bytes, 19215 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -174,6 +174,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 135. [migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql](migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql) — 5 statements retained
 136. [migrations/20261112110000_zwiz_central_slip_quota.sql](migrations/20261112110000_zwiz_central_slip_quota.sql) — 8 statements retained
 137. [migrations/20261113100000_comment_rule_post_scope.sql](migrations/20261113100000_comment_rule_post_scope.sql) — 8 statements retained
+138. [migrations/20261113110000_live_auction_order_designated_price.sql](migrations/20261113110000_live_auction_order_designated_price.sql) — 1 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -228,6 +229,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql | migrations/20261111110000_payment_link_default_off.sql, live-auction-payment-auto-verify.sql |
 | migrations/20261112110000_zwiz_central_slip_quota.sql | payment-pro.sql |
 | migrations/20261113100000_comment_rule_post_scope.sql | comment-rules.sql |
+| migrations/20261113110000_live_auction_order_designated_price.sql | migrations/20261111090000_live_auction_order_scope.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
@@ -573,3 +575,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql: `2d22573bf55f98d1e029e3146a1efc74f029b38d641871078afc9040f24d5756`
 - migrations/20261112110000_zwiz_central_slip_quota.sql: `4963b5ff2f3cee4202323fb44ba63f2154f9a83571a3ecb56e5b58cb92e88cb8`
 - migrations/20261113100000_comment_rule_post_scope.sql: `2f42bd4e7486aec2793b8d0176ee4f1b58ad8a3b6e071077d7fde2a12c96b1cf`
+- migrations/20261113110000_live_auction_order_designated_price.sql: `a766f7d9f36f55937acb30114806935d6dd347d70bb342b690574ff9c55ecbc5`
