@@ -123,13 +123,14 @@ export async function verifyWithZwiz({
   }
   // Messenger/CDN and public-upload files may have a missing or generic MIME type.
   // Derive it from the image signature so multipart includes an explicit image/* Content-Type.
-  const uploadFile =
-    file.type.toLowerCase() === image.mimeType
-      ? file
-      : new File([file], file.name || 'slip', {
-          type: image.mimeType,
-          lastModified: file.lastModified,
-        })
+  const extension =
+    image.mimeType === 'image/jpeg' ? 'jpg' : image.mimeType === 'image/png' ? 'png' : 'webp'
+  // ZWIZ validates the multipart filename extension as well as Content-Type.
+  // The Messenger vision downloader names files "image" without an extension.
+  const uploadFile = new File([file], `slip.${extension}`, {
+    type: image.mimeType,
+    lastModified: file.lastModified,
+  })
   const matchAccounts = bankAccounts.flatMap(({ accountNo, bankCode }) => {
     const account = accountNo.replace(/[\s-]/g, '')
     const code = zwizBankCode(bankCode)
