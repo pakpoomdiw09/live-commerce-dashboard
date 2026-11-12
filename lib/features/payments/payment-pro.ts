@@ -7,7 +7,7 @@ import {
   evaluatePayment,
   providerPaidAt,
 } from '@/lib/features/payments/payment-pro-core'
-import { verifyWithSlipOK } from '@/lib/features/slips/slipok'
+import { usesCentralZwizQuota, verifyWithSlipOK } from '@/lib/features/slips/slipok'
 import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
 import type { ProcessedSlip, SlipInput } from '@/lib/features/slips/process'
 import { validateVisionFile } from '@/lib/features/vision/vision-image'
@@ -92,6 +92,7 @@ async function verifyClaimedPayment(
     const started = await db.rpc('start_payment_pro_provider', {
       p_attempt: attempt.id,
       p_claim: attempt.claim_token,
+      p_metered: !usesCentralZwizQuota(),
     })
     if (started.error) throw started.error
     if (started.data !== true) return readResult(db, attempt.slip_id, tenantId)

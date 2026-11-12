@@ -4918,7 +4918,7 @@ revoke all on function public.normalize_paid_ai_settings(),public.prepare_paid_a
 commit;
 -- ============================================================================
 -- 44. ai-vision.sql | Inbox, automation and commerce functions/triggers
--- SHA256: ea63d4c520548a1f13923b62491f7eff31ac55ebef4e1f51e63ae64ee7309301
+-- SHA256: c08d03c04a9454eb2259bc30c5ce0ed0422d050a63f7109a9ab6317ce1c48698
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -5101,7 +5101,7 @@ begin
   or c.last_message_at is null or c.last_message_at<clock_timestamp()-interval '24 hours'
   or c.outbound_lock_until>clock_timestamp() then return false;end if;
  if j.decision->>'action'='PRODUCT_SEARCH' and (not public.has_tenant_feature(j.tenant_id,'ai_agent') or not exists(select 1 from public.tenants t join public.vision_plan_limits l on l.plan=t.plan join public.vision_settings s on s.tenant_id=t.id where t.id=j.tenant_id and l.product_search and s.mode='catalog')) then return false;end if;
- if j.decision->>'action'='VERIFY_SLIP' and (not public.has_tenant_feature(j.tenant_id,'slip_auto_pilot') or not exists(select 1 from public.tenants where id=j.tenant_id and auto_verify_enabled and slip_used::bigint<slip_quota::bigint+slip_quota_credits::bigint)) then return false;end if;
+ if j.decision->>'action'='VERIFY_SLIP' and (not public.has_tenant_feature(j.tenant_id,'slip_auto_pilot') or not exists(select 1 from public.tenants where id=j.tenant_id and auto_verify_enabled)) then return false;end if;
  update public.vision_jobs set dispatch_started_at=clock_timestamp() where id=j.id;
  return true;
 end $$;
@@ -5423,7 +5423,7 @@ set local search_path = public, extensions;
 commit;
 -- ============================================================================
 -- 47. payment-pro.sql | Inbox, automation and commerce functions/triggers
--- SHA256: aa6343641fb6d1c026a0913c81d79d990c295c23e9de63e41bfd42d3cdb7e148
+-- SHA256: c584a6b9817565b348a5cdf15266088afe0dda39a353bae3e18ee12df929c588
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -5562,7 +5562,10 @@ begin
 end $$;
 
 -- Source statement 22
-create or replace function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+drop function if exists public.start_payment_pro_provider(uuid,uuid);
+
+-- Source statement 23
+create function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid,p_metered boolean default true) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt;
@@ -5574,14 +5577,14 @@ begin
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason='FEATURE_DISABLED' where id=a.id;
   update public.slips set status='error',note='Payment Pro ถูกปิดหรือแพ็กเกจหมดอายุ',verified_at=now() where id=a.slip_id;return false;
  end if;
- if not public.consume_slip_credit(a.tenant_id) then
+ if p_metered and not public.consume_slip_credit(a.tenant_id) then
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason='INSUFFICIENT_CREDITS' where id=a.id;
   update public.slips set status='error',note='เครดิตตรวจสลิปหมด กรุณาเติมเครดิต',verified_at=now() where id=a.slip_id;return false;
  end if;
- update public.payment_pro_attempts set provider_started_at=clock_timestamp(),credit_charged=true where id=a.id;return true;
+ update public.payment_pro_attempts set provider_started_at=clock_timestamp(),credit_charged=p_metered where id=a.id;return true;
 end $$;
 
--- Source statement 23
+-- Source statement 24
 create or replace function public.apply_payment_pro(p_attempt uuid,p_actor uuid default null) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;total bigint;count_orders integer;matched boolean;
 begin
@@ -5619,7 +5622,7 @@ begin
  end;
 end $$;
 
--- Source statement 24
+-- Source statement 25
 create or replace function public.complete_payment_pro(p_attempt uuid,p_claim uuid,p_evidence jsonb) returns void language plpgsql set search_path=pg_catalog,public as $$
 <<completion>>
 declare a public.payment_pro_attempts;reason text;paid timestamptz;amount bigint;valid boolean;applied boolean;
@@ -5654,7 +5657,7 @@ begin
  end if;
 end $$;
 
--- Source statement 25
+-- Source statement 26
 create or replace function public.review_payment_pro_failure(p_attempt uuid,p_claim uuid) returns void language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
@@ -5665,7 +5668,7 @@ begin
  end if;
 end $$;
 
--- Source statement 26
+-- Source statement 27
 create or replace function public.recover_payment_pro() returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;n integer:=0;
 begin
@@ -5674,7 +5677,7 @@ begin
  end loop;return n;
 end $$;
 
--- Source statement 27
+-- Source statement 28
 create or replace function public.act_payment_pro(p_attempt uuid,p_tenant uuid,p_actor uuid,p_action text,p_reason text) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;applied boolean;
 begin
@@ -5695,7 +5698,7 @@ begin
  return applied;
 end $$;
 
--- Source statement 28
+-- Source statement 29
 create or replace function public.payment_pro_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
  select jsonb_build_object('total',count(*),'verified',count(*) filter(where status='VERIFIED'),'review',count(*) filter(where status='REVIEW_REQUIRED'),
  'duplicates',count(*) filter(where reason='DUPLICATE_TRANSACTION'),'amountMismatch',count(*) filter(where reason='AMOUNT_MISMATCH'),
@@ -5705,32 +5708,32 @@ create or replace function public.payment_pro_overview(p_tenant uuid) returns js
  from public.payment_pro_attempts where tenant_id=p_tenant and created_at>now()-interval '30 days'
 $$;
 
--- Source statement 29
+-- Source statement 30
 create or replace function public.guard_payment_pro_slip() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if (new.status='valid' or new.approved_at is not null) and exists(select 1 from public.payment_pro_attempts where slip_id=new.id and status<>'VERIFIED') then raise exception 'Payment Pro proof approval required' using errcode='42501';end if;return new;
 end $$;
 
--- Source statement 30
+-- Source statement 31
 drop trigger if exists slips_payment_pro_guard on public.slips;
 
--- Source statement 31
+-- Source statement 32
 create trigger slips_payment_pro_guard before update on public.slips for each row execute function public.guard_payment_pro_slip();
 
--- Source statement 32
+-- Source statement 33
 create or replace function public.guard_payment_pro_order() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status='paid' and (old.status is distinct from new.status or old.slip_id is distinct from new.slip_id) and exists(select 1 from public.payment_pro_attempts where slip_id=new.slip_id) and not exists(select 1 from public.payment_pro_attempts a where a.slip_id=new.slip_id and a.status='VERIFIED' and a.tenant_id=new.tenant_id and a.customer_id=new.customer_id and new.id=any(a.order_ids)) then
   raise exception 'Payment Pro order snapshot required' using errcode='42501';end if;return new;
 end $$;
 
--- Source statement 33
+-- Source statement 34
 drop trigger if exists orders_payment_pro_guard on public.orders;
 
--- Source statement 34
+-- Source statement 35
 create trigger orders_payment_pro_guard before update of status,slip_id on public.orders for each row execute function public.guard_payment_pro_order();
 
--- Source statement 35
+-- Source statement 36
 do $$declare fn record;begin
  for fn in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and (p.proname like '%payment_pro%' or p.proname in ('payment_pro_bank','payment_pro_account','payment_pro_receiver')) loop
   execute format('revoke all on function %s from public,anon,authenticated',fn.signature);
@@ -5738,7 +5741,7 @@ do $$declare fn record;begin
  end loop;
 end $$;
 
--- Source statement 36
+-- Source statement 37
 notify pgrst,'reload schema';
 
 commit;
@@ -18910,6 +18913,163 @@ revoke all on function public.cancel_customer_tab_order(uuid, uuid, uuid, uuid)
 -- Source statement 6
 grant execute on function public.cancel_customer_tab_order(uuid, uuid, uuid, uuid)
   to service_role;
+
+commit;
+-- ============================================================================
+-- 136. migrations/20261112110000_zwiz_central_slip_quota.sql | Latest delivery safety, reporting and index patches
+-- SHA256: 4963b5ff2f3cee4202323fb44ba63f2154f9a83571a3ecb56e5b58cb92e88cb8
+-- ============================================================================
+begin;
+set local lock_timeout = '2s';
+set local statement_timeout = '60s';
+set local search_path = public, extensions;
+
+-- Source statement 2
+drop function if exists public.start_payment_pro_provider(uuid, uuid);
+
+-- Source statement 3
+create function public.start_payment_pro_provider(
+  p_attempt uuid,
+  p_claim uuid,
+  p_metered boolean default true
+) returns boolean
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+declare
+  attempt public.payment_pro_attempts;
+begin
+  select * into attempt
+  from public.payment_pro_attempts
+  where id = p_attempt;
+  if not found then return false; end if;
+
+  perform 1 from public.tenants where id = attempt.tenant_id for update;
+  select * into attempt
+  from public.payment_pro_attempts
+  where id = p_attempt
+  for update;
+
+  if attempt.status <> 'VERIFYING'
+    or attempt.claim_token is distinct from p_claim
+    or attempt.claim_until <= clock_timestamp()
+    or attempt.provider_started_at is not null then
+    return false;
+  end if;
+
+  if not public.has_tenant_feature(attempt.tenant_id, 'slip_auto_pilot')
+    or not exists (
+      select 1 from public.payment_pro_settings
+      where tenant_id = attempt.tenant_id
+        and enabled
+        and flags->'riskEngine' = 'true'::jsonb
+    ) then
+    update public.payment_pro_attempts
+    set status = 'REVIEW_REQUIRED', reason = 'FEATURE_DISABLED'
+    where id = attempt.id;
+    update public.slips
+    set status = 'error', note = 'Payment Pro ถูกปิดหรือแพ็กเกจหมดอายุ', verified_at = now()
+    where id = attempt.slip_id;
+    return false;
+  end if;
+
+  if p_metered and not public.consume_slip_credit(attempt.tenant_id) then
+    update public.payment_pro_attempts
+    set status = 'REVIEW_REQUIRED', reason = 'INSUFFICIENT_CREDITS'
+    where id = attempt.id;
+    update public.slips
+    set status = 'error', note = 'เครดิตตรวจสลิปหมด กรุณาเติมเครดิต', verified_at = now()
+    where id = attempt.slip_id;
+    return false;
+  end if;
+
+  update public.payment_pro_attempts
+  set provider_started_at = clock_timestamp(), credit_charged = p_metered
+  where id = attempt.id;
+  return true;
+end;
+$$;
+
+-- Source statement 4
+revoke all on function public.start_payment_pro_provider(uuid, uuid, boolean)
+  from public, anon, authenticated;
+
+-- Source statement 5
+grant execute on function public.start_payment_pro_provider(uuid, uuid, boolean)
+  to service_role;
+
+-- Source statement 6
+create or replace function public.begin_vision_dispatch(p_job uuid, p_claim uuid)
+returns boolean
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+declare
+  job public.vision_jobs;
+  customer public.customers;
+begin
+  select * into job from public.vision_jobs where id = p_job;
+  if not found or job.customer_id is null then return false; end if;
+
+  select * into customer
+  from public.customers
+  where id = job.customer_id and tenant_id = job.tenant_id
+  for update;
+  select * into job from public.vision_jobs where id = p_job for update;
+
+  if job.source <> 'messenger'
+    or job.status <> 'processing'
+    or job.claim_token is distinct from p_claim
+    or job.claim_until <= clock_timestamp()
+    or job.dispatch_started_at is not null
+    or not public.has_tenant_feature(job.tenant_id, 'image_assistant')
+    or not exists (select 1 from public.vision_settings where tenant_id = job.tenant_id and enabled)
+    or not exists (select 1 from public.tenants where id = job.tenant_id and auto_reply_enabled)
+    or customer.id is null
+    or not customer.bot_enabled
+    or customer.assigned_user_id is not null
+    or customer.conversation_status = 'closed'
+    or customer.last_message_at is null
+    or customer.last_message_at < clock_timestamp() - interval '24 hours'
+    or customer.outbound_lock_until > clock_timestamp() then
+    return false;
+  end if;
+
+  if job.decision->>'action' = 'PRODUCT_SEARCH'
+    and (not public.has_tenant_feature(job.tenant_id, 'ai_agent')
+      or not exists (
+        select 1
+        from public.tenants t
+        join public.vision_plan_limits l on l.plan = t.plan
+        join public.vision_settings s on s.tenant_id = t.id
+        where t.id = job.tenant_id and l.product_search and s.mode = 'catalog'
+      )) then
+    return false;
+  end if;
+
+  if job.decision->>'action' = 'VERIFY_SLIP'
+    and (not public.has_tenant_feature(job.tenant_id, 'slip_auto_pilot')
+      or not exists (
+        select 1 from public.tenants
+        where id = job.tenant_id and auto_verify_enabled
+      )) then
+    return false;
+  end if;
+
+  update public.vision_jobs set dispatch_started_at = clock_timestamp() where id = job.id;
+  return true;
+end;
+$$;
+
+-- Source statement 7
+revoke all on function public.begin_vision_dispatch(uuid, uuid)
+  from public, anon, authenticated;
+
+-- Source statement 8
+grant execute on function public.begin_vision_dispatch(uuid, uuid) to service_role;
+
+-- Source statement 9
+notify pgrst, 'reload schema';
 
 commit;
 

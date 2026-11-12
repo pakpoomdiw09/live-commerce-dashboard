@@ -129,7 +129,7 @@ begin
   or c.last_message_at is null or c.last_message_at<clock_timestamp()-interval '24 hours'
   or c.outbound_lock_until>clock_timestamp() then return false;end if;
  if j.decision->>'action'='PRODUCT_SEARCH' and (not public.has_tenant_feature(j.tenant_id,'ai_agent') or not exists(select 1 from public.tenants t join public.vision_plan_limits l on l.plan=t.plan join public.vision_settings s on s.tenant_id=t.id where t.id=j.tenant_id and l.product_search and s.mode='catalog')) then return false;end if;
- if j.decision->>'action'='VERIFY_SLIP' and (not public.has_tenant_feature(j.tenant_id,'slip_auto_pilot') or not exists(select 1 from public.tenants where id=j.tenant_id and auto_verify_enabled and slip_used::bigint<slip_quota::bigint+slip_quota_credits::bigint)) then return false;end if;
+ if j.decision->>'action'='VERIFY_SLIP' and (not public.has_tenant_feature(j.tenant_id,'slip_auto_pilot') or not exists(select 1 from public.tenants where id=j.tenant_id and auto_verify_enabled)) then return false;end if;
  update public.vision_jobs set dispatch_started_at=clock_timestamp() where id=j.id;
  return true;
 end $$;

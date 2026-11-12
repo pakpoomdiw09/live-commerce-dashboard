@@ -159,6 +159,7 @@ const groups = [
       'migrations/20261111100000_payment_link_toggle.sql',
       'migrations/20261111110000_payment_link_default_off.sql',
       'migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql',
+      'migrations/20261112110000_zwiz_central_slip_quota.sql',
     ],
   ],
 ]
@@ -234,6 +235,7 @@ const prerequisites = {
     'migrations/20261111110000_payment_link_default_off.sql',
     'live-auction-payment-auto-verify.sql',
   ],
+  'migrations/20261112110000_zwiz_central_slip_quota.sql': ['payment-pro.sql'],
   'live-session-dashboard.sql': ['auction-experience.sql'],
   'auction-experience.sql': ['customer-tabs.sql'],
   'customer-tabs.sql': ['live-auctions.sql', 'live-cf-customer-variants.sql'],
@@ -473,6 +475,7 @@ function build(root = path.resolve(__dirname, '..')) {
             'migrations/20261111100000_payment_link_toggle.sql',
             'migrations/20261111110000_payment_link_default_off.sql',
             'migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql',
+            'migrations/20261112110000_zwiz_central_slip_quota.sql',
           ].includes(f)),
     )
     .filter((f) => !['full_database_setup.sql', 'complete_schema.sql'].includes(f))

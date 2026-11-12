@@ -1,9 +1,9 @@
 # Supabase SQL migration registry
 
-พบ SQL ต้นฉบับ 155 ไฟล์: รวมตาม dependencies 135 ไฟล์ และแยกไว้ 20 ไฟล์
-หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 157 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
+พบ SQL ต้นฉบับ 156 ไฟล์: รวมตาม dependencies 136 ไฟล์ และแยกไว้ 20 ไฟล์
+หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 158 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1333100 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1340006 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1151812 bytes, 18917 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1157223 bytes, 19077 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -80,7 +80,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 44. [ai-vision.sql](ai-vision.sql) — 35 statements retained
 45. [commerce-v2.sql](commerce-v2.sql) — 45 statements retained
 46. [product-sku-reuse.sql](product-sku-reuse.sql) — 0 statements retained
-47. [payment-pro.sql](payment-pro.sql) — 35 statements retained
+47. [payment-pro.sql](payment-pro.sql) — 36 statements retained
 48. [payment-pro-dashboard.sql](payment-pro-dashboard.sql) — 4 statements retained
 49. [slip-bank-controls.sql](slip-bank-controls.sql) — 19 statements retained
 50. [bank-registry.sql](bank-registry.sql) — 7 statements retained
@@ -172,6 +172,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 133. [migrations/20261111100000_payment_link_toggle.sql](migrations/20261111100000_payment_link_toggle.sql) — 2 statements retained
 134. [migrations/20261111110000_payment_link_default_off.sql](migrations/20261111110000_payment_link_default_off.sql) — 4 statements retained
 135. [migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql](migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql) — 5 statements retained
+136. [migrations/20261112110000_zwiz_central_slip_quota.sql](migrations/20261112110000_zwiz_central_slip_quota.sql) — 8 statements retained
 
 ## ไฟล์ที่แยกออกทั้งหมด (ไม่ใช่ขั้นตอนติดตั้งใหม่)
 
@@ -224,6 +225,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 | migrations/20261111100000_payment_link_toggle.sql | tenants.sql |
 | migrations/20261111110000_payment_link_default_off.sql | migrations/20261111100000_payment_link_toggle.sql |
 | migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql | migrations/20261111110000_payment_link_default_off.sql, live-auction-payment-auto-verify.sql |
+| migrations/20261112110000_zwiz_central_slip_quota.sql | payment-pro.sql |
 | live-session-dashboard.sql | auction-experience.sql |
 | auction-experience.sql | customer-tabs.sql |
 | customer-tabs.sql | live-auctions.sql, live-cf-customer-variants.sql |
@@ -475,10 +477,10 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - agent-control.sql: `462a262220a863bbc2ceae0a130173530d9de25285a66423eff8aeb67a436cf2`
 - agent-overview.sql: `bbd87d3b0f164c778eb52983b7862d8d8cd61dfd1bf029bc68be6af164bac819`
 - ai-paid-access.sql: `42f6eb4cf373dca787fecb745fb5089f19c610c519768fc6c63e2994dc88ade2`
-- ai-vision.sql: `ea63d4c520548a1f13923b62491f7eff31ac55ebef4e1f51e63ae64ee7309301`
+- ai-vision.sql: `c08d03c04a9454eb2259bc30c5ce0ed0422d050a63f7109a9ab6317ce1c48698`
 - commerce-v2.sql: `43b4aa77038376bec249d3dfd1c9c53c08fa2094ba24fe40b35afcbcfc94f9f7`
 - product-sku-reuse.sql: `158567cbd1962b8e6c75c72a9f5aaa52aceb26c84b9fc2c7bb4a7f24c41c41f4`
-- payment-pro.sql: `aa6343641fb6d1c026a0913c81d79d990c295c23e9de63e41bfd42d3cdb7e148`
+- payment-pro.sql: `c584a6b9817565b348a5cdf15266088afe0dda39a353bae3e18ee12df929c588`
 - payment-pro-dashboard.sql: `8d4e52e0d834ca8ce7cab97c2b78209535263726b7c5d1796ba4398b7ae54b7b`
 - slip-bank-controls.sql: `08d19ff46fa0d05b9a42f710ea11f212756e4a95fea9440d221bce1b808f98e3`
 - bank-registry.sql: `9552aa3856ddf0c584f98f7ac722bc877e9a1a89617d0dd0c2dd5a1d7914b4d0`
@@ -567,3 +569,4 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - migrations/20261111100000_payment_link_toggle.sql: `86bd3d8d31249cfb8efa4e6131c07fde81a483dc345e358763215c0c4859f31a`
 - migrations/20261111110000_payment_link_default_off.sql: `9424d70fa123dc754a265c3b34596a09ca64d50aaccdd7084efd9e8915933e66`
 - migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql: `2d22573bf55f98d1e029e3146a1efc74f029b38d641871078afc9040f24d5756`
+- migrations/20261112110000_zwiz_central_slip_quota.sql: `4963b5ff2f3cee4202323fb44ba63f2154f9a83571a3ecb56e5b58cb92e88cb8`

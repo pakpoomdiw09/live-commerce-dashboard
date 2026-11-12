@@ -138,7 +138,6 @@ export async function processCustomerTabSlip(
     return readResult(claim.data.slipId)
   }
   const slipId = claim.data.slipId as string
-  let charged = false
   try {
     const accounts = await db
       .from('bank_accounts')
@@ -153,9 +152,6 @@ export async function processCustomerTabSlip(
         tenantId,
       })
     }
-    const credit = await db.rpc('consume_slip_credit', { p_tenant: tenantId })
-    if (credit.error || credit.data !== true) throw new Error('TAB_SLIP_CREDIT_UNAVAILABLE')
-    charged = true
     // Customer tabs accept verified partial transfers. The RPC rechecks the remaining
     // balance under a lock, so do not ask the provider to enforce an exact amount here.
     const result = await verifySlip({
@@ -174,10 +170,6 @@ export async function processCustomerTabSlip(
       expectedAmount: Number(selected.data.remaining_amount),
       providerFault: result.providerFault === true,
     })
-    if (result.providerFault && charged) {
-      await db.rpc('refund_slip_credit', { p_tenant: tenantId })
-      charged = false
-    }
     let verdict = result.verdict
     let note = result.note ?? null
     const receiverMatches = receiverMatchesAny(

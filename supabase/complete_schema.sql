@@ -5253,7 +5253,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='ai-vision.sql';
   if found then
-    if installed <> '00a2ef0b3cae53cfad157ad52b609b0dee9eaea580de2bb4056b277ecdae4605' then
+    if installed <> 'c62daf8c2d974b599e69f399f3a2ebeb6c9249b178ec294c43f7d87af98bad6e' then
       raise exception 'Applied migration changed: ai-vision.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -5417,6 +5417,7 @@ execute $sql_43_25$revoke all on function public.start_vision_analysis(uuid,uuid
 execute $sql_43_26$grant execute on function public.start_vision_analysis(uuid,uuid),public.refund_unstarted_vision(uuid,uuid) to service_role$sql_43_26$;
 
 -- ai-vision.sql: source statement 27
+begin
 execute $sql_43_27$create or replace function public.begin_vision_dispatch(p_job uuid,p_claim uuid) returns boolean
 language plpgsql set search_path=pg_catalog,public as $$
 declare j public.vision_jobs;c public.customers;
@@ -5434,10 +5435,14 @@ begin
   or c.last_message_at is null or c.last_message_at<clock_timestamp()-interval '24 hours'
   or c.outbound_lock_until>clock_timestamp() then return false;end if;
  if j.decision->>'action'='PRODUCT_SEARCH' and (not public.has_tenant_feature(j.tenant_id,'ai_agent') or not exists(select 1 from public.tenants t join public.vision_plan_limits l on l.plan=t.plan join public.vision_settings s on s.tenant_id=t.id where t.id=j.tenant_id and l.product_search and s.mode='catalog')) then return false;end if;
- if j.decision->>'action'='VERIFY_SLIP' and (not public.has_tenant_feature(j.tenant_id,'slip_auto_pilot') or not exists(select 1 from public.tenants where id=j.tenant_id and auto_verify_enabled and slip_used::bigint<slip_quota::bigint+slip_quota_credits::bigint)) then return false;end if;
+ if j.decision->>'action'='VERIFY_SLIP' and (not public.has_tenant_feature(j.tenant_id,'slip_auto_pilot') or not exists(select 1 from public.tenants where id=j.tenant_id and auto_verify_enabled)) then return false;end if;
  update public.vision_jobs set dispatch_started_at=clock_timestamp() where id=j.id;
  return true;
 end $$$sql_43_27$;
+exception when invalid_function_definition then
+  -- A newer signature of begin_vision_dispatch(uuid,uuid) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
 -- ai-vision.sql: source statement 28
 begin
@@ -5483,7 +5488,7 @@ execute $sql_43_35$grant execute on function public.claim_vision_job(uuid) to se
 -- ai-vision.sql: source statement 36
 execute $sql_43_36$notify pgrst,'reload schema'$sql_43_36$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('ai-vision.sql','00a2ef0b3cae53cfad157ad52b609b0dee9eaea580de2bb4056b277ecdae4605','ea63d4c520548a1f13923b62491f7eff31ac55ebef4e1f51e63ae64ee7309301');
+    values('ai-vision.sql','c62daf8c2d974b599e69f399f3a2ebeb6c9249b178ec294c43f7d87af98bad6e','c08d03c04a9454eb2259bc30c5ce0ed0422d050a63f7109a9ab6317ce1c48698');
 end $migration_43$;
 
 -- 45. commerce-v2.sql
@@ -5785,7 +5790,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='payment-pro.sql';
   if found then
-    if installed <> 'cd3319ec00052fc92e98f746533af4a8b45f48d4a8b584bab531a18061736297' then
+    if installed <> '502bd1f49ccab891579efb59266535fab36ec6e9d33aa337886cfae5d6771ff7' then
       raise exception 'Applied migration changed: payment-pro.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -5922,7 +5927,11 @@ begin
 end $$$sql_46_21$;
 
 -- payment-pro.sql: source statement 22
-execute $sql_46_22$create or replace function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+execute $sql_46_22$drop function if exists public.start_payment_pro_provider(uuid,uuid)$sql_46_22$;
+
+-- payment-pro.sql: source statement 23
+begin
+execute $sql_46_23$create function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid,p_metered boolean default true) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt;
@@ -5934,15 +5943,19 @@ begin
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason='FEATURE_DISABLED' where id=a.id;
   update public.slips set status='error',note='Payment Pro ถูกปิดหรือแพ็กเกจหมดอายุ',verified_at=now() where id=a.slip_id;return false;
  end if;
- if not public.consume_slip_credit(a.tenant_id) then
+ if p_metered and not public.consume_slip_credit(a.tenant_id) then
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason='INSUFFICIENT_CREDITS' where id=a.id;
   update public.slips set status='error',note='เครดิตตรวจสลิปหมด กรุณาเติมเครดิต',verified_at=now() where id=a.slip_id;return false;
  end if;
- update public.payment_pro_attempts set provider_started_at=clock_timestamp(),credit_charged=true where id=a.id;return true;
-end $$$sql_46_22$;
+ update public.payment_pro_attempts set provider_started_at=clock_timestamp(),credit_charged=p_metered where id=a.id;return true;
+end $$$sql_46_23$;
+exception when invalid_function_definition then
+  -- A newer signature of start_payment_pro_provider(uuid,uuid,boolean) is already installed. Its final definition below is mandatory.
+  null;
+end;
 
--- payment-pro.sql: source statement 23
-execute $sql_46_23$create or replace function public.apply_payment_pro(p_attempt uuid,p_actor uuid default null) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+-- payment-pro.sql: source statement 24
+execute $sql_46_24$create or replace function public.apply_payment_pro(p_attempt uuid,p_actor uuid default null) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;total bigint;count_orders integer;matched boolean;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt;
@@ -5977,10 +5990,10 @@ begin
   update public.payment_pro_attempts set status='REJECTED',reason='DUPLICATE_TRANSACTION',eligible=false,claim_token=null,claim_until=null where id=a.id;
   update public.slips set status='duplicate',note='หลักฐานนี้ถูกใช้ชำระเงินแล้ว' where id=a.slip_id;return false;
  end;
-end $$$sql_46_23$;
+end $$$sql_46_24$;
 
--- payment-pro.sql: source statement 24
-execute $sql_46_24$create or replace function public.complete_payment_pro(p_attempt uuid,p_claim uuid,p_evidence jsonb) returns void language plpgsql set search_path=pg_catalog,public as $$
+-- payment-pro.sql: source statement 25
+execute $sql_46_25$create or replace function public.complete_payment_pro(p_attempt uuid,p_claim uuid,p_evidence jsonb) returns void language plpgsql set search_path=pg_catalog,public as $$
 <<completion>>
 declare a public.payment_pro_attempts;reason text;paid timestamptz;amount bigint;valid boolean;applied boolean;
 begin
@@ -6012,10 +6025,10 @@ begin
   update public.slips set status=case when completion.reason='DUPLICATE_TRANSACTION' then 'duplicate' when completion.reason='AMOUNT_MISMATCH' then 'amount_mismatch' when completion.reason='RECEIVER_NOT_CONFIRMED' then 'wrong_receiver' else 'error' end,note='Payment Pro: '||coalesce(completion.reason,'รอเจ้าของร้านอนุมัติ') where id=a.slip_id and status<>'duplicate';
   update public.customers set order_status='pending_review' where id=a.customer_id and tenant_id=a.tenant_id;
  end if;
-end $$$sql_46_24$;
+end $$$sql_46_25$;
 
--- payment-pro.sql: source statement 25
-execute $sql_46_25$create or replace function public.review_payment_pro_failure(p_attempt uuid,p_claim uuid) returns void language plpgsql set search_path=pg_catalog,public as $$
+-- payment-pro.sql: source statement 26
+execute $sql_46_26$create or replace function public.review_payment_pro_failure(p_attempt uuid,p_claim uuid) returns void language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt for update;
@@ -6023,19 +6036,19 @@ begin
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason=case when provider_started_at is null then 'PROCESSING_FAILED_BEFORE_PROVIDER' else 'PROVIDER_RESULT_UNKNOWN' end,claim_token=null,claim_until=null where id=a.id;
   update public.slips set status='error',note='รอตรวจสอบเพิ่มเติม ระบบไม่ลองเรียก Provider ซ้ำอัตโนมัติ',verified_at=now() where id=a.slip_id;
  end if;
-end $$$sql_46_25$;
+end $$$sql_46_26$;
 
--- payment-pro.sql: source statement 26
-execute $sql_46_26$create or replace function public.recover_payment_pro() returns integer language plpgsql set search_path=pg_catalog,public as $$
+-- payment-pro.sql: source statement 27
+execute $sql_46_27$create or replace function public.recover_payment_pro() returns integer language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;n integer:=0;
 begin
  for a in select * from public.payment_pro_attempts where status='VERIFYING' and claim_until<clock_timestamp() for update skip locked loop
   perform public.review_payment_pro_failure(a.id,a.claim_token);n:=n+1;
  end loop;return n;
-end $$$sql_46_26$;
+end $$$sql_46_27$;
 
--- payment-pro.sql: source statement 27
-execute $sql_46_27$create or replace function public.act_payment_pro(p_attempt uuid,p_tenant uuid,p_actor uuid,p_action text,p_reason text) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+-- payment-pro.sql: source statement 28
+execute $sql_46_28$create or replace function public.act_payment_pro(p_attempt uuid,p_tenant uuid,p_actor uuid,p_action text,p_reason text) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;applied boolean;
 begin
  if not public.has_tenant_feature(p_tenant,'slip_auto_pilot') or not(exists(select 1 from public.tenant_members where tenant_id=p_tenant and user_id=p_actor and role='owner') or exists(select 1 from public.platform_admins where user_id=p_actor)) then raise exception 'Owner required' using errcode='42501';end if;
@@ -6053,55 +6066,55 @@ begin
  else return false;end if;
  insert into public.payment_pro_audit(tenant_id,attempt_id,actor_id,event,reason) values(p_tenant,a.id,p_actor,'manual_'||p_action,p_reason);
  return applied;
-end $$$sql_46_27$;
+end $$$sql_46_28$;
 
--- payment-pro.sql: source statement 28
-execute $sql_46_28$create or replace function public.payment_pro_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
+-- payment-pro.sql: source statement 29
+execute $sql_46_29$create or replace function public.payment_pro_overview(p_tenant uuid) returns jsonb language sql stable set search_path=pg_catalog,public as $$
  select jsonb_build_object('total',count(*),'verified',count(*) filter(where status='VERIFIED'),'review',count(*) filter(where status='REVIEW_REQUIRED'),
  'duplicates',count(*) filter(where reason='DUPLICATE_TRANSACTION'),'amountMismatch',count(*) filter(where reason='AMOUNT_MISMATCH'),
  'receiverMismatch',count(*) filter(where reason in ('RECEIVER_NOT_CONFIRMED','RECEIVER_CHANGED')),
  'charged',count(*) filter(where credit_charged),'refunded',count(*) filter(where credit_refunded),
  'verifiedSatang',coalesce(sum(expected_satang) filter(where status='VERIFIED'),0))
  from public.payment_pro_attempts where tenant_id=p_tenant and created_at>now()-interval '30 days'
-$$$sql_46_28$;
-
--- payment-pro.sql: source statement 29
-execute $sql_46_29$create or replace function public.guard_payment_pro_slip() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
-begin
- if (new.status='valid' or new.approved_at is not null) and exists(select 1 from public.payment_pro_attempts where slip_id=new.id and status<>'VERIFIED') then raise exception 'Payment Pro proof approval required' using errcode='42501';end if;return new;
-end $$$sql_46_29$;
+$$$sql_46_29$;
 
 -- payment-pro.sql: source statement 30
-execute $sql_46_30$drop trigger if exists slips_payment_pro_guard on public.slips$sql_46_30$;
+execute $sql_46_30$create or replace function public.guard_payment_pro_slip() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+ if (new.status='valid' or new.approved_at is not null) and exists(select 1 from public.payment_pro_attempts where slip_id=new.id and status<>'VERIFIED') then raise exception 'Payment Pro proof approval required' using errcode='42501';end if;return new;
+end $$$sql_46_30$;
 
 -- payment-pro.sql: source statement 31
-execute $sql_46_31$create trigger slips_payment_pro_guard before update on public.slips for each row execute function public.guard_payment_pro_slip()$sql_46_31$;
+execute $sql_46_31$drop trigger if exists slips_payment_pro_guard on public.slips$sql_46_31$;
 
 -- payment-pro.sql: source statement 32
-execute $sql_46_32$create or replace function public.guard_payment_pro_order() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+execute $sql_46_32$create trigger slips_payment_pro_guard before update on public.slips for each row execute function public.guard_payment_pro_slip()$sql_46_32$;
+
+-- payment-pro.sql: source statement 33
+execute $sql_46_33$create or replace function public.guard_payment_pro_order() returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
 begin
  if new.status='paid' and (old.status is distinct from new.status or old.slip_id is distinct from new.slip_id) and exists(select 1 from public.payment_pro_attempts where slip_id=new.slip_id) and not exists(select 1 from public.payment_pro_attempts a where a.slip_id=new.slip_id and a.status='VERIFIED' and a.tenant_id=new.tenant_id and a.customer_id=new.customer_id and new.id=any(a.order_ids)) then
   raise exception 'Payment Pro order snapshot required' using errcode='42501';end if;return new;
-end $$$sql_46_32$;
-
--- payment-pro.sql: source statement 33
-execute $sql_46_33$drop trigger if exists orders_payment_pro_guard on public.orders$sql_46_33$;
+end $$$sql_46_33$;
 
 -- payment-pro.sql: source statement 34
-execute $sql_46_34$create trigger orders_payment_pro_guard before update of status,slip_id on public.orders for each row execute function public.guard_payment_pro_order()$sql_46_34$;
+execute $sql_46_34$drop trigger if exists orders_payment_pro_guard on public.orders$sql_46_34$;
 
 -- payment-pro.sql: source statement 35
-execute $sql_46_35$do $$declare fn record;begin
+execute $sql_46_35$create trigger orders_payment_pro_guard before update of status,slip_id on public.orders for each row execute function public.guard_payment_pro_order()$sql_46_35$;
+
+-- payment-pro.sql: source statement 36
+execute $sql_46_36$do $$declare fn record;begin
  for fn in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and (p.proname like '%payment_pro%' or p.proname in ('payment_pro_bank','payment_pro_account','payment_pro_receiver')) loop
   execute format('revoke all on function %s from public,anon,authenticated',fn.signature);
   execute format('grant execute on function %s to service_role',fn.signature);
  end loop;
-end $$$sql_46_35$;
+end $$$sql_46_36$;
 
--- payment-pro.sql: source statement 36
-execute $sql_46_36$notify pgrst,'reload schema'$sql_46_36$;
+-- payment-pro.sql: source statement 37
+execute $sql_46_37$notify pgrst,'reload schema'$sql_46_37$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('payment-pro.sql','cd3319ec00052fc92e98f746533af4a8b45f48d4a8b584bab531a18061736297','aa6343641fb6d1c026a0913c81d79d990c295c23e9de63e41bfd42d3cdb7e148');
+    values('payment-pro.sql','502bd1f49ccab891579efb59266535fab36ec6e9d33aa337886cfae5d6771ff7','c584a6b9817565b348a5cdf15266088afe0dda39a353bae3e18ee12df929c588');
 end $migration_46$;
 
 -- 48. payment-pro-dashboard.sql
@@ -20093,6 +20106,167 @@ execute $sql_134_6$grant execute on function public.cancel_customer_tab_order(uu
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
     values('migrations/20261112100000_customer_tab_partial_payment_and_cancel.sql','195cb277062947c70f1dfaee97619ff477e70d439b0752bfb3b638441be43a97','2d22573bf55f98d1e029e3146a1efc74f029b38d641871078afc9040f24d5756');
 end $migration_134$;
+
+-- 136. migrations/20261112110000_zwiz_central_slip_quota.sql
+do $migration_135$
+declare installed text;
+begin
+  select checksum into installed from public.snapbot_schema_migrations where name='migrations/20261112110000_zwiz_central_slip_quota.sql';
+  if found then
+    if installed <> '775d78324828850e0d21fa3abab7ddcb025fccdb591499d1bf5318cfe66fa92f' then
+      raise exception 'Applied migration changed: migrations/20261112110000_zwiz_central_slip_quota.sql. Add a new migration instead of replaying modified history';
+    end if;
+    return;
+  end if;
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 2
+execute $sql_135_2$drop function if exists public.start_payment_pro_provider(uuid, uuid)$sql_135_2$;
+
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 3
+execute $sql_135_3$create function public.start_payment_pro_provider(
+  p_attempt uuid,
+  p_claim uuid,
+  p_metered boolean default true
+) returns boolean
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+declare
+  attempt public.payment_pro_attempts;
+begin
+  select * into attempt
+  from public.payment_pro_attempts
+  where id = p_attempt;
+  if not found then return false; end if;
+
+  perform 1 from public.tenants where id = attempt.tenant_id for update;
+  select * into attempt
+  from public.payment_pro_attempts
+  where id = p_attempt
+  for update;
+
+  if attempt.status <> 'VERIFYING'
+    or attempt.claim_token is distinct from p_claim
+    or attempt.claim_until <= clock_timestamp()
+    or attempt.provider_started_at is not null then
+    return false;
+  end if;
+
+  if not public.has_tenant_feature(attempt.tenant_id, 'slip_auto_pilot')
+    or not exists (
+      select 1 from public.payment_pro_settings
+      where tenant_id = attempt.tenant_id
+        and enabled
+        and flags->'riskEngine' = 'true'::jsonb
+    ) then
+    update public.payment_pro_attempts
+    set status = 'REVIEW_REQUIRED', reason = 'FEATURE_DISABLED'
+    where id = attempt.id;
+    update public.slips
+    set status = 'error', note = 'Payment Pro ถูกปิดหรือแพ็กเกจหมดอายุ', verified_at = now()
+    where id = attempt.slip_id;
+    return false;
+  end if;
+
+  if p_metered and not public.consume_slip_credit(attempt.tenant_id) then
+    update public.payment_pro_attempts
+    set status = 'REVIEW_REQUIRED', reason = 'INSUFFICIENT_CREDITS'
+    where id = attempt.id;
+    update public.slips
+    set status = 'error', note = 'เครดิตตรวจสลิปหมด กรุณาเติมเครดิต', verified_at = now()
+    where id = attempt.slip_id;
+    return false;
+  end if;
+
+  update public.payment_pro_attempts
+  set provider_started_at = clock_timestamp(), credit_charged = p_metered
+  where id = attempt.id;
+  return true;
+end;
+$$$sql_135_3$;
+
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 4
+execute $sql_135_4$revoke all on function public.start_payment_pro_provider(uuid, uuid, boolean)
+  from public, anon, authenticated$sql_135_4$;
+
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 5
+execute $sql_135_5$grant execute on function public.start_payment_pro_provider(uuid, uuid, boolean)
+  to service_role$sql_135_5$;
+
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 6
+execute $sql_135_6$create or replace function public.begin_vision_dispatch(p_job uuid, p_claim uuid)
+returns boolean
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+declare
+  job public.vision_jobs;
+  customer public.customers;
+begin
+  select * into job from public.vision_jobs where id = p_job;
+  if not found or job.customer_id is null then return false; end if;
+
+  select * into customer
+  from public.customers
+  where id = job.customer_id and tenant_id = job.tenant_id
+  for update;
+  select * into job from public.vision_jobs where id = p_job for update;
+
+  if job.source <> 'messenger'
+    or job.status <> 'processing'
+    or job.claim_token is distinct from p_claim
+    or job.claim_until <= clock_timestamp()
+    or job.dispatch_started_at is not null
+    or not public.has_tenant_feature(job.tenant_id, 'image_assistant')
+    or not exists (select 1 from public.vision_settings where tenant_id = job.tenant_id and enabled)
+    or not exists (select 1 from public.tenants where id = job.tenant_id and auto_reply_enabled)
+    or customer.id is null
+    or not customer.bot_enabled
+    or customer.assigned_user_id is not null
+    or customer.conversation_status = 'closed'
+    or customer.last_message_at is null
+    or customer.last_message_at < clock_timestamp() - interval '24 hours'
+    or customer.outbound_lock_until > clock_timestamp() then
+    return false;
+  end if;
+
+  if job.decision->>'action' = 'PRODUCT_SEARCH'
+    and (not public.has_tenant_feature(job.tenant_id, 'ai_agent')
+      or not exists (
+        select 1
+        from public.tenants t
+        join public.vision_plan_limits l on l.plan = t.plan
+        join public.vision_settings s on s.tenant_id = t.id
+        where t.id = job.tenant_id and l.product_search and s.mode = 'catalog'
+      )) then
+    return false;
+  end if;
+
+  if job.decision->>'action' = 'VERIFY_SLIP'
+    and (not public.has_tenant_feature(job.tenant_id, 'slip_auto_pilot')
+      or not exists (
+        select 1 from public.tenants
+        where id = job.tenant_id and auto_verify_enabled
+      )) then
+    return false;
+  end if;
+
+  update public.vision_jobs set dispatch_started_at = clock_timestamp() where id = job.id;
+  return true;
+end;
+$$$sql_135_6$;
+
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 7
+execute $sql_135_7$revoke all on function public.begin_vision_dispatch(uuid, uuid)
+  from public, anon, authenticated$sql_135_7$;
+
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 8
+execute $sql_135_8$grant execute on function public.begin_vision_dispatch(uuid, uuid) to service_role$sql_135_8$;
+
+-- migrations/20261112110000_zwiz_central_slip_quota.sql: source statement 9
+execute $sql_135_9$notify pgrst, 'reload schema'$sql_135_9$;
+  insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
+    values('migrations/20261112110000_zwiz_central_slip_quota.sql','775d78324828850e0d21fa3abab7ddcb025fccdb591499d1bf5318cfe66fa92f','4963b5ff2f3cee4202323fb44ba63f2154f9a83571a3ecb56e5b58cb92e88cb8');
+end $migration_135$;
 
 notify pgrst,'reload schema';
 

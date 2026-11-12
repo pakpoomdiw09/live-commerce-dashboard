@@ -71,6 +71,10 @@ export async function requireFeature(db: SupabaseClient, tenantId: string, featu
 export async function hasSlipAccess(db: SupabaseClient, tenantId: string): Promise<boolean> {
   if (!(await hasFeature(db, tenantId, 'slip_auto_pilot'))) return false
   if (temporaryFullAccess) return true
+  const provider = process.env.SLIP_VERIFICATION_PROVIDER?.trim().toLowerCase() || 'zwiz'
+  // ZWIZ applies its provider-account quota; tenant top-up credits only gate SlipOK.
+  if (provider === 'zwiz') return true
+  if (provider !== 'slipok') return false
   const { data, error } = await db
     .from('tenants')
     .select('slip_quota,slip_quota_credits,slip_used')

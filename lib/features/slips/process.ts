@@ -41,7 +41,6 @@ type Input = {
 }
 export type SlipInput = Input
 
-const NO_CREDIT_NOTE = 'เครดิตตรวจสลิปของร้านหมดแล้ว เติมเครดิตในหน้าตั้งค่าร้านค้า'
 export type ProcessedSlip = {
   tabBalance?: import('@/lib/features/commerce/customer-tab-types').TabBalance
   paymentPro?: boolean
@@ -228,24 +227,7 @@ export async function processSlip(
   })
 
   // 3-4) From here on the row must not stay 'pending', whatever fails.
-  let charged = false
   try {
-    // Every provider call costs the tenant one credit, taken atomically before the call.
-    if (tenant) {
-      const { data: hasCredit, error: creditError } = await db.rpc('consume_slip_credit', {
-        p_tenant: tenant.id,
-      })
-      if (creditError) throw new Error(`credit check failed: ${creditError.message}`)
-      if (!hasCredit) {
-        await db
-          .from('slips')
-          .update({ status: 'error', note: NO_CREDIT_NOTE, verified_at: new Date().toISOString() })
-          .eq('id', slip.id)
-        return { id: slip.id, status: 'error', amount: null, transRef: null, note: NO_CREDIT_NOTE }
-      }
-      charged = true
-    }
-
     const r = await verifySlip({
       file,
       qr,
@@ -262,8 +244,6 @@ export async function processSlip(
       amount: r.amount ?? null,
       providerFault: r.providerFault === true,
     })
-    // Provider or bank outages are not the slip's fault; refund the tenant's credit.
-    if (charged && r.providerFault) await refundCredit(db, tenant!.id)
     if (process.env.NODE_ENV !== 'production') {
       console.debug('[slip] verification metadata', {
         verdict: r.verdict,
@@ -395,13 +375,6 @@ export async function processSlip(
     if (e instanceof SlipTimestampError) throw e
     return { id: slip.id, status: 'error', amount: null, transRef: null, note, crashed: true }
   }
-}
-
-/** Give one credit back. Best effort: logged, never thrown, so the verdict is still saved. */
-async function refundCredit(db: SupabaseClient, tenantId: string) {
-  const { error } = await db.rpc('refund_slip_credit', { p_tenant: tenantId })
-  if (error)
-    console.error('credit refund failed (did you run supabase/platform.sql?)', tenantId, error)
 }
 
 /** Whether the accepted ('valid') slip with this trans_ref belongs to a different tenant. */

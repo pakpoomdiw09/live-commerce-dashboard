@@ -11,6 +11,11 @@ export function slipVerificationProvider(): 'slipok' | 'zwiz' | null {
   return configured === 'slipok' || configured === 'zwiz' ? configured : null
 }
 
+/** ZWIZ bills verification against its provider account, not this tenant's local credit meter. */
+export function usesCentralZwizQuota(): boolean {
+  return slipVerificationProvider() === 'zwiz'
+}
+
 export function slipVerificationConfigured(): boolean {
   const provider = slipVerificationProvider()
   if (provider === 'zwiz') return !!process.env.ZWIZ_API_KEY?.trim()

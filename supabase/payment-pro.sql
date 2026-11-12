@@ -96,7 +96,8 @@ begin
  values(p_tenant,p_customer,p_message,slip,p_hash,p_kind,p_image,'VERIFYING',coalesce(ids,'{}'),total,earliest,token,clock_timestamp()+interval '3 minutes') returning * into a;
  return to_jsonb(a);
 end $$;
-create or replace function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid) returns boolean language plpgsql set search_path=pg_catalog,public as $$
+drop function if exists public.start_payment_pro_provider(uuid,uuid);
+create function public.start_payment_pro_provider(p_attempt uuid,p_claim uuid,p_metered boolean default true) returns boolean language plpgsql set search_path=pg_catalog,public as $$
 declare a public.payment_pro_attempts;
 begin
  select * into a from public.payment_pro_attempts where id=p_attempt;
@@ -108,11 +109,11 @@ begin
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason='FEATURE_DISABLED' where id=a.id;
   update public.slips set status='error',note='Payment Pro ถูกปิดหรือแพ็กเกจหมดอายุ',verified_at=now() where id=a.slip_id;return false;
  end if;
- if not public.consume_slip_credit(a.tenant_id) then
+ if p_metered and not public.consume_slip_credit(a.tenant_id) then
   update public.payment_pro_attempts set status='REVIEW_REQUIRED',reason='INSUFFICIENT_CREDITS' where id=a.id;
   update public.slips set status='error',note='เครดิตตรวจสลิปหมด กรุณาเติมเครดิต',verified_at=now() where id=a.slip_id;return false;
  end if;
- update public.payment_pro_attempts set provider_started_at=clock_timestamp(),credit_charged=true where id=a.id;return true;
+ update public.payment_pro_attempts set provider_started_at=clock_timestamp(),credit_charged=p_metered where id=a.id;return true;
 end $$;
 
 -- Apply only the snapshotted orders, under locks. Ledger + order + customer + follow-up commit together.

@@ -2,7 +2,7 @@ import 'server-only'
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireFeature } from '@/lib/feature-access'
-import { verifyWithSlipOK } from '@/lib/features/slips/slipok'
+import { usesCentralZwizQuota, verifyWithSlipOK } from '@/lib/features/slips/slipok'
 import { downloadVisionImage, validateVisionFile } from '@/lib/features/vision/vision-image'
 import {
   standaloneDuplicate,
@@ -106,14 +106,16 @@ export async function processStandaloneSlip(
         'ระบบบันทึกสลิปยังไม่พร้อม กรุณารอแอดมินตรวจสอบ',
       )
     if (previous.data) return standaloneDuplicate()
-    const credit = await db.rpc('consume_slip_credit', { p_tenant: input.tenantId })
-    if (credit.error) throw credit.error
-    if (credit.data !== true)
-      return standaloneFailure(
-        'no_credit',
-        'ขณะนี้ร้านไม่สามารถตรวจสลิปอัตโนมัติได้ กรุณารอแอดมินตรวจสอบ',
-      )
-    charged = true
+    if (!usesCentralZwizQuota()) {
+      const credit = await db.rpc('consume_slip_credit', { p_tenant: input.tenantId })
+      if (credit.error) throw credit.error
+      if (credit.data !== true)
+        return standaloneFailure(
+          'no_credit',
+          'ขณะนี้ร้านไม่สามารถตรวจสลิปอัตโนมัติได้ กรุณารอแอดมินตรวจสอบ',
+        )
+      charged = true
+    }
     const zwizAccounts = [
       ...receivingAccounts.map((account) => ({
         accountNo: account.account_number,
