@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { inboxTenant, inboxError, InboxError } from '@/lib/features/inbox/inbox-server'
+import { readUploadForm, UploadError } from '@/lib/upload-security'
 export const runtime = 'nodejs'
 export async function POST(req: NextRequest) {
   try {
@@ -9,7 +10,9 @@ export async function POST(req: NextRequest) {
     )
     if (Number(req.headers.get('content-length')) > 9 * 1024 * 1024)
       throw new InboxError('ไฟล์ใหญ่เกิน 8 เมกะไบต์', 413)
-    const form = await req.formData()
+    let form: FormData
+    try { form = await readUploadForm(req, { file: 8 * 1024 * 1024 }, 8 * 1024 * 1024 + 64 * 1024) }
+    catch (error) { throw error instanceof UploadError ? new InboxError(error.message, error.status) : error }
     const file = form.get('file')
     if (!(file instanceof File) || !file.size || file.size > 8 * 1024 * 1024)
       throw new InboxError('เลือกไฟล์ขนาดไม่เกิน 8 เมกะไบต์')

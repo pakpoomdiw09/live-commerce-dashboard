@@ -12,14 +12,12 @@ export function isFeatureEnabled(feature: FeatureName): boolean {
         'true'
       )
     case 'live_cf':
-      return (
-        process.env.NEXT_PUBLIC_ENABLE_LIVE_CF === 'true' ||
-        process.env.ENABLE_LIVE_CF === 'true' ||
-        process.env.NEXT_PUBLIC_ENABLE_LIVE_CF !== 'false'
-      )
+      return process.env.NEXT_PUBLIC_ENABLE_LIVE_CF !== undefined
+        ? process.env.NEXT_PUBLIC_ENABLE_LIVE_CF === 'true'
+        : process.env.ENABLE_LIVE_CF === 'true'
     default:
       return false
   }
 }
 
-export const LIVE_CF_ENABLED = process.env.NEXT_PUBLIC_ENABLE_LIVE_CF !== 'false'
+export const LIVE_CF_ENABLED = isFeatureEnabled('live_cf')

@@ -189,7 +189,7 @@ export async function runFacebookWebhookWorker(
       const finished = await db.rpc('finish_facebook_webhook', {
         p_event: event.id,
         p_claim: event.claim_token,
-        p_outcome: messagePersisted ? 'completed' : review ? 'requires_review' : 'retry',
+        p_outcome: review ? 'requires_review' : 'retry',
         p_error: failureCode(error),
       })
       if (finished.error || !finished.data) {

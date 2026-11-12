@@ -3,7 +3,7 @@
 พบ SQL ต้นฉบับ 158 ไฟล์: รวมตาม dependencies 138 ไฟล์ และแยกไว้ 20 ไฟล์
 หลังสร้างไฟล์รวมจะมี SQL ทั้งหมด 160 ไฟล์ รวมไฟล์ generated ทั้งสองด้วย
 
-ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1349336 bytes)
+ไฟล์แนะนำสำหรับ SQL Editor: [complete_schema.sql](complete_schema.sql) (1350555 bytes)
 ติดตั้ง/อัปเกรดใน transaction เดียว และรันซ้ำได้ด้วย snapbot_schema_migrations โดยข้าม migration ที่ใช้ไปแล้ว
 ตรวจ checksum ป้องกันการแก้ประวัติที่ apply แล้ว และคง proof-ledger backfills เพื่อรักษาการป้องกันสลิปซ้ำ
 หากต้องเพิ่มการเปลี่ยนแปลงหลัง apply ให้เพิ่ม source migration ใหม่ท้าย registry แล้ว regenerate
@@ -11,7 +11,7 @@
 
 ## ไฟล์ bootstrap เดิม (ฐานใหม่เท่านั้น)
 
-ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1164792 bytes, 19215 lines)
+ไฟล์เต็ม: [full_database_setup.sql](full_database_setup.sql) (1165843 bytes, 19240 lines)
 ไฟล์นี้เป็น schema/bootstrap สำหรับ Supabase **ใหม่เท่านั้น** ไม่ใช่ไฟล์อัปเกรด Production หรือสำรองข้อมูล
 มี guard หยุดก่อนแก้ไขหากพบตารางแอปเดิม ไม่ลบตารางเดิมเพื่อให้รันต่อ
 
@@ -36,7 +36,7 @@ full-access.sql เป็นตัวเลือกชั่วคราวแ�
 6. [orders.sql](orders.sql) — 11 statements retained
 7. [automation.sql](automation.sql) — 44 statements retained
 8. [billing.sql](billing.sql) — 25 statements retained
-9. [security.sql](security.sql) — 77 statements retained
+9. [security.sql](security.sql) — 81 statements retained
 
 ### Facebook, billing, bank accounts and feature security
 
@@ -446,7 +446,7 @@ DDL และ CREATE INDEX ยังต้องล็อกตาม PostgreSQL
 - orders.sql: `b8d76d6e4dbb3539beb41a4eb89dab77e49b3bf3c111b3c3e30832151a0c6964`
 - automation.sql: `665ac41c61ec4bf4320da06f06112304abec0cb72d5174d732bdc99863fdca8e`
 - billing.sql: `29ce43034a42142b202f01c31dab5e0ccb598aa8aac0ebcd115e32238df75fb6`
-- security.sql: `ec1491b21dc305b4531e12ddb0a92ecdd38ead50b22408e211a7d9aa5326fe8c`
+- security.sql: `ada0cb9fbadb15765ae10edf5919cddec08b3fe785f4c2dfc268745e4f093e48`
 - facebook-connect.sql: `bb849ab652fa428cdd6afd02599e666856bf8ede3ee122269988c9cf10433feb`
 - facebook-tenants.sql: `6d97183c5a95c2341b0795c7c185615a25d68f4127c02db9836e62b9a599c9f0`
 - facebook-multi-admin.sql: `9dffbc3d72cea2d237cbfc85dba2869abab1ab147f1766a8ce33b6fff5e8b644`

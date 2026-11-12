@@ -288,6 +288,10 @@ export async function processSlip(
       verdict = 'valid'
       note = null
     }
+    if (r.receiverCheckSkipped || accounts.length === 0) {
+      verdict = 'error'
+      note = 'Receiver account could not be verified; manual review required.'
+    }
     // A provider may stop at receiver matching before comparing amounts, so missing amount can't pass.
     if (
       verdict === 'valid' &&

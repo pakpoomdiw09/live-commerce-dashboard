@@ -11,6 +11,7 @@ import {
   type VerifiableBillingRequest,
 } from '@/lib/features/billing/billing-verification'
 import { getBilling } from '@/lib/features/billing/billing'
+import { readUploadForm, UploadError } from '@/lib/upload-security'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -68,7 +69,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (request.status !== 'pending') return bad('แนบสลิปได้เฉพาะคำสั่งซื้อที่รออนุมัติ', 409)
   if (Number(req.headers.get('content-length') ?? 0) > PAYMENT_MAX_BYTES + 64 * 1024)
     return bad('สลิปต้องไม่เกิน 5 MB', 413)
-  const form = await req.formData().catch(() => null)
+  let form: FormData | null = null
+  try { form = await readUploadForm(req, { file: PAYMENT_MAX_BYTES }) }
+  catch (error) { return bad(error instanceof UploadError ? error.message : 'Invalid multipart upload', error instanceof UploadError ? error.status : 400) }
   const file = form?.get('file')
   if (request.proof_path) {
     if (file instanceof File) return bad('แนบสลิปแล้ว กรุณากดตรวจสอบอีกครั้งหรือติดต่อผู้ดูแล', 409)

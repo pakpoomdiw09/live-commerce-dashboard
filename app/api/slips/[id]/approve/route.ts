@@ -49,6 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return bad('สลิปของบิลสะสมยังไม่ผ่านการตรวจสอบ จึงยังไม่สามารถบันทึกยอดชำระได้', 409)
     return NextResponse.json({ ok: true, alreadyApplied: true })
   }
+  if (slip.approved_at) return NextResponse.json({ ok: true, approvedAt: slip.approved_at })
   // Pro proofs must never enter the legacy broad "pay every pending order" approval path,
   // including after flags are switched off. An uninstalled optional table is harmless.
   const pro = await db

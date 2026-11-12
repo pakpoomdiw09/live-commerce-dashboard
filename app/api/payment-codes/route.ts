@@ -11,6 +11,7 @@ import {
 } from '@/lib/features/payments/payment-codes-core'
 import { InboxError, inboxError, checkRpc } from '@/lib/features/inbox/inbox-server'
 import { UUID } from '@/lib/utils'
+import { readUploadForm, UploadError } from '@/lib/upload-security'
 export const runtime = 'nodejs'
 const tenantOf = (req: NextRequest) => req.nextUrl.searchParams.get('tenantId') ?? ''
 function sameOrigin(req: NextRequest) {
@@ -118,7 +119,11 @@ export async function POST(req: NextRequest) {
     if (Number(req.headers.get('content-length') ?? 0) > 6 * 1024 * 1024)
       throw new InboxError('ไฟล์ต้องไม่เกิน 5 MB', 413)
     const multipart = req.headers.get('content-type')?.startsWith('multipart/form-data')
-    const form = multipart ? await req.formData() : null
+    let form: FormData | null = null
+    if (multipart) {
+      try { form = await readUploadForm(req, { file: 5 * 1024 * 1024, accountId: 100, requestId: 100, label: 100, mode: 20, confirmed: 10, amount: 40, orderId: 100 }) }
+      catch (error) { throw error instanceof UploadError ? new InboxError(error.message, error.status) : error }
+    }
     const input = form ? Object.fromEntries(form.entries()) : await req.json().catch(() => null)
     if (
       !input ||

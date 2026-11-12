@@ -972,7 +972,7 @@ do $$ begin alter publication supabase_realtime add table billing_requests; exce
 commit;
 -- ============================================================================
 -- 09. security.sql | Core schema and initial tenant security
--- SHA256: ec1491b21dc305b4531e12ddb0a92ecdd38ead50b22408e211a7d9aa5326fe8c
+-- SHA256: ada0cb9fbadb15765ae10edf5919cddec08b3fe785f4c2dfc268745e4f093e48
 -- ============================================================================
 begin;
 set local lock_timeout = '2s';
@@ -1182,79 +1182,104 @@ revoke update on orders from anon, authenticated;
 grant update (status) on orders to authenticated;
 
 -- Source statement 55
-drop policy if exists member_all on bot_settings;
+create or replace function public.enforce_order_owner_cancellation()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if old.status is distinct from 'cancelled' and new.status = 'cancelled'
+     and coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     and current_user <> 'service_role'
+     and not exists (select 1 from public.tenant_members tm
+       where tm.tenant_id = old.tenant_id and tm.user_id = auth.uid() and tm.role = 'owner') then
+    raise exception 'ORDER_CANCELLATION_OWNER_ONLY' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
 
 -- Source statement 56
+revoke all on function public.enforce_order_owner_cancellation() from public, anon, authenticated;
+
+-- Source statement 57
+drop trigger if exists orders_owner_only_cancel on public.orders;
+
+-- Source statement 58
+create trigger orders_owner_only_cancel before update of status on public.orders
+for each row execute function public.enforce_order_owner_cancellation();
+
+-- Source statement 59
+drop policy if exists member_all on bot_settings;
+
+-- Source statement 60
 create policy member_all on bot_settings for all to authenticated
   using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id));
 
--- Source statement 57
+-- Source statement 61
 drop policy if exists member_all on chat_rules;
 
--- Source statement 58
+-- Source statement 62
 create policy member_all on chat_rules for all to authenticated
   using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id));
 
--- Source statement 59
+-- Source statement 63
 drop policy if exists member_read on follow_up_jobs;
 
--- Source statement 60
+-- Source statement 64
 create policy member_read on follow_up_jobs for select to authenticated using (can_access_tenant(tenant_id));
 
--- Source statement 61
+-- Source statement 65
 drop policy if exists member_cancel on follow_up_jobs;
 
--- Source statement 62
+-- Source statement 66
 create policy member_cancel on follow_up_jobs for update to authenticated
   using (can_access_tenant(tenant_id) and status = 'scheduled')
   with check (can_access_tenant(tenant_id) and status = 'cancelled');
 
--- Source statement 63
+-- Source statement 67
 revoke insert, update, delete on follow_up_jobs from anon, authenticated;
 
--- Source statement 64
+-- Source statement 68
 grant update (status, reason) on follow_up_jobs to authenticated;
 
--- Source statement 65
+-- Source statement 69
 drop policy if exists member_read on broadcasts;
 
--- Source statement 66
+-- Source statement 70
 create policy member_read on broadcasts for select to authenticated using (can_access_tenant(tenant_id));
 
--- Source statement 67
+-- Source statement 71
 drop policy if exists member_draft on broadcasts;
 
--- Source statement 68
+-- Source statement 72
 create policy member_draft on broadcasts for insert to authenticated
   with check (can_access_tenant(tenant_id) and status = 'draft');
 
--- Source statement 69
+-- Source statement 73
 drop policy if exists member_edit_draft on broadcasts;
 
--- Source statement 70
+-- Source statement 74
 create policy member_edit_draft on broadcasts for update to authenticated
   using (can_access_tenant(tenant_id) and status = 'draft') with check (can_access_tenant(tenant_id) and status = 'draft');
 
--- Source statement 71
+-- Source statement 75
 drop policy if exists member_delete_draft on broadcasts;
 
--- Source statement 72
+-- Source statement 76
 create policy member_delete_draft on broadcasts for delete to authenticated
   using (can_access_tenant(tenant_id) and status = 'draft');
 
--- Source statement 73
+-- Source statement 77
 revoke insert, update, delete on broadcasts from anon, authenticated;
 
--- Source statement 74
+-- Source statement 78
 grant insert (tenant_id, name, message, audience_segment, audience_tags, audience_window, message_tag, created_by) on broadcasts to authenticated;
 
--- Source statement 75
+-- Source statement 79
 grant update (name, message, audience_segment, audience_tags, audience_window, message_tag) on broadcasts to authenticated;
 
--- Source statement 76
+-- Source statement 80
 grant delete on broadcasts to authenticated;
 
--- Source statement 77
+-- Source statement 81
 do $$ begin
   if to_regclass('public.billing_requests') is not null then
     drop policy if exists member_read on billing_requests;

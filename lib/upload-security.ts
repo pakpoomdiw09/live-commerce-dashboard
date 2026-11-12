@@ -103,7 +103,11 @@ function inspectMultipart(body: Buffer, boundary: string, fields: UploadFields) 
 }
 
 /** Count actual streamed bytes, with an absolute deadline; never call request.formData(). */
-export async function readUploadForm(request: Request, fields: UploadFields): Promise<FormData> {
+export async function readUploadForm(
+  request: Request,
+  fields: UploadFields,
+  maxBodyBytes = UPLOAD_BODY_BYTES,
+): Promise<FormData> {
   const contentType = request.headers.get('content-type') ?? ''
   const match =
     /^multipart\/form-data\s*;\s*boundary=(?:"([^"\r\n]{1,70})"|([^;\s]{1,70}))\s*$/i.exec(
@@ -124,14 +128,14 @@ export async function readUploadForm(request: Request, fields: UploadFields): Pr
     cancelBody(request)
     throw new UploadError('ขนาดคำขอไม่ถูกต้อง', 400)
   }
-  if (declared !== null && (declared.length > 16 || BigInt(declared) > BigInt(UPLOAD_BODY_BYTES))) {
+  if (declared !== null && (declared.length > 16 || BigInt(declared) > BigInt(maxBodyBytes))) {
     cancelBody(request)
     throw new UploadError('ข้อมูลอัปโหลดมีขนาดเกินกำหนด', 413)
   }
   if (!request.body || request.bodyUsed || request.body.locked)
     throw new UploadError('ไม่พบข้อมูลอัปโหลดที่อ่านได้', 400)
   const reader = request.body.getReader(),
-    bytes = new Uint8Array(UPLOAD_BODY_BYTES)
+    bytes = new Uint8Array(maxBodyBytes)
   const expiresAt = Date.now() + READ_TIMEOUT_MS
   let size = 0,
     chunks = 0,
@@ -158,7 +162,7 @@ export async function readUploadForm(request: Request, fields: UploadFields): Pr
       if (done) break
       if (++chunks > MAX_STREAM_CHUNKS)
         throw new UploadError('ข้อมูลอัปโหลดแบ่งย่อยมากเกินกำหนด', 413)
-      if (value.byteLength > UPLOAD_BODY_BYTES - size)
+      if (value.byteLength > maxBodyBytes - size)
         throw new UploadError('ข้อมูลอัปโหลดมีขนาดเกินกำหนด', 413)
       bytes.set(value, size)
       size += value.byteLength

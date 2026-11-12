@@ -172,6 +172,10 @@ export async function processCustomerTabSlip(
     })
     let verdict = result.verdict
     let note = result.note ?? null
+    if (result.receiverCheckSkipped || receiverAccounts.length === 0) {
+      verdict = 'error'
+      note = 'Receiver account could not be verified; manual review required.'
+    }
     const receiverMatches = receiverMatchesAny(
       receiverAccounts,
       result.receiverBank,

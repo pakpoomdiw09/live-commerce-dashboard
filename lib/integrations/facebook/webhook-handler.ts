@@ -381,16 +381,17 @@ async function onMessage(
   // worker processing time: delayed/replayed webhooks cannot renew an old window.
   // Persist before any optional Graph diagnostics or profile requests.
   const stored = await execution.persistRecord(tenant?.id ?? null)
-  if (stored.duplicate || stored.ignored) {
+  if (stored.ignored) {
     console.info('[facebook-webhook/message] not inserted', {
       parsed: true,
-      outcome: stored.duplicate ? 'duplicate' : 'ignored',
+      outcome: 'ignored',
     })
     return
   }
   let customer = stored.customer
   if (!customer || !stored.id) throw new Error('MESSAGE_PERSISTENCE_INVALID')
-  console.info('[facebook-webhook/message] inserted', {
+  console.info('[facebook-webhook/message] persisted', {
+    duplicate: stored.duplicate,
     parsed: true,
     has_sender: Boolean(incoming.senderId),
     has_message_id: Boolean(incoming.messageId),

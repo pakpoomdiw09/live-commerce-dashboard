@@ -11,6 +11,7 @@ import {
 } from '@/lib/features/payments/payment-validation'
 import { slipVerificationConfigured, verifyWithSlipOK } from '@/lib/features/slips/slipok'
 import { UUID } from '@/lib/utils'
+import { readUploadForm, UploadError } from '@/lib/upload-security'
 import {
   createLogRequestId,
   logSafeEvent,
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
       return bad('สลิปต้องมีขนาดไม่เกิน 5 MB', 413)
     let form: FormData
     try {
-      form = await req.formData()
+      form = await readUploadForm(req, { file: PAYMENT_MAX_BYTES, sessionId: 100 })
     } catch {
       return bad('กรุณาอัปโหลดสลิปด้วย multipart/form-data')
     }

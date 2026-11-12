@@ -963,7 +963,7 @@ declare installed text;
 begin
   select checksum into installed from public.snapbot_schema_migrations where name='security.sql';
   if found then
-    if installed <> '9053655b6ac3819e41cbfa4ca0980406dd2a931e15fc2f90baac83c5d4215cda' then
+    if installed <> '5af86db2298434f12e3bea077a69386b381b2252c14616713f0751226fbba8c3' then
       raise exception 'Applied migration changed: security.sql. Add a new migration instead of replaying modified history';
     end if;
     return;
@@ -1181,88 +1181,113 @@ execute $sql_8_53$revoke update on orders from anon, authenticated$sql_8_53$;
 execute $sql_8_54$grant update (status) on orders to authenticated$sql_8_54$;
 
 -- security.sql: source statement 55
-execute $sql_8_55$drop policy if exists member_all on bot_settings$sql_8_55$;
+execute $sql_8_55$create or replace function public.enforce_order_owner_cancellation()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if old.status is distinct from 'cancelled' and new.status = 'cancelled'
+     and coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     and current_user <> 'service_role'
+     and not exists (select 1 from public.tenant_members tm
+       where tm.tenant_id = old.tenant_id and tm.user_id = auth.uid() and tm.role = 'owner') then
+    raise exception 'ORDER_CANCELLATION_OWNER_ONLY' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$$sql_8_55$;
 
 -- security.sql: source statement 56
-execute $sql_8_56$create policy member_all on bot_settings for all to authenticated
-  using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id))$sql_8_56$;
+execute $sql_8_56$revoke all on function public.enforce_order_owner_cancellation() from public, anon, authenticated$sql_8_56$;
 
 -- security.sql: source statement 57
-execute $sql_8_57$drop policy if exists member_all on chat_rules$sql_8_57$;
+execute $sql_8_57$drop trigger if exists orders_owner_only_cancel on public.orders$sql_8_57$;
 
 -- security.sql: source statement 58
-execute $sql_8_58$create policy member_all on chat_rules for all to authenticated
-  using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id))$sql_8_58$;
+execute $sql_8_58$create trigger orders_owner_only_cancel before update of status on public.orders
+for each row execute function public.enforce_order_owner_cancellation()$sql_8_58$;
 
 -- security.sql: source statement 59
-execute $sql_8_59$drop policy if exists member_read on follow_up_jobs$sql_8_59$;
+execute $sql_8_59$drop policy if exists member_all on bot_settings$sql_8_59$;
 
 -- security.sql: source statement 60
-execute $sql_8_60$create policy member_read on follow_up_jobs for select to authenticated using (can_access_tenant(tenant_id))$sql_8_60$;
+execute $sql_8_60$create policy member_all on bot_settings for all to authenticated
+  using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id))$sql_8_60$;
 
 -- security.sql: source statement 61
-execute $sql_8_61$drop policy if exists member_cancel on follow_up_jobs$sql_8_61$;
+execute $sql_8_61$drop policy if exists member_all on chat_rules$sql_8_61$;
 
 -- security.sql: source statement 62
-execute $sql_8_62$create policy member_cancel on follow_up_jobs for update to authenticated
-  using (can_access_tenant(tenant_id) and status = 'scheduled')
-  with check (can_access_tenant(tenant_id) and status = 'cancelled')$sql_8_62$;
+execute $sql_8_62$create policy member_all on chat_rules for all to authenticated
+  using (can_access_tenant(tenant_id)) with check (can_access_tenant(tenant_id))$sql_8_62$;
 
 -- security.sql: source statement 63
-execute $sql_8_63$revoke insert, update, delete on follow_up_jobs from anon, authenticated$sql_8_63$;
+execute $sql_8_63$drop policy if exists member_read on follow_up_jobs$sql_8_63$;
 
 -- security.sql: source statement 64
-execute $sql_8_64$grant update (status, reason) on follow_up_jobs to authenticated$sql_8_64$;
+execute $sql_8_64$create policy member_read on follow_up_jobs for select to authenticated using (can_access_tenant(tenant_id))$sql_8_64$;
 
 -- security.sql: source statement 65
-execute $sql_8_65$drop policy if exists member_read on broadcasts$sql_8_65$;
+execute $sql_8_65$drop policy if exists member_cancel on follow_up_jobs$sql_8_65$;
 
 -- security.sql: source statement 66
-execute $sql_8_66$create policy member_read on broadcasts for select to authenticated using (can_access_tenant(tenant_id))$sql_8_66$;
+execute $sql_8_66$create policy member_cancel on follow_up_jobs for update to authenticated
+  using (can_access_tenant(tenant_id) and status = 'scheduled')
+  with check (can_access_tenant(tenant_id) and status = 'cancelled')$sql_8_66$;
 
 -- security.sql: source statement 67
-execute $sql_8_67$drop policy if exists member_draft on broadcasts$sql_8_67$;
+execute $sql_8_67$revoke insert, update, delete on follow_up_jobs from anon, authenticated$sql_8_67$;
 
 -- security.sql: source statement 68
-execute $sql_8_68$create policy member_draft on broadcasts for insert to authenticated
-  with check (can_access_tenant(tenant_id) and status = 'draft')$sql_8_68$;
+execute $sql_8_68$grant update (status, reason) on follow_up_jobs to authenticated$sql_8_68$;
 
 -- security.sql: source statement 69
-execute $sql_8_69$drop policy if exists member_edit_draft on broadcasts$sql_8_69$;
+execute $sql_8_69$drop policy if exists member_read on broadcasts$sql_8_69$;
 
 -- security.sql: source statement 70
-execute $sql_8_70$create policy member_edit_draft on broadcasts for update to authenticated
-  using (can_access_tenant(tenant_id) and status = 'draft') with check (can_access_tenant(tenant_id) and status = 'draft')$sql_8_70$;
+execute $sql_8_70$create policy member_read on broadcasts for select to authenticated using (can_access_tenant(tenant_id))$sql_8_70$;
 
 -- security.sql: source statement 71
-execute $sql_8_71$drop policy if exists member_delete_draft on broadcasts$sql_8_71$;
+execute $sql_8_71$drop policy if exists member_draft on broadcasts$sql_8_71$;
 
 -- security.sql: source statement 72
-execute $sql_8_72$create policy member_delete_draft on broadcasts for delete to authenticated
-  using (can_access_tenant(tenant_id) and status = 'draft')$sql_8_72$;
+execute $sql_8_72$create policy member_draft on broadcasts for insert to authenticated
+  with check (can_access_tenant(tenant_id) and status = 'draft')$sql_8_72$;
 
 -- security.sql: source statement 73
-execute $sql_8_73$revoke insert, update, delete on broadcasts from anon, authenticated$sql_8_73$;
+execute $sql_8_73$drop policy if exists member_edit_draft on broadcasts$sql_8_73$;
 
 -- security.sql: source statement 74
-execute $sql_8_74$grant insert (tenant_id, name, message, audience_segment, audience_tags, audience_window, message_tag, created_by) on broadcasts to authenticated$sql_8_74$;
+execute $sql_8_74$create policy member_edit_draft on broadcasts for update to authenticated
+  using (can_access_tenant(tenant_id) and status = 'draft') with check (can_access_tenant(tenant_id) and status = 'draft')$sql_8_74$;
 
 -- security.sql: source statement 75
-execute $sql_8_75$grant update (name, message, audience_segment, audience_tags, audience_window, message_tag) on broadcasts to authenticated$sql_8_75$;
+execute $sql_8_75$drop policy if exists member_delete_draft on broadcasts$sql_8_75$;
 
 -- security.sql: source statement 76
-execute $sql_8_76$grant delete on broadcasts to authenticated$sql_8_76$;
+execute $sql_8_76$create policy member_delete_draft on broadcasts for delete to authenticated
+  using (can_access_tenant(tenant_id) and status = 'draft')$sql_8_76$;
 
 -- security.sql: source statement 77
-execute $sql_8_77$do $$ begin
+execute $sql_8_77$revoke insert, update, delete on broadcasts from anon, authenticated$sql_8_77$;
+
+-- security.sql: source statement 78
+execute $sql_8_78$grant insert (tenant_id, name, message, audience_segment, audience_tags, audience_window, message_tag, created_by) on broadcasts to authenticated$sql_8_78$;
+
+-- security.sql: source statement 79
+execute $sql_8_79$grant update (name, message, audience_segment, audience_tags, audience_window, message_tag) on broadcasts to authenticated$sql_8_79$;
+
+-- security.sql: source statement 80
+execute $sql_8_80$grant delete on broadcasts to authenticated$sql_8_80$;
+
+-- security.sql: source statement 81
+execute $sql_8_81$do $$ begin
   if to_regclass('public.billing_requests') is not null then
     drop policy if exists member_read on billing_requests;
     create policy member_read on billing_requests for select to authenticated using (can_access_tenant(tenant_id));
     revoke insert, update, delete on billing_requests from anon, authenticated;
   end if;
-end $$$sql_8_77$;
+end $$$sql_8_81$;
   insert into public.snapbot_schema_migrations(name,checksum,source_sha256)
-    values('security.sql','9053655b6ac3819e41cbfa4ca0980406dd2a931e15fc2f90baac83c5d4215cda','ec1491b21dc305b4531e12ddb0a92ecdd38ead50b22408e211a7d9aa5326fe8c');
+    values('security.sql','5af86db2298434f12e3bea077a69386b381b2252c14616713f0751226fbba8c3','ada0cb9fbadb15765ae10edf5919cddec08b3fe785f4c2dfc268745e4f093e48');
 end $migration_8$;
 
 -- 10. facebook-connect.sql
