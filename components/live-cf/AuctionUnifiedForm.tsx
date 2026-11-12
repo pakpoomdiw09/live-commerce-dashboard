@@ -276,6 +276,9 @@ export function AuctionUnifiedForm({
           ...(data.activeAuction?.currentPrice == null ? [] : [data.activeAuction.currentPrice]),
         ]))
       : 0
+  const paidAmount = data && data.session.id === base?.session?.id
+    ? Math.max(0, data.metrics.auctionPaid ?? 0)
+    : 0
   const financialValues = draft
     ? {
         cost: draft.finance.cost === '' ? 0 : inputMoney(draft.finance.cost),
@@ -288,21 +291,25 @@ export function AuctionUnifiedForm({
     financialValues &&
     financialValues.cost !== null &&
     financialValues.ads !== null &&
-    financialValues.shipping !== null &&
-    financialValues.fees !== null
+    financialValues.shipping !== null
       ? sessionProfit(
-          sales,
+          paidAmount,
           financialValues.cost,
           financialValues.ads,
           financialValues.shipping,
-          financialValues.fees,
+          0,
         )
+      : null
+  const projectedProfit = financialValues &&
+    financialValues.cost !== null &&
+    financialValues.ads !== null &&
+    financialValues.shipping !== null
+      ? sessionProfit(sales, financialValues.cost, financialValues.ads, financialValues.shipping)
       : null
   const financeCards = [
     { key: 'cost', label: 'ต้นทุนสินค้า (บาท)', color: 'border-t-slate-400' },
-    { key: 'ads', label: 'ค่าแอด / ยิงโฆษณา (บาท)', color: 'border-t-violet-500' },
     { key: 'shipping', label: 'ค่าจัดส่งจริง (บาท)', color: 'border-t-sky-500' },
-    { key: 'fees', label: 'ค่าธรรมเนียม / อื่นๆ (บาท)', color: 'border-t-amber-500' },
+    { key: 'ads', label: 'ค่าแอด / ยิงโฆษณา (บาท)', color: 'border-t-violet-500' },
   ] as const
 
   return (
@@ -354,13 +361,13 @@ export function AuctionUnifiedForm({
         <section data-auction-workspace className="min-w-0 space-y-5">
           <div>
             <div
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 w-full"
+              className="grid grid-cols-2 gap-3 w-full md:grid-cols-3 xl:grid-cols-6"
               data-auction-header-cards
             >
-              {financeCards.slice(0, 3).map(({ label, key, color }) => (
+              {financeCards.map(({ label, key, color }) => (
                 <label
                   key={key}
-                  className={`min-w-0 rounded-xl border border-t-2 border-slate-200 ${color} bg-white p-2.5 text-xs font-medium text-slate-600 shadow-sm sm:text-sm ${key === 'cost' ? 'order-1' : key === 'shipping' ? 'order-3' : 'order-5'}`}
+                  className={`min-w-0 rounded-xl border border-t-2 border-slate-200 ${color} bg-white p-2.5 text-xs font-medium text-slate-600 shadow-sm sm:text-sm`}
                 >
                   <span className="flex min-h-10 items-start gap-2 leading-5">
                     {key === 'cost' ? (
@@ -399,10 +406,10 @@ export function AuctionUnifiedForm({
                   </span>
                 </label>
               ))}
-              <div className="order-2 min-w-0 rounded-xl border border-t-2 border-slate-200 border-t-orange-400 bg-white p-2.5 shadow-sm">
+              <div className="min-w-0 rounded-xl border border-t-2 border-slate-200 border-t-orange-400 bg-white p-2.5 shadow-sm">
                 <p className="flex min-h-10 items-start gap-2 text-xs font-medium leading-5 text-slate-600 sm:text-sm">
                   <Gavel aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-orange-500" />
-                  <span>ราคาปิดประมูล / ยอดขายสุทธิ (บาท)</span>
+                  <span>ยอดประมูลรวมทั้งหมด (บาท)</span>
                 </p>
                 <p
                   aria-label="ยอดขายสุทธิของไลฟ์นี้"
@@ -411,9 +418,24 @@ export function AuctionUnifiedForm({
                   ฿{sessionMoney(sales)}
                 </p>
               </div>
-              <div className="order-4 min-w-0 rounded-xl border border-t-2 border-slate-200 border-t-emerald-400 bg-white p-2.5 shadow-sm">
+              <div className="min-w-0 rounded-xl border border-t-2 border-slate-200 border-t-sky-400 bg-white p-2.5 shadow-sm">
                 <p className="flex min-h-10 items-start gap-2 text-xs font-medium leading-5 text-slate-600 sm:text-sm">
-                  <Coins aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  <Coins aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+                  <span>ยอดที่ลูกค้าโอนมาแล้ว (บาท)</span>
+                </p>
+                <p
+                  aria-label="ยอดที่ลูกค้าโอนมาแล้วของไลฟ์นี้"
+                  className="mt-1 break-words py-1 text-lg font-bold tabular-nums text-sky-700 sm:text-xl"
+                >
+                  ฿{sessionMoney(paidAmount)}
+                </p>
+                {sales > paidAmount && (
+                  <p className="text-[11px] leading-4 text-slate-500">รอชำระ ฿{sessionMoney(sales - paidAmount)}</p>
+                )}
+              </div>
+              <div className={`min-w-0 rounded-xl border border-t-2 border-slate-200 bg-white p-2.5 shadow-sm ${profit !== null && profit < 0 ? 'border-t-red-400' : 'border-t-emerald-400'}`}>
+                <p className="flex min-h-10 items-start gap-2 text-xs font-medium leading-5 text-slate-600 sm:text-sm">
+                  <Coins aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${profit !== null && profit < 0 ? 'text-red-600' : 'text-emerald-600'}`} />
                   <span>กำไรสุทธิ (บาท)</span>
                 </p>
                 <p
@@ -422,6 +444,9 @@ export function AuctionUnifiedForm({
                 >
                   {profit === null ? '—' : `฿${sessionMoney(profit)}`}
                 </p>
+                {projectedProfit !== null && (
+                  <p className="text-[11px] leading-4 text-slate-500">หากเก็บครบ ฿{sessionMoney(projectedProfit)}</p>
+                )}
               </div>
               <input type="hidden" value={draft.finance.fees} />
             </div>

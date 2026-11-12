@@ -5,6 +5,7 @@ import { authorizeAuction, auctionReply } from '@/lib/features/commerce/auction-
 import { UUID } from '@/lib/utils'
 import { extractFacebookLiveId } from '@/lib/features/commerce/live-cf-setup'
 import { liveCfPaymentLinksReady } from '@/lib/features/commerce/live-cf-payment-link'
+import { auctionSessionFinance } from '@/lib/features/commerce/auction-session-finance'
 import {
   normalizeBidKeyword,
   normalizeCloseKeyword,
@@ -35,12 +36,18 @@ export async function GET(req: NextRequest) {
     const sessionId = req.nextUrl.searchParams.get('sessionId')
     if (!sessionId || !UUID.test(sessionId))
       return auctionReply({ error: 'รหัส เซสชัน ไม่ถูกต้อง' }, 400)
-    const result = await supabaseAdmin({ timeoutMs: 15000 }).rpc('live_auction_thai_dashboard', {
+    const db = supabaseAdmin({ timeoutMs: 15000 })
+    const result = await db.rpc('live_auction_thai_dashboard', {
       p_tenant: tenantId!,
       p_session: sessionId,
     })
     if (result.error) throw result.error
-    return auctionReply(result.data)
+    const finance = await auctionSessionFinance(db, tenantId!, sessionId)
+    const snapshot = result.data as Record<string, any>
+    return auctionReply({
+      ...snapshot,
+      metrics: { ...snapshot.metrics, ...finance },
+    })
   } catch (error) {
     return failure(error)
   }

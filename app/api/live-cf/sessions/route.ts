@@ -9,6 +9,7 @@ import {
   validSessionTemplate,
 } from '@/lib/features/commerce/live-session-types'
 import { runCustomerTabReminders } from '@/lib/features/commerce/customer-tab-reminders'
+import { auctionSessionFinance } from '@/lib/features/commerce/auction-session-finance'
 
 export const maxDuration = 60
 function failure(error: unknown) {
@@ -98,7 +99,12 @@ export async function GET(req: NextRequest) {
       ...(tabId ? { p_tab: tabId } : {}),
     })
     if (result.error) throw result.error
-    return auctionReply(result.data)
+    const finance = await auctionSessionFinance(db, tenantId!, sessionId)
+    const snapshot = result.data as Record<string, any>
+    return auctionReply({
+      ...snapshot,
+      metrics: { ...snapshot.metrics, ...finance },
+    })
   } catch (error) {
     return failure(error)
   }
