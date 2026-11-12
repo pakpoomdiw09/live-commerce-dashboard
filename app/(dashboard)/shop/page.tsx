@@ -24,6 +24,7 @@ export default async function ShopPage({
   await requireDashboardUser()
   const query = await searchParams
   if (query.tab === 'editor') redirect('/shop?tab=overview')
+  if (query.tab === 'customers') redirect('/shop?tab=overview')
   if (shopV2() && query.legacy !== '1') {
     if (query.tab === 'categories') redirect('/shop?tab=products')
     const tenant = await getActiveTenant()

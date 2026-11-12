@@ -82,7 +82,7 @@ export function CommerceWorkspace({
   const navigate = (patch: Record<string, string | number>) =>
     router.push('/shop?' + parameters({ tab, ...patch }))
   const paginate = (
-    key: 'productPage' | 'orderPage' | 'customerPage' | 'categoryPage' | 'pagePage',
+    key: 'productPage' | 'orderPage',
     total: number,
   ) => (
     <nav
@@ -501,50 +501,6 @@ export function CommerceWorkspace({
         ) : (
           locked
         ))}
-      {tab === 'customers' && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="font-semibold">ลูกค้าที่สั่งซื้อจากหน้าร้าน</h2>
-          <p className="mt-2 text-xs text-slate-500">
-            บันทึกเฉพาะเพื่อจัดส่งสินค้า ไม่ถือเป็นการยินยอมรับข้อความการตลาด ลูกค้า Facebook
-            ยังจัดการผ่านเมนูลูกค้าเดิม
-          </p>
-          {data.customers.map((c: any) => (
-            <div key={c.id} className="mt-4 grid gap-2 border-t pt-4 text-sm sm:grid-cols-3">
-              <strong>{c.name}</strong>
-              <span>{c.phone}</span>
-              <span>ออเดอร์ {c.order_count} รายการ</span>
-            </div>
-          ))}
-          {!data.customers.length && (
-            <p className="py-8 text-center text-sm text-slate-500">
-              ยังไม่มีลูกค้าสั่งซื้อจากหน้าร้าน
-            </p>
-          )}
-        </section>
-      )}
-      {tab === 'reports' &&
-        (data.limits.reports ? (
-          <>
-            {chart}
-            <section className="rounded-2xl border border-slate-200 bg-white p-5">
-              <h2 className="font-semibold">ยอดขายรายเดือน (ตามวันที่ชำระ)</h2>
-              {data.report?.monthly.map((row) => (
-                <p key={row.month} className="mt-3 flex justify-between">
-                  <span>{row.month}</span>
-                  <strong>{baht(row.total)}</strong>
-                </p>
-              ))}
-              {!data.report?.monthly.length && (
-                <p className="py-6 text-sm text-slate-500">ยังไม่มียอดขายที่รับชำระแล้ว</p>
-              )}
-            </section>
-          </>
-        ) : (
-          locked
-        ))}
-      {tab === 'products' && paginate('productPage', data.counts.products)}
-      {tab === 'orders' && paginate('orderPage', data.counts.orders)}
-      {tab === 'customers' && paginate('customerPage', data.counts.customers)}
       {tab === 'reports' && data.limits.reports && (
         <p className="text-xs text-slate-500">แสดงยอดรายเดือนสูงสุด 120 เดือนล่าสุดที่มียอดขาย</p>
       )}

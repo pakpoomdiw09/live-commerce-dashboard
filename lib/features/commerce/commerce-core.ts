@@ -4,7 +4,6 @@ export const SHOP_TABS = {
   overview: 'ภาพรวมร้านค้า',
   products: 'สินค้าทั้งหมด',
   orders: 'คำสั่งซื้อ',
-  customers: 'ลูกค้าของร้านค้า',
   reports: 'รายงานยอดขาย',
   settings: 'ตั้งค่าร้านค้า',
 } as const
