@@ -20,7 +20,6 @@ import { ORDER_STATES, SHOP_TABS, type ShopTab } from '@/lib/features/commerce/c
 import type { CommerceData } from '@/lib/features/commerce/commerce-server'
 import { CommerceProducts } from '@/components/shop/CommerceProducts'
 import {
-  CommerceEditor,
   commerceButton as btn,
   commerceInput as input,
   commercePrimary as primary,
@@ -313,7 +312,7 @@ export function CommerceWorkspace({
       <PageBanner className="flex flex-wrap items-center justify-between gap-5">
         <div>
           <Store className="mb-2 h-8 w-8" />
-          <h1 className="text-2xl font-bold">ร้านค้า / เซลเพจ</h1>
+          <h1 className="text-2xl font-bold">ร้านค้า</h1>
           <p className="mt-2 text-sm">
             {data.store?.name ?? data.tenant.name} ·{' '}
             {data.store?.is_open ? 'เปิดร้านอยู่' : 'ยังไม่เปิดร้าน'}
@@ -502,20 +501,6 @@ export function CommerceWorkspace({
         ) : (
           locked
         ))}
-      {tab === 'editor' &&
-        (data.flags.editor ? (
-          <CommerceEditor
-            pages={data.pages}
-            products={data.products}
-            advanced={data.limits.advanced_templates}
-            canManage={data.canManage}
-            busy={busy}
-            mutate={mutate}
-            upload={upload}
-          />
-        ) : (
-          <p>ตัวออกแบบเซลเพจยังไม่เปิดใช้งาน</p>
-        ))}
       {tab === 'customers' && (
         <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="font-semibold">ลูกค้าที่สั่งซื้อจากหน้าร้าน</h2>
@@ -560,13 +545,6 @@ export function CommerceWorkspace({
       {tab === 'products' && paginate('productPage', data.counts.products)}
       {tab === 'orders' && paginate('orderPage', data.counts.orders)}
       {tab === 'customers' && paginate('customerPage', data.counts.customers)}
-      {tab === 'editor' && (
-        <>
-          {paginate('pagePage', data.counts.pages)}
-          <p className="text-xs text-slate-500">แบ่งหน้าสินค้าที่ใช้แสดงตัวอย่าง</p>
-          {paginate('productPage', data.counts.products)}
-        </>
-      )}
       {tab === 'reports' && data.limits.reports && (
         <p className="text-xs text-slate-500">แสดงยอดรายเดือนสูงสุด 120 เดือนล่าสุดที่มียอดขาย</p>
       )}

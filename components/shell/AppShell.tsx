@@ -50,7 +50,7 @@ const NAV: NavItem[] = [
     ],
   },
   { href: '/broadcast', label: 'บรอดแคสต์', icon: Megaphone },
-  { href: '/shop', label: 'ร้านค้า / เซลเพจ', icon: Store },
+  { href: '/shop', label: 'ร้านค้า', icon: Store },
   { href: '/live-cf', label: 'ไลฟ์สด CF', icon: Radio },
   { href: '/live-auction', label: 'ไลฟ์สดการประมูล', icon: Gavel },
   { href: '/shipping', label: 'ระบบจัดส่งพัสดุ (Shipping / Bee Move)', icon: Truck },

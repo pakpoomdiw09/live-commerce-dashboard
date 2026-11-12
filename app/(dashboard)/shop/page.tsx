@@ -14,7 +14,7 @@ import { SetupNotice } from '@/components/shared/SetupNotice'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = { title: 'ร้านค้า / เซลเพจ' }
+export const metadata = { title: 'ร้านค้า' }
 
 export default async function ShopPage({
   searchParams,
@@ -23,6 +23,7 @@ export default async function ShopPage({
 }) {
   await requireDashboardUser()
   const query = await searchParams
+  if (query.tab === 'editor') redirect('/shop?tab=overview')
   if (shopV2() && query.legacy !== '1') {
     if (query.tab === 'categories') redirect('/shop?tab=products')
     const tenant = await getActiveTenant()

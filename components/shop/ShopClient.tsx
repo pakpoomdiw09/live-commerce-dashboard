@@ -172,7 +172,7 @@ export function ShopClient({
   return (
     <div className="mx-0 w-full min-w-0 max-w-none space-y-6 p-4 md:p-8">
       <PageHeader
-        title="ร้านค้า / เซลเพจ"
+        title="ร้านค้า"
         description="จัดการสินค้า สต็อก และลิงก์เซลเพจสำหรับส่งในแชท ลูกค้าพิมพ์ CF + รหัสสินค้าเพื่อสั่งซื้อ ระบบตัดสต็อกให้อัตโนมัติ"
         action={
           <Button onClick={() => setEditing('new')}>
