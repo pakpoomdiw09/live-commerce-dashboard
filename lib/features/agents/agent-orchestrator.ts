@@ -7,7 +7,8 @@ import {
 import {
   inputRisk,
   isPaymentQuestion,
-  isProductQuestion,
+  isCustomerCommerceQuestion,
+  requiresExplicitHandover,
   redactAgentText,
 } from '@/lib/features/agents/agent-control-core'
 import {
@@ -61,8 +62,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
   let quotaId: string | undefined
   try {
     const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
-    const customerContextQuestion =
-      (isPaymentQuestion(m.text) || isProductQuestion(m.text)) && !inputRisk(m.text)
+    const customerContextQuestion = isCustomerCommerceQuestion(m.text) && !inputRisk(m.text)
     const rules =
       settings.reply_mode === 'keyword' && !customerContextQuestion
         ? await db
@@ -85,6 +85,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       settings.reply_mode === 'keyword' &&
       !customerContextQuestion &&
       !rule &&
+      !requiresExplicitHandover(m.text) &&
       !wantsHuman(settings.handover_keywords, m.text) &&
       !inputRisk(m.text)
     ) {
@@ -113,8 +114,8 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
       reason: string | null = route === 'FALLBACK' ? 'AI_NOT_AVAILABLE' : null
     if (
       route !== 'KEYWORD' &&
-      ((config.capabilities?.handoff !== false && !customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)) ||
-        inputRisk(m.text))
+      (requiresExplicitHandover(m.text) ||
+        (config.capabilities?.handoff !== false && !customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)))
     ) {
       route = 'FALLBACK'
       reason = inputRisk(m.text) ?? 'CUSTOMER_REQUESTED_HUMAN'
@@ -203,7 +204,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
     }
     const once = `reply:${m.messageId}`
     if (route === 'FALLBACK') {
-      if (customerContextQuestion && !inputRisk(m.text)) {
+      if (customerContextQuestion && !requiresExplicitHandover(m.text)) {
         const contextual = await sendCommerceContextFallback(db, m, once)
         if (contextual === 'sent') {
           await save({ status: 'sent', reason: 'DETERMINISTIC_CONTEXT_FALLBACK' })
@@ -221,7 +222,7 @@ export async function orchestrateAgentMessage(db: SupabaseClient, m: Incoming): 
     if (route === 'AI' && quotaId) {
       const permission = await authorizeAiReplyQuota(db, m, quotaId)
       if (permission !== 'authorized') {
-        if (permission === 'quota_exceeded' && customerContextQuestion && !inputRisk(m.text)) {
+        if (permission === 'quota_exceeded' && customerContextQuestion && !requiresExplicitHandover(m.text)) {
           const contextual = await sendCommerceContextFallback(db, m, once)
           if (contextual === 'sent') {
             await save({ status: 'sent', reason: 'DETERMINISTIC_CONTEXT_FALLBACK' })

@@ -13,8 +13,8 @@ import {
 import { hasFeature } from '@/lib/feature-access'
 import {
   inputRisk,
-  isPaymentQuestion,
-  isProductQuestion,
+  isCustomerCommerceQuestion,
+  requiresExplicitHandover,
 } from '@/lib/features/agents/agent-control-core'
 import {
   reserveAiReplyQuota,
@@ -42,10 +42,9 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
   const { orchestrateAgentMessage } = await import('@/lib/features/agents/agent-orchestrator')
   if (await orchestrateAgentMessage(db, m)) return
   const settings = (await loadBotSettings(db, m.tenant.id)) ?? defaultBotSettings(m.tenant.id)
-  const customerContextQuestion =
-    (isPaymentQuestion(m.text) || isProductQuestion(m.text)) && !inputRisk(m.text)
+  const customerContextQuestion = isCustomerCommerceQuestion(m.text) && !inputRisk(m.text)
   const once = 'reply:' + m.messageId
-  if ((!customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)) || inputRisk(m.text))
+  if (requiresExplicitHandover(m.text) || (!customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)))
     return handover(db, m, settings, once)
   const rules =
     settings.reply_mode === 'keyword' && !customerContextQuestion
@@ -70,7 +69,7 @@ export async function answerChat(db: SupabaseClient, m: Incoming) {
     return
   }
   if (settings.reply_mode === 'keyword' && !customerContextQuestion) return // Keyword mode only uses canned replies outside contextual intents.
-  if ((!customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)) || inputRisk(m.text))
+  if (requiresExplicitHandover(m.text) || (!customerContextQuestion && wantsHuman(settings.handover_keywords, m.text)))
     return handover(db, m, settings, once)
   if (!(await hasFeature(db, m.tenant.id, 'ai_agent'))) {
     console.info('[chatbot] AI reply skipped', {

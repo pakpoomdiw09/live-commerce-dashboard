@@ -67,6 +67,24 @@ export function isInventoryQuestion(text: string) {
     text,
   )
 }
+export function isOrderQuestion(text: string) {
+  return /ออเดอร์|ออร์เดอร์|คำสั่งซื้อ|รายการที่สั่ง|บิลสะสม|ยอดรวมบิล|รายการ CF|ชนะประมูล|ประมูล|\bCF\b|สถานะ.{0,12}(สินค้า|ออเดอร์|คำสั่งซื้อ|พัสดุ)|เช็ก.{0,12}(ออเดอร์|คำสั่งซื้อ|พัสดุ)|ตรวจสอบ.{0,12}(ออเดอร์|คำสั่งซื้อ|พัสดุ)|ของถึงไหน|ส่ง.{0,8}หรือยัง|เลขพัสดุ|ติดตามพัสดุ|tracking|order status|my order|parcel|auction/i.test(text)
+}
+export function isShippingQuestion(text: string) {
+  return /จัดส่ง|ส่งของ|ค่าส่ง|ค่าจัดส่ง|รอบส่ง|ตัดรอบ|ขนส่ง|เลขพัสดุ|ติดตามพัสดุ|พัสดุถึงไหน|tracking|shipping|delivery|courier|tracking number/i.test(text)
+}
+export function isExplicitHumanRequest(text: string) {
+  return /ขอคุยกับ.{0,12}(แอดมิน|คน|เจ้าหน้าที่|พนักงาน)|ขอให้.{0,12}(แอดมิน|เจ้าหน้าที่|พนักงาน).{0,12}(ติดต่อ|โทร|คุย)|ติดต่อ.{0,10}(แอดมิน|เจ้าหน้าที่|พนักงาน)|เรียกแอดมิน|ขอพบแอดมิน|human agent|speak to (a )?(person|human|agent)|talk to (a )?(person|human|agent)|real person/i.test(text)
+}
+export function isRefundClaimOrDispute(text: string) {
+  return /คืนเงิน|ขอเงินคืน|เคลม|ร้องเรียน|โต้แย้ง|ข้อพิพาท|ปัญหาการเรียกเก็บ|refund|chargeback|claim|dispute|complaint/i.test(text)
+}
+export function isCustomerCommerceQuestion(text: string) {
+  return isPaymentQuestion(text) || isProductQuestion(text) || isOrderQuestion(text) || isShippingQuestion(text)
+}
+export function requiresExplicitHandover(text: string) {
+  return !!inputRisk(text) || isExplicitHumanRequest(text) || isRefundClaimOrDispute(text)
+}
 export type AgentProduct = {
   id?: string
   code: string
@@ -78,7 +96,7 @@ export type AgentProduct = {
   commerce_images?: string[] | null
 }
 export const IMAGE_PRODUCT_NOT_FOUND = 'สนใจสินค้าตัวไหน สอบถามเพิ่มเติมได้เลยนะคะ'
-export type ShopPersona = { opening: string; closing: string }
+export type ShopPersona = { tone?: string; opening: string; closing: string }
 /** Only owner-authored conversational wording; business claims still require grounded records. */
 export function shopPersona(instructions: string): ShopPersona {
   const read = (labels: string) => {
@@ -102,7 +120,11 @@ export function shopPersona(instructions: string): ShopPersona {
       return ''
     return value
   }
-  return { opening: read('คำขึ้นต้น|คำทักทาย'), closing: read('คำลงท้าย|คำปิดท้าย') }
+  return {
+    tone: read('บุคลิกและน้ำเสียงที่ต้องการ|น้ำเสียง|บุคลิก'),
+    opening: read('คำขึ้นต้น|คำทักทาย'),
+    closing: read('คำลงท้าย|คำปิดท้าย'),
+  }
 }
 function personaReply(text: string, persona?: ShopPersona) {
   return [

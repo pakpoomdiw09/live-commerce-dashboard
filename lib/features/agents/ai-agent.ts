@@ -165,10 +165,12 @@ export async function aiReply(
         ctx.simulation ? 429 : 409,
       )
 
-    // Payment and broad inventory answers are rendered from verified database facts.
+    if (control.directReply) return control.directReply
+
+    // Payment, order status, and broad inventory answers are rendered from verified database facts.
     // They do not need a provider call, so missing Gemini credentials or a model
     // refusal can never turn a known balance into the generic handover response.
-    if (control.paymentQuestion || control.inventoryQuestion) {
+    if (control.paymentQuestion || control.inventoryQuestion || control.orderQuestion) {
       const managed = await import('@/lib/features/agents/agent-control-ai')
       return await managed.finishAgentGeneration(db, control, '', {
         promptTokenCount: 0,
@@ -268,7 +270,7 @@ export async function aiReply(
         config: {
           systemInstruction: control!.systemInstruction,
           ...(control ? { responseMimeType: 'application/json' } : {}),
-          maxOutputTokens: 2000,
+          maxOutputTokens: 350,
           // Disable thinking for short, quick chat replies.
           ...(selectedModel.startsWith('gemini-3-flash-preview')
             ? { thinkingConfig: { thinkingBudget: 0 } }
