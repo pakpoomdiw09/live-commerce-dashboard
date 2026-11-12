@@ -88,33 +88,34 @@ export function recipientReason(
 export const broadcastUiEnabled = () => process.env.BROADCAST_UI_ENABLED !== 'false'
 export function broadcastReadiness(now = Date.now()) {
   const reviewed = Date.parse(process.env.BROADCAST_POLICY_REVIEWED_AT ?? '')
+  const expectedGraphVersion = process.env.FB_GRAPH_VERSION ?? 'v24.0'
   if (process.env.BROADCAST_STANDARD_SEND_ENABLED !== 'true')
     return {
       ready: false,
       reason: 'sending_disabled',
       message:
-        'ร้านนี้ยังไม่ได้เปิดส่งบรอดแคสต์ บันทึกฉบับร่างไว้ก่อนและให้เจ้าของร้านตรวจสอบการตั้งค่าการส่ง',
+        "ร้านนี้ยังไม่ได้เปิดส่งบรอดแคสต์ บันทึกฉบับร่างไว้ก่อนและให้เจ้าของร้านตรวจสอบการตั้งค่าการส่ง (required: BROADCAST_STANDARD_SEND_ENABLED=true)",
     }
   if (
     process.env.BROADCAST_POLICY_VERSION !== BROADCAST_POLICY_VERSION ||
-    process.env.BROADCAST_POLICY_GRAPH_VERSION !== (process.env.FB_GRAPH_VERSION ?? 'v24.0')
+    process.env.BROADCAST_POLICY_GRAPH_VERSION !== expectedGraphVersion
   )
     return {
       ready: false,
       reason: 'review_version_mismatch',
-      message: 'การตั้งค่าการส่งยังไม่ตรงกับระบบปัจจุบัน กรุณาให้ผู้ดูแลตรวจสอบก่อนส่ง',
+      message: "การตั้งค่าการส่งยังไม่ตรงกับระบบปัจจุบัน กรุณาให้ผู้ดูแลตรวจสอบก่อนส่ง (required: BROADCAST_POLICY_VERSION=standard-inbound-24h-v1; BROADCAST_POLICY_GRAPH_VERSION must match FB_GRAPH_VERSION)",
     }
   if (!Number.isFinite(reviewed) || reviewed > now)
     return {
       ready: false,
       reason: 'review_missing',
-      message: 'ยังไม่มีบันทึกการตรวจความพร้อมที่ใช้ได้ กรุณาให้เจ้าของร้านตรวจสอบก่อนส่ง',
+      message: "ยังไม่มีบันทึกการตรวจความพร้อมที่ใช้ได้ กรุณาให้เจ้าของร้านตรวจสอบก่อนส่ง (required: BROADCAST_POLICY_REVIEWED_AT as ISO-8601 UTC after owner review)",
     }
   if (now - reviewed >= 30 * STANDARD_WINDOW_MS)
     return {
       ready: false,
       reason: 'review_expired',
-      message: 'ถึงเวลาตรวจความพร้อมการส่งอีกครั้ง กรุณาให้เจ้าของร้านตรวจสอบก่อนส่ง',
+      message: "ถึงเวลาตรวจความพร้อมการส่งอีกครั้ง กรุณาให้เจ้าของร้านตรวจสอบก่อนส่ง (refresh BROADCAST_POLICY_REVIEWED_AT; maximum age 30 days)",
     }
   return {
     ready: true,
