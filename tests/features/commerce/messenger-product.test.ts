@@ -491,11 +491,17 @@ test('entry.messaging text reaches product routing before AI, with retry checkpo
 })
 
 test('Messenger product routing respects shop/chat pause, inbound deduplication, and echo filtering', async () => {
-  for (const options of [{ autoReply: false }, { botEnabled: false }, { duplicate: true }]) {
+  for (const options of [{ autoReply: false }, { botEnabled: false }]) {
     const harness = webhookHarness(options)
     await harness.receive('FC 1')
     assert.deepEqual(harness.calls, { products: 0, cards: 0, answers: 0, orders: 0 })
   }
+  // A duplicate durable message can be a retry after pre-dispatch failure. Resume
+  // its checkpointed automation instead of treating persistence as completion.
+  const duplicate = webhookHarness({ duplicate: true })
+  await duplicate.receive('FC 1')
+  assert.deepEqual(duplicate.calls, { products: 1, cards: 1, answers: 0, orders: 0 })
+
   const harness = webhookHarness()
   await harness.receive('FC 1', true)
   assert.deepEqual(harness.calls, { products: 0, cards: 0, answers: 0, orders: 0 })
