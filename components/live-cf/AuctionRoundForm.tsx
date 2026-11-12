@@ -82,9 +82,9 @@ export function AuctionRoundForm({
       <h3 className="font-bold text-slate-900">เปิดรอบประมูล</h3>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <label className="text-sm font-semibold sm:col-span-2">
-          ชื่อรายการพระเครื่อง / สินค้า
+          ชื่อสินค้า / รายการ
           <input
-            aria-label="ชื่อรายการพระเครื่อง / สินค้า"
+            aria-label="ชื่อสินค้า / รายการ"
             required
             maxLength={200}
             className={field}

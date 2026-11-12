@@ -49,7 +49,7 @@ export async function CustomerTabPayment({
       <section className="mx-auto max-w-xl space-y-5 rounded-3xl bg-white p-6 shadow-lg">
         <header>
           <p className="text-sm font-medium text-orange-600">บิลสะสมประมูล / CF</p>
-          <h1 className="mt-1 text-2xl font-bold">สรุปยอดพระเครื่องของคุณ</h1>
+          <h1 className="mt-1 text-2xl font-bold">สรุปยอดคำสั่งซื้อของคุณ</h1>
         </header>
         <ul className="divide-y divide-slate-100">
           {tab.customer_tab_items
@@ -154,7 +154,7 @@ export async function CustomerTabPayment({
           </p>
         )}
         <p className="text-xs text-slate-400">
-          ยอดในหน้านี้อ้างอิงข้อมูลล่าสุดเมื่อเปิดหน้า กรุณาเปิดหน้าใหม่หลังชนะรายการเพิ่มเติม
+          ยอดในหน้านี้อ้างอิงข้อมูลล่าสุดเมื่อเปิดหน้า กรุณาเปิดหน้าใหม่หากมีรายการสั่งซื้อเพิ่มเติม
         </p>
       </section>
     </main>

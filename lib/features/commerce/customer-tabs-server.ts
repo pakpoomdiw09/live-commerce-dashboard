@@ -121,7 +121,7 @@ export async function customerTabSummary(
     linkSafeText.length <= 1900
       ? linkSafeText
       : [
-          greeting ?? 'สรุปบิลสะสมพระเครื่องครับ',
+          greeting ?? 'สรุปบิลสะสมของคุณครับ',
           latest
             ? `รายการล่าสุด: ${customerTabItemLabel(latest)} ${Number(latest.amount).toLocaleString('th-TH')} บาท`
             : '',

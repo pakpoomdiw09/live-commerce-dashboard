@@ -17,7 +17,7 @@ async function reminderGreeting(
   key: string,
 ) {
   const fallback =
-    'สวัสดีครับ ทางร้านขออนุญาตแจ้งยอดพระเครื่องที่ยังค้างชำระ หากสะดวกสามารถโอนเพิ่มตามยอดสุทธิด้านล่างได้ครับ'
+    'สวัสดีครับ ทางร้านขออนุญาตแจ้งยอดคำสั่งซื้อที่ยังค้างชำระ หากสะดวกสามารถชำระเพิ่มตามยอดสุทธิด้านล่างได้ครับ'
   if (!process.env.GEMINI_API_KEY?.trim() || !(await hasFeature(db, tenantId, 'ai_agent')))
     return fallback
   if (process.env.AGENT_CONTROL_KILL_SWITCH === 'true') return fallback
@@ -37,7 +37,7 @@ async function reminderGreeting(
     })
     const response = await ai.models.generateContent({
       model: aiModel(),
-      contents: 'เขียนคำเกริ่นทักทายเพื่อแจ้งยอดค้างร้านพระเครื่องอย่างสุภาพ ไม่กดดันลูกค้า',
+      contents: 'เขียนคำเกริ่นทักทายเพื่อแจ้งยอดคำสั่งซื้อค้างชำระอย่างสุภาพ ไม่กดดันลูกค้า',
       config: {
         maxOutputTokens: 180,
         responseMimeType: 'application/json',

@@ -66,7 +66,7 @@ export function customerTabText(
   tab: CustomerTab,
   paymentLink: string,
   account?: string,
-  greeting = 'สวัสดีครับ ทางร้านขอแจ้งสรุปรายการพระเครื่องที่รับไว้ครับ',
+  greeting = 'สวัสดีครับ ทางร้านขอแจ้งสรุปรายการสินค้าที่รับไว้ครับ',
 ) {
   return [
     greeting,

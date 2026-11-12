@@ -166,7 +166,7 @@ export function tabFormula(tab: Pick<SessionTab, 'items' | 'shipping' | 'total'>
     : '0.00 บาท'
 }
 export const SESSION_FOLLOWUP_TEMPLATE =
-  'สวัสดีครับคุณ {name} ทางร้านขอแจ้งยอดพระเครื่องครับ\n{items}\nยอดต้องโอน: {due}\nโอนแล้ว: {paid} บาท\nยอดค้างสุทธิที่ต้องโอนเพิ่ม: {short} บาท\nขอบพระคุณที่อุดหนุนครับ'
+  'สวัสดีครับคุณ {name} ทางร้านขอแจ้งยอดคำสั่งซื้อครับ\n{items}\nยอดที่ต้องชำระ: {due}\nชำระแล้ว: {paid} บาท\nยอดค้างสุทธิที่ต้องชำระเพิ่ม: {short} บาท\nขอบคุณที่อุดหนุนครับ'
 export const SESSION_VARIABLES = ['name', 'due', 'paid', 'short', 'items'].map((key) => ({
   tag: `{${key}}`,
   label: `{${key}}`,

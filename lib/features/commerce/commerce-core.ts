@@ -49,9 +49,9 @@ export class CommerceError extends Error {
 export const PRESET_CATEGORIES = [
   {
     key: 'collectibles',
-    name: 'พระเครื่อง เครื่องราง และของสะสม',
+    name: 'สินค้าและของสะสม',
     icon: '🏺',
-    description: 'พระเครื่อง วัตถุมงคล ของสะสม',
+    description: 'สินค้า ของสะสม และสินค้าเฉพาะทาง',
   },
   {
     key: 'beauty',
