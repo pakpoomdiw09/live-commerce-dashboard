@@ -79,7 +79,6 @@ test('auction slips settle only the exact pending tab bill belonging to the clos
   assert.equal(winner.calls.checks, 1)
   assert.equal(winner.calls.processInputs[0].customerTabId, 'tab-a')
   assert.equal(winner.calls.processInputs[0].expectedAmount, 100)
-  assert.equal(winner.calls.processInputs[0].requireExactAmount, true)
   assert.equal(winner.calls.processInputs[0].auctionSenderId, '987654321')
   assert.equal(winner.calls.paymentCalls.length, 0)
 
@@ -131,6 +130,7 @@ function fixture({
     persisted: 0,
     standaloneChecks: 0,
     standaloneReplies: [],
+    verifiedStandaloneReplies: [],
     shipping: 0,
     paymentCalls: [],
     processInputs: [],
@@ -230,7 +230,12 @@ function fixture({
           calls.ai++
         },
       },
+      '@/lib/features/agents/agent-control-core': {
+        isPaymentQuestion: () => false,
+        redactAgentText: (value) => value,
+      },
       '@/lib/features/commerce/orders': orders,
+      '@/lib/features/commerce/live-cf-codes': {},
       '@/lib/features/commerce/messenger-product-server': {
         replyToMessengerProduct: async () => false,
       },
@@ -253,7 +258,7 @@ function fixture({
           calls.processInputs.push(input)
           assert.equal(input.customerId, 'customer-a')
           assert.equal(input.tenant.id, 'shop-a')
-          if (verdict === 'valid' && !input.requireExactAmount)
+          if (verdict === 'valid' && !input.customerTabId)
             for (const row of rows)
               if (
                 row.customer_id === 'customer-a' &&
@@ -266,7 +271,7 @@ function fixture({
             status: verdict,
             amount: 100,
             transRef: 'test-ref',
-            ...(input.requireExactAmount ? { tabBalance: { status: 'fully_paid' } } : {}),
+            ...(input.customerTabId ? { tabBalance: { status: 'fully_paid' } } : {}),
           }
         },
       },
@@ -278,6 +283,11 @@ function fixture({
         notifySlipResult: async (_db, slip, customer) => {
           calls.receipts.push({ slip, customer })
         },
+        notifySlipAmountMismatch: async () => false,
+        notifyStandaloneSlipResult: async (_db, result, customer) => {
+          calls.verifiedStandaloneReplies.push({ result, customer })
+          return true
+        },
       },
       '@/lib/features/slips/standalone-verifier': {
         processStandaloneSlip: async (_db, input) => {
@@ -287,7 +297,11 @@ function fixture({
           assert.equal(input.messageId, 'message-a')
           assert.ok(input.slipImageUrl.startsWith('https://example.test/'))
           return standaloneSuccess
-            ? { success: true, message: 'ยอดโอน 159.25 บาท ผู้โอนทดสอบ รหัสอ้างอิง standalone-ref' }
+            ? {
+                success: true,
+                message: 'ยอดโอน 159.25 บาท ผู้โอนทดสอบ รหัสอ้างอิง standalone-ref',
+                slipId: 'standalone-slip-a',
+              }
             : { success: false, message: 'สลิปนี้เคยส่งตรวจแล้ว' }
         },
       },
@@ -392,15 +406,11 @@ test('no pending order, paid/cancelled orders and unrelated orders route images 
     assert.equal(f.calls.checks, 0)
     assert.equal(f.calls.receipts.length, 0)
     assert.equal(f.calls.standaloneChecks, 1)
-    assert.equal(f.calls.standaloneReplies.length, 1)
-    assert.equal(f.calls.standaloneReplies[0].recipient.psid, '987654321')
-    assert.equal(f.calls.standaloneReplies[0].recipient.token, 'fake')
+    assert.equal(f.calls.verifiedStandaloneReplies.length, 1)
+    assert.equal(f.calls.verifiedStandaloneReplies[0].customer.psid, '987654321')
+    assert.equal(f.calls.verifiedStandaloneReplies[0].customer.token, 'fake')
     assert.equal(f.calls.ai, 0)
-    assert.equal(
-      f.calls.images,
-      1,
-      'catalog routing is offered once before the standalone fallback',
-    )
+    assert.equal(f.calls.images, 0, 'a slip image is not queued to the AI vision responder')
     assert.ok(
       f.calls.queries.every(
         (q) =>
@@ -417,8 +427,8 @@ test('standalone verification and replies are checkpointed separately and never 
   await f.run()
   await f.run()
   assert.equal(f.calls.standaloneChecks, 1)
-  assert.equal(f.calls.standaloneReplies.length, 1)
-  assert.ok(f.calls.standaloneReplies[0].key.startsWith('standalone-slip:message-a:'))
+  assert.equal(f.calls.verifiedStandaloneReplies.length, 1)
+  assert.equal(f.calls.verifiedStandaloneReplies[0].result.slipId, 'standalone-slip-a')
 })
 
 test('standalone rejection sends the reason and does not fall through to AI or order confirmation', async () => {
@@ -430,13 +440,18 @@ test('standalone rejection sends the reason and does not fall through to AI or o
   assert.equal(f.calls.ai, 0)
 })
 
-test('standalone images respect paused bot, shop auto reply and Auto-Pilot switches', async () => {
-  for (const settings of [{ bot: false }, { autoReply: false }, { enabled: false }]) {
+test('standalone slip verification ignores bot/handover toggles but honors Auto-Pilot', async () => {
+  for (const settings of [{ bot: false }, { autoReply: false }, { bot: false, autoReply: false }]) {
     const f = fixture(settings)
     await f.run()
-    assert.equal(f.calls.standaloneChecks, 0)
-    assert.equal(f.calls.standaloneReplies.length, 0)
+    assert.equal(f.calls.standaloneChecks, 1)
+    assert.equal(f.calls.verifiedStandaloneReplies.length, 1)
+    assert.equal(f.calls.ai, 0)
   }
+  const disabled = fixture({ enabled: false, bot: false, autoReply: false })
+  await disabled.run()
+  assert.equal(disabled.calls.standaloneChecks, 0)
+  assert.equal(disabled.calls.verifiedStandaloneReplies.length, 0)
 })
 
 test('pending verified receipts still send to the sender PSID during admin takeover', async () => {

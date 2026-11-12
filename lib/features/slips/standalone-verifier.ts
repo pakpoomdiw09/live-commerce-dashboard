@@ -146,20 +146,24 @@ export async function processStandaloneSlip(
     })
     if (!result.success) return result
     const d = result.data
-    const saved = await db.from('standalone_slips').insert({
-      tenant_id: input.tenantId,
-      trans_ref: d.transRef,
-      amount: d.amount,
-      sender_name: d.sender,
-      sender_bank: d.senderBank,
-      receiver_name: d.receiver,
-      receiver_account: d.receiverAccount,
-      trans_timestamp: d.transTimestamp,
-      raw_payload: verified.raw,
-      image_sha256: imageHash,
-      customer_id: input.customerId ?? null,
-      message_id: input.messageId ?? null,
-    })
+    const saved = await db
+      .from('standalone_slips')
+      .insert({
+        tenant_id: input.tenantId,
+        trans_ref: d.transRef,
+        amount: d.amount,
+        sender_name: d.sender,
+        sender_bank: d.senderBank,
+        receiver_name: d.receiver,
+        receiver_account: d.receiverAccount,
+        trans_timestamp: d.transTimestamp,
+        raw_payload: verified.raw,
+        image_sha256: imageHash,
+        customer_id: input.customerId ?? null,
+        message_id: input.messageId ?? null,
+      })
+      .select('id')
+      .single()
     if (saved.error?.code === '23505') return standaloneDuplicate()
     if (saved.error) {
       console.error('[standalone-slip] ledger insert failed', { code: saved.error.code })
@@ -168,7 +172,19 @@ export async function processStandaloneSlip(
         'ตรวจสลิปแล้วแต่บันทึกประวัติไม่ได้ กรุณารอแอดมินตรวจสอบ ไม่ต้องโอนซ้ำ',
       )
     }
-    return result
+    if (!saved.data?.id) {
+      console.error('[standalone-slip] ledger insert failed', {
+        code: 'NO_ROW',
+      })
+      return standaloneFailure(
+        'ledger_unavailable',
+        'ตรวจสลิปแล้วแต่บันทึกประวัติไม่ได้ กรุณารอแอดมินตรวจสอบ ไม่ต้องโอนซ้ำ',
+      )
+    }
+    return {
+      ...result,
+      slipId: saved.data.id,
+    }
   } catch (error) {
     if (charged && !providerReturned) await refund()
     console.error('[standalone-slip] verification unavailable', {

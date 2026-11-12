@@ -12,7 +12,7 @@ export type StandaloneSlipData = {
   transTimestamp: string
 }
 export type StandaloneSlipResult =
-  | { success: true; message: string; data: StandaloneSlipData }
+  | { success: true; message: string; data: StandaloneSlipData; slipId?: string }
   | { success: false; reason: string; message: string }
 
 export const standaloneFailure = (reason: string, message: string): StandaloneSlipResult => ({

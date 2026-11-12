@@ -12,6 +12,8 @@ import {
 } from '@/lib/integrations/facebook/client'
 import type { Attachment } from '@/lib/types'
 import type { ProcessedSlip } from '@/lib/features/slips/process'
+import type { StandaloneSlipResult } from '@/lib/features/slips/standalone-slip'
+import { standaloneSlipReply } from '@/lib/features/slips/standalone-slip'
 import { sendWithMessageCredit } from '@/lib/message-quota'
 import { renderSlipConfirmationTemplate } from '@/lib/features/slips/slip-confirmation-template'
 import { customerSlipConfirmationTemplate } from '@/lib/features/slips/slip-confirmation-settings'
@@ -350,6 +352,23 @@ export async function notifySlipResult(
     // durable side-effect checkpoint; an ambiguous send must never be automatically retried.
     throw error
   }
+}
+
+/** A persisted, provider-verified standalone receipt may confirm during human takeover. */
+export async function notifyStandaloneSlipResult(
+  db: SupabaseClient,
+  result: StandaloneSlipResult,
+  customer: Recipient,
+) {
+  if (!result.success || !result.slipId) return false
+  return deliverTextOnce(
+    db,
+    customer,
+    `slip-confirm:standalone:${result.slipId}`,
+    standaloneSlipReply(result),
+    undefined,
+    true,
+  )
 }
 
 /** Clearly explain an exact-bill mismatch without treating an unverified transfer as paid. */

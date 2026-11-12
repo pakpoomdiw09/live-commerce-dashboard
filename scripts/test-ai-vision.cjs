@@ -547,6 +547,7 @@ test('cron requires configured bearer secret before worker access', async () => 
   let called = 0
   const api = load('app/api/cron/vision/route.ts', {
     'next/server': next,
+    '@/lib/security/cron-auth': { verifyCronAuth: () => false },
     '@/lib/supabase/server': {
       supabaseAdmin: () => {
         called++

@@ -570,8 +570,7 @@ async function onMessage(
     })
   const recipient: Recipient = { id: customer.id, psid, token }
 
-  // Slip images sent in chat use the shared provider-neutral verification pipeline.
-  // With Auto-Pilot off the images stay in the chat and an admin can verify them from the dashboard.
+  // Slip verification follows Auto-Pilot and billing state, independently of AI/human chat takeover.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
   if (Array.isArray(m.attachments) && m.attachments.length) {
@@ -604,8 +603,9 @@ async function onMessage(
               throw new Error('PENDING_PAYMENT_TOTAL_INVALID')
             return { kind: 'order' } as const
           }
-          // Standalone replies honor the existing shop/chat automation controls.
-          return autoReply ? ({ kind: 'standalone' } as const) : ({ kind: 'none' } as const)
+          // No pending bill: verify the image as a standalone slip even when AI is off
+          // or the admin has taken over this conversation.
+          return { kind: 'standalone' } as const
         })
       : { kind: 'none' }
   if (images.length) {
@@ -626,6 +626,7 @@ async function onMessage(
   const verifySlipImages = slipRoute.kind === 'order'
   const verifyStandaloneImages = slipRoute.kind === 'standalone'
   const visionRoute =
+    verifyStandaloneImages ||
     verifyAuctionSlipImages ||
     slipRoute.kind === 'ambiguous' ||
     slipRoute.kind === 'unmatched' ||
@@ -697,7 +698,7 @@ async function onMessage(
       await onSlipImage(url, { ...recipient, messageId: message.id }, tenant, execution)
     }
   }
-  if (verifyStandaloneImages && !visionQueued) {
+  if (verifyStandaloneImages) {
     for (const url of images)
       await onStandaloneSlipImage(
         url,
@@ -782,6 +783,7 @@ async function onStandaloneSlipImage(
   })
   const { processStandaloneSlip } = await import('@/lib/features/slips/standalone-verifier')
   const { standaloneSlipReply } = await import('@/lib/features/slips/standalone-slip')
+  const { notifyStandaloneSlipResult } = await import('@/lib/features/slips/notify')
   const key = (await import('node:crypto')).createHash('sha256').update(url).digest('hex')
   const db = supabaseAdmin({ timeoutMs: 15000 })
   const result = await execution.once(`standalone-slip:${key}`, () =>
@@ -800,12 +802,16 @@ async function onStandaloneSlipImage(
     ledgerRecorded: result.success,
   })
   await execution.once(`standalone-slip-reply:${key}`, async () => {
-    await deliverOnce(
-      db,
-      customer,
-      `standalone-slip:${customer.messageId}:${key}`,
-      standaloneSlipReply(result),
-    )
+    if (result.success) {
+      await notifyStandaloneSlipResult(db, result, customer)
+    } else {
+      await deliverOnce(
+        db,
+        customer,
+        `standalone-slip:${customer.messageId}:${key}`,
+        standaloneSlipReply(result),
+      )
+    }
     return null
   })
 }
