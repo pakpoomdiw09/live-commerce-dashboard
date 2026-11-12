@@ -573,6 +573,19 @@ async function onMessage(
   // Slip verification follows Auto-Pilot and billing state, independently of AI/human chat takeover.
   // Queue checkpoints prevent duplicate verification or replies after a worker retry.
   const images = m.sticker_id ? [] : slipCandidates(m.attachments)
+  if (images.length > 0) {
+    console.info('[WEBHOOK_SLIP_START]', {
+      eventId: execution.event.id,
+      messageId: message.id,
+      tenantId: tenant.id,
+      customerId: customer.id,
+      hasText: typeof m.text === 'string' && m.text.trim().length > 0,
+      imageCount: images.length,
+      autoVerifyEnabled: tenant.auto_verify_enabled,
+      customerBotEnabled: customer.bot_enabled,
+      tenantAutoReplyEnabled: tenant.auto_reply_enabled,
+    })
+  }
   if (Array.isArray(m.attachments) && m.attachments.length) {
     console.info('[slip/webhook] image candidates inspected', {
       eventId: execution.event.id,

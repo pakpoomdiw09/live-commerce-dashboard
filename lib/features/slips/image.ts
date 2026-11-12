@@ -22,19 +22,20 @@ export async function downloadSlipImage(url: string): Promise<File | null> {
     host = parsed.host
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password)
       throw new Error('UNSAFE_ATTACHMENT_URL')
-    console.info('[slip/image] download started', { host })
+    console.info('[DOWNLOAD_IMAGE]', { stage: 'started', host })
     const res = await fetch(parsed, {
       cache: 'no-store',
       signal: AbortSignal.timeout(10_000),
     })
     if (!res.ok) {
-      console.error('[slip/image] download rejected', { host, httpStatus: res.status })
+      console.error('[DOWNLOAD_IMAGE]', { stage: 'http_rejected', host, httpStatus: res.status })
       return null
     }
     const type = (res.headers.get('content-type') ?? '').split(';')[0].trim()
     const blob = await res.blob()
     if (!SLIP_IMAGE_TYPES.includes(type) || blob.size === 0 || blob.size > SLIP_MAX_BYTES) {
-      console.error('[slip/image] downloaded content is not an allowed slip image', {
+      console.error('[DOWNLOAD_IMAGE]', {
+        stage: 'image_validation_failed',
         host,
         contentType: type || null,
         bytes: blob.size,
@@ -43,11 +44,17 @@ export async function downloadSlipImage(url: string): Promise<File | null> {
       })
       return null
     }
-    console.info('[slip/image] download complete', { host, contentType: type, bytes: blob.size })
+    console.info('[DOWNLOAD_IMAGE]', {
+      stage: 'completed',
+      host,
+      contentType: type,
+      bytes: blob.size,
+    })
     return new File([blob], 'slip', { type })
   } catch (error) {
     // timeout or network error: same as an expired link
-    console.error('[slip/image] download failed', {
+    console.error('[DOWNLOAD_IMAGE]', {
+      stage: 'failed',
       host,
       errorName: error instanceof Error ? error.name : 'UNKNOWN',
     })

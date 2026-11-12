@@ -99,7 +99,18 @@ export async function processSlip(
   }
   try {
     await requireFeature(db, tenant.id, 'slip_auto_pilot')
+    console.info('[HAS_SLIP_ACCESS]', {
+      tenantId: tenant.id,
+      feature: 'slip_auto_pilot',
+      allowed: true,
+    })
   } catch (error) {
+    console.error('[HAS_SLIP_ACCESS]', {
+      tenantId: tenant.id,
+      feature: 'slip_auto_pilot',
+      allowed: false,
+      code: (error as { code?: string } | null)?.code ?? 'FEATURE_LOOKUP_FAILED',
+    })
     console.error('[slip/process] feature gate rejected verification', {
       tenantId: tenant.id,
       code: (error as { code?: string } | null)?.code ?? 'SLIP_AUTO_PILOT_REQUIRED',

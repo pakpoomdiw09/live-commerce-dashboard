@@ -21,6 +21,19 @@ export type StandaloneSlipInput = {
   messageId?: string
 }
 
+function providerErrorCode(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const envelope = raw as Record<string, unknown>
+  const error = envelope.error
+  const value =
+    error && typeof error === 'object' && !Array.isArray(error)
+      ? (error as Record<string, unknown>).code
+      : envelope.code
+  return typeof value === 'string' || typeof value === 'number'
+    ? String(value).slice(0, 80)
+    : null
+}
+
 /** Verify a standalone proof without touching orders, stock or customer payment status. */
 export async function processStandaloneSlip(
   db: SupabaseClient,
@@ -52,7 +65,25 @@ export async function processStandaloneSlip(
       !/^\d{3,15}$/.test(input.expectedReceivingAccount.replace(/[\s-]/g, ''))
     )
       return standaloneFailure('invalid_configuration', 'เลขบัญชีรับเงินสำหรับตรวจสลิปไม่ถูกต้อง')
-    await requireFeature(db, input.tenantId, 'slip_auto_pilot')
+    try {
+      await requireFeature(db, input.tenantId, 'slip_auto_pilot')
+      console.info('[HAS_SLIP_ACCESS]', {
+        tenantId: input.tenantId,
+        feature: 'slip_auto_pilot',
+        allowed: true,
+      })
+    } catch (error) {
+      console.error('[HAS_SLIP_ACCESS]', {
+        tenantId: input.tenantId,
+        feature: 'slip_auto_pilot',
+        allowed: false,
+        code: (error as { code?: string } | null)?.code ?? 'FEATURE_LOOKUP_FAILED',
+      })
+      return standaloneFailure(
+        'feature_locked',
+        'ร้านค้ายังไม่ได้เปิดสิทธิ์ตรวจสอบสลิปอัตโนมัติ',
+      )
+    }
     const tenant = await db
       .from('tenants')
       .select('id,account_number,bank_code')
@@ -80,10 +111,38 @@ export async function processStandaloneSlip(
         is_active: true,
       })
     let file: File
+    let imageHost: string | null = null
+    if (input.slipImageUrl) {
+      try {
+        imageHost = new URL(input.slipImageUrl).host
+      } catch {
+        imageHost = 'invalid_url'
+      }
+    }
     try {
+      console.info('[DOWNLOAD_IMAGE]', {
+        stage: 'started',
+        host: input.file ? null : imageHost,
+        source: input.file ? 'upload' : 'messenger_cdn',
+      })
       file = input.file ?? (await downloadVisionImage(input.slipImageUrl!))
       await validateVisionFile(file)
-    } catch {
+      console.info('[DOWNLOAD_IMAGE]', {
+        stage: 'completed',
+        host: input.file ? null : imageHost,
+        bytes: file.size,
+        contentType: file.type,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      const errorCode = /^[A-Z0-9_]{1,80}$/.test(message)
+        ? message
+        : 'DOWNLOAD_OR_VALIDATION_FAILED'
+      console.error('[DOWNLOAD_IMAGE]', {
+        stage: 'failed',
+        host: input.file ? null : imageHost,
+        code: errorCode,
+      })
       return standaloneFailure(
         'invalid_image',
         'ดาวน์โหลดหรืออ่านรูปสลิปไม่ได้ กรุณาส่งรูป JPG, PNG หรือ WebP ที่ชัดเจนอีกครั้ง',
@@ -140,6 +199,15 @@ export async function processStandaloneSlip(
       file,
       log: true,
       bankAccounts: zwizAccounts,
+    })
+    const provider = process.env.SLIP_VERIFICATION_PROVIDER?.trim().toLowerCase() || 'zwiz'
+    console.info(provider === 'zwiz' ? '[CALL_ZWIZ_RESULT]' : '[CALL_SLIP_PROVIDER_RESULT]', {
+      provider,
+      verdict: verified.verdict,
+      providerFault: verified.providerFault === true,
+      providerCode: providerErrorCode(verified.raw),
+      amountPresent: Number.isFinite(verified.amount),
+      hasTransRef: Boolean(verified.transRef),
     })
     providerReturned = true
     if (verified.providerFault) {
