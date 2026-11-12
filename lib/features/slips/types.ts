@@ -1,5 +1,13 @@
 export type SlipVerdict = Exclude<import('@/lib/domain-state').LegacySlipState, 'pending'>
 
+export type SlipProviderDiagnostic = {
+  provider: 'zwiz' | 'slipok' | 'unknown'
+  stage: string
+  httpStatus: number | null
+  code: string | null
+  message: string | null
+}
+
 export type SlipResult = {
   receiverVerifiedByProvider?: boolean
   /** The selected provider explicitly matched the receiving-account list sent with the request. */
@@ -18,6 +26,8 @@ export type SlipResult = {
   branchReceiverMismatch?: boolean
   /** Failure is attributable to provider availability or our provider setup, not the slip. */
   providerFault?: boolean
+  /** Sanitized provider error details; never contains credentials or full provider payloads. */
+  providerDiagnostic?: SlipProviderDiagnostic
   note?: string
   raw: unknown
 }

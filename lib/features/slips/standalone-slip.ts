@@ -1,4 +1,4 @@
-import type { SlipResult } from '@/lib/features/slips/slipok'
+import type { SlipProviderDiagnostic, SlipResult } from '@/lib/features/slips/slipok'
 import { amountSatang, providerPaidAt } from '@/lib/features/payments/payment-pro-core'
 import { accountMatches, receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
 
@@ -13,7 +13,12 @@ export type StandaloneSlipData = {
 }
 export type StandaloneSlipResult =
   | { success: true; message: string; data: StandaloneSlipData; slipId?: string }
-  | { success: false; reason: string; message: string }
+  | {
+      success: false
+      reason: string
+      message: string
+      providerDiagnostic?: SlipProviderDiagnostic
+    }
 
 export const standaloneFailure = (reason: string, message: string): StandaloneSlipResult => ({
   success: false,
@@ -22,6 +27,29 @@ export const standaloneFailure = (reason: string, message: string): StandaloneSl
 })
 export const standaloneDuplicate = () => standaloneFailure('duplicate', 'สลิปนี้เคยส่งตรวจแล้ว')
 const field = (value: unknown) => (typeof value === 'string' ? value.trim().slice(0, 200) : '')
+
+function providerFailureReason(diagnostic?: SlipProviderDiagnostic): string {
+  const code = diagnostic?.code?.toUpperCase() ?? ''
+  const status = diagnostic?.httpStatus ?? null
+  if (code === 'ZWIZ_API_KEY_MISSING' || code.startsWith('ZWIZ_API_URL_'))
+    return 'provider_configuration_error'
+  if (
+    code === 'IMAGE_FILE_REQUIRED' ||
+    code === 'INVALID_IMAGE_FILE' ||
+    code === 'NO_SUPPORTED_RECEIVER_ACCOUNT'
+  )
+    return 'request_validation_error'
+  if (code === 'INVALID_JSON_RESPONSE' || code === 'VERIFIED_RESPONSE_DATA_MISSING')
+    return 'provider_invalid_response'
+  if (status === 401 || status === 403 || code === 'INVALID_API_KEY')
+    return 'provider_auth_error'
+  if (status === 429 || code.includes('QUOTA')) return 'provider_quota_exhausted'
+  if (status === 400 || status === 422) return 'provider_request_rejected'
+  if (status !== null && status >= 500) return 'provider_server_error'
+  if (/TIMEOUT|TIMEDOUT|ABORT/i.test(code)) return 'provider_timeout'
+  if (status !== null) return 'provider_http_error'
+  return 'provider_unavailable'
+}
 
 /** Only verified provider fields authorize a ledger entry; a photo/caption is never proof. */
 export function validateStandaloneSlip(
@@ -32,7 +60,7 @@ export function validateStandaloneSlip(
   if (result.verdict === 'duplicate') return standaloneDuplicate()
   if (result.providerFault)
     return standaloneFailure(
-      'provider_unavailable',
+      providerFailureReason(result.providerDiagnostic),
       'ระบบตรวจสอบสลิปขัดข้องชั่วคราว กรุณารอแอดมินตรวจสอบ',
     )
   const explicitAccount = options.expectedReceivingAccount?.trim()

@@ -1,6 +1,12 @@
 import { verifyWithZwiz } from './zwiz'
 import type { SlipResult, SlipVerificationInput } from './types'
-export type { SlipResult, SlipVerdict, SlipVerificationAccount, SlipVerificationInput } from './types'
+export type {
+  SlipProviderDiagnostic,
+  SlipResult,
+  SlipVerdict,
+  SlipVerificationAccount,
+  SlipVerificationInput,
+} from './types'
 
 type Input = SlipVerificationInput
 

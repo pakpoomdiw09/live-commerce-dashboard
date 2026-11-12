@@ -2,7 +2,11 @@ import 'server-only'
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireFeature } from '@/lib/feature-access'
-import { usesCentralZwizQuota, verifyWithSlipOK } from '@/lib/features/slips/slipok'
+import {
+  slipVerificationProvider,
+  usesCentralZwizQuota,
+  verifyWithSlipOK,
+} from '@/lib/features/slips/slipok'
 import { downloadVisionImage, validateVisionFile } from '@/lib/features/vision/vision-image'
 import {
   standaloneDuplicate,
@@ -19,19 +23,6 @@ export type StandaloneSlipInput = {
   maxAgeHours?: number
   customerId?: string
   messageId?: string
-}
-
-function providerErrorCode(raw: unknown): string | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const envelope = raw as Record<string, unknown>
-  const error = envelope.error
-  const value =
-    error && typeof error === 'object' && !Array.isArray(error)
-      ? (error as Record<string, unknown>).code
-      : envelope.code
-  return typeof value === 'string' || typeof value === 'number'
-    ? String(value).slice(0, 80)
-    : null
 }
 
 /** Verify a standalone proof without touching orders, stock or customer payment status. */
@@ -200,15 +191,32 @@ export async function processStandaloneSlip(
       log: true,
       bankAccounts: zwizAccounts,
     })
-    const provider = process.env.SLIP_VERIFICATION_PROVIDER?.trim().toLowerCase() || 'zwiz'
-    console.info(provider === 'zwiz' ? '[CALL_ZWIZ_RESULT]' : '[CALL_SLIP_PROVIDER_RESULT]', {
+    const provider = slipVerificationProvider() ?? 'unknown'
+    const providerDiagnostic =
+      verified.providerDiagnostic ??
+      (verified.providerFault
+        ? {
+            provider,
+            stage: 'provider_failure',
+            httpStatus: null,
+            code: null,
+            message: 'Selected provider returned a verification error without structured diagnostics',
+          }
+        : undefined)
+    const resultLog = {
       provider,
       verdict: verified.verdict,
       providerFault: verified.providerFault === true,
-      providerCode: providerErrorCode(verified.raw),
+      stage: providerDiagnostic?.stage ?? 'verification_result',
+      httpStatus: providerDiagnostic?.httpStatus ?? null,
+      providerCode: providerDiagnostic?.code ?? null,
+      providerMessage: providerDiagnostic?.message ?? null,
       amountPresent: Number.isFinite(verified.amount),
       hasTransRef: Boolean(verified.transRef),
-    })
+    }
+    const resultTag = provider === 'zwiz' ? '[CALL_ZWIZ_RESULT]' : '[CALL_SLIP_PROVIDER_RESULT]'
+    if (verified.providerFault) console.error(resultTag, resultLog)
+    else console.info(resultTag, resultLog)
     providerReturned = true
     if (verified.providerFault) {
       await refund()
@@ -218,7 +226,37 @@ export async function processStandaloneSlip(
       expectedReceivingAccount: input.expectedReceivingAccount,
       maxAgeHours,
     })
-    if (!result.success) return result
+    if (!result.success) {
+      if (verified.providerFault && providerDiagnostic) {
+        const failure = await db
+          .from('slips')
+          .insert({
+            tenant_id: input.tenantId,
+            customer_id: input.customerId ?? null,
+            message_id: input.messageId ?? null,
+            status: 'error',
+            note: result.message,
+            raw: { provider_error: providerDiagnostic },
+            verified_at: new Date().toISOString(),
+          })
+          .select('id')
+          .maybeSingle()
+        if (failure.error) {
+          console.error('[standalone-slip] provider failure history insert failed', {
+            code: failure.error.code,
+          })
+        } else {
+          console.info('[standalone-slip] provider failure recorded', {
+            slipId: failure.data?.id ?? null,
+            stage: providerDiagnostic.stage,
+            httpStatus: providerDiagnostic.httpStatus,
+            providerCode: providerDiagnostic.code,
+          })
+        }
+        return { ...result, providerDiagnostic }
+      }
+      return result
+    }
     const d = result.data
     const saved = await db
       .from('standalone_slips')

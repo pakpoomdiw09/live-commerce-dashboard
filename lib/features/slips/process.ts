@@ -248,6 +248,19 @@ export async function processSlip(
         bankCode: account.bank_code,
       })),
     })
+    if (r.providerFault || r.providerDiagnostic) {
+      const diagnostic = r.providerDiagnostic
+      console.error(
+        diagnostic?.provider === 'zwiz' ? '[CALL_ZWIZ_RESULT]' : '[CALL_SLIP_PROVIDER_RESULT]',
+        {
+          provider: diagnostic?.provider ?? 'unknown',
+          stage: diagnostic?.stage ?? 'provider_failure',
+          httpStatus: diagnostic?.httpStatus ?? null,
+          providerCode: diagnostic?.code ?? null,
+          providerMessage: diagnostic?.message ?? null,
+        },
+      )
+    }
     console.info('[slip/process] provider returned', {
       slipId: slip.id,
       tenantId: tenant.id,
