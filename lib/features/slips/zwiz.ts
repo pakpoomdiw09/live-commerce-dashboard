@@ -1,6 +1,7 @@
 import 'server-only'
 import type { SlipResult, SlipVerificationInput } from './types'
 import { findBank } from '@/lib/features/banking/banks'
+import { isPaymentImage } from '@/lib/features/payments/payment-validation'
 
 type ProviderRecord = Record<string, unknown>
 
@@ -65,20 +66,32 @@ export async function verifyWithZwiz({
     })
     return providerFailure('ZWIZ API v2 ต้องใช้รูปสลิป กรุณาส่งรูปแทน QR')
   }
+  const image = await isPaymentImage(file)
   if (
-    file.size <= 0 ||
     file.size > ZWIZ_MAX_IMAGE_BYTES ||
-    !ZWIZ_IMAGE_TYPES.has(file.type.toLowerCase())
+    !image.isValid ||
+    !image.mimeType ||
+    !ZWIZ_IMAGE_TYPES.has(image.mimeType)
   ) {
     console.error('[SLIP_AI_ERROR]', {
       provider: 'zwiz',
       stage: 'request_validation',
       reason: 'INVALID_IMAGE_FILE',
       imageBytes: file.size,
-      imageType: file.type,
+      declaredImageType: file.type || null,
+      detectedImageType: image.mimeType,
     })
     return providerFailure('กรุณาส่งไฟล์ JPG, JPEG, PNG หรือ WebP ขนาดไม่เกิน 5 MB')
   }
+  // Messenger/CDN and public-upload files may have a missing or generic MIME type.
+  // Derive it from the image signature so multipart includes an explicit image/* Content-Type.
+  const uploadFile =
+    file.type.toLowerCase() === image.mimeType
+      ? file
+      : new File([file], file.name || 'slip', {
+          type: image.mimeType,
+          lastModified: file.lastModified,
+        })
   const matchAccounts = bankAccounts.flatMap(({ accountNo, bankCode }) => {
     const account = accountNo.replace(/[\s-]/g, '')
     const code = zwizBankCode(bankCode)
@@ -118,7 +131,7 @@ export async function verifyWithZwiz({
   }
 
   const form = new FormData()
-  form.append('image', file, file.name || 'slip')
+  form.append('image', uploadFile, uploadFile.name || 'slip')
   form.append('match_bank_account_list', JSON.stringify(matchAccounts))
   form.append(
     'requested_by',
@@ -129,8 +142,8 @@ export async function verifyWithZwiz({
     stage: 'request_started',
     host: url.host,
     hasApiKey: true,
-    imageBytes: file.size,
-    imageType: file.type,
+    imageBytes: uploadFile.size,
+    imageType: uploadFile.type,
     receiverAccountCount: matchAccounts.length,
     expectedAmount: expectedAmount ?? null,
   })

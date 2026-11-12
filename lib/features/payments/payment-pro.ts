@@ -7,7 +7,11 @@ import {
   evaluatePayment,
   providerPaidAt,
 } from '@/lib/features/payments/payment-pro-core'
-import { usesCentralZwizQuota, verifyWithSlipOK } from '@/lib/features/slips/slipok'
+import {
+  slipVerificationProvider,
+  usesCentralZwizQuota,
+  verifyWithSlipOK,
+} from '@/lib/features/slips/slipok'
 import { receiverMatchesAny } from '@/lib/features/slips/receiver-matching'
 import type { ProcessedSlip, SlipInput } from '@/lib/features/slips/process'
 import { validateVisionFile } from '@/lib/features/vision/vision-image'
@@ -89,10 +93,16 @@ async function verifyClaimedPayment(
       .eq('is_active', true)
     if (accounts.error) throw accounts.error
     if (!accounts.data?.length) throw new Error('NO_ACTIVE_RECEIVER')
+    const metered = !usesCentralZwizQuota()
+    console.info('[payment-pro] provider quota mode', {
+      tenantId,
+      provider: slipVerificationProvider() ?? 'unsupported',
+      tenantCreditsRequired: metered,
+    })
     const started = await db.rpc('start_payment_pro_provider', {
       p_attempt: attempt.id,
       p_claim: attempt.claim_token,
-      p_metered: !usesCentralZwizQuota(),
+      p_metered: metered,
     })
     if (started.error) throw started.error
     if (started.data !== true) return readResult(db, attempt.slip_id, tenantId)

@@ -106,7 +106,13 @@ export async function processStandaloneSlip(
         'ระบบบันทึกสลิปยังไม่พร้อม กรุณารอแอดมินตรวจสอบ',
       )
     if (previous.data) return standaloneDuplicate()
-    if (!usesCentralZwizQuota()) {
+    const centralQuota = usesCentralZwizQuota()
+    console.info('[standalone-slip] provider quota mode', {
+      tenantId: input.tenantId,
+      provider: centralQuota ? 'zwiz' : 'legacy_or_unsupported',
+      tenantCreditsRequired: !centralQuota,
+    })
+    if (!centralQuota) {
       const credit = await db.rpc('consume_slip_credit', { p_tenant: input.tenantId })
       if (credit.error) throw credit.error
       if (credit.data !== true)
